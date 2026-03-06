@@ -44,6 +44,26 @@ Features planned for upcoming releases.
 
 ---
 
+## [0.8.1] — 2026-03-06
+
+### ✨ Added
+- **Google OAuth sign-in (credential flow)** integrated end-to-end:
+  - Frontend Google provider + sign-in button wiring on Login page (`@react-oauth/google`)
+  - Backend endpoint `POST /api/v1/auth/google` verifies Google ID token via `google-auth-library`
+  - Successful Google sign-in now issues the same JWT httpOnly cookie session (`msm_token`) as email/password login
+  - Access is restricted to already-provisioned users in the database (no implicit auto-registration)
+
+### 🔄 Changed
+- **Login page UI refresh** with a cleaner modern/minimalist layout:
+  - New responsive split layout (brand/content panel + focused auth card)
+  - Updated spacing, hierarchy, and copy for faster scan/readability
+  - Kept current theme token system and existing auth form components for consistency
+
+### 🐛 Fixed
+- **Google login visibility/config confusion**:
+  - Clarified and wired required env vars for both apps (`GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`)
+  - Google sign-in section now appears correctly when frontend env is configured
+
 ## [0.5.1] — 2026-02-25
 
 ### 🐛 Fixed — Remaining Tier 1 Form Save Gaps
