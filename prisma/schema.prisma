@@ -1,0 +1,1239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id                     String   @id @default(cuid())
+  legalName              String
+  displayName            String
+  npwp                   String?
+  isPkp                  Boolean  @default(false)
+  baseCurrency           String   @default("IDR")
+  timezone               String   @default("Asia/Jakarta")
+  locale                 String   @default("id-ID")
+  fiscalYearStart        DateTime?
+  defaultCreditLimit     Decimal  @default(0) @db.Decimal(18, 2)
+  enforceCreditLimit     Boolean  @default(true)
+  taxEnabled             Boolean  @default(true)
+  taxDefaultRate         Decimal  @default(11) @db.Decimal(5, 2)
+  taxInclusiveByDefault  Boolean  @default(false)
+  financeEmail           String?
+  invoiceReminders       Boolean  @default(true)
+  paymentAlerts          Boolean  @default(true)
+  dailySummary           Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  memberships            UserOrganization[]
+  roles                  Role[]
+  accounts               Account[]
+  periods                AccountingPeriod[]
+  journalEntries         JournalEntry[]
+  customerCategories     CustomerCategory[]
+  customers              Customer[]
+  vendors                Vendor[]
+  items                  Item[]
+  warehouses             Warehouse[]
+  invoices               SalesInvoice[]
+  arPayments             ARPayment[]
+  salesReturns           SalesReturn[]
+  creditNotes            CreditNote[]
+  purchaseOrders         PurchaseOrder[]
+  bills                  Bill[]
+  apPayments             APPayment[]
+  purchaseReturns        PurchaseReturn[]
+  debitNotes             DebitNote[]
+  stockAdjustments       StockAdjustment[]
+  inventoryLedgerEntries InventoryLedgerEntry[]
+  bankAccounts           BankAccount[]
+  bankTransactions       BankTransaction[]
+  departments            Department[]
+  positions              Position[]
+  employees              Employee[]
+  ecommerceConnections   EcommerceConnection[]
+  auditLogs              AuditLog[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  fullName       String
+  passwordHash   String?
+  status         UserStatus @default(ACTIVE)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships    UserOrganization[]
+  journalEntries JournalEntry[]
+  auditLogs      AuditLog[]
+}
+
+model UserOrganization {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  roleId         String
+  isActive       Boolean  @default(true)
+  joinedAt       DateTime @default(now())
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, roleId])
+}
+
+model Role {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  roleType       RoleType @default(CUSTOM)
+  isActive       Boolean  @default(true)
+  allowedDays    Json?
+  startTime      String?
+  endTime        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    RolePermission[]
+  memberships    UserOrganization[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, roleType])
+}
+
+model RolePermission {
+  id          String    @id @default(cuid())
+  roleId      String
+  moduleKey   ModuleKey
+  canView     Boolean   @default(false)
+  canCreate   Boolean   @default(false)
+  canEdit     Boolean   @default(false)
+  canDelete   Boolean   @default(false)
+
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, moduleKey])
+}
+
+model Account {
+  id             String     @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  type           AccountType
+  normalSide     NormalSide
+  parentId       String?
+  level          Int        @default(0)
+  isPostable     Boolean    @default(true)
+  isActive       Boolean    @default(true)
+  hasPostings    Boolean    @default(false)
+  reportGroup    String?
+  reportSubGroup String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent         Account?     @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children       Account[]    @relation("AccountHierarchy")
+  journalLines   JournalLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, parentId])
+  @@index([organizationId, type, isActive])
+}
+
+model AccountingPeriod {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  startDate      DateTime
+  endDate        DateTime
+  status         PeriodStatus @default(OPEN)
+  isLocked       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  journalEntries JournalEntry[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, startDate, endDate])
+}
+
+model JournalEntry {
+  id             String        @id @default(cuid())
+  organizationId String
+  entryNo        String
+  date           DateTime
+  memo           String
+  source         JournalSource @default(MANUAL)
+  status         JournalStatus @default(DRAFT)
+  periodId       String?
+  totalDebit     Decimal       @default(0) @db.Decimal(18, 2)
+  totalCredit    Decimal       @default(0) @db.Decimal(18, 2)
+  postedAt       DateTime?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  period         AccountingPeriod? @relation(fields: [periodId], references: [id], onDelete: SetNull)
+  createdBy      User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  lines          JournalLine[]
+
+  @@unique([organizationId, entryNo])
+  @@index([organizationId, date, status])
+  @@index([organizationId, periodId])
+}
+
+model JournalLine {
+  id          String   @id @default(cuid())
+  entryId     String
+  lineNo      Int
+  accountId   String
+  description String?
+  debit       Decimal  @default(0) @db.Decimal(18, 2)
+  credit      Decimal  @default(0) @db.Decimal(18, 2)
+
+  entry       JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, lineNo])
+  @@index([accountId])
+}
+
+model CustomerCategory {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  name                String
+  prefix              String
+  defaultCreditLimit  Decimal  @default(0) @db.Decimal(18, 2)
+  defaultPaymentTerms Int      @default(0)
+  defaultDiscount     Decimal  @default(0) @db.Decimal(5, 2)
+  description         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customers           Customer[]
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, prefix])
+}
+
+model Customer {
+  id                String         @id @default(cuid())
+  organizationId    String
+  code              String
+  name              String
+  email             String?
+  phone             String?
+  website           String?
+  contactPerson     String?
+  billingAddress    String?
+  shippingAddress   String?
+  city              String?
+  province          String?
+  status            PartnerStatus  @default(ACTIVE)
+  taxable           Boolean        @default(false)
+  paymentTermsDays  Int            @default(0)
+  defaultDiscount   Decimal        @default(0) @db.Decimal(5, 2)
+  creditLimit       Decimal        @default(0) @db.Decimal(18, 2)
+  useCategoryDefaults Boolean      @default(true)
+  openingBalance    Decimal        @default(0) @db.Decimal(18, 2)
+  categoryId        String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category          CustomerCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  invoices          SalesInvoice[]
+  arPayments        ARPayment[]
+  salesReturns      SalesReturn[]
+  creditNotes       CreditNote[]
+  ecommerceConnections EcommerceConnection[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, name])
+  @@index([organizationId, status])
+}
+
+model Vendor {
+  id               String        @id @default(cuid())
+  organizationId   String
+  code             String
+  name             String
+  category         String?
+  email            String?
+  phone            String?
+  paymentTerms     String?
+  npwp             String?
+  status           PartnerStatus @default(ACTIVE)
+  openingBalance   Decimal       @default(0) @db.Decimal(18, 2)
+  defaultApAccountId String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseOrders   PurchaseOrder[]
+  bills            Bill[]
+  apPayments       APPayment[]
+  purchaseReturns  PurchaseReturn[]
+  debitNotes       DebitNote[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, name])
+  @@index([organizationId, status])
+}
+
+model Item {
+  id                 String        @id @default(cuid())
+  organizationId     String
+  sku                String
+  name               String
+  category           String?
+  type               ItemType      @default(PRODUCT)
+  unit               String        @default("PCS")
+  barcode            String?
+  description        String?
+  weight             Decimal?      @db.Decimal(18, 4)
+  costPrice          Decimal       @default(0) @db.Decimal(18, 2)
+  sellingPrice       Decimal       @default(0) @db.Decimal(18, 2)
+  openingStock       Decimal       @default(0) @db.Decimal(18, 4)
+  reorderPoint       Decimal       @default(0) @db.Decimal(18, 4)
+  inventoryAccountId String?
+  revenueAccountId   String?
+  cogsAccountId      String?
+  isActive           Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoiceLines       SalesInvoiceLine[]
+  poLines            PurchaseOrderLine[]
+  billLines          BillLine[]
+  salesReturnLines   SalesReturnLine[]
+  purchaseReturnLines PurchaseReturnLine[]
+  stockAdjustmentLines StockAdjustmentLine[]
+  ledgerEntries      InventoryLedgerEntry[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, name])
+  @@index([organizationId, category])
+}
+
+model Warehouse {
+  id             String   @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  salesReturns   SalesReturn[]
+  purchaseReturns PurchaseReturn[]
+  stockAdjustments StockAdjustment[]
+  ledgerEntries  InventoryLedgerEntry[]
+
+  @@unique([organizationId, code])
+}
+
+model SalesInvoice {
+  id              String        @id @default(cuid())
+  organizationId  String
+  number          String
+  customerId      String
+  invoiceType     String        @default("Sales Invoice")
+  issueDate       DateTime
+  dueDate         DateTime?
+  shippingDate    DateTime?
+  poNumber        String?
+  email           String?
+  billingAddress  String?
+  shippingAddress String?
+  currency        String        @default("IDR")
+  status          InvoiceStatus @default(DRAFT)
+  discountPct     Decimal       @default(0) @db.Decimal(5, 2)
+  subtotal        Decimal       @default(0) @db.Decimal(18, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(18, 2)
+  taxEnabled      Boolean       @default(true)
+  taxInclusive    Boolean       @default(false)
+  taxRate         Decimal       @default(11) @db.Decimal(5, 2)
+  taxAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  totalAmount     Decimal       @default(0) @db.Decimal(18, 2)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  lines           SalesInvoiceLine[]
+  attachments     SalesInvoiceAttachment[]
+  auditLogs       SalesInvoiceAuditLog[]
+  paymentAllocations ARPaymentAllocation[]
+  salesReturns    SalesReturn[]
+  creditNotes     CreditNote[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, issueDate])
+  @@index([organizationId, status])
+  @@index([customerId, status])
+}
+
+model SalesInvoiceLine {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  lineNo        Int
+  itemId        String?
+  code          String?
+  description   String
+  quantity      Decimal  @default(0) @db.Decimal(18, 4)
+  unit          String   @default("PCS")
+  price         Decimal  @default(0) @db.Decimal(18, 2)
+  discountPct   Decimal  @default(0) @db.Decimal(5, 2)
+  lineSubtotal  Decimal  @default(0) @db.Decimal(18, 2)
+
+  invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item           Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([invoiceId, lineNo])
+  @@index([itemId])
+}
+
+model SalesInvoiceAttachment {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  fileName    String
+  fileSizeKb  Decimal? @db.Decimal(18, 2)
+  mimeType    String?
+  storageKey  String?
+  uploadedAt  DateTime @default(now())
+
+  invoice     SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model SalesInvoiceAuditLog {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  action      String
+  actorName   String?
+  actorId     String?
+  createdAt   DateTime @default(now())
+  detail      Json?
+
+  invoice     SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, createdAt])
+}
+
+model ARPayment {
+  id                String        @id @default(cuid())
+  organizationId    String
+  number            String
+  customerId        String
+  date              DateTime
+  method            PaymentMethod @default(BANK_TRANSFER)
+  bankAccountId     String?
+  depositAccountId  String?
+  arAccountId       String?
+  discountAccountId String?
+  penaltyAccountId  String?
+  reference         String?
+  status            PaymentStatus @default(DRAFT)
+  totalAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer          Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  allocations       ARPaymentAllocation[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date, status])
+  @@index([customerId])
+}
+
+model ARPaymentAllocation {
+  id             String   @id @default(cuid())
+  paymentId      String
+  invoiceId      String
+  amountApplied  Decimal  @default(0) @db.Decimal(18, 2)
+  discountAmount Decimal  @default(0) @db.Decimal(18, 2)
+  penaltyAmount  Decimal  @default(0) @db.Decimal(18, 2)
+
+  payment        ARPayment    @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
+}
+
+model SalesReturn {
+  id               String       @id @default(cuid())
+  organizationId   String
+  number           String
+  customerId       String
+  invoiceId        String
+  returnDate       DateTime
+  warehouseId      String?
+  arAccountId      String?
+  returnAccountId  String?
+  taxAccountId     String?
+  applyTax         Boolean      @default(true)
+  taxIncluded      Boolean      @default(false)
+  taxRate          Decimal      @default(11) @db.Decimal(5, 2)
+  subtotal         Decimal      @default(0) @db.Decimal(18, 2)
+  taxAmount        Decimal      @default(0) @db.Decimal(18, 2)
+  totalAmount      Decimal      @default(0) @db.Decimal(18, 2)
+  reason           String?
+  notes            String?
+  status           ReturnStatus @default(DRAFT)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer         Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoice          SalesInvoice     @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  warehouse        Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines            SalesReturnLine[]
+  creditNotes      CreditNote[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, returnDate])
+  @@index([customerId])
+}
+
+model SalesReturnLine {
+  id            String   @id @default(cuid())
+  salesReturnId String
+  lineNo        Int
+  itemId        String?
+  itemName      String?
+  qtySold       Decimal  @default(0) @db.Decimal(18, 4)
+  qtyReturn     Decimal  @default(0) @db.Decimal(18, 4)
+  unit          String   @default("PCS")
+  price         Decimal  @default(0) @db.Decimal(18, 2)
+  lineTotal     Decimal  @default(0) @db.Decimal(18, 2)
+
+  salesReturn   SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  item          Item?       @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([salesReturnId, lineNo])
+  @@index([itemId])
+}
+
+model CreditNote {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  number             String
+  salesReturnId      String?
+  customerId         String
+  sourceInvoiceId    String?
+  date               DateTime
+  settlementType     CreditSettlementType @default(APPLY_TO_INVOICE)
+  settlementRef      String?
+  refundBankAccountId String?
+  refundMethod       PaymentMethod?
+  arAccountId        String?
+  returnAccountId    String?
+  taxAccountId       String?
+  settlementAccountId String?
+  applyTax           Boolean           @default(true)
+  amount             Decimal           @default(0) @db.Decimal(18, 2)
+  note               String?
+  status             CreditNoteStatus  @default(DRAFT)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  salesReturn        SalesReturn?      @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
+  customer           Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  sourceInvoice      SalesInvoice?     @relation(fields: [sourceInvoiceId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date])
+  @@index([customerId])
+}
+
+model PurchaseOrder {
+  id             String              @id @default(cuid())
+  organizationId String
+  number         String
+  vendorId       String
+  date           DateTime
+  expectedDate   DateTime?
+  status         PurchaseOrderStatus @default(DRAFT)
+  taxRate        Decimal             @default(0) @db.Decimal(5, 2)
+  subtotal       Decimal             @default(0) @db.Decimal(18, 2)
+  taxAmount      Decimal             @default(0) @db.Decimal(18, 2)
+  totalAmount    Decimal             @default(0) @db.Decimal(18, 2)
+  notes          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor         Vendor             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  lines          PurchaseOrderLine[]
+  bills          Bill[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date, status])
+  @@index([vendorId])
+}
+
+model PurchaseOrderLine {
+  id              String   @id @default(cuid())
+  purchaseOrderId String
+  lineNo          Int
+  itemId          String?
+  accountId       String?
+  description     String
+  quantity        Decimal  @default(0) @db.Decimal(18, 4)
+  unit            String   @default("PCS")
+  price           Decimal  @default(0) @db.Decimal(18, 2)
+  lineTotal       Decimal  @default(0) @db.Decimal(18, 2)
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  item            Item?         @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([purchaseOrderId, lineNo])
+  @@index([itemId])
+}
+
+model Bill {
+  id             String      @id @default(cuid())
+  organizationId String
+  number         String
+  vendorId       String
+  poId           String?
+  issueDate      DateTime
+  dueDate        DateTime?
+  status         BillStatus  @default(DRAFT)
+  apAccountId    String?
+  taxRate        Decimal     @default(0) @db.Decimal(5, 2)
+  subtotal       Decimal     @default(0) @db.Decimal(18, 2)
+  taxAmount      Decimal     @default(0) @db.Decimal(18, 2)
+  totalAmount    Decimal     @default(0) @db.Decimal(18, 2)
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor         Vendor         @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  purchaseOrder  PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: SetNull)
+  lines          BillLine[]
+  paymentAllocations APPaymentAllocation[]
+  purchaseReturns PurchaseReturn[]
+  debitNotes     DebitNote[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, issueDate, status])
+  @@index([vendorId])
+}
+
+model BillLine {
+  id          String   @id @default(cuid())
+  billId       String
+  lineNo       Int
+  itemId       String?
+  accountId    String?
+  description  String
+  quantity     Decimal  @default(0) @db.Decimal(18, 4)
+  unit         String   @default("PCS")
+  price        Decimal  @default(0) @db.Decimal(18, 2)
+  lineTotal    Decimal  @default(0) @db.Decimal(18, 2)
+
+  bill         Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+  item         Item?  @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([billId, lineNo])
+  @@index([itemId])
+}
+
+model APPayment {
+  id                String        @id @default(cuid())
+  organizationId    String
+  number            String
+  vendorId          String
+  date              DateTime
+  method            PaymentMethod @default(BANK_TRANSFER)
+  bankAccountId     String?
+  cashAccountId     String?
+  apAccountId       String?
+  discountAccountId String?
+  penaltyAccountId  String?
+  reference         String?
+  status            PaymentStatus @default(DRAFT)
+  totalAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor            Vendor                @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  allocations       APPaymentAllocation[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date, status])
+  @@index([vendorId])
+}
+
+model APPaymentAllocation {
+  id             String   @id @default(cuid())
+  paymentId      String
+  billId         String
+  amountApplied  Decimal  @default(0) @db.Decimal(18, 2)
+  discountAmount Decimal  @default(0) @db.Decimal(18, 2)
+  penaltyAmount  Decimal  @default(0) @db.Decimal(18, 2)
+
+  payment        APPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  bill           Bill      @relation(fields: [billId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, billId])
+  @@index([billId])
+}
+
+model PurchaseReturn {
+  id              String       @id @default(cuid())
+  organizationId  String
+  number          String
+  vendorId        String
+  billId          String
+  returnDate      DateTime
+  warehouseId     String?
+  apAccountId     String?
+  returnAccountId String?
+  taxAccountId    String?
+  applyTax        Boolean      @default(true)
+  taxIncluded     Boolean      @default(false)
+  taxRate         Decimal      @default(11) @db.Decimal(5, 2)
+  subtotal        Decimal      @default(0) @db.Decimal(18, 2)
+  taxAmount       Decimal      @default(0) @db.Decimal(18, 2)
+  totalAmount     Decimal      @default(0) @db.Decimal(18, 2)
+  reason          String?
+  notes           String?
+  status          ReturnStatus @default(DRAFT)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor          Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  bill            Bill                @relation(fields: [billId], references: [id], onDelete: Restrict)
+  warehouse       Warehouse?          @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines           PurchaseReturnLine[]
+  debitNotes      DebitNote[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, returnDate])
+  @@index([vendorId])
+}
+
+model PurchaseReturnLine {
+  id               String   @id @default(cuid())
+  purchaseReturnId String
+  lineNo           Int
+  lineKey          String?
+  itemId           String?
+  description      String
+  qtyPurchased     Decimal  @default(0) @db.Decimal(18, 4)
+  qtyReturn        Decimal  @default(0) @db.Decimal(18, 4)
+  unit             String   @default("PCS")
+  price            Decimal  @default(0) @db.Decimal(18, 2)
+  lineTotal        Decimal  @default(0) @db.Decimal(18, 2)
+
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  item             Item?          @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([purchaseReturnId, lineNo])
+  @@index([itemId])
+}
+
+model DebitNote {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  number             String
+  purchaseReturnId   String?
+  vendorId           String
+  sourceBillId       String?
+  date               DateTime
+  settlementType     DebitSettlementType @default(APPLY_TO_BILL)
+  settlementRef      String?
+  refundBankAccountId String?
+  refundMethod       PaymentMethod?
+  settlementAccountId String?
+  apAccountId        String?
+  returnAccountId    String?
+  taxAccountId       String?
+  applyTax           Boolean           @default(true)
+  amount             Decimal           @default(0) @db.Decimal(18, 2)
+  note               String?
+  status             DebitNoteStatus   @default(DRAFT)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseReturn     PurchaseReturn?   @relation(fields: [purchaseReturnId], references: [id], onDelete: SetNull)
+  vendor             Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  sourceBill         Bill?             @relation(fields: [sourceBillId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date])
+  @@index([vendorId])
+}
+
+model StockAdjustment {
+  id               String                @id @default(cuid())
+  organizationId   String
+  number           String
+  date             DateTime
+  type             StockAdjustmentType   @default(QUANTITY)
+  reason           String
+  notes            String?
+  status           StockAdjustmentStatus @default(DRAFT)
+  warehouseId      String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  warehouse        Warehouse?           @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines            StockAdjustmentLine[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date, status])
+}
+
+model StockAdjustmentLine {
+  id                String   @id @default(cuid())
+  stockAdjustmentId String
+  lineNo            Int
+  itemId            String
+  accountId         String?
+  oldQty            Decimal  @default(0) @db.Decimal(18, 4)
+  newQty            Decimal  @default(0) @db.Decimal(18, 4)
+  qtyDiff           Decimal  @default(0) @db.Decimal(18, 4)
+  unitCost          Decimal  @default(0) @db.Decimal(18, 2)
+  totalValue        Decimal  @default(0) @db.Decimal(18, 2)
+
+  stockAdjustment   StockAdjustment @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
+  item              Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([stockAdjustmentId, lineNo])
+  @@index([itemId])
+}
+
+model InventoryLedgerEntry {
+  id             String      @id @default(cuid())
+  organizationId String
+  itemId         String
+  warehouseId    String?
+  date           DateTime
+  documentType   InventoryDocumentType
+  documentId     String
+  qtyIn          Decimal     @default(0) @db.Decimal(18, 4)
+  qtyOut         Decimal     @default(0) @db.Decimal(18, 4)
+  unitCost       Decimal     @default(0) @db.Decimal(18, 2)
+  valueChange    Decimal     @default(0) @db.Decimal(18, 2)
+  createdAt      DateTime    @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  item           Item         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  warehouse      Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, date])
+  @@index([itemId, warehouseId, date])
+}
+
+model BankAccount {
+  id             String   @id @default(cuid())
+  organizationId String
+  code           String?
+  name           String
+  bankName       String?
+  last4          String?
+  currency       String   @default("IDR")
+  openingBalance Decimal  @default(0) @db.Decimal(18, 2)
+  currentBalance Decimal  @default(0) @db.Decimal(18, 2)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transactions   BankTransaction[]
+  ecommerceConnections EcommerceConnection[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, code])
+}
+
+model BankTransaction {
+  id               String         @id @default(cuid())
+  organizationId   String
+  number           String?
+  bankAccountId    String
+  date             DateTime
+  description      String
+  amount           Decimal        @db.Decimal(18, 2)
+  type             BankTxnType
+  status           MatchStatus    @default(UNMATCHED)
+  reference        String?
+  costCenter       String?
+  notes            String?
+  taxType          TaxType        @default(NONE)
+  taxRate          Decimal        @default(0) @db.Decimal(5, 2)
+  toBankAccountId  String?
+  payee            String?
+  receivedFrom     String?
+  expenseAccountId String?
+  incomeAccountId  String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bankAccount      BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, date])
+  @@index([bankAccountId, status])
+}
+
+model Department {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employees      Employee[]
+
+  @@unique([organizationId, name])
+}
+
+model Position {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employees      Employee[]
+
+  @@unique([organizationId, name])
+}
+
+model Employee {
+  id                    String           @id @default(cuid())
+  organizationId        String
+  employeeNo            String
+  name                  String
+  ktp                   String?
+  dob                   DateTime?
+  phone                 String?
+  email                 String?
+  address               String?
+  joinDate              DateTime
+  departmentId          String?
+  positionId            String?
+  status                EmploymentStatus @default(ACTIVE)
+  type                  EmploymentType   @default(FULL_TIME)
+  bankName              String?
+  accountNumber         String?
+  accountHolder         String?
+  npwp                  String?
+  bpjsKesehatan         String?
+  bpjsKetenagakerjaan   String?
+  basicSalary           Decimal          @default(0) @db.Decimal(18, 2)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  organization          Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department            Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  position              Position?        @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  compensationItems     EmployeeCompensationItem[]
+
+  @@unique([organizationId, employeeNo])
+  @@index([organizationId, name])
+  @@index([departmentId, status])
+}
+
+model EmployeeCompensationItem {
+  id           String            @id @default(cuid())
+  employeeId   String
+  type         CompensationType
+  name         String
+  amount       Decimal           @default(0) @db.Decimal(18, 2)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, type])
+}
+
+model EcommerceConnection {
+  id               String           @id @default(cuid())
+  organizationId   String
+  platform         EcommercePlatform
+  shopName         String
+  customerId       String?
+  holdingAccountId String?
+  status           ConnectionStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer         Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  holdingAccount   BankAccount?     @relation(fields: [holdingAccountId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, platform, shopName])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  actorId        String?
+  entityType     String
+  entityId       String
+  action         String
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, entityType, entityId])
+  @@index([createdAt])
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RoleType {
+  ADMIN
+  ACCOUNTANT
+  VIEWER
+  CUSTOM
+}
+
+enum ModuleKey {
+  DASHBOARD
+  GL_COA
+  GL_JOURNAL
+  AR_INVOICES
+  AR_SALES_ORDERS
+  AR_PAYMENTS
+  AR_CREDITS
+  AR_CUSTOMERS
+  AP_POS
+  AP_BILLS
+  AP_PAYMENTS
+  AP_DEBITS
+  AP_VENDORS
+  INV_ITEMS
+  INV_ADJ
+  HR_EMPLOYEES
+  HR_ATTENDANCE
+  HR_PAYROLL
+  BANKING
+  INTEGRATIONS
+  REPORTS
+  COMPANY
+  SETTINGS
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum NormalSide {
+  DEBIT
+  CREDIT
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum JournalSource {
+  MANUAL
+  ADJUSTMENT
+  ACCRUAL
+  PREPAYMENT
+  DEPRECIATION
+  CLOSING
+  OPENING
+  REVERSAL
+  SYSTEM
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+  VOID
+}
+
+enum PartnerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ItemType {
+  PRODUCT
+  SERVICE
+  RAW_MATERIAL
+  CONSUMABLE
+  FIXED_ASSET
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum BillStatus {
+  DRAFT
+  OPEN
+  PENDING
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CHECK
+  CREDIT_CARD
+  CASH
+  OTHER
+}
+
+enum PaymentStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  VOID
+}
+
+enum ReturnStatus {
+  DRAFT
+  APPROVED
+  PENDING_CREDIT_NOTE
+  PENDING_DEBIT_NOTE
+  APPLIED
+  VOID
+}
+
+enum CreditNoteStatus {
+  DRAFT
+  APPLIED
+  VOID
+}
+
+enum DebitNoteStatus {
+  DRAFT
+  APPLIED
+  VOID
+}
+
+enum CreditSettlementType {
+  APPLY_TO_INVOICE
+  REFUND
+}
+
+enum DebitSettlementType {
+  APPLY_TO_BILL
+  REFUND_FROM_VENDOR
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  APPROVED
+  PARTIAL_RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+enum StockAdjustmentType {
+  QUANTITY
+  VALUE
+}
+
+enum StockAdjustmentStatus {
+  DRAFT
+  APPROVED
+}
+
+enum InventoryDocumentType {
+  OPENING
+  PURCHASE
+  SALES
+  SALES_RETURN
+  PURCHASE_RETURN
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum BankTxnType {
+  TRANSFER
+  EXPENSE
+  INCOME
+}
+
+enum MatchStatus {
+  MATCHED
+  UNMATCHED
+}
+
+enum TaxType {
+  NONE
+  PPN
+  GST
+  WITHHOLDING
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum EmploymentType {
+  FULL_TIME
+  CONTRACT
+}
+
+enum CompensationType {
+  ALLOWANCE
+  DEDUCTION
+}
+
+enum EcommercePlatform {
+  SHOPEE
+  TIKTOK
+  TOKOPEDIA
+  LAZADA
+  OTHER
+}
+
+enum ConnectionStatus {
+  ACTIVE
+  SYNCING
+  INACTIVE
+}

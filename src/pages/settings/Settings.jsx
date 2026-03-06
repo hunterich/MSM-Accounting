@@ -1,0 +1,335 @@
+import React, { useState } from 'react';
+import Card from '../../components/UI/Card';
+import Button from '../../components/UI/Button';
+import Input from '../../components/UI/Input';
+import { Save, Briefcase, User, Shield, Bell } from 'lucide-react';
+import SecurityRolesTab from './SecurityRolesTab';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+
+const Settings = () => {
+    const [activeTab, setActiveTab] = useState('customers');
+    const storeCompanyInfo = useSettingsStore(s => s.companyInfo);
+    const storeTaxSettings = useSettingsStore(s => s.taxSettings);
+    const updateCompanyInfo = useSettingsStore(s => s.updateCompanyInfo);
+    const updateTaxSettings = useSettingsStore(s => s.updateTaxSettings);
+
+    const [generalSettings, setGeneralSettings] = useState(storeCompanyInfo);
+    const [taxData, setTaxData] = useState(storeTaxSettings);
+    const [creditLimitSettings, setCreditLimitSettings] = useState({
+        defaultLimit: '5000',
+        enforceLimit: true
+    });
+    const [securitySettings, setSecuritySettings] = useState({
+        require2FA: false,
+        allowInvites: true,
+        sessionTimeoutMinutes: '30'
+    });
+    const [notificationSettings, setNotificationSettings] = useState({
+        financeEmail: 'finance@msm-accounting.local',
+        invoiceReminders: true,
+        paymentAlerts: true,
+        dailySummary: false
+    });
+    const [lastSavedTab, setLastSavedTab] = useState('');
+
+    const menuItems = [
+        { id: 'general', label: 'Company Info', icon: Briefcase },
+        { id: 'customers', label: 'Customers & Sales', icon: User },
+        { id: 'security', label: 'Security & Roles', icon: Shield },
+        { id: 'notifications', label: 'Notifications', icon: Bell },
+    ];
+
+    const saveSection = (sectionId) => {
+        if (sectionId === 'general') {
+            if (!generalSettings.companyName.trim()) {
+                window.alert('Company name is required.');
+                return;
+            }
+            if (generalSettings.email && !generalSettings.email.includes('@')) {
+                window.alert('Company email format is invalid.');
+                return;
+            }
+            updateCompanyInfo(generalSettings);
+            updateTaxSettings(taxData);
+        }
+
+        if (sectionId === 'customers') {
+            const value = Number(creditLimitSettings.defaultLimit);
+            if (isNaN(value) || value < 0) {
+                window.alert('Default credit limit must be a non-negative number.');
+                return;
+            }
+        }
+
+        if (sectionId === 'security') {
+            const timeout = Number(securitySettings.sessionTimeoutMinutes);
+            if (isNaN(timeout) || timeout <= 0) {
+                window.alert('Session timeout must be greater than zero.');
+                return;
+            }
+        }
+
+        if (sectionId === 'notifications') {
+            const requiresEmail = notificationSettings.invoiceReminders || notificationSettings.paymentAlerts || notificationSettings.dailySummary;
+            if (requiresEmail && !notificationSettings.financeEmail.includes('@')) {
+                window.alert('Enter a valid finance notification email.');
+                return;
+            }
+        }
+
+        setLastSavedTab(sectionId);
+    };
+
+    return (
+        <div className="container settings-module settings-layout">
+
+            {/* Sidebar Navigation */}
+            <div>
+                <h2 className="settings-title">Settings</h2>
+                <div className="settings-nav-list">
+                    {menuItems.map(item => {
+                        const Icon = item.icon;
+                        return (
+                            <button
+                                key={item.id}
+                                onClick={() => setActiveTab(item.id)}
+                                className={`settings-nav-item ${activeTab === item.id ? 'active' : ''}`}
+                            >
+                                <Icon size={18} /> {item.label}
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Content Area */}
+            <div>
+                <div className="settings-content-title-wrap">
+                    <h1 className="settings-content-title">
+                        {menuItems.find(i => i.id === activeTab)?.label || 'Settings'}
+                    </h1>
+                    {lastSavedTab === activeTab ? (
+                        <div className="settings-help-text">Changes saved locally.</div>
+                    ) : null}
+                </div>
+
+                {activeTab === 'general' && (
+                    <Card title="General Settings">
+                        <p className="settings-muted">Company profile and basic configuration.</p>
+                        <div className="mb-4">
+                            <label className="form-label">Company Name</label>
+                            <Input
+                                value={generalSettings.companyName}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, companyName: e.target.value }))}
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label">Address</label>
+                            <Input
+                                value={generalSettings.address || ''}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, address: e.target.value }))}
+                                placeholder="Jl. Sudirman No. 1, Jakarta"
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label">Phone</label>
+                            <Input
+                                value={generalSettings.phone || ''}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, phone: e.target.value }))}
+                                placeholder="021-1234567"
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label">Company Email</label>
+                            <Input
+                                type="email"
+                                value={generalSettings.email || ''}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, email: e.target.value }))}
+                                placeholder="finance@company.com"
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label">NPWP</label>
+                            <Input
+                                value={generalSettings.npwp || ''}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, npwp: e.target.value }))}
+                                placeholder="01.234.567.8-901.000"
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label">Logo URL (optional)</label>
+                            <Input
+                                value={generalSettings.logoUrl || ''}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, logoUrl: e.target.value }))}
+                                placeholder="https://..."
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label">Timezone</label>
+                            <select
+                                className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed"
+                                value={generalSettings.timezone}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, timezone: e.target.value }))}
+                            >
+                                <option value="Asia/Jakarta">Asia/Jakarta (WIB)</option>
+                                <option value="Asia/Makassar">Asia/Makassar (WITA)</option>
+                                <option value="Asia/Jayapura">Asia/Jayapura (WIT)</option>
+                                <option value="UTC">UTC</option>
+                            </select>
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label">Locale</label>
+                            <select
+                                className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed"
+                                value={generalSettings.locale}
+                                onChange={(e) => setGeneralSettings((prev) => ({ ...prev, locale: e.target.value }))}
+                            >
+                                <option value="id-ID">Indonesia (id-ID)</option>
+                                <option value="en-US">English (en-US)</option>
+                            </select>
+                        </div>
+                        <div className="mb-4 pt-6 border-t border-neutral-200 mt-6">
+                            <h3 className="text-lg font-semibold text-neutral-800 mb-2">Tax Settings</h3>
+                            <p className="settings-muted mb-4">Configure the default tax rate applied to new transactions (e.g. Invoices, Bills).</p>
+
+                            <div className="mb-4">
+                                <label className="form-label settings-checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={taxData.enabled}
+                                        onChange={(e) => setTaxData({ ...taxData, enabled: e.target.checked })}
+                                        className="settings-checkbox-input w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                                    />
+                                    <span className="settings-label-strong font-medium text-neutral-700">Enable Default Tax on Transactions</span>
+                                </label>
+                            </div>
+
+                            {taxData.enabled && (
+                                <>
+                                    <div className="mb-4">
+                                        <label className="form-label">Default Tax Rate (%)</label>
+                                        <Input
+                                            type="number"
+                                            value={taxData.defaultRate}
+                                            onChange={(e) => setTaxData((prev) => ({ ...prev, defaultRate: Number(e.target.value) }))}
+                                            placeholder="e.g. 11 for PPN 11"
+                                        />
+                                    </div>
+                                    <div className="mb-4">
+                                        <label className="form-label settings-checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={taxData.inclusiveByDefault}
+                                                onChange={(e) => setTaxData({ ...taxData, inclusiveByDefault: e.target.checked })}
+                                                className="settings-checkbox-input w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                                            />
+                                            <span className="settings-label-strong font-medium text-neutral-700">Tax is Inclusive by Default</span>
+                                        </label>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('general')} />
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'customers' && (
+                    <Card title="Customer & Credit Settings">
+                        <h3 className="settings-section-title">Credit Limit Configuration</h3>
+
+                        <div className="mb-4">
+                            <label className="form-label settings-label-strong">Master Credit Limit (Default)</label>
+                            <div className="settings-help-text">
+                                This value will be applied to new customers who use the master setting.
+                            </div>
+                            <Input
+                                type="number"
+                                value={creditLimitSettings.defaultLimit}
+                                onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, defaultLimit: e.target.value })}
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={creditLimitSettings.enforceLimit}
+                                    onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, enforceLimit: e.target.checked })}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Enforce Credit Limit validation on invoices</span>
+                            </label>
+                        </div>
+
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('customers')} />
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'security' && (
+                    <SecurityRolesTab
+                        securitySettings={securitySettings}
+                        setSecuritySettings={setSecuritySettings}
+                        onSave={() => saveSection('security')}
+                    />
+                )}
+
+                {activeTab === 'notifications' && (
+                    <Card title="Notifications">
+                        <p className="settings-muted">Configure finance-related alerts and email routing.</p>
+                        <div className="mb-4">
+                            <label className="form-label">Finance Notification Email</label>
+                            <Input
+                                type="email"
+                                value={notificationSettings.financeEmail}
+                                onChange={(e) => setNotificationSettings((prev) => ({ ...prev, financeEmail: e.target.value }))}
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={notificationSettings.invoiceReminders}
+                                    onChange={(e) => setNotificationSettings((prev) => ({ ...prev, invoiceReminders: e.target.checked }))}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Send invoice due reminders</span>
+                            </label>
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={notificationSettings.paymentAlerts}
+                                    onChange={(e) => setNotificationSettings((prev) => ({ ...prev, paymentAlerts: e.target.checked }))}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Send payment posted alerts</span>
+                            </label>
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={notificationSettings.dailySummary}
+                                    onChange={(e) => setNotificationSettings((prev) => ({ ...prev, dailySummary: e.target.checked }))}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Send daily summary digest</span>
+                            </label>
+                        </div>
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('notifications')} />
+                        </div>
+                    </Card>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default Settings;
