@@ -4,13 +4,14 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List } from 'lucide-react';
+import { Plus, Search, List, Loader } from 'lucide-react';
 import { formatDateID } from '../../utils/formatters';
-import { useInventoryStore } from '../../stores/useInventoryStore';
+import { useStockAdjustments } from '../../hooks/useInventory';
 
 const InventoryAdjustments = () => {
     const navigate = useNavigate();
-    const adjustments = useInventoryStore((s) => s.adjustments);
+    const { data: adjResult, isLoading } = useStockAdjustments();
+    const adjustments = adjResult?.data ?? [];
 
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ status: '', type: '' });
@@ -138,13 +139,19 @@ const InventoryAdjustments = () => {
             </div>
 
             <Card padding={false}>
-                <Table
-                    columns={columns}
-                    data={filteredData}
-                    onRowClick={(row) => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=view`)}
-                    showCount
-                    countLabel="adjustments"
-                />
+                {isLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading adjustments…
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={filteredData}
+                        onRowClick={(row) => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=view`)}
+                        showCount
+                        countLabel="adjustments"
+                    />
+                )}
             </Card>
         </div>
     );

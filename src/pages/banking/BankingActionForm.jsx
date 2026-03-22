@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { bankAccounts, chartOfAccounts } from '../../data/mockData';
-import { useBankingStore } from '../../stores/useBankingStore';
+import { chartOfAccounts } from '../../data/mockData';
+import { useBankAccounts, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
 import FormPage from '../../components/Layout/FormPage';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -79,6 +79,11 @@ const BankingActionForm = () => {
     const action    = getActionFromPath(location.pathname);
     const sourceTransaction = location.state?.transaction || null;
 
+    // ── API hooks
+    const { data: bankAccounts = [], isLoading: accountsLoading } = useBankAccounts();
+    const createAccount     = useCreateBankAccount();
+    const createTransaction = useCreateBankTransaction();
+
     const expenseAccounts = useMemo(
         () => chartOfAccounts.filter((a) => a.type === 'Expense' && a.isActive && a.isPostable),
         []
@@ -149,51 +154,22 @@ const BankingActionForm = () => {
         return next;
     };
 
-    const { addTransaction, addBankAccount } = useBankingStore();
+    const isSaving = createAccount.isPending || createTransaction.isPending;
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const nextErrors = validate();
         if (Object.keys(nextErrors).length > 0) { setErrors(nextErrors); return; }
 
-        if (action === 'account') {
-            const newAccount = {
-                id: `BANK-${Date.now()}`,
-                name: formData.accountNickname,
-                bank: formData.bankName,
-                last4: formData.last4,
-                currency: formData.currency,
-                balance: Number(formData.openingBalance) || 0,
-                isActive: true,
-            };
-            addBankAccount(newAccount);
-        } else {
-            const amount = Number(formData.amount) || 0;
-            const signedAmount = action === 'expense' ? -Math.abs(amount) : Math.abs(amount);
-            const accountId =
-                action === 'transfer' ? formData.fromAccountId :
-                action === 'expense'  ? formData.paidFromId :
-                formData.depositToId;
-            const newTxn = {
-                id: `TXN-${Date.now()}`,
-                date: formData.date,
-                description: formData.description || `${ACTION_TITLES[action]} — ${formData.reference || 'Manual entry'}`,
-                amount: signedAmount,
-                type: action,
-                accountId,
-                reference: formData.reference,
-                costCenter: formData.costCenter,
-                notes: formData.notes,
-                taxType: formData.taxType,
-                taxRate: formData.taxType !== 'none' ? Number(formData.taxRate) : 0,
-                ...(action === 'transfer' ? { toAccountId: formData.toAccountId } : {}),
-                ...(action === 'expense'  ? { payee: formData.payee, expenseAccountId: formData.expenseAccountId } : {}),
-                ...(action === 'income'   ? { receivedFrom: formData.receivedFrom, incomeAccountId: formData.incomeAccountId } : {}),
-                status: 'Unmatched',
-            };
-            addTransaction(newTxn);
+        try {
+            if (action === 'account') {
+                await createAccount.mutateAsync(formData);
+            } else {
+                await createTransaction.mutateAsync({ action, formData });
+            }
+            navigate('/banking');
+        } catch (err) {
+            setErrors((prev) => ({ ...prev, _api: err.message || 'Save failed. Please try again.' }));
         }
-
-        navigate('/banking');
     };
 
     // Computed tax amount for display
@@ -290,11 +266,17 @@ const BankingActionForm = () => {
             actions={
                 <>
                     <Button text="Cancel" variant="secondary" onClick={() => navigate('/banking')} />
-                    <Button text="Save" variant="primary" onClick={handleSave} />
+                    <Button text="Save" variant="primary" onClick={handleSave} disabled={isSaving} />
                 </>
             }
         >
             <div className="invoice-panel panel-primary-top">
+
+                {errors._api && (
+                    <div className="col-span-12 mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+                        {errors._api}
+                    </div>
+                )}
 
                 {/* ── Add Bank Account ────────────────────────────────── */}
                 {action === 'account' && (
@@ -370,6 +352,7 @@ const BankingActionForm = () => {
                                     value={formData.fromAccountId}
                                     onChange={handleChange}
                                     error={errors.fromAccountId}
+                                    disabled={accountsLoading}
                                 >
                                     <option value="">— Select Account —</option>
                                     {bankAccounts.map((a) => (
@@ -384,6 +367,7 @@ const BankingActionForm = () => {
                                     value={formData.toAccountId}
                                     onChange={handleChange}
                                     error={errors.toAccountId}
+                                    disabled={accountsLoading}
                                 >
                                     <option value="">— Select Account —</option>
                                     {bankAccounts.map((a) => (
@@ -478,6 +462,7 @@ const BankingActionForm = () => {
                                     value={formData.paidFromId}
                                     onChange={handleChange}
                                     error={errors.paidFromId}
+                                    disabled={accountsLoading}
                                 >
                                     <option value="">— Select Account —</option>
                                     {bankAccounts.map((a) => (
@@ -572,6 +557,7 @@ const BankingActionForm = () => {
                                     value={formData.depositToId}
                                     onChange={handleChange}
                                     error={errors.depositToId}
+                                    disabled={accountsLoading}
                                 >
                                     <option value="">— Select Account —</option>
                                     {bankAccounts.map((a) => (

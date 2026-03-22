@@ -3,8 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import FormPage from '../../components/Layout/FormPage';
-import { useInventoryStore } from '../../stores/useInventoryStore';
-import { useGLStore } from '../../stores/useGLStore';
+import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
+import { useChartOfAccounts } from '../../hooks/useGL';
 
 const buildFormData = (adj) => {
     if (!adj) {
@@ -61,22 +61,26 @@ const AdjustmentForm = () => {
     const mode = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'new';
     const isViewMode = mode === 'view';
 
-    const adjustments = useInventoryStore((s) => s.adjustments);
-    const addAdjustment = useInventoryStore((s) => s.addAdjustment);
-    const updateAdjustment = useInventoryStore((s) => s.updateAdjustment);
-    const products = useInventoryStore((s) => s.products);
-    const chartOfAccounts = useGLStore((s) => s.chartOfAccounts);
+    const createAdjustment = useCreateStockAdjustment();
+    const updateAdjustmentMutation = useUpdateStockAdjustment();
+    const { data: adjustmentsData } = useStockAdjustments();
+    const adjustments = adjustmentsData?.data ?? [];
+    const { data: itemsData } = useItems();
+    const products = itemsData?.data ?? [];
+    const { data: allAccounts = [] } = useChartOfAccounts();
+
+    const isSaving = createAdjustment.isPending || updateAdjustmentMutation.isPending;
 
     const selectedAdj = useMemo(() => adjustments.find((a) => a.id === adjId) || null, [adjId, adjustments]);
 
     const expenseTargetAccounts = useMemo(() => {
-        return chartOfAccounts.filter(
+        return allAccounts.filter(
             (account) =>
                 account.isPostable &&
                 account.isActive &&
                 (account.type === 'Expense' || account.type === 'Cost of Goods Sold' || account.type === 'Asset' || account.type === 'Equity')
         );
-    }, [chartOfAccounts]);
+    }, [allAccounts]);
 
     const [formData, setFormData] = useState(() => buildFormData(selectedAdj));
     const [items, setItems] = useState(() => buildItems(selectedAdj, expenseTargetAccounts));
@@ -151,7 +155,7 @@ const AdjustmentForm = () => {
         }
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/inventory/adjustments');
@@ -172,26 +176,33 @@ const AdjustmentForm = () => {
             return;
         }
 
-        const newId = formData.id || `ADJ-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-        const finalId = isViewMode ? adjId : newId;
-
-        const finalAdj = {
-            id: finalId,
-            date: formData.date,
-            type: formData.type,
+        const payload = {
+            number: formData.id || undefined,
+            date:   formData.date,
+            type:   formData.type,
             reason: formData.reason,
             status: formData.status,
-            notes: formData.notes,
-            items: validItems
+            notes:  formData.notes,
+            lines:  validItems.map((line) => ({
+                itemId:     line.itemId,
+                accountId:  line.accountId,
+                oldQty:     line.oldQty,
+                newQty:     line.newQty,
+                qtyDiff:    line.qtyDiff,
+                unitCost:   line.unitCost,
+            })),
         };
 
-        if (mode === 'edit' && selectedAdj) {
-            updateAdjustment(selectedAdj.id, finalAdj);
-        } else {
-            addAdjustment(finalAdj);
+        try {
+            if (mode === 'edit' && selectedAdj) {
+                await updateAdjustmentMutation.mutateAsync({ id: selectedAdj._id || selectedAdj.id, ...payload });
+            } else {
+                await createAdjustment.mutateAsync(payload);
+            }
+            navigate('/inventory/adjustments');
+        } catch (err) {
+            alert(`Failed to save adjustment: ${err?.message ?? 'Unknown error'}`);
         }
-
-        navigate('/inventory/adjustments');
     };
 
     return (
@@ -200,8 +211,8 @@ const AdjustmentForm = () => {
             backLink="/inventory/adjustments"
             actions={
                 <div className="flex gap-2">
-                    <Button text="Cancel" variant="secondary" onClick={() => navigate('/inventory/adjustments')} />
-                    {!isViewMode && <Button text="Save Adjustment" variant="primary" onClick={handleSubmit} />}
+                    <Button text="Cancel" variant="secondary" onClick={() => navigate('/inventory/adjustments')} disabled={isSaving} />
+                    {!isViewMode && <Button text={isSaving ? 'Saving...' : 'Save Adjustment'} variant="primary" onClick={handleSubmit} disabled={isSaving} />}
                     {isViewMode && <Button text="Edit Adjustment" variant="primary" onClick={() => navigate(`/inventory/adjustments/edit?id=${adjId}&mode=edit`)} />}
                 </div>
             }

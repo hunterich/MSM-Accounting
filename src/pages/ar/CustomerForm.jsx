@@ -4,6 +4,7 @@ import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { useCustomerStore } from '../../stores/useCustomerStore';
+import { useCustomers, useCreateCustomer, useUpdateCustomer } from '../../hooks/useAR';
 
 // Mock store for categories (in a real app this would be in a context or redux)
 // We'll use the imported initial data for now, assuming read-only for the form unless we wire it up fully.
@@ -67,10 +68,11 @@ const CustomerForm = () => {
     const isEditMode = mode === 'edit';
     const isCreateMode = mode === 'create';
 
-    const customers = useCustomerStore(state => state.customers);
+    const { data: customersData } = useCustomers();
+    const customers = customersData?.data || [];
     const categories = useCustomerStore(state => state.customerCategories);
-    const addCustomer = useCustomerStore(state => state.addCustomer);
-    const updateCustomer = useCustomerStore(state => state.updateCustomer);
+    const createCustomer = useCreateCustomer();
+    const updateCustomerMutation = useUpdateCustomer();
 
     const selectedCustomer = useMemo(() => customers.find((c) => c.id === customerId) || null, [customerId, customers]);
     const [formData, setFormData] = useState(() => buildCustomerState(selectedCustomer));
@@ -125,7 +127,9 @@ const CustomerForm = () => {
         setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const handleSave = () => {
+    const isSaving = createCustomer.isPending || updateCustomerMutation.isPending;
+
+    const handleSave = async () => {
         const nextErrors = {};
         if (!formData.name.trim()) nextErrors.name = 'Customer name is required.';
         if (!formData.category) nextErrors.category = 'Category is required.';
@@ -135,13 +139,16 @@ const CustomerForm = () => {
             return;
         }
 
-        if (isCreateMode) {
-            addCustomer(formData);
-        } else if (isEditMode) {
-            updateCustomer(formData.id, formData);
+        try {
+            if (isCreateMode) {
+                await createCustomer.mutateAsync(formData);
+            } else if (isEditMode) {
+                await updateCustomerMutation.mutateAsync({ id: formData.id, ...formData });
+            }
+            navigate('/ar/customers');
+        } catch (err) {
+            window.alert(`Failed to save customer: ${err?.message || 'Unknown error'}`);
         }
-
-        navigate('/ar/customers');
     };
 
     const pageTitle = isViewMode
@@ -161,8 +168,8 @@ const CustomerForm = () => {
                     <Button text="Close" variant="primary" onClick={() => navigate('/ar/customers')} />
                 ) : (
                     <>
-                        <Button text="Cancel" variant="secondary" onClick={() => navigate('/ar/customers')} />
-                        <Button text={isEditMode ? 'Update Customer' : 'Save Customer'} variant="primary" onClick={handleSave} />
+                        <Button text="Cancel" variant="secondary" onClick={() => navigate('/ar/customers')} disabled={isSaving} />
+                        <Button text={isSaving ? 'Saving...' : (isEditMode ? 'Update Customer' : 'Save Customer')} variant="primary" onClick={handleSave} disabled={isSaving} />
                     </>
                 )
             }

@@ -5,10 +5,11 @@ import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import StatusTag from '../../components/UI/StatusTag';
 import { Check, FileText, User, Calendar, CreditCard, Hash } from 'lucide-react';
-import { customers, invoices, bankAccounts, chartOfAccounts } from '../../data/mockData';
-import { usePaymentStore } from '../../stores/usePaymentStore';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
+import { useCustomers, useInvoices, useARPayments, useCreateARPayment, useUpdateARPayment } from '../../hooks/useAR';
+import { useBankAccounts } from '../../hooks/useBanking';
+import { useChartOfAccounts } from '../../hooks/useGL';
 
 const BANK_TO_GL_ACCOUNT_MAP = {
     'BANK-001': 'COA-1120',
@@ -19,7 +20,18 @@ const BANK_TO_GL_ACCOUNT_MAP = {
 const PaymentForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { payments, addPayment, updatePayment } = usePaymentStore();
+    const { data: customersData } = useCustomers();
+    const customers = customersData?.data || [];
+    const { data: invoicesData } = useInvoices();
+    const invoices = invoicesData?.data || [];
+    const { data: paymentsData } = useARPayments();
+    const payments = paymentsData?.data || [];
+    const { data: bankAccountsData } = useBankAccounts();
+    const bankAccounts = bankAccountsData || [];
+    const { data: coaData } = useChartOfAccounts();
+    const chartOfAccounts = coaData || [];
+    const createARPayment = useCreateARPayment();
+    const updateARPayment = useUpdateARPayment();
     const [mode, setMode] = useState('create'); // create | view | edit
     const [paymentTab, setPaymentTab] = useState('details'); // details | invoices
 
@@ -261,7 +273,9 @@ const PaymentForm = () => {
         }));
     };
 
-    const handleSave = () => {
+    const isSaving = createARPayment.isPending || updateARPayment.isPending;
+
+    const handleSave = async () => {
         if (!paymentData.customerId) {
             window.alert('Select a customer before saving payment.');
             return;
@@ -298,7 +312,6 @@ const PaymentForm = () => {
         setPaymentData(prev => ({ ...prev, paymentNumber: paymentNo }));
 
         const newPayment = {
-            id: paymentNo,
             customerId: paymentData.customerId,
             customerName: customers.find((c) => c.id === paymentData.customerId)?.name || '',
             date: paymentData.date,
@@ -309,16 +322,24 @@ const PaymentForm = () => {
             discountAccountId: paymentData.discountAccountId,
             penaltyAccountId: paymentData.penaltyAccountId,
             invoiceId: paymentData.selectedInvoices[0] || '',
-            amount: paymentData.totalAmount,
+            totalAmount: paymentData.totalAmount,
             status: 'Completed',
         };
 
-        if (mode === 'edit' && paymentData.paymentNumber) {
-            updatePayment(paymentData.paymentNumber, newPayment);
-        } else {
-            addPayment(newPayment);
+        try {
+            const existingPayment = mode === 'edit' && paymentData.paymentNumber
+                ? payments.find((p) => p.id === paymentData.paymentNumber || p.number === paymentData.paymentNumber)
+                : null;
+
+            if (existingPayment) {
+                await updateARPayment.mutateAsync({ id: existingPayment._id || existingPayment.id, ...newPayment });
+            } else {
+                await createARPayment.mutateAsync(newPayment);
+            }
+            navigate('/ar/payments');
+        } catch (err) {
+            window.alert(`Failed to save payment: ${err?.message || 'Unknown error'}`);
         }
-        navigate('/ar/payments');
     };
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
@@ -363,8 +384,8 @@ const PaymentForm = () => {
             backTo="/ar/payments"
             actions={(
                 <>
-                    <Button text="Save Draft" variant="secondary" />
-                    <Button text={mode === 'view' ? 'Close' : 'Save Payment'} variant="primary" onClick={mode === 'view' ? () => navigate('/ar/payments') : handleSave} />
+                    <Button text="Save Draft" variant="secondary" disabled={isSaving} />
+                    <Button text={mode === 'view' ? 'Close' : (isSaving ? 'Saving...' : 'Save Payment')} variant="primary" onClick={mode === 'view' ? () => navigate('/ar/payments') : handleSave} disabled={mode !== 'view' && isSaving} />
                 </>
             )}
         >

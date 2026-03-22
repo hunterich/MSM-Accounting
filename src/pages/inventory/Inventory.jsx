@@ -4,10 +4,10 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Loader } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
 import { formatIDR } from '../../utils/formatters';
-import { useInventoryStore } from '../../stores/useInventoryStore';
+import { useItems } from '../../hooks/useInventory';
 
 // Derive stock status label from qty on hand
 const getStockStatus = (stock) => {
@@ -18,19 +18,9 @@ const getStockStatus = (stock) => {
 
 const Inventory = () => {
     const navigate = useNavigate();
-    const rawProducts = useInventoryStore((s) => s.products);
-
-    // Normalise products — add computed status and ensure numeric fields
-    const items = useMemo(() =>
-        rawProducts.map((p) => ({
-            ...p,
-            stock: Number(p.openingStock ?? p.stock ?? 0),
-            cost: Number(p.cost) || 0,
-            price: Number(p.price) || 0,
-            status: getStockStatus(Number(p.openingStock ?? p.stock ?? 0)),
-        })),
-        [rawProducts]
-    );
+    const { data: itemsResult, isLoading } = useItems();
+    // API normalizer already computes stock, cost, price, and status
+    const items = itemsResult?.data ?? [];
 
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
@@ -50,9 +40,9 @@ const Inventory = () => {
         const keyword = searchTerm.toLowerCase();
         return items.filter((item) => {
             const matchesSearch =
-                item.id.toLowerCase().includes(keyword) ||
+                (item.sku || '').toLowerCase().includes(keyword) ||
                 item.name.toLowerCase().includes(keyword) ||
-                item.category.toLowerCase().includes(keyword);
+                (item.category || '').toLowerCase().includes(keyword);
             const matchesCategory = categoryFilter ? item.category === categoryFilter : true;
             const matchesStatus = statusFilter ? item.status === statusFilter : true;
             return matchesSearch && matchesCategory && matchesStatus;
@@ -64,7 +54,7 @@ const Inventory = () => {
     };
 
     const columns = useMemo(() => ([
-        { key: 'id', label: 'SKU', sortable: true },
+        { key: 'sku', label: 'SKU', sortable: true },
         { key: 'name', label: 'Item Name', sortable: true },
         { key: 'category', label: 'Category', sortable: true },
         {
@@ -145,13 +135,19 @@ const Inventory = () => {
             </div>
 
             <Card padding={false}>
-                <Table
-                    columns={columns}
-                    data={filteredItems}
-                    onRowClick={(row) => openItem(row, 'view')}
-                    showCount
-                    countLabel="items"
-                />
+                {isLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading items…
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={filteredItems}
+                        onRowClick={(row) => openItem(row, 'view')}
+                        showCount
+                        countLabel="items"
+                    />
+                )}
             </Card>
         </ListPage>
     );

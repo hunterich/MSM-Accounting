@@ -4,9 +4,10 @@ import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
+import { usePurchaseOrders, useCreatePurchaseOrder, useUpdatePurchaseOrder } from '../../hooks/useAP';
+import { useVendors } from '../../hooks/useAP';
+import { useChartOfAccounts } from '../../hooks/useGL';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
-import { useGLStore } from '../../stores/useGLStore';
-import { useVendorStore } from '../../stores/useVendorStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const buildFormData = (po) => {
@@ -61,14 +62,19 @@ const POForm = () => {
     const mode = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'new';
     const isViewMode = mode === 'view';
 
-    const purchaseOrders = usePurchaseOrderStore(s => s.purchaseOrders);
+    const { data: posData } = usePurchaseOrders();
+    const purchaseOrders = posData?.data || [];
+
+    // Keep Zustand for print templates only
     const poItemTemplates = usePurchaseOrderStore(s => s.poItemTemplates);
-    const addPurchaseOrder = usePurchaseOrderStore(s => s.addPurchaseOrder);
-    const updatePurchaseOrder = usePurchaseOrderStore(s => s.updatePurchaseOrder);
     const setPoItemTemplates = usePurchaseOrderStore(s => s.setPoItemTemplates);
 
-    const chartOfAccounts = useGLStore(s => s.chartOfAccounts);
-    const vendors = useVendorStore(s => s.vendors);
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: vendorsData } = useVendors();
+    const vendors = vendorsData?.data || [];
+
+    const createPurchaseOrder = useCreatePurchaseOrder();
+    const updatePurchaseOrder = useUpdatePurchaseOrder();
 
     const selectedPO = useMemo(() => purchaseOrders.find((po) => po.id === poId) || null, [poId, purchaseOrders]);
 
@@ -154,7 +160,7 @@ const POForm = () => {
 
     const totalAmount = taxSettings.enabled && !taxSettings.inclusive ? subtotal + taxAmount : subtotal;
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/ap/pos');
@@ -189,16 +195,22 @@ const POForm = () => {
             notes: formData.notes
         };
 
-        if (mode === 'edit' && selectedPO) {
-            updatePurchaseOrder(selectedPO.id, finalPO);
-        } else {
-            addPurchaseOrder(finalPO);
+        try {
+            if (mode === 'edit' && selectedPO) {
+                await updatePurchaseOrder.mutateAsync({ id: selectedPO._id || selectedPO.id, ...finalPO });
+            } else {
+                await createPurchaseOrder.mutateAsync(finalPO);
+            }
+
+            setPoItemTemplates(finalId, validItems);
+
+            navigate('/ap/pos');
+        } catch (err) {
+            window.alert(`Failed to save purchase order: ${err?.message || 'Unknown error'}`);
         }
-
-        setPoItemTemplates(finalId, validItems);
-
-        navigate('/ap/pos');
     };
+
+    const isPending = createPurchaseOrder.isPending || updatePurchaseOrder.isPending;
 
     return (
         <FormPage
@@ -207,7 +219,14 @@ const POForm = () => {
             actions={
                 <div className="flex gap-2">
                     <Button text="Cancel" variant="secondary" onClick={() => navigate('/ap/pos')} />
-                    {!isViewMode && <Button text="Save Purchase Order" variant="primary" onClick={handleSubmit} />}
+                    {!isViewMode && (
+                        <Button
+                            text={isPending ? 'Saving...' : 'Save Purchase Order'}
+                            variant="primary"
+                            onClick={handleSubmit}
+                            disabled={isPending}
+                        />
+                    )}
                     {isViewMode && <Button text="Edit Purchase Order" variant="primary" onClick={() => navigate(`/ap/pos/edit?poId=${poId}&mode=edit`)} />}
                 </div>
             }

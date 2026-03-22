@@ -7,15 +7,18 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import BillPrintTemplate from '../../components/print/BillPrintTemplate';
-import { Plus, Search, List, Download } from 'lucide-react';
+import { Plus, Search, List, Download, Loader } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { useBills } from '../../hooks/useAP';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
 
 const Bills = () => {
     const navigate = useNavigate();
-    const bills = useBillStore((s) => s.bills);
+    const { data: billsResult, isLoading } = useBills();
+    const bills = billsResult?.data ?? [];
+    // billItemTemplates stays in the local store (used for print until API supports line fetch)
     const billItemTemplates = useBillStore((s) => s.billItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
 
@@ -179,13 +182,19 @@ const Bills = () => {
             </div>
 
             <Card padding={false}>
-                <Table
-                    columns={columns}
-                    data={filteredData}
-                    onRowClick={(row) => navigate(`/ap/bills/new?billId=${row.id}&mode=view`)}
-                    showCount
-                    countLabel="bills"
-                />
+                {isLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading bills…
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={filteredData}
+                        onRowClick={(row) => navigate(`/ap/bills/new?billId=${row.id}&mode=view`)}
+                        showCount
+                        countLabel="bills"
+                    />
+                )}
             </Card>
 
             <PrintPreviewModal

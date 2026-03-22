@@ -4,8 +4,8 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search } from 'lucide-react';
-import { useBankingStore } from '../../stores/useBankingStore';
+import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search, Loader } from 'lucide-react';
+import { useBankAccounts, useBankTransactions } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import ListPage from '../../components/Layout/ListPage';
 
@@ -13,11 +13,18 @@ import ListPage from '../../components/Layout/ListPage';
 
 const Banking = () => {
     const navigate = useNavigate();
-    const accounts = useBankingStore((s) => s.bankAccounts);
-    const MOCK_TRANSACTIONS = useBankingStore((s) => s.transactions);
+
+    const { data: accounts = [], isLoading: accountsLoading } = useBankAccounts();
     const [selectedAccountId, setSelectedAccountId] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
+
+    // Fetch transactions — filter by account when one is selected
+    const txnFilters = useMemo(() => ({
+        ...(selectedAccountId ? { bankAccountId: selectedAccountId } : {}),
+    }), [selectedAccountId]);
+    const { data: txnResult, isLoading: txnsLoading } = useBankTransactions(txnFilters);
+    const allTransactions = txnResult?.data ?? [];
 
     const selectedAccount = useMemo(
         () => accounts.find((a) => a.id === selectedAccountId) || null,
@@ -31,13 +38,13 @@ const Banking = () => {
 
     const filteredTransactions = useMemo(() => {
         const keyword = searchTerm.toLowerCase();
-        return MOCK_TRANSACTIONS.filter((txn) => {
-            const matchesAccount = selectedAccountId ? txn.accountId === selectedAccountId : true;
-            const matchesSearch = txn.description.toLowerCase().includes(keyword) || txn.id.toLowerCase().includes(keyword);
+        return allTransactions.filter((txn) => {
+            const matchesSearch = txn.description.toLowerCase().includes(keyword)
+                || txn.id.toLowerCase().includes(keyword);
             const matchesStatus = statusFilter ? txn.status === statusFilter : true;
-            return matchesAccount && matchesSearch && matchesStatus;
+            return matchesSearch && matchesStatus;
         });
-    }, [selectedAccountId, searchTerm, statusFilter]);
+    }, [allTransactions, searchTerm, statusFilter]);
 
     const unmatchedCount = useMemo(
         () => filteredTransactions.filter((t) => t.status === 'Unmatched').length,
@@ -124,36 +131,44 @@ const Banking = () => {
         >
             {/* Account Summary Cards */}
             <div className="grid-12 banking-accounts-grid">
-                {/* All Accounts summary card */}
-                <div className="col-span-3">
-                    <Card padding>
-                        <button
-                            className={`banking-account-selector ${!selectedAccountId ? 'is-active' : ''}`}
-                            onClick={() => setSelectedAccountId('')}
-                        >
-                            <div className="banking-account-label">All Accounts</div>
-                            <div className="banking-account-balance">{formatIDR(totalBalance)}</div>
-                            <div className="banking-account-meta">{accounts.length} accounts</div>
-                        </button>
-                    </Card>
-                </div>
-
-                {accounts.map((acc) => (
-                    <div key={acc.id} className="col-span-3">
-                        <Card padding>
-                            <button
-                                className={`banking-account-selector ${selectedAccountId === acc.id ? 'is-active' : ''}`}
-                                onClick={() => setSelectedAccountId(acc.id)}
-                            >
-                                <div className="banking-account-label">{acc.name}</div>
-                                <div className="banking-account-balance">{formatIDR(acc.balance)}</div>
-                                <div className="banking-account-meta">
-                                    {acc.code ? `Code: ${acc.code}` : 'Cash / Other'}
-                                </div>
-                            </button>
-                        </Card>
+                {accountsLoading ? (
+                    <div className="col-span-12 flex items-center gap-2 py-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading accounts...
                     </div>
-                ))}
+                ) : (
+                    <>
+                        {/* All Accounts summary card */}
+                        <div className="col-span-3">
+                            <Card padding>
+                                <button
+                                    className={`banking-account-selector ${!selectedAccountId ? 'is-active' : ''}`}
+                                    onClick={() => setSelectedAccountId('')}
+                                >
+                                    <div className="banking-account-label">All Accounts</div>
+                                    <div className="banking-account-balance">{formatIDR(totalBalance)}</div>
+                                    <div className="banking-account-meta">{accounts.length} accounts</div>
+                                </button>
+                            </Card>
+                        </div>
+
+                        {accounts.map((acc) => (
+                            <div key={acc.id} className="col-span-3">
+                                <Card padding>
+                                    <button
+                                        className={`banking-account-selector ${selectedAccountId === acc.id ? 'is-active' : ''}`}
+                                        onClick={() => setSelectedAccountId(acc.id)}
+                                    >
+                                        <div className="banking-account-label">{acc.name}</div>
+                                        <div className="banking-account-balance">{formatIDR(acc.balance)}</div>
+                                        <div className="banking-account-meta">
+                                            {acc.code ? `Code: ${acc.code}` : 'Cash / Other'}
+                                        </div>
+                                    </button>
+                                </Card>
+                            </div>
+                        ))}
+                    </>
+                )}
             </div>
 
             {/* Reconciliation Status Banner */}
@@ -195,11 +210,17 @@ const Banking = () => {
                     </div>
                 </div>
 
-                <Table
-                    columns={transactionColumns}
-                    data={filteredTransactions}
-                    onRowClick={(row) => openTransactionAction(row, 'edit')}
-                />
+                {txnsLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading transactions...
+                    </div>
+                ) : (
+                    <Table
+                        columns={transactionColumns}
+                        data={filteredTransactions}
+                        onRowClick={(row) => openTransactionAction(row, 'edit')}
+                    />
+                )}
             </Card>
         </ListPage>
     );

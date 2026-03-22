@@ -25,6 +25,18 @@ export const usePaymentStore = create(
                 }));
             },
 
+            addPaymentsBatch: (arr) => {
+                set((state) => ({ payments: [...state.payments, ...arr] }));
+            },
+            updatePaymentsBatch: (arr) => {
+                set((state) => ({
+                    payments: state.payments.map((p) => {
+                        const update = arr.find((u) => u.id === p.id);
+                        return update ? { ...p, ...update } : p;
+                    }),
+                }));
+            },
+
             getPaymentById: (id) => get().payments.find((p) => p.id === id),
         }),
         {

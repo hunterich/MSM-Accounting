@@ -4,9 +4,9 @@ import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import Input from '../../components/UI/Input';
-import { Plus, Upload, ChevronDown, ChevronRight, PencilLine, Trash2, Archive, RotateCcw, Search } from 'lucide-react';
+import { Plus, Upload, ChevronDown, ChevronRight, PencilLine, Trash2, Archive, RotateCcw, Search, Loader } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
-import { accountBalancesById, chartOfAccounts as chartOfAccountsSeed } from '../../data/mockData';
+import { useChartOfAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount } from '../../hooks/useGL';
 import {
     buildAccountTree,
     flattenTree,
@@ -61,7 +61,11 @@ const DEPTH_PADDING = {
 };
 
 const ChartOfAccounts = () => {
-    const [accounts, setAccounts] = useState(() => chartOfAccountsSeed.map((account) => ({ ...account })));
+    const { data: accounts = [], isLoading } = useChartOfAccounts();
+    const createAccount = useCreateAccount();
+    const updateAccount = useUpdateAccount();
+    const deleteAccount = useDeleteAccount();
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAccountId, setEditingAccountId] = useState(null);
     const [form, setForm] = useState(EMPTY_FORM);
@@ -82,7 +86,8 @@ const ChartOfAccounts = () => {
 
     const accountTree = useMemo(() => buildAccountTree(accounts), [accounts]);
     const flatTree = useMemo(() => flattenTree(accountTree), [accountTree]);
-    const groupedBalances = useMemo(() => rollupBalances(accounts, accountBalancesById), [accounts]);
+    // Balances: real rollup requires a dedicated endpoint; use empty map until GL wiring is complete
+    const groupedBalances = useMemo(() => rollupBalances(accounts, {}), [accounts]);
 
     const reportGroups = useMemo(() => {
         return Array.from(new Set(accounts.map((account) => account.reportGroup))).sort();
@@ -198,79 +203,62 @@ const ChartOfAccounts = () => {
         setErrors((prev) => ({ ...prev, [key]: null }));
     };
 
-    const handleSaveAccount = () => {
+    const isSaving = createAccount.isPending || updateAccount.isPending;
+
+    const handleSaveAccount = async () => {
         const normalSide = getNormalSideByType(form.type);
         const payload = {
-            code: form.code.trim(),
-            name: form.name.trim(),
-            type: form.type,
-            parentId: form.parentId || null,
-            isPostable: form.isPostable,
-            isActive: form.isActive,
-            reportGroup: form.reportGroup.trim(),
+            code:           form.code.trim(),
+            name:           form.name.trim(),
+            type:           form.type,
+            parentId:       form.parentId || null,
+            isPostable:     form.isPostable,
+            isActive:       form.isActive,
+            reportGroup:    form.reportGroup.trim(),
             reportSubGroup: form.reportSubGroup.trim(),
-            normalSide
+            normalSide,
         };
 
         if (editingAccount) {
-            const nextAccount = {
-                ...editingAccount,
-                ...payload
-            };
-
+            const nextAccount = { ...editingAccount, ...payload };
             const validation = validateAccountUpdate(editingAccount, nextAccount, accounts);
-            if (!validation.isValid) {
-                setErrors(validation.errors);
-                return;
+            if (!validation.isValid) { setErrors(validation.errors); return; }
+            try {
+                await updateAccount.mutateAsync({ id: editingAccount.id, ...payload });
+                closeModal();
+            } catch (err) {
+                setErrors({ _api: err.message || 'Update failed.' });
             }
-
-            setAccounts((prev) => {
-                const updated = prev.map((account) =>
-                    account.id === editingAccount.id ? nextAccount : account
-                );
-                return normalizeLevels(updated);
-            });
-            closeModal();
             return;
         }
 
         const validation = validateAccountCreate(payload, accounts);
-        if (!validation.isValid) {
-            setErrors(validation.errors);
-            return;
+        if (!validation.isValid) { setErrors(validation.errors); return; }
+        try {
+            await createAccount.mutateAsync(payload);
+            closeModal();
+        } catch (err) {
+            setErrors({ _api: err.message || 'Create failed.' });
         }
-
-        const parent = payload.parentId ? accountById[payload.parentId] : null;
-        const newAccount = {
-            id: `COA-${Date.now()}`,
-            ...payload,
-            level: parent ? parent.level + 1 : 0,
-            hasPostings: false
-        };
-
-        setAccounts((prev) => normalizeLevels([...prev, newAccount]));
-        closeModal();
     };
 
-    const handleToggleArchive = (account) => {
-        setAccounts((prev) =>
-            prev.map((item) => (item.id === account.id ? { ...item, isActive: !item.isActive } : item))
-        );
+    const handleToggleArchive = async (account) => {
+        try {
+            await updateAccount.mutateAsync({ id: account.id, isActive: !account.isActive });
+        } catch (err) {
+            window.alert(err.message || 'Update failed.');
+        }
     };
 
-    const handleDelete = (account) => {
+    const handleDelete = async (account) => {
         const deleteRules = canArchiveAccount(account, accounts);
-        if (!deleteRules.canDelete) {
-            window.alert(deleteRules.reason);
-            return;
+        if (!deleteRules.canDelete) { window.alert(deleteRules.reason); return; }
+        if (!window.confirm(`Delete account ${account.code} ${account.name}?`)) return;
+        try {
+            await deleteAccount.mutateAsync(account.id);
+        } catch (err) {
+            window.alert(err.message || 'Delete failed — account may have postings.');
         }
-
-        const confirmed = window.confirm(`Delete account ${account.code} ${account.name}?`);
-        if (!confirmed) return;
-
-        setAccounts((prev) =>
-            normalizeLevels(prev.filter((item) => !deleteRules.deleteScopeIds.includes(item.id)))
-        );
     };
 
     const columns = [
@@ -394,6 +382,12 @@ const ChartOfAccounts = () => {
                 </div>
             )}
         >
+            {isLoading && (
+                <div className="flex items-center gap-2 py-4 text-sm text-neutral-400">
+                    <Loader size={16} className="animate-spin" /> Loading accounts…
+                </div>
+            )}
+
             <div className="grid grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
                 <div className="relative flex items-center">
                     <Search size={16} className="absolute left-2.5 text-neutral-400 pointer-events-none" />
@@ -441,7 +435,7 @@ const ChartOfAccounts = () => {
             </Card>
 
             <Modal title={editingAccount ? 'Edit Account' : 'Add Account'} isOpen={isModalOpen} onClose={closeModal} size="lg">
-                <div className="grid grid-cols-12 gap-4">
+                <div className="grid grid-cols-12 gap-x-4 gap-y-4">
                     <div className="col-span-4">
                         <Input
                             label="Account Code"
@@ -449,6 +443,7 @@ const ChartOfAccounts = () => {
                             value={form.code}
                             onChange={(event) => updateForm('code', event.target.value)}
                             error={errors.code}
+                            wrapperClassName=""
                         />
                     </div>
                     <div className="col-span-8">
@@ -458,12 +453,13 @@ const ChartOfAccounts = () => {
                             value={form.name}
                             onChange={(event) => updateForm('name', event.target.value)}
                             error={errors.name}
+                            wrapperClassName=""
                         />
                     </div>
                     <div className="col-span-4">
-                        <label className="block mb-2 text-sm font-medium text-neutral-700">Account Type</label>
+                        <label className="form-label">Account Type</label>
                         <select
-                            className={`block w-full px-3 text-base leading-6 text-neutral-900 bg-neutral-0 border rounded-md min-h-[40px] transition-colors focus:border-primary-500 focus:outline-none focus:ring-3 focus:ring-primary-100 ${errors.type ? 'border-danger-500' : 'border-neutral-300'}`}
+                            className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed ${errors.type ? 'border-danger-500' : 'border-neutral-300'}`}
                             value={form.type}
                             onChange={(event) => updateForm('type', event.target.value)}
                             disabled={Boolean(editingAccount?.hasPostings)}
@@ -472,12 +468,12 @@ const ChartOfAccounts = () => {
                                 <option key={type} value={type}>{type}</option>
                             ))}
                         </select>
-                        {errors.type ? <div className="w-full mt-1 text-xs text-danger-500">{errors.type}</div> : null}
+                        {errors.type ? <div className="mt-1 text-xs text-danger-500">{errors.type}</div> : null}
                     </div>
                     <div className="col-span-8">
-                        <label className="block mb-2 text-sm font-medium text-neutral-700">Parent Account</label>
+                        <label className="form-label">Parent Account</label>
                         <select
-                            className={`block w-full px-3 text-base leading-6 text-neutral-900 bg-neutral-0 border rounded-md min-h-[40px] transition-colors focus:border-primary-500 focus:outline-none focus:ring-3 focus:ring-primary-100 ${errors.parentId ? 'border-danger-500' : 'border-neutral-300'}`}
+                            className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed ${errors.parentId ? 'border-danger-500' : 'border-neutral-300'}`}
                             value={form.parentId}
                             onChange={(event) => updateForm('parentId', event.target.value)}
                             disabled={Boolean(editingAccount?.hasPostings)}
@@ -487,7 +483,7 @@ const ChartOfAccounts = () => {
                                 <option key={parent.id} value={parent.id}>{parent.code} {parent.name}</option>
                             ))}
                         </select>
-                        {errors.parentId ? <div className="w-full mt-1 text-xs text-danger-500">{errors.parentId}</div> : null}
+                        {errors.parentId ? <div className="mt-1 text-xs text-danger-500">{errors.parentId}</div> : null}
                     </div>
                     <div className="col-span-6">
                         <Input
@@ -496,6 +492,7 @@ const ChartOfAccounts = () => {
                             value={form.reportGroup}
                             onChange={(event) => updateForm('reportGroup', event.target.value)}
                             error={errors.reportGroup}
+                            wrapperClassName=""
                         />
                     </div>
                     <div className="col-span-6">
@@ -504,28 +501,34 @@ const ChartOfAccounts = () => {
                             placeholder="e.g. Kas dan Bank"
                             value={form.reportSubGroup}
                             onChange={(event) => updateForm('reportSubGroup', event.target.value)}
+                            wrapperClassName=""
                         />
                     </div>
                     <div className="col-span-6">
-                        <label className="block mb-2 text-sm font-medium text-neutral-700">Posting Mode</label>
+                        <label className="form-label">Posting Mode</label>
                         <select
-                            className={`block w-full px-3 text-base leading-6 text-neutral-900 bg-neutral-0 border rounded-md min-h-[40px] transition-colors focus:border-primary-500 focus:outline-none focus:ring-3 focus:ring-primary-100 ${errors.isPostable ? 'border-danger-500' : 'border-neutral-300'}`}
+                            className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] ${errors.isPostable ? 'border-danger-500' : 'border-neutral-300'}`}
                             value={form.isPostable ? 'Postable' : 'Group'}
                             onChange={(event) => updateForm('isPostable', event.target.value === 'Postable')}
                         >
-                            <option value="Postable">Postable</option>
-                            <option value="Group">Group / Header</option>
+                            <option value="Postable">Postable — can post journal entries directly</option>
+                            <option value="Group">Group / Header — organises sub-accounts</option>
                         </select>
-                        {errors.isPostable ? <div className="w-full mt-1 text-xs text-danger-500">{errors.isPostable}</div> : null}
+                        {errors.isPostable ? <div className="mt-1 text-xs text-danger-500">{errors.isPostable}</div> : null}
                     </div>
                     <div className="col-span-3">
-                        <label className="block mb-2 text-sm font-medium text-neutral-700">Normal Side</label>
-                        <input className="block w-full px-3 text-base leading-6 text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-[40px] transition-colors focus:border-primary-500 focus:outline-none focus:ring-3 focus:ring-primary-100" value={getNormalSideByType(form.type)} disabled />
+                        <label className="form-label">Normal Side</label>
+                        <input
+                            className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-100 border border-neutral-300 rounded-md min-h-10 text-neutral-500 cursor-not-allowed"
+                            value={getNormalSideByType(form.type)}
+                            disabled
+                            readOnly
+                        />
                     </div>
                     <div className="col-span-3">
-                        <label className="block mb-2 text-sm font-medium text-neutral-700">Status</label>
+                        <label className="form-label">Status</label>
                         <select
-                            className="block w-full px-3 text-base leading-6 text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-[40px] transition-colors focus:border-primary-500 focus:outline-none focus:ring-3 focus:ring-primary-100"
+                            className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
                             value={form.isActive ? 'Active' : 'Archived'}
                             onChange={(event) => updateForm('isActive', event.target.value === 'Active')}
                         >
@@ -538,9 +541,19 @@ const ChartOfAccounts = () => {
                             <div className="bg-warning-50 border border-warning-200 rounded-md text-warning-700 text-sm px-3 py-2">{lockReason}</div>
                         </div>
                     ) : null}
-                    <div className="col-span-12 flex justify-end gap-2 mt-2">
+                    {errors._api && (
+                        <div className="col-span-12">
+                            <div className="bg-danger-50 border border-danger-200 rounded-md text-danger-700 text-sm px-3 py-2">{errors._api}</div>
+                        </div>
+                    )}
+                    <div className="col-span-12 flex justify-end gap-2 pt-2 border-t border-neutral-200">
                         <Button text="Cancel" variant="secondary" onClick={closeModal} />
-                        <Button text={editingAccount ? 'Save Changes' : 'Save Account'} variant="primary" onClick={handleSaveAccount} />
+                        <Button
+                            text={isSaving ? 'Saving…' : editingAccount ? 'Save Changes' : 'Save Account'}
+                            variant="primary"
+                            onClick={handleSaveAccount}
+                            disabled={isSaving}
+                        />
                     </div>
                 </div>
             </Modal>

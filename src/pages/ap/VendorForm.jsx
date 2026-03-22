@@ -3,8 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { useVendorStore } from '../../stores/useVendorStore';
-import { useGLStore } from '../../stores/useGLStore';
+import { useVendors, useCreateVendor, useUpdateVendor } from '../../hooks/useAP';
+import { useChartOfAccounts } from '../../hooks/useGL';
 
 const buildVendorState = (vendor) => {
     if (!vendor) {
@@ -45,10 +45,13 @@ const VendorForm = () => {
     const isEditMode = mode === 'edit';
     const isCreateMode = mode === 'create';
 
-    const vendors = useVendorStore(state => state.vendors);
-    const addVendor = useVendorStore(state => state.addVendor);
-    const updateVendor = useVendorStore(state => state.updateVendor);
-    const chartOfAccounts = useGLStore(state => state.chartOfAccounts);
+    const { data: vendorsData } = useVendors();
+    const vendors = vendorsData?.data || [];
+
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+
+    const createVendor = useCreateVendor();
+    const updateVendor = useUpdateVendor();
 
     const selectedVendor = useMemo(() => vendors.find((vendor) => vendor.id === vendorId) || null, [vendorId, vendors]);
     const [formData, setFormData] = useState(() => buildVendorState(selectedVendor));
@@ -66,7 +69,7 @@ const VendorForm = () => {
         setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const nextErrors = {};
         if (!formData.name.trim()) nextErrors.name = 'Vendor name is required.';
         if (!formData.category.trim()) nextErrors.category = 'Category is required.';
@@ -76,16 +79,20 @@ const VendorForm = () => {
             return;
         }
 
-        if (isCreateMode) {
-            // Auto generate an ID if not provided
-            const newId = formData.id || `VEND-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-            addVendor({ ...formData, id: newId });
-        } else if (isEditMode) {
-            updateVendor(formData.id, formData);
+        try {
+            if (isCreateMode) {
+                const newId = formData.id || `VEND-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+                await createVendor.mutateAsync({ ...formData, id: newId });
+            } else if (isEditMode) {
+                await updateVendor.mutateAsync({ id: formData.id, ...formData });
+            }
+            navigate('/ap/vendors');
+        } catch (err) {
+            window.alert(`Failed to save vendor: ${err?.message || 'Unknown error'}`);
         }
-
-        navigate('/ap/vendors');
     };
+
+    const isPending = createVendor.isPending || updateVendor.isPending;
 
     const pageTitle = isViewMode
         ? `View Vendor${vendorId ? ` ${vendorId}` : ''}`
@@ -105,7 +112,12 @@ const VendorForm = () => {
                 ) : (
                     <>
                         <Button text="Cancel" variant="secondary" onClick={() => navigate('/ap/vendors')} />
-                        <Button text={mode === 'edit' ? 'Update Vendor' : 'Save Vendor'} variant="primary" onClick={handleSave} />
+                        <Button
+                            text={isPending ? 'Saving...' : (mode === 'edit' ? 'Update Vendor' : 'Save Vendor')}
+                            variant="primary"
+                            onClick={handleSave}
+                            disabled={isPending}
+                        />
                     </>
                 )
             }

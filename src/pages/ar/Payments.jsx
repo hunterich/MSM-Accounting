@@ -4,10 +4,9 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Loader } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
-import { invoices, bankAccounts } from '../../data/mockData';
-import { usePaymentStore } from '../../stores/usePaymentStore';
+import { useARPayments } from '../../hooks/useAR';
 
 const Payments = () => {
     const navigate = useNavigate();
@@ -18,7 +17,8 @@ const Payments = () => {
     const [openPaymentIds, setOpenPaymentIds] = useState([]);
     const [detailTab, setDetailTab] = useState('summary');
 
-    const payments = usePaymentStore((s) => s.payments);
+    const { data: paymentsResult, isLoading } = useARPayments();
+    const payments = paymentsResult?.data ?? [];
 
     const filteredData = useMemo(() => {
         return payments.filter(item => {
@@ -59,8 +59,8 @@ const Payments = () => {
     ];
 
     const selectedPayment = payments.find((item) => item.id === selectedPaymentId) || null;
-    const linkedInvoice = selectedPayment ? invoices.find((inv) => inv.id === selectedPayment.invoiceId) : null;
-    const linkedBank = selectedPayment ? bankAccounts.find((acc) => acc.id === selectedPayment.bankId) : bankAccounts[0];
+    const linkedInvoice = null;   // Invoice detail fetching not wired yet
+    const linkedBank    = null;   // Bank account lookup not wired yet
 
     const openPaymentTab = (paymentId) => {
         setOpenPaymentIds((prev) => (prev.includes(paymentId) ? prev : [...prev, paymentId]));
@@ -203,13 +203,19 @@ const Payments = () => {
                     </div>
 
                     <Card padding={false}>
-                        <Table
-                            columns={columns}
-                            data={filteredData}
-                            onRowClick={(row) => openPaymentTab(row.id)}
-                            showCount
-                            countLabel="payments"
-                        />
+                        {isLoading ? (
+                            <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                                <Loader size={16} className="animate-spin" /> Loading payments…
+                            </div>
+                        ) : (
+                            <Table
+                                columns={columns}
+                                data={filteredData}
+                                onRowClick={(row) => openPaymentTab(row.id)}
+                                showCount
+                                countLabel="payments"
+                            />
+                        )}
                     </Card>
                 </>
             )}

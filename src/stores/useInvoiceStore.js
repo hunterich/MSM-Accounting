@@ -35,6 +35,23 @@ export const useInvoiceStore = create(
                 }));
             },
 
+            addInvoicesBatch: (arr) => {
+                set((state) => ({ invoices: [...state.invoices, ...arr] }));
+            },
+            updateInvoicesBatch: (arr) => {
+                set((state) => ({
+                    invoices: state.invoices.map((inv) => {
+                        const update = arr.find((u) => u.id === inv.id);
+                        return update ? { ...inv, ...update } : inv;
+                    }),
+                }));
+            },
+            setInvoiceItemTemplatesBatch: (map) => {
+                set((state) => ({
+                    invoiceItemTemplates: { ...state.invoiceItemTemplates, ...map },
+                }));
+            },
+
             getInvoiceById: (id) => get().invoices.find((inv) => inv.id === id),
         }),
         {

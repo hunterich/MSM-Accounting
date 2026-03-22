@@ -5,6 +5,7 @@ import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';
 import { useHRStore } from '../../stores/useHRStore';
+import { useCreateEmployee, useUpdateEmployee } from '../../hooks/useHR';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -91,10 +92,13 @@ const EmployeeForm = () => {
     const employees = useHRStore((state) => state.employees);
     const departments = useHRStore((state) => state.departments);
     const positions = useHRStore((state) => state.positions);
-    const addEmployee = useHRStore((state) => state.addEmployee);
-    const updateEmployee = useHRStore((state) => state.updateEmployee);
     const addDepartment = useHRStore((state) => state.addDepartment);
     const addPosition = useHRStore((state) => state.addPosition);
+
+    const createEmployee = useCreateEmployee();
+    const updateEmployee = useUpdateEmployee();
+
+    const isSaving = createEmployee.isPending || updateEmployee.isPending;
 
     const selectedEmployee = useMemo(
         () => employees.find((employee) => employee.id === employeeId) || null,
@@ -190,13 +194,16 @@ const EmployeeForm = () => {
         await addDepartment(normalized.department);
         await addPosition(normalized.position);
 
-        if (isCreateMode) {
-            await addEmployee(normalized);
-        } else if (isEditMode) {
-            await updateEmployee(normalized.id, normalized);
+        try {
+            if (isCreateMode) {
+                await createEmployee.mutateAsync(normalized);
+            } else if (isEditMode) {
+                await updateEmployee.mutateAsync({ id: normalized.id, ...normalized });
+            }
+            navigate('/hr/employees');
+        } catch (err) {
+            alert(`Failed to save employee: ${err?.message ?? 'Unknown error'}`);
         }
-
-        navigate('/hr/employees');
     };
 
     const totalAllowances = useMemo(
@@ -226,8 +233,8 @@ const EmployeeForm = () => {
                     <Button text="Close" variant="primary" onClick={() => navigate('/hr/employees')} />
                 ) : (
                     <>
-                        <Button text="Cancel" variant="secondary" onClick={() => navigate('/hr/employees')} />
-                        <Button text={isEditMode ? 'Update Employee' : 'Save Employee'} variant="primary" onClick={handleSave} />
+                        <Button text="Cancel" variant="secondary" onClick={() => navigate('/hr/employees')} disabled={isSaving} />
+                        <Button text={isSaving ? 'Saving...' : isEditMode ? 'Update Employee' : 'Save Employee'} variant="primary" onClick={handleSave} disabled={isSaving} />
                     </>
                 )
             }

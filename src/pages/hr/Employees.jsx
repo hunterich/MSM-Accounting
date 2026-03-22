@@ -1,24 +1,24 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { List, Plus, Search } from 'lucide-react';
+import { List, Plus, Search, Loader } from 'lucide-react';
 import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatIDR } from '../../utils/formatters';
-import { useHRStore } from '../../stores/useHRStore';
+import { useEmployees } from '../../hooks/useHR';
 
 const Employees = () => {
     const navigate = useNavigate();
-    const employeeList = useHRStore((state) => state.employees);
-    const departmentMaster = useHRStore((state) => state.departments);
+    const { data: empResult, isLoading } = useEmployees();
+    const employeeList = empResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ department: '', status: '' });
 
+    // Build department list dynamically from API data (department.name already flattened)
     const departments = useMemo(() => {
-        const fromData = employeeList.map((employee) => employee.department).filter(Boolean);
-        return Array.from(new Set([...departmentMaster, ...fromData])).sort();
-    }, [departmentMaster, employeeList]);
+        return Array.from(new Set(employeeList.map((e) => e.department).filter(Boolean))).sort();
+    }, [employeeList]);
 
     const filteredData = useMemo(() => {
         const keyword = searchTerm.trim().toLowerCase();
@@ -26,7 +26,7 @@ const Employees = () => {
         return employeeList.filter((employee) => {
             const matchesSearch =
                 employee.name.toLowerCase().includes(keyword) ||
-                employee.id.toLowerCase().includes(keyword);
+                (employee.employeeNo || '').toLowerCase().includes(keyword);
             const matchesDepartment = filters.department ? employee.department === filters.department : true;
             const matchesStatus = filters.status ? employee.status === filters.status : true;
             return matchesSearch && matchesDepartment && matchesStatus;
@@ -34,7 +34,7 @@ const Employees = () => {
     }, [employeeList, filters, searchTerm]);
 
     const columns = [
-        { key: 'id', label: 'Employee ID' },
+        { key: 'employeeNo', label: 'Employee ID' },
         { key: 'name', label: 'Name', sortable: true },
         { key: 'department', label: 'Department', sortable: true },
         { key: 'position', label: 'Position', sortable: true },
@@ -129,13 +129,19 @@ const Employees = () => {
             </div>
 
             <Card padding={false}>
-                <Table
-                    columns={columns}
-                    data={filteredData}
-                    onRowClick={(row) => navigate(`/hr/employees/edit?employeeId=${row.id}&mode=view`)}
-                    showCount
-                    countLabel="employees"
-                />
+                {isLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading employees…
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={filteredData}
+                        onRowClick={(row) => navigate(`/hr/employees/edit?employeeId=${row.id}&mode=view`)}
+                        showCount
+                        countLabel="employees"
+                    />
+                )}
             </Card>
         </div>
     );

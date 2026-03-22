@@ -8,16 +8,21 @@ import Button from '../../components/UI/Button';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import { useInvoiceStore } from '../../stores/useInvoiceStore';
+import { useInvoices } from '../../hooks/useAR';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
-import { List, X, Plus, Download } from 'lucide-react';
+import { List, X, Plus, Download, Upload } from 'lucide-react';
+import ImportInvoicesModal from '../../components/ar/invoices/ImportInvoicesModal';
+import { useAccessStore } from '../../stores/useAccessStore';
 
 const InvoiceWorkbench = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
 
-    const invoices = useInvoiceStore((s) => s.invoices);
+    // List data comes from the API; invoiceItemTemplates stay in the local store (used for print)
+    const { data: invoicesResult, isLoading: invoicesLoading } = useInvoices();
+    const invoices = invoicesResult?.data ?? [];
     const invoiceItemTemplates = useInvoiceStore((s) => s.invoiceItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
     const taxRate = useSettingsStore((s) => s.taxSettings.defaultRate);
@@ -38,6 +43,10 @@ const InvoiceWorkbench = () => {
 
     const [printInvoiceId, setPrintInvoiceId] = useState('');
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [isImportOpen, setIsImportOpen] = useState(false);
+
+    const hasPermission = useAccessStore((s) => s.hasPermission);
+    const canCreate = hasPermission('ar_invoices', 'create');
 
     useEffect(() => {
         const state = location.state || {};
@@ -203,6 +212,7 @@ const InvoiceWorkbench = () => {
     const catalog = (
         <InvoiceCatalogPanel
             data={filteredData}
+            isLoading={invoicesLoading}
             selectedId={selectedInvoiceId}
             filters={filters}
             onSearchChange={(searchTerm) => setFilters((prev) => ({ ...prev, searchTerm }))}
@@ -229,7 +239,16 @@ const InvoiceWorkbench = () => {
 
     return (
         <div className="container ar-module container-full-width">
-            <div className="flex justify-end mb-2">
+            <div className="flex justify-end mb-2 gap-2">
+                {canCreate && (
+                    <Button
+                        text="Import"
+                        size="small"
+                        variant="secondary"
+                        icon={<Upload size={16} />}
+                        onClick={() => setIsImportOpen(true)}
+                    />
+                )}
                 <Button
                     text="Export CSV"
                     size="small"
@@ -297,6 +316,11 @@ const InvoiceWorkbench = () => {
                     />
                 )}
             </PrintPreviewModal>
+
+            <ImportInvoicesModal
+                isOpen={isImportOpen}
+                onClose={() => setIsImportOpen(false)}
+            />
         </div>
     );
 };

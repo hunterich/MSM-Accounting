@@ -20,14 +20,23 @@
 > Goal: Fix fundamental limitations that block everything else.
 
 ### 1.1 Database Backend
-- [~] Migrate from localStorage to a real database (SQLite / PostgreSQL / Supabase)
-  - PostgreSQL running; 43 tables applied via `prisma db push`; API route handlers live across modules; JWT auth + middleware enabled; frontend store wiring still pending
-- [~] Proper CRUD with server-side validation
+- [x] Migrate from localStorage to a real database (SQLite / PostgreSQL / Supabase)
+  - PostgreSQL running; 43 tables applied via `prisma db push`; API route handlers live across modules; JWT auth + middleware enabled
+  - All list pages read from API via React Query hooks; all form pages write via React Query mutations
+  - Remaining on Zustand: credit notes, debit notes, sales returns, purchase returns (no API routes yet); batch import (Shopee); print item templates
+- [x] Proper CRUD with server-side validation
   - Zod validation in existing routes; all new routes have try/catch + `withCors` error responses; ~60 route handlers total
+  - 10 form pages wired: CustomerForm, InvoiceForm, AR PaymentForm, VendorForm, BillForm, POForm, AP PaymentForm, InventoryForm, AdjustmentForm, EmployeeForm
 - [x] User authentication (email/password login + JWT sessions + Next.js middleware protecting `/api/v1/*`; httpOnly cookie `msm_token`; seed script creates org + admin user)
 - [x] Google OAuth sign-in (Google Identity credential flow on frontend + backend ID token verification via `google-auth-library`; access restricted to provisioned users in DB)
 - [x] Complete API routes — all CRUD handlers for invoices, customers, AR payments, bills, vendors, purchase orders, AP payments, accounts/COA, journal entries, items, stock adjustments, bank accounts, bank transactions, employees; `lib/api-utils.ts` with `ok/err/listResponse/nextNumber` helpers; React Query v5 installed + `QueryClientProvider` wrapping app; seed expanded with 15 COA accounts, 5 customers, 4 vendors, 3 employees, 5 items, 4 invoices, 3 bills, 2 POs, 2 AR payments, 3 journal entries, 5 bank transactions, 1 stock adjustment
-- [ ] Connect frontend stores to backend API (React Query; replace 18 Zustand mock stores)
+- [x] Connect frontend stores to backend API (React Query; replace 18 Zustand mock stores)
+  - All 6 modules wired: Banking ✓ GL ✓ AR ✓ AP ✓ Inventory ✓ HR ✓
+  - Hook files: `useBanking.js`, `useGL.js`, `useAR.js`, `useAP.js`, `useInventory.js`, `useHR.js`
+  - All 13 list pages read from API; all 10 form pages with API routes write via mutations
+  - Field normalization: uppercase API enums ↔ title-case UI values; Prisma Decimal coerced to Number; API-generated numbers (BILL-xxxxx, EMP-xxxxx, etc.) used as display IDs
+  - 4 form pages still on Zustand (CreditNote, DebitNote, SalesReturn, PurchaseReturn) — need backend routes first
+  - Batch import operations (Shopee ImportInvoicesModal) and print item templates still use local Zustand stores as intermediary
 - [ ] Data migration tool (localStorage → DB for existing users)
 
 ### 1.2 Print / PDF Export
@@ -65,7 +74,7 @@
 ### 1.6 Data Import / Export
 - [ ] CSV import for customers, vendors, items, COA, opening balances
 - [ ] CSV export for all list views
-- [ ] Bulk invoice import from marketplace exports (Shopee, Tokopedia, etc.)
+- [~] Bulk invoice import from marketplace exports — Shopee 6-step wizard complete (`ImportInvoicesModal.jsx` + `shopeeImport.js` + `useIntegrationStore.js`); Tokopedia / TikTok Shop / Lazada not started
 
 ---
 
@@ -179,8 +188,8 @@
 - [ ] Budget variance alerts
 
 ### 3.5 E-Commerce Auto-Posting
-- [~] Shop connections exist but no transaction sync
-- [ ] Auto-import orders from Shopee, Tokopedia, TikTok Shop, Lazada
+- [~] Shop connections + per-shop settings in `useIntegrationStore.js`; Integrations.jsx manages shop list
+- [~] Auto-import orders: Shopee done (6-step import wizard, Excel parse, item mapping, upsert); Tokopedia / TikTok / Lazada not started
 - [ ] Auto-create invoices from marketplace orders
 - [ ] Marketplace fee auto-posting (commission, shipping subsidy, voucher)
 - [ ] Platform wallet balance tracking
@@ -296,7 +305,7 @@
 
 | Item | Status | Priority |
 |------|--------|----------|
-| Migrate to real database (Phase 1.1) | In Progress — PostgreSQL + Prisma done (43 tables); auth + API routes done; frontend connection pending | Critical |
+| Migrate to real database (Phase 1.1) | Done — PostgreSQL + Prisma (43 tables); auth + API routes; all 6 modules wired (reads + writes); 4 sub-modules pending backend routes (credit/debit notes, sales/purchase returns) | Critical |
 | Add TypeScript | Not started | Medium |
 | Unit tests for stores & utils | Not started | High |
 | E2E tests (Playwright/Cypress) | Not started | Medium |
@@ -429,11 +438,11 @@ v0.8   — Complete API Routes — all CRUD for all modules (Phase 1.1 cont.)
           HR: employees (~4 routes)
           Install React Query for async data layer.
           Backend `next build` green after Next 15 dynamic route signature updates
-          ↑ Current state
+          Shopee bulk invoice import: 6-step wizard, Excel parser, item mapping, upsert
 
-v0.9   — Frontend → Backend Connection (Phase 1.1 complete)
-          Replace 16 Zustand mock stores with React Query hooks, module by module:
-          Banking → GL → AR → AP → Inventory → HR
+v0.9   — Frontend → Backend Connection (Phase 1.1 complete) ✓
+          All 6 modules wired (reads + writes): Banking ✓ GL ✓ AR ✓ AP ✓ Inventory ✓ HR ✓
+          13 list pages + 10 form pages on React Query; 4 sub-forms pending backend routes
 
 v1.0   — Multi-User Auth live + all data in PostgreSQL
           ↑ First production-ready release (Phase 1.1 + 2.4 complete)

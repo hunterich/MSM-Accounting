@@ -10,10 +10,9 @@ import { Printer, Save, Search, Info, Package, Paperclip, FileText, X } from 'lu
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
-import { useCustomerStore } from '../../stores/useCustomerStore';
-import { useInvoiceStore } from '../../stores/useInvoiceStore';
-import { useInventoryStore } from '../../stores/useInventoryStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useCustomers, useInvoices, useCreateInvoice, useUpdateInvoice } from '../../hooks/useAR';
+import { useItems } from '../../hooks/useInventory';
 
 class TableErrorBoundary extends React.Component {
     constructor(props) {
@@ -43,11 +42,14 @@ const InvoiceForm = () => {
     const [masterCreditLimit, setMasterCreditLimit] = useState(5000000); // Mocked from Settings
 
     // Manage customers state dynamically
-    const customerList = useCustomerStore(s => s.customers) || [];
-    const invoices = (useInvoiceStore(s => s.invoices) || []).filter(Boolean);
-    const products = useInventoryStore(s => s.products);
-    const addInvoice = useInvoiceStore(s => s.addInvoice);
-    const updateInvoice = useInvoiceStore(s => s.updateInvoice);
+    const { data: customersData } = useCustomers();
+    const customerList = customersData?.data || [];
+    const { data: invoicesData } = useInvoices();
+    const invoices = (invoicesData?.data || []).filter(Boolean);
+    const { data: itemsData } = useItems();
+    const products = itemsData?.data || [];
+    const createInvoice = useCreateInvoice();
+    const updateInvoiceMutation = useUpdateInvoice();
 
     const [formData, setFormData] = useState({
         customerId: '',
@@ -299,7 +301,9 @@ const InvoiceForm = () => {
         setViewMode('new');
     };
 
-    const handleApprove = () => {
+    const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
+
+    const handleApprove = async () => {
         let assignedNo = formData.number;
         if (numberingMode === 'auto') {
             assignedNo = buildAutoNumber(formData.issueDate);
@@ -316,10 +320,15 @@ const InvoiceForm = () => {
             status: viewMode === 'saved' ? (selectedSaved?.status || 'Sent') : 'Draft'
         };
 
-        if (viewMode === 'saved' && selectedSavedId) {
-            updateInvoice(selectedSavedId, finalInvoiceData);
-        } else {
-            addInvoice(finalInvoiceData);
+        try {
+            if (viewMode === 'saved' && selectedSavedId) {
+                await updateInvoiceMutation.mutateAsync({ id: selectedSavedId, ...finalInvoiceData });
+            } else {
+                await createInvoice.mutateAsync(finalInvoiceData);
+            }
+        } catch (err) {
+            window.alert(`Failed to save invoice: ${err?.message || 'Unknown error'}`);
+            return;
         }
 
         if (location.state?.returnToWorkbench) {
@@ -417,8 +426,8 @@ const InvoiceForm = () => {
                 <>
                     <Button text="Print" variant="secondary" icon={<Printer size={16} />} onClick={handlePrint} />
                     <div className="w-[1px] h-8 bg-neutral-200 mx-1" />
-                    <Button text="Save Draft" variant="secondary" />
-                    <Button text="Save & Approve" variant="primary" icon={<Save size={16} />} onClick={handleApprove} />
+                    <Button text="Save Draft" variant="secondary" disabled={isSaving} />
+                    <Button text={isSaving ? 'Saving...' : 'Save & Approve'} variant="primary" icon={<Save size={16} />} onClick={handleApprove} disabled={isSaving} />
                 </>
             )}
         >

@@ -4,23 +4,24 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List } from 'lucide-react';
+import { Plus, Search, List, Loader } from 'lucide-react';
 import { formatIDR } from '../../utils/formatters';
-import { useVendorStore } from '../../stores/useVendorStore';
+import { useVendors } from '../../hooks/useAP';
 
 const Vendors = () => {
     const navigate = useNavigate();
-    const vendorList = useVendorStore((s) => s.vendors);
+    const { data: vendorsResult, isLoading } = useVendors();
+    const vendorList = vendorsResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ status: '', category: '' });
-    const categories = useMemo(() => Array.from(new Set(vendorList.map((vendor) => vendor.category))).sort(), [vendorList]);
+    const categories = useMemo(() => Array.from(new Set(vendorList.map((vendor) => vendor.category).filter(Boolean))).sort(), [vendorList]);
 
     const filteredData = useMemo(() => {
         return vendorList.filter((item) => {
             const matchesSearch =
                 item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.id.toLowerCase().includes(searchTerm.toLowerCase());
+                (item.category || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (item.code || '').toLowerCase().includes(searchTerm.toLowerCase());
             const matchesStatus = filters.status ? item.status === filters.status : true;
             const matchesCategory = filters.category ? item.category === filters.category : true;
             return matchesSearch && matchesStatus && matchesCategory;
@@ -28,7 +29,7 @@ const Vendors = () => {
     }, [searchTerm, filters]);
 
     const columns = [
-        { key: 'id', label: 'Vendor #' },
+        { key: 'code', label: 'Vendor #' },
         { key: 'name', label: 'Vendor Name', sortable: true },
         { key: 'category', label: 'Category', sortable: true },
         { key: 'balance', label: 'Open Balance', align: 'right', render: (val) => formatIDR(val) },
@@ -106,13 +107,19 @@ const Vendors = () => {
             </div>
 
             <Card padding={false}>
-                <Table
-                    columns={columns}
-                    data={filteredData}
-                    onRowClick={(row) => navigate(`/ap/vendors/new?vendorId=${row.id}&mode=view`)}
-                    showCount
-                    countLabel="vendors"
-                />
+                {isLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading vendors…
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={filteredData}
+                        onRowClick={(row) => navigate(`/ap/vendors/new?vendorId=${row.id}&mode=view`)}
+                        showCount
+                        countLabel="vendors"
+                    />
+                )}
             </Card>
         </div>
     );

@@ -1,10 +1,11 @@
 import React from 'react';
 import StatusTag from '../../UI/StatusTag';
 import { formatDateID, formatIDR } from '../../../utils/formatters';
-import { Printer, Eye, Pencil } from 'lucide-react';
+import { Printer, Eye, Pencil, Loader } from 'lucide-react';
 
 const InvoiceCatalogPanel = ({
     data,
+    isLoading = false,
     selectedId,
     filters,
     onSearchChange,
@@ -63,7 +64,16 @@ const InvoiceCatalogPanel = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {data.length === 0 && (
+                        {isLoading && (
+                            <tr>
+                                <td colSpan={6} className="p-5">
+                                    <div className="flex items-center gap-2 text-sm text-neutral-400">
+                                        <Loader size={15} className="animate-spin" /> Loading invoices…
+                                    </div>
+                                </td>
+                            </tr>
+                        )}
+                        {!isLoading && data.length === 0 && (
                             <tr>
                                 <td colSpan={6} className="text-center text-neutral-600 p-5">
                                     No invoices found

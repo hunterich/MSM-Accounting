@@ -4,9 +4,9 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Loader } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
-import { useGLStore } from '../../stores/useGLStore';
+import { useJournalEntries } from '../../hooks/useGL';
 import { formatIDR, formatDateID } from '../../utils/formatters';
 
 const PERIODS = [
@@ -41,21 +41,23 @@ const JournalEntries = () => {
                     variant="tertiary"
                     onClick={(e) => {
                         e.stopPropagation();
-                        navigate('/gl/journals/edit', { state: { mode: row.status === 'Draft' ? 'edit' : 'view', entryNo: row.entryNo } });
+                        navigate('/gl/journals/edit', {
+                            state: { mode: row.status === 'Draft' ? 'edit' : 'view', entryNo: row.entryNo, id: row.id }
+                        });
                     }}
                 />
             )
         },
     ];
-    const journalEntries = useGLStore((s) => s.journalEntries);
-    const entries = journalEntries.map((entry) => {
-        const totalDebit = (entry.lines || []).reduce((sum, l) => sum + (Number(l.debit) || 0), 0);
-        const totalCredit = (entry.lines || []).reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
-        return { ...entry, totalDebit, totalCredit };
-    });
+
     const [searchTerm, setSearchTerm] = useState('');
     const [periodFilter, setPeriodFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
+
+    // Fetch from API; pass status filter server-side, period is client-side only
+    const apiStatusFilter = statusFilter === 'Posted' ? 'POSTED' : statusFilter === 'Draft' ? 'DRAFT' : undefined;
+    const { data: jeResult, isLoading } = useJournalEntries(apiStatusFilter ? { status: apiStatusFilter } : {});
+    const entries = jeResult?.data ?? [];
 
     const filteredEntries = useMemo(() => {
         const keyword = searchTerm.toLowerCase();
@@ -119,7 +121,13 @@ const JournalEntries = () => {
             </div>
 
             <Card title="All Journal Entries" padding={false}>
-                <Table columns={columns} data={filteredEntries} showCount countLabel="entries" />
+                {isLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading journal entries…
+                    </div>
+                ) : (
+                    <Table columns={columns} data={filteredEntries} showCount countLabel="entries" />
+                )}
             </Card>
         </ListPage>
     );

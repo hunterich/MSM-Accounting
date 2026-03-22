@@ -4,9 +4,8 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
-import { bankAccounts, bills } from '../../data/mockData';
-import { useAPPaymentStore } from '../../stores/useAPPaymentStore';
+import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Loader } from 'lucide-react';
+import { useAPPayments } from '../../hooks/useAP';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 
 const Payments = () => {
@@ -18,7 +17,8 @@ const Payments = () => {
     const [openPaymentIds, setOpenPaymentIds] = useState([]);
     const [selectedPaymentId, setSelectedPaymentId] = useState('');
     const [detailTab, setDetailTab] = useState('summary');
-    const payments = useAPPaymentStore((s) => s.apPayments);
+    const { data: paymentsResult, isLoading } = useAPPayments();
+    const payments = paymentsResult?.data ?? [];
 
     const filteredData = useMemo(() => {
         return payments.filter((item) => {
@@ -40,8 +40,8 @@ const Payments = () => {
     }, [searchTerm, filters.status, dateRange.from, dateRange.to, payments]);
 
     const selectedPayment = payments.find((item) => item.id === selectedPaymentId) || null;
-    const linkedBill = selectedPayment ? bills.find((bill) => bill.id === selectedPayment.billId) : null;
-    const linkedBank = selectedPayment ? bankAccounts.find((bank) => bank.id === selectedPayment.bankId) : null;
+    const linkedBill = null;  // Bill detail not wired yet
+    const linkedBank = null;  // Bank lookup not wired yet
 
     const openPaymentTab = (paymentId) => {
         setOpenPaymentIds((prev) => (prev.includes(paymentId) ? prev : [...prev, paymentId]));
@@ -182,13 +182,19 @@ const Payments = () => {
                         ) : null}
                     </div>
                     <Card padding={false}>
-                        <Table
-                            columns={columns}
-                            data={filteredData}
-                            onRowClick={(row) => openPaymentTab(row.id)}
-                            showCount
-                            countLabel="payments"
-                        />
+                        {isLoading ? (
+                            <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                                <Loader size={16} className="animate-spin" /> Loading payments…
+                            </div>
+                        ) : (
+                            <Table
+                                columns={columns}
+                                data={filteredData}
+                                onRowClick={(row) => openPaymentTab(row.id)}
+                                showCount
+                                countLabel="payments"
+                            />
+                        )}
                     </Card>
                 </>
             )}

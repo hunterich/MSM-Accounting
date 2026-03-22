@@ -7,13 +7,15 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
 import { formatIDR } from '../../utils/formatters';
-import { useCustomerStore } from '../../stores/useCustomerStore';
+import { useCustomers } from '../../hooks/useAR';
+import { Loader } from 'lucide-react';
 
 const MAX_TABS_PER_ROW = 5;
 
 const Customers = () => {
     const navigate = useNavigate();
-    const customerList = useCustomerStore((s) => s.customers);
+    const { data: cuResult, isLoading } = useCustomers();
+    const customerList = cuResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ category: '', status: '' });
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -151,13 +153,19 @@ const Customers = () => {
                         placeholder="Search by name or email..."
                     />
                     <Card padding={false}>
-                        <Table
-                            columns={columns}
-                            data={filteredData}
-                            onRowClick={(row) => openCustomerTab(row.id)}
-                            showCount
-                            countLabel="customers"
-                        />
+                        {isLoading ? (
+                            <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                                <Loader size={16} className="animate-spin" /> Loading customers…
+                            </div>
+                        ) : (
+                            <Table
+                                columns={columns}
+                                data={filteredData}
+                                onRowClick={(row) => openCustomerTab(row.id)}
+                                showCount
+                                countLabel="customers"
+                            />
+                        )}
                     </Card>
                 </>
             )}

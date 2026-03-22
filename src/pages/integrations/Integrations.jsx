@@ -8,14 +8,17 @@ import StatusTag from '../../components/UI/StatusTag';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { Plus, Settings, Trash2, AlertCircle } from 'lucide-react';
 import { customers, bankAccounts } from '../../data/mockData';
+import { useIntegrationStore } from '../../stores/useIntegrationStore';
 import ListPage from '../../components/Layout/ListPage';
 
 const Integrations = () => {
+    const shops = useIntegrationStore((s) => s.shops);
+    const addShop = useIntegrationStore((s) => s.addShop);
+    const updateShop = useIntegrationStore((s) => s.updateShop);
+    const deleteShop = useIntegrationStore((s) => s.deleteShop);
+
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [shops, setShops] = useState([
-        { id: 'SHOP-001', platform: 'Shopee', name: 'My Beauty Store (ID)', customer: 'CUST-001', holdingAccount: 'BANK-005', status: 'Active' },
-        { id: 'SHOP-002', platform: 'TikTok', name: 'Viral Gadgets', customer: 'CUST-002', holdingAccount: 'BANK-006', status: 'Syncing' }
-    ]);
+    const [settingsShopId, setSettingsShopId] = useState(null);
 
     const [newShop, setNewShop] = useState({
         platform: 'Shopee',
@@ -68,19 +71,29 @@ const Integrations = () => {
         }
 
         const shop = {
-            id: `SHOP-${String(shops.length + 1).padStart(3, '0')}`,
+            id: `SHOP-${Date.now()}`,
             platform: newShop.platform,
             name: trimmedName,
             customer: newShop.customerId,
             holdingAccount: newShop.holdingAccountId,
             status: 'Active'
         };
-        setShops((prev) => [...prev, shop]);
+        addShop(shop);
         resetModal();
     };
 
     const handleDeleteShop = (id) => {
-        setShops(shops.filter(s => s.id !== id));
+        deleteShop(id);
+    };
+
+    // Settings modal
+    const settingsShop = settingsShopId ? shops.find(s => s.id === settingsShopId) : null;
+
+    const handleSaveSettings = (filter) => {
+        if (settingsShopId) {
+            updateShop(settingsShopId, { importStatusFilter: filter });
+        }
+        setSettingsShopId(null);
     };
 
     const columns = [
@@ -91,7 +104,6 @@ const Integrations = () => {
             label: 'Mapped Customer',
             render: (val) => {
                 const cust = customers.find(c => c.id === val) || { name: 'Unknown Customer' };
-                // Allow looking up mock ID if not found in real list
                 return cust.name === 'Unknown Customer' ? val : cust.name;
             }
         },
@@ -109,7 +121,7 @@ const Integrations = () => {
             label: '',
             render: (_, row) => (
                 <div className="row-actions-end">
-                    <Button icon={<Settings size={14} />} size="small" variant="secondary" />
+                    <Button icon={<Settings size={14} />} size="small" variant="secondary" onClick={() => setSettingsShopId(row.id)} />
                     <Button icon={<Trash2 size={14} />} size="small" variant="danger" onClick={() => handleDeleteShop(row.id)} />
                 </div>
             )
@@ -143,6 +155,7 @@ const Integrations = () => {
                 <Table columns={columns} data={shops} />
             </Card>
 
+            {/* Add New Shop Modal */}
             <Modal
                 title="Connect New Shop"
                 isOpen={isModalOpen}
@@ -219,6 +232,47 @@ const Integrations = () => {
                     <Button text="Cancel" variant="tertiary" onClick={resetModal} />
                     <Button text="Save Connection" variant="primary" onClick={handleSaveShop} />
                 </div>
+            </Modal>
+
+            {/* Shop Settings Modal */}
+            <Modal
+                title={settingsShop ? `Settings — ${settingsShop.name}` : 'Shop Settings'}
+                isOpen={!!settingsShopId}
+                onClose={() => setSettingsShopId(null)}
+                size="sm"
+            >
+                {settingsShop && (
+                    <div className="integrations-modal-body">
+                        <div className="mb-4">
+                            <label className="form-label">Import Status Filter</label>
+                            <span className="integrations-field-hint mb-2 block">
+                                Choose which order statuses to include when importing transactions.
+                            </span>
+                            <div className="flex flex-col gap-2">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="importStatusFilter"
+                                        value="Selesai"
+                                        checked={settingsShop.importStatusFilter === 'Selesai'}
+                                        onChange={() => handleSaveSettings('Selesai')}
+                                    />
+                                    <span className="text-sm">Selesai (Completed only)</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="importStatusFilter"
+                                        value="All"
+                                        checked={settingsShop.importStatusFilter === 'All'}
+                                        onChange={() => handleSaveSettings('All')}
+                                    />
+                                    <span className="text-sm">Semua Status (All statuses)</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </Modal>
         </ListPage>
     );

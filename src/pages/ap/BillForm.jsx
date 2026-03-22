@@ -4,8 +4,9 @@ import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
+import { useBills, useCreateBill, useUpdateBill } from '../../hooks/useAP';
+import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBillStore } from '../../stores/useBillStore';
-import { useGLStore } from '../../stores/useGLStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const buildFormData = (bill) => {
@@ -59,12 +60,17 @@ const BillForm = () => {
     const mode = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'new';
     const isViewMode = mode === 'view';
 
-    const bills = useBillStore(s => s.bills);
+    const { data: billsData } = useBills();
+    const bills = billsData?.data || [];
+
+    // Keep Zustand for print templates only
     const billItemTemplates = useBillStore(s => s.billItemTemplates);
-    const addBill = useBillStore(s => s.addBill);
-    const updateBill = useBillStore(s => s.updateBill);
     const setBillItemTemplates = useBillStore(s => s.setBillItemTemplates);
-    const chartOfAccounts = useGLStore(s => s.chartOfAccounts);
+
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+
+    const createBill = useCreateBill();
+    const updateBill = useUpdateBill();
 
     const selectedBill = useMemo(() => bills.find((bill) => bill.id === billId) || null, [billId, bills]);
 
@@ -193,7 +199,7 @@ const BillForm = () => {
         }).length;
     }, [items, accountMap]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/ap/bills');
@@ -238,17 +244,22 @@ const BillForm = () => {
             notes: formData.notes
         };
 
-        if (mode === 'edit' && selectedBill) {
-            updateBill(selectedBill.id, finalBill);
-        } else {
-            addBill(finalBill);
+        try {
+            if (mode === 'edit' && selectedBill) {
+                await updateBill.mutateAsync({ id: selectedBill._id || selectedBill.id, ...finalBill });
+            } else {
+                await createBill.mutateAsync(finalBill);
+            }
+
+            setBillItemTemplates(finalBillId, items);
+
+            navigate('/ap/bills');
+        } catch (err) {
+            window.alert(`Failed to save bill: ${err?.message || 'Unknown error'}`);
         }
-
-        setBillItemTemplates(finalBillId, items);
-
-        console.log('Submitted', { finalBill, items, postingPreview });
-        navigate('/ap/bills');
     };
+
+    const isPending = createBill.isPending || updateBill.isPending;
 
     const pageTitle = isViewMode
         ? `View Bill${billId ? ` ${billId}` : ''}`
@@ -268,7 +279,13 @@ const BillForm = () => {
                 ) : (
                     <>
                         <Button text="Cancel" variant="secondary" onClick={() => navigate('/ap/bills')} />
-                        <Button text={mode === 'edit' ? 'Update Bill' : 'Save Bill'} variant="primary" type="submit" form="bill-form-main" />
+                        <Button
+                            text={isPending ? 'Saving...' : (mode === 'edit' ? 'Update Bill' : 'Save Bill')}
+                            variant="primary"
+                            type="submit"
+                            form="bill-form-main"
+                            disabled={isPending}
+                        />
                     </>
                 )
             )}

@@ -4,8 +4,8 @@ import { Plus } from 'lucide-react';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { chartOfAccounts } from '../../data/mockData';
-import { useInventoryStore } from '../../stores/useInventoryStore';
+import { useItems, useCreateItem, useUpdateItem } from '../../hooks/useInventory';
+import { useChartOfAccounts } from '../../hooks/useGL';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -127,20 +127,23 @@ const InventoryForm = () => {
     const location        = useLocation();
     const [searchParams]  = useSearchParams();
 
-    const addProduct    = useInventoryStore((s) => s.addProduct);
-    const updateProduct = useInventoryStore((s) => s.updateProduct);
-    const storeProducts = useInventoryStore((s) => s.products);
+    const createItem = useCreateItem();
+    const updateItem = useUpdateItem();
+    const { data: itemsData } = useItems();
+    const storeProducts = itemsData?.data ?? [];
 
     const itemId   = searchParams.get('itemId') || '';
     const rawMode  = searchParams.get('mode') || 'create';
     const mode     = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'create';
     const isViewMode = mode === 'view';
 
+    const isSaving = createItem.isPending || updateItem.isPending;
+
     const selectedItem = useMemo(() => {
         const stateItem = location.state?.item;
         if (stateItem && (!itemId || stateItem.id === itemId)) return stateItem;
         if (!itemId) return null;
-        // Look up from store first, fall back to seed
+        // Look up from API data first, fall back to seed
         return storeProducts.find((p) => p.id === itemId)
             || INVENTORY_ITEM_SEED.find((item) => item.id === itemId)
             || null;
@@ -155,17 +158,18 @@ const InventoryForm = () => {
     }, [itemId, mode, selectedItem]);
 
     // ── Filtered account lists ────────────────────────────────────────────
+    const { data: allAccounts = [] } = useChartOfAccounts();
     const inventoryAccounts = useMemo(
-        () => chartOfAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Asset'),
-        []
+        () => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Asset'),
+        [allAccounts]
     );
     const revenueAccounts = useMemo(
-        () => chartOfAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Revenue'),
-        []
+        () => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Revenue'),
+        [allAccounts]
     );
     const cogsAccounts = useMemo(
-        () => chartOfAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Expense'),
-        []
+        () => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Expense'),
+        [allAccounts]
     );
 
     // Computed margin
@@ -227,7 +231,7 @@ const InventoryForm = () => {
         return nextErrors;
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const nextErrors = validate();
         if (Object.keys(nextErrors).length > 0) { setErrors(nextErrors); return; }
 
@@ -236,7 +240,7 @@ const InventoryForm = () => {
             : formData.category;
 
         const payload = {
-            id:                 formData.sku.trim(),
+            sku:                formData.sku.trim(),
             name:               formData.name.trim(),
             category,
             type:               formData.type,
@@ -254,13 +258,16 @@ const InventoryForm = () => {
             status:             formData.status,
         };
 
-        if (mode === 'edit' && itemId) {
-            updateProduct(itemId, payload);
-        } else {
-            addProduct(payload);
+        try {
+            if (mode === 'edit' && itemId) {
+                await updateItem.mutateAsync({ id: itemId, ...payload });
+            } else {
+                await createItem.mutateAsync(payload);
+            }
+            navigate('/inventory');
+        } catch (err) {
+            alert(`Failed to save item: ${err?.message ?? 'Unknown error'}`);
         }
-
-        navigate('/inventory');
     };
 
     const pageTitle = isViewMode
@@ -287,11 +294,12 @@ const InventoryForm = () => {
                     <Button text="Close" variant="primary" onClick={() => navigate('/inventory')} />
                 ) : (
                     <>
-                        <Button text="Cancel" variant="secondary" onClick={() => navigate('/inventory')} />
+                        <Button text="Cancel" variant="secondary" onClick={() => navigate('/inventory')} disabled={isSaving} />
                         <Button
-                            text={mode === 'edit' ? 'Update Item' : 'Save Item'}
+                            text={isSaving ? 'Saving...' : mode === 'edit' ? 'Update Item' : 'Save Item'}
                             variant="primary"
                             onClick={handleSave}
+                            disabled={isSaving}
                         />
                     </>
                 )

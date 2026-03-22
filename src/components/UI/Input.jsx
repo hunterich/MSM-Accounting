@@ -12,11 +12,12 @@ const Input = ({
     error = null,
     onChange,
     className = '',
+    wrapperClassName,
     inputClassName = '',
     style
 }) => {
     return (
-        <div className={`mb-4 ${className}`}>
+        <div className={wrapperClassName !== undefined ? wrapperClassName : `mb-4 ${className}`}>
             {label && (
                 <label htmlFor={id} className="block mb-2 text-sm font-medium text-neutral-700">
                     {label}

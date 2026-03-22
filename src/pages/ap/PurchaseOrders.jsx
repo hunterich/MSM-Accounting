@@ -7,17 +7,18 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import PurchaseOrderPrintTemplate from '../../components/print/PurchaseOrderPrintTemplate';
-import { Plus, Search, List } from 'lucide-react';
+import { Plus, Search, List, Loader } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { usePurchaseOrders } from '../../hooks/useAP';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
-import { useVendorStore } from '../../stores/useVendorStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const PurchaseOrders = () => {
     const navigate = useNavigate();
-    const purchaseOrders = usePurchaseOrderStore((s) => s.purchaseOrders);
+    const { data: posResult, isLoading } = usePurchaseOrders();
+    const purchaseOrders = posResult?.data ?? [];
+    // poItemTemplates stays in local store (for print until API supports line fetch)
     const poItemTemplates = usePurchaseOrderStore((s) => s.poItemTemplates);
-    const vendors = useVendorStore((s) => s.vendors);
     const company = useSettingsStore((s) => s.companyInfo);
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,36 +29,25 @@ const PurchaseOrders = () => {
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
     const filteredData = useMemo(() => {
-        return purchaseOrders.map((po) => {
-            const vendor = vendors.find((v) => v.id === po.vendorId);
-            return {
-                ...po,
-                vendorName: vendor ? vendor.name : po.vendorId
-            };
-        }).filter((item) => {
+        return purchaseOrders.filter((item) => {
+            const keyword = searchTerm.toLowerCase();
             const matchesSearch =
-                item.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.vendorName.toLowerCase().includes(searchTerm.toLowerCase());
+                (item.id || '').toLowerCase().includes(keyword) ||
+                (item.vendorName || '').toLowerCase().includes(keyword);
             const matchesStatus = filters.status ? item.status === filters.status : true;
 
             let matchesDate = true;
-            if (dateRange.from) {
-                matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
-            }
-            if (dateRange.to) {
-                matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
-            }
+            if (dateRange.from) matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
+            if (dateRange.to)   matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
 
             return matchesSearch && matchesStatus && matchesDate;
         });
-    }, [purchaseOrders, vendors, searchTerm, filters.status, dateRange.from, dateRange.to]);
+    }, [purchaseOrders, searchTerm, filters.status, dateRange.from, dateRange.to]);
 
     const activePrintPo = filteredData.find((po) => po.id === printPoId)
         || purchaseOrders.find((po) => po.id === printPoId)
         || null;
-    const activeVendorName = activePrintPo
-        ? (vendors.find((vendor) => vendor.id === activePrintPo.vendorId)?.name || activePrintPo.vendorName || '-')
-        : '-';
+    const activeVendorName = activePrintPo?.vendorName || '-';
     const activePrintLines = activePrintPo ? (poItemTemplates[activePrintPo.id] || []) : [];
 
     const queuePrintPo = useCallback((poId) => {
@@ -160,13 +150,19 @@ const PurchaseOrders = () => {
             </div>
 
             <Card padding={false}>
-                <Table
-                    columns={columns}
-                    data={filteredData}
-                    onRowClick={(row) => navigate(`/ap/pos/edit?poId=${row.id}&mode=view`)}
-                    showCount
-                    countLabel="orders"
-                />
+                {isLoading ? (
+                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
+                        <Loader size={16} className="animate-spin" /> Loading purchase orders…
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={filteredData}
+                        onRowClick={(row) => navigate(`/ap/pos/edit?poId=${row.id}&mode=view`)}
+                        showCount
+                        countLabel="orders"
+                    />
+                )}
             </Card>
 
             <PrintPreviewModal

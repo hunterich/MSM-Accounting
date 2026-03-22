@@ -5,10 +5,12 @@ import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import StatusTag from '../../components/UI/StatusTag';
 import { Calendar, CreditCard, FileText, Hash } from 'lucide-react';
-import { bankAccounts, bills, chartOfAccounts, vendors } from '../../data/mockData';
-import { useAPPaymentStore } from '../../stores/useAPPaymentStore';
+import { useVendors, useBills, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { useBankAccounts } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
+import { useAPPaymentStore } from '../../stores/useAPPaymentStore';
 
 const BANK_TO_GL_ACCOUNT_MAP = {
     'BANK-001': 'COA-1120',
@@ -27,7 +29,23 @@ const buildPaymentNo = (bankCode, dateStr, seq) => {
 const PaymentForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { apPayments, addPayment, updatePayment } = useAPPaymentStore();
+
+    const { data: vendorsData } = useVendors();
+    const vendors = vendorsData?.data || [];
+
+    const { data: billsData } = useBills();
+    const bills = billsData?.data || [];
+
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+
+    const { data: bankAccountsData = [] } = useBankAccounts();
+    const bankAccounts = Array.isArray(bankAccountsData) ? bankAccountsData : [];
+
+    const { apPayments } = useAPPaymentStore();
+
+    const createAPPayment = useCreateAPPayment();
+    const updateAPPayment = useUpdateAPPayment();
+
     const [mode, setMode] = useState('create');
 
     const [paymentData, setPaymentData] = useState({
@@ -35,7 +53,7 @@ const PaymentForm = () => {
         vendorId: '',
         date: new Date().toISOString().split('T')[0],
         method: 'Bank Transfer',
-        payFrom: 'BANK-001',
+        payFrom: bankAccounts[0]?.id || 'BANK-001',
         cashAccountId: 'COA-1120',
         apAccountId: 'COA-2100',
         discountAccountId: 'COA-4200',
@@ -55,27 +73,27 @@ const PaymentForm = () => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const apAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
-    }, []);
+    }, [chartOfAccounts]);
 
     const discountAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Revenue');
-    }, []);
+    }, [chartOfAccounts]);
 
     const penaltyAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
-    }, []);
+    }, [chartOfAccounts]);
 
     const cashAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const getBankCode = (bankId) => {
         const bank = bankAccounts.find((item) => item.id === bankId);
-        return bank?.code || 'BANK';
+        return bank?.code || bank?.bankName || 'BANK';
     };
 
     const paymentNoPreview = buildPaymentNo(
@@ -138,7 +156,7 @@ const PaymentForm = () => {
             total += Number(bill.amount || 0) - Number(adjustment.discount || 0) + Number(adjustment.penalty || 0);
         });
         setPaymentData((prev) => ({ ...prev, totalAmount: total }));
-    }, [paymentData.selectedBills, paymentData.adjustments]);
+    }, [paymentData.selectedBills, paymentData.adjustments, bills]);
 
     const vendorOptions = vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }));
     const bankOptions = bankAccounts.map((bank) => ({ value: bank.id, label: bank.name }));
@@ -153,7 +171,7 @@ const PaymentForm = () => {
             if (!paymentData.vendorId || bill.vendorId !== paymentData.vendorId) return false;
             return bill.status !== 'Paid';
         });
-    }, [paymentData.vendorId]);
+    }, [paymentData.vendorId, bills]);
 
     const paymentBreakdown = useMemo(() => {
         const selected = paymentData.selectedBills
@@ -176,7 +194,7 @@ const PaymentForm = () => {
         const cashAmount = billAmount - discountAmount + penaltyAmount;
 
         return { billAmount, discountAmount, penaltyAmount, cashAmount };
-    }, [paymentData.selectedBills, paymentData.adjustments]);
+    }, [paymentData.selectedBills, paymentData.adjustments, bills]);
 
     const postingPreview = useMemo(() => {
         const lines = [
@@ -273,7 +291,7 @@ const PaymentForm = () => {
         );
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!paymentData.vendorId) {
             window.alert('Select a vendor before saving payment.');
             return;
@@ -323,13 +341,19 @@ const PaymentForm = () => {
             status: 'Completed',
         };
 
-        if (mode === 'edit' && paymentData.paymentNumber) {
-            updatePayment(paymentData.paymentNumber, newPayment);
-        } else {
-            addPayment(newPayment);
+        try {
+            if (mode === 'edit' && paymentData.paymentNumber) {
+                await updateAPPayment.mutateAsync({ id: paymentData.paymentNumber, ...newPayment });
+            } else {
+                await createAPPayment.mutateAsync(newPayment);
+            }
+            navigate('/ap/payments');
+        } catch (err) {
+            window.alert(`Failed to save payment: ${err?.message || 'Unknown error'}`);
         }
-        navigate('/ap/payments');
     };
+
+    const isPending = createAPPayment.isPending || updateAPPayment.isPending;
 
     return (
         <FormPage
@@ -339,7 +363,12 @@ const PaymentForm = () => {
             actions={
                 <>
                     <Button text="Save Draft" variant="secondary" />
-                    <Button text={mode === 'view' ? 'Close' : 'Save Payment'} variant="primary" onClick={mode === 'view' ? () => navigate('/ap/payments') : handleSave} />
+                    <Button
+                        text={mode === 'view' ? 'Close' : isPending ? 'Saving...' : 'Save Payment'}
+                        variant="primary"
+                        onClick={mode === 'view' ? () => navigate('/ap/payments') : handleSave}
+                        disabled={isPending}
+                    />
                 </>
             }
         >
