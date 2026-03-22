@@ -38,8 +38,8 @@ const navItems = [
         path: '/ar',
         icon: ArrowDownLeft,
         subItems: [
-            { label: 'Invoices', path: '/ar/invoices' },
             { label: 'Sales Orders', path: '/ar/sales-orders' },
+            { label: 'Invoices', path: '/ar/invoices' },
             { label: 'Payments', path: '/ar/payments' },
             { label: 'Returns & Credits', path: '/ar/credits' },
             { label: 'Customers', path: '/ar/customers' },

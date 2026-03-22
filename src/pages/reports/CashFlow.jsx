@@ -1,10 +1,14 @@
 import React, { useMemo } from 'react';
 import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
-import { chartOfAccounts, journalEntries as journalEntriesSeed } from '../../data/mockData';
+import { useChartOfAccounts, useJournalEntries } from '../../hooks/useGL';
 import { formatIDR } from '../../utils/formatters';
 
 const CashFlow = ({ startDate, endDate, isInRange }) => {
+
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: jeData } = useJournalEntries({ limit: 1000 });
+    const journalEntriesSeed = jeData?.data ?? [];
 
     const cashFlowData = useMemo(() => {
         // 1. Identify Cash Accounts
@@ -118,7 +122,7 @@ const CashFlow = ({ startDate, endDate, isInRange }) => {
             ...r,
             amount: r.amountValue !== null ? formatIDR(r.amountValue) : ''
         }));
-    }, [isInRange]);
+    }, [chartOfAccounts, journalEntriesSeed, isInRange]);
 
     const columns = [
         {

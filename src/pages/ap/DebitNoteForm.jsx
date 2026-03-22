@@ -3,8 +3,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
-import { bankAccounts, bills, chartOfAccounts } from '../../data/mockData';
-import { useReturnStore } from '../../stores/useReturnStore';
+import { useBankAccounts } from '../../hooks/useBanking';
+import { useBills } from '../../hooks/useAP';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { useDebitNotes, usePurchaseReturns, useCreateDebitNote, useUpdateDebitNote } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
@@ -39,7 +41,16 @@ const toReturnTotals = (purchaseReturn) => {
 const DebitNoteForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { debitNotes, purchaseReturns, addDebitNote, updateDebitNote } = useReturnStore();
+    const { data: bankAccounts = [] } = useBankAccounts();
+    const { data: billsData } = useBills();
+    const bills = billsData?.data ?? [];
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: dnData } = useDebitNotes();
+    const debitNotes = dnData?.data ?? [];
+    const { data: prData } = usePurchaseReturns();
+    const purchaseReturns = prData?.data ?? [];
+    const createDebitNote = useCreateDebitNote();
+    const updateDebitNoteMutation = useUpdateDebitNote();
     const state = location.state || {};
     const mode = state.mode || 'create';
     const isView = mode === 'view';
@@ -276,9 +287,9 @@ const DebitNoteForm = () => {
         };
 
         if (mode === 'edit' && formData.debitNumber) {
-            updateDebitNote(formData.debitNumber, notePayload);
+            updateDebitNoteMutation.mutate({ id: formData.debitNumber, ...notePayload });
         } else {
-            addDebitNote(notePayload);
+            createDebitNote.mutate(notePayload);
         }
         navigate('/ap/debits');
     };

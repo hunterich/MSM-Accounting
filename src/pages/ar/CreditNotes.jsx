@@ -6,14 +6,16 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
 import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
-import { warehouses } from '../../data/mockData';
-import { useReturnStore } from '../../stores/useReturnStore';
+import { useCreditNotes, useSalesReturns, useWarehouses } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 
 const CreditNotes = () => {
     const navigate = useNavigate();
-    const creditNotes = useReturnStore((s) => s.creditNotes);
-    const salesReturns = useReturnStore((s) => s.salesReturns);
+    const { data: cnData } = useCreditNotes();
+    const creditNotes = cnData?.data ?? [];
+    const { data: srData } = useSalesReturns();
+    const salesReturns = srData?.data ?? [];
+    const { data: warehouses = [] } = useWarehouses();
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ settlementType: '' });
     const [activeCatalogTab, setActiveCatalogTab] = useState('credits');

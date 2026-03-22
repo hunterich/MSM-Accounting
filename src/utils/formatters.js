@@ -1,5 +1,6 @@
 export const formatIDR = (amount) => {
-    const num = Number(amount || 0);
+    const raw = Number(amount || 0);
+    const num = Number.isNaN(raw) ? 0 : raw;
     return new Intl.NumberFormat('id-ID', {
         style: 'currency',
         currency: 'IDR',

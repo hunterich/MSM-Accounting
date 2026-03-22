@@ -4,10 +4,13 @@ import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import StatusTag from '../../components/UI/StatusTag';
-import { customers, invoices, salesReturns, warehouses, invoiceItemTemplates, products, chartOfAccounts } from '../../data/mockData';
 import { formatIDR, formatDateID } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useReturnStore } from '../../stores/useReturnStore';
+import { useCustomers, useInvoices } from '../../hooks/useAR';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
+import { useItems } from '../../hooks/useInventory';
 
 const buildReturnNo = (dateStr, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -33,6 +36,33 @@ const SalesReturnForm = () => {
     const isView = mode === 'view';
     const { addSalesReturn, updateSalesReturn } = useReturnStore();
 
+    const { data: customersData } = useCustomers();
+    const customers = customersData?.data ?? [];
+    const { data: invoicesData } = useInvoices();
+    const invoices = invoicesData?.data ?? [];
+    const { data: srData } = useSalesReturns();
+    const salesReturns = srData?.data ?? [];
+    const { data: warehouses = [] } = useWarehouses();
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: productsData } = useItems();
+    const products = productsData?.data ?? [];
+    const createSalesReturnMutation = useCreateSalesReturn();
+    const updateSalesReturnMutation = useUpdateSalesReturn();
+
+    const invoiceItemTemplates = useMemo(() => {
+        const map = {};
+        invoices.forEach(inv => {
+            if (inv.lines?.length) map[inv.id] = inv.lines.map(l => ({
+                id: l.id || l.itemId,
+                itemName: l.description || l.itemName,
+                qty: l.quantity,
+                unit: l.unit || 'PCS',
+                price: l.price
+            }));
+        });
+        return map;
+    }, [invoices]);
+
     const [returnNumberingMode, setReturnNumberingMode] = useState('auto');
     const [itemLookupOpen, setItemLookupOpen] = useState(false);
     const [lookupItemId, setLookupItemId] = useState('');
@@ -41,7 +71,7 @@ const SalesReturnForm = () => {
         customerId: '',
         invoiceId: '',
         returnDate: new Date().toISOString().split('T')[0],
-        warehouseId: warehouses[0]?.id || '',
+        warehouseId: '',
         arAccountId: 'COA-1210',
         returnAccountId: 'COA-5300',
         taxAccountId: 'COA-2200',
@@ -74,7 +104,13 @@ const SalesReturnForm = () => {
             notes: '',
             lines: (found.lines || []).map(normalizeLine)
         });
-    }, [state.returnId]);
+    }, [state.returnId, salesReturns]);
+
+    useEffect(() => {
+        if (warehouses.length > 0 && !returnData.warehouseId) {
+            setReturnData((prev) => ({ ...prev, warehouseId: prev.warehouseId || warehouses[0].id }));
+        }
+    }, [warehouses]);
 
     const returnNoPreview = useMemo(() => buildReturnNo(returnData.returnDate, salesReturns.length + 1), [returnData.returnDate]);
 
@@ -100,19 +136,19 @@ const SalesReturnForm = () => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const arAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const returnAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
-    }, []);
+    }, [chartOfAccounts]);
 
     const taxAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
-    }, []);
+    }, [chartOfAccounts]);
 
     const getAlreadyReturnedQty = (invoiceId, itemId, excludeReturnId = state.returnId) => {
         return salesReturns
@@ -282,16 +318,16 @@ const SalesReturnForm = () => {
             returnNumber,
             lines: selectedLines
         };
-        // Persist the return to the store
+        // Persist the return via API
         const returnRecord = {
             id: returnNumber,
             ...payload,
             status: 'Pending Credit Note',
         };
         if (state.returnId) {
-            updateSalesReturn(state.returnId, returnRecord);
+            updateSalesReturnMutation.mutate({ id: state.returnId, ...returnRecord });
         } else {
-            addSalesReturn(returnRecord);
+            createSalesReturnMutation.mutate(returnRecord);
         }
 
         navigate('/ar/credits/new', {

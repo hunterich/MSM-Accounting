@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { chartOfAccounts } from '../../data/mockData';
 import { useBankAccounts, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
+import { useChartOfAccounts } from '../../hooks/useGL';
 import FormPage from '../../components/Layout/FormPage';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -80,17 +80,18 @@ const BankingActionForm = () => {
     const sourceTransaction = location.state?.transaction || null;
 
     // ── API hooks
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
     const { data: bankAccounts = [], isLoading: accountsLoading } = useBankAccounts();
     const createAccount     = useCreateBankAccount();
     const createTransaction = useCreateBankTransaction();
 
     const expenseAccounts = useMemo(
         () => chartOfAccounts.filter((a) => a.type === 'Expense' && a.isActive && a.isPostable),
-        []
+        [chartOfAccounts]
     );
     const incomeAccounts = useMemo(
         () => chartOfAccounts.filter((a) => a.type === 'Revenue' && a.isActive && a.isPostable),
-        []
+        [chartOfAccounts]
     );
 
     const [formData, setFormData] = useState(() => buildInitialState(expenseAccounts, incomeAccounts));

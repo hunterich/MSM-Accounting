@@ -3,8 +3,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
-import { bankAccounts, invoices, chartOfAccounts } from '../../data/mockData';
-import { useReturnStore } from '../../stores/useReturnStore';
+import { useBankAccounts } from '../../hooks/useBanking';
+import { useInvoices } from '../../hooks/useAR';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { useCreditNotes, useSalesReturns, useCreateCreditNote, useUpdateCreditNote } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
@@ -37,7 +39,16 @@ const BANK_TO_ACCOUNT_MAP = {
 const CreditNoteForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { creditNotes, salesReturns, addCreditNote, updateCreditNote } = useReturnStore();
+    const { data: bankAccounts = [] } = useBankAccounts();
+    const { data: invoicesData } = useInvoices();
+    const invoices = invoicesData?.data ?? [];
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: cnData } = useCreditNotes();
+    const creditNotes = cnData?.data ?? [];
+    const { data: srData } = useSalesReturns();
+    const salesReturns = srData?.data ?? [];
+    const createCreditNote = useCreateCreditNote();
+    const updateCreditNoteMutation = useUpdateCreditNote();
     const state = location.state || {};
     const mode = state.mode || 'create'; // create | view | edit
     const isView = mode === 'view';
@@ -304,9 +315,9 @@ const CreditNoteForm = () => {
         };
 
         if (mode === 'edit' && formData.creditNumber) {
-            updateCreditNote(formData.creditNumber, notePayload);
+            updateCreditNoteMutation.mutate({ id: formData.creditNumber, ...notePayload });
         } else {
-            addCreditNote(notePayload);
+            createCreditNote.mutate(notePayload);
         }
         navigate('/ar/credits');
     };

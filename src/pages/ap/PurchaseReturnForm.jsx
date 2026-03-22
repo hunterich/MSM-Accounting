@@ -4,17 +4,12 @@ import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import StatusTag from '../../components/UI/StatusTag';
-import {
-    billItemTemplates,
-    bills,
-    chartOfAccounts,
-    purchaseReturns,
-    vendors,
-    warehouses
-} from '../../data/mockData';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useReturnStore } from '../../stores/useReturnStore';
+import { useVendors, useBills } from '../../hooks/useAP';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn } from '../../hooks/useReturns';
 
 const buildReturnNo = (dateStr, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -40,13 +35,37 @@ const PurchaseReturnForm = () => {
     const isView = mode === 'view';
     const { addPurchaseReturn, updatePurchaseReturn } = useReturnStore();
 
+    const { data: vendorsData } = useVendors();
+    const vendors = vendorsData?.data ?? [];
+    const { data: billsData } = useBills();
+    const bills = billsData?.data ?? [];
+    const { data: prData } = usePurchaseReturns();
+    const purchaseReturns = prData?.data ?? [];
+    const { data: warehouses = [] } = useWarehouses();
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const createPurchaseReturnMutation = useCreatePurchaseReturn();
+    const updatePurchaseReturnMutation = useUpdatePurchaseReturn();
+
+    const billItemTemplates = useMemo(() => {
+        const map = {};
+        bills.forEach(bill => {
+            if (bill.lines?.length) map[bill.id] = bill.lines.map(l => ({
+                description: l.description,
+                qty: l.quantity || l.qty,
+                unit: l.unit || 'PCS',
+                price: l.price
+            }));
+        });
+        return map;
+    }, [bills]);
+
     const [returnNumberingMode, setReturnNumberingMode] = useState('auto');
     const [returnData, setReturnData] = useState({
         returnNumber: '',
         vendorId: '',
         billId: '',
         returnDate: new Date().toISOString().split('T')[0],
-        warehouseId: warehouses[0]?.id || '',
+        warehouseId: '',
         apAccountId: 'COA-2100',
         returnAccountId: 'COA-5300',
         taxAccountId: 'COA-1210',
@@ -63,22 +82,22 @@ const PurchaseReturnForm = () => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const apAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
-    }, []);
+    }, [chartOfAccounts]);
 
     const returnAccountOptions = useMemo(() => {
         return chartOfAccounts.filter(
             (account) =>
                 account.isActive && account.isPostable && (account.type === 'Expense' || account.type === 'Asset')
         );
-    }, []);
+    }, [chartOfAccounts]);
 
     const taxAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const toLineIdentity = (line) => line.lineKey || `${line.description}|${line.unit}|${Number(line.price || 0)}`;
 
@@ -113,7 +132,13 @@ const PurchaseReturnForm = () => {
             notes: found.notes || '',
             lines: (found.lines || []).map(normalizeLine)
         });
-    }, [state.returnId]);
+    }, [state.returnId, purchaseReturns]);
+
+    useEffect(() => {
+        if (warehouses.length > 0 && !returnData.warehouseId) {
+            setReturnData((prev) => ({ ...prev, warehouseId: prev.warehouseId || warehouses[0].id }));
+        }
+    }, [warehouses]);
 
     const returnNoPreview = useMemo(() => buildReturnNo(returnData.returnDate, purchaseReturns.length + 1), [returnData.returnDate]);
 
@@ -278,16 +303,16 @@ const PurchaseReturnForm = () => {
             lines: selectedLines
         };
 
-        // Persist the return to the store
+        // Persist the return via API
         const returnRecord = {
             id: returnNumber,
             ...payload,
             status: 'Pending Debit Note',
         };
         if (state.returnId) {
-            updatePurchaseReturn(state.returnId, returnRecord);
+            updatePurchaseReturnMutation.mutate({ id: state.returnId, ...returnRecord });
         } else {
-            addPurchaseReturn(returnRecord);
+            createPurchaseReturnMutation.mutate(returnRecord);
         }
 
         navigate('/ap/debits/new', {

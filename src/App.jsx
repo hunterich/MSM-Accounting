@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { ErrorBoundary, PageErrorFallback } from './components/UI/ErrorBoundary'
 import Layout from './components/Layout/Layout'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import Login from './pages/Login'
@@ -50,12 +51,13 @@ import CompanySetup from './pages/company/CompanySetup'
 
 function App() {
     return (
+        <ErrorBoundary fallback={PageErrorFallback}>
         <Router>
             <Routes>
                 <Route path="/login" element={<Login />} />
 
                 <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                    <Route index element={<Dashboard />} />
+                    <Route index element={<ErrorBoundary fallback={PageErrorFallback}><Dashboard /></ErrorBoundary>} />
 
                     {/* General Ledger */}
                     <Route path="gl" element={<ChartOfAccounts />} />
@@ -64,7 +66,7 @@ function App() {
                     <Route path="gl/journals/edit" element={<JournalEntryForm />} />
 
                     {/* Accounts Receivable */}
-                    <Route path="ar" element={<Navigate to="/ar/invoices" replace />} />
+                    <Route path="ar" element={<Navigate to="/ar/sales-orders" replace />} />
                     <Route path="ar/invoices" element={<Invoices />} />
                     <Route path="ar/invoices/workbench" element={<InvoiceWorkbench />} />
                     <Route path="ar/invoices/new" element={<InvoiceForm />} />
@@ -133,6 +135,7 @@ function App() {
                 </Route>
             </Routes>
         </Router>
+        </ErrorBoundary>
     )
 }
 

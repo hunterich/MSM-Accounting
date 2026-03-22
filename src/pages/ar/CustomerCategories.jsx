@@ -5,11 +5,14 @@ import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import Modal from '../../components/UI/Modal';
-import { initialCustomerCategories } from '../../data/mockData';
+import { useCustomerCategories, useCreateCustomerCategory, useUpdateCustomerCategory, useDeleteCustomerCategory } from '../../hooks/useReturns';
 import { formatIDR } from '../../utils/formatters';
 
 const CustomerCategories = () => {
-    const [categories, setCategories] = useState(initialCustomerCategories || []);
+    const { data: categories = [], isLoading } = useCustomerCategories();
+    const createCategoryMutation = useCreateCustomerCategory();
+    const updateCategoryMutation = useUpdateCustomerCategory();
+    const deleteCategoryMutation = useDeleteCustomerCategory();
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCategory, setEditingCategory] = useState(null);
@@ -57,22 +60,16 @@ const CustomerCategories = () => {
     const handleSave = (e) => {
         e.preventDefault();
         if (editingCategory) {
-            setCategories(prev => prev.map(cat =>
-                cat.id === editingCategory.id ? { ...cat, ...formData } : cat
-            ));
+            updateCategoryMutation.mutate({ id: editingCategory.id, ...formData });
         } else {
-            const newCategory = {
-                id: `CAT-${Date.now()}`,
-                ...formData
-            };
-            setCategories(prev => [...prev, newCategory]);
+            createCategoryMutation.mutate(formData);
         }
         setIsModalOpen(false);
     };
 
     const handleDelete = (id) => {
         if (window.confirm('Are you sure you want to delete this category?')) {
-            setCategories(prev => prev.filter(cat => cat.id !== id));
+            deleteCategoryMutation.mutate(id);
         }
     };
 

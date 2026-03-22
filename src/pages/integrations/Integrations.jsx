@@ -7,11 +7,16 @@ import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { Plus, Settings, Trash2, AlertCircle } from 'lucide-react';
-import { customers, bankAccounts } from '../../data/mockData';
+import { useCustomers } from '../../hooks/useAR';
+import { useBankAccounts } from '../../hooks/useBanking';
 import { useIntegrationStore } from '../../stores/useIntegrationStore';
 import ListPage from '../../components/Layout/ListPage';
 
 const Integrations = () => {
+    const { data: customersData } = useCustomers();
+    const customers = customersData?.data ?? [];
+    const { data: bankAccounts = [] } = useBankAccounts();
+
     const shops = useIntegrationStore((s) => s.shops);
     const addShop = useIntegrationStore((s) => s.addShop);
     const updateShop = useIntegrationStore((s) => s.updateShop);
@@ -28,7 +33,6 @@ const Integrations = () => {
     });
     const [formErrors, setFormErrors] = useState({});
 
-    // Mock Data Options
     const customerOptions = customers.map(c => ({ value: c.id, label: c.name }));
     const bankOptions = bankAccounts.map(b => ({ value: b.id, label: b.name }));
 

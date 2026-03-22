@@ -3,7 +3,7 @@ import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Table from '../../components/UI/Table';
 import ListPage from '../../components/Layout/ListPage';
-import { chartOfAccounts, accountBalancesById } from '../../data/mockData';
+import { useChartOfAccounts } from '../../hooks/useGL';
 import { rollupBalances } from '../../utils/coa';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useReportStore } from '../../stores/useReportStore';
@@ -255,6 +255,14 @@ const Reports = () => {
     const company = useSettingsStore((s) => s.companyInfo);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+    // ── API hooks ───────────────────────────────────────────────────────────
+    const { data: apiChartOfAccounts = [] } = useChartOfAccounts();
+    const accountBalancesById = useMemo(() => {
+        const map = {};
+        apiChartOfAccounts.forEach(a => { map[a.id] = a.balance ?? 0; });
+        return map;
+    }, [apiChartOfAccounts]);
+
     // ── Store data ──────────────────────────────────────────────────────────
     const salesLines = useReportStore((s) => s.salesLines);
     const agingInvoices = useReportStore((s) => s.agingInvoices);
@@ -262,8 +270,8 @@ const Reports = () => {
     const glChartOfAccounts = useGLStore((s) => s.chartOfAccounts);
     const glAccountBalances = useGLStore((s) => s.accountBalancesById);
 
-    // Use store data when available, fall back to mockData seed
-    const accounts = glChartOfAccounts?.length ? glChartOfAccounts : chartOfAccounts;
+    // Use store data when available, fall back to API data
+    const accounts = glChartOfAccounts?.length ? glChartOfAccounts : apiChartOfAccounts;
     const openingBal = glAccountBalances && Object.keys(glAccountBalances).length ? glAccountBalances : accountBalancesById;
 
     // ── Tab ─────────────────────────────────────────────────────────────────

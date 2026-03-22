@@ -6,14 +6,19 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
 import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
-import { bills, warehouses } from '../../data/mockData';
-import { useReturnStore } from '../../stores/useReturnStore';
+import { useBills } from '../../hooks/useAP';
+import { useDebitNotes, usePurchaseReturns, useWarehouses } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 
 const DebitNotes = () => {
     const navigate = useNavigate();
-    const debitNotes = useReturnStore((s) => s.debitNotes);
-    const purchaseReturns = useReturnStore((s) => s.purchaseReturns);
+    const { data: billsData } = useBills();
+    const bills = billsData?.data ?? [];
+    const { data: dnData } = useDebitNotes();
+    const debitNotes = dnData?.data ?? [];
+    const { data: prData } = usePurchaseReturns();
+    const purchaseReturns = prData?.data ?? [];
+    const { data: warehouses = [] } = useWarehouses();
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ settlementType: '' });
     const [activeCatalogTab, setActiveCatalogTab] = useState('debits');

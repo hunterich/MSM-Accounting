@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Settings, Plus, X } from 'lucide-react';
 import ListPage from '../components/Layout/ListPage';
+import { ErrorBoundary, WidgetErrorFallback } from '../components/UI/ErrorBoundary';
 import Button from '../components/UI/Button';
 import Modal from '../components/UI/Modal';
 import { WIDGET_REGISTRY, DEFAULT_WIDGET_IDS } from '../config/dashboardWidgets';
@@ -97,7 +98,9 @@ const Dashboard = () => {
                                     <X size={12} />
                                 </button>
                             )}
-                            <WidgetComponent />
+                            <ErrorBoundary fallback={WidgetErrorFallback}>
+                                <WidgetComponent />
+                            </ErrorBoundary>
                         </div>
                     );
                 })}

@@ -11,8 +11,8 @@ export const MODULE_KEYS = {
     dashboard:     { label: 'Dashboard',             group: 'Dashboard' },
     gl_coa:        { label: 'Chart of Accounts',     group: 'General Ledger' },
     gl_journal:    { label: 'Journal Entries',        group: 'General Ledger' },
-    ar_invoices:   { label: 'Invoices',               group: 'Accounts Receivable' },
     ar_sales_orders:{ label: 'Sales Orders',          group: 'Accounts Receivable' },
+    ar_invoices:   { label: 'Invoices',               group: 'Accounts Receivable' },
     ar_payments:   { label: 'Receive Payments',       group: 'Accounts Receivable' },
     ar_credits:    { label: 'Returns & Credits',      group: 'Accounts Receivable' },
     ar_customers:  { label: 'Customers & Categories', group: 'Accounts Receivable' },
@@ -40,7 +40,7 @@ export const MODULE_KEYS = {
 export const SIDEBAR_PERMISSION_MAP = {
     'Dashboard':           ['dashboard'],
     'General Ledger':      ['gl_coa', 'gl_journal'],
-    'Accounts Receivable': ['ar_invoices', 'ar_sales_orders', 'ar_payments', 'ar_credits', 'ar_customers'],
+    'Accounts Receivable': ['ar_sales_orders', 'ar_invoices', 'ar_payments', 'ar_credits', 'ar_customers'],
     'Accounts Payable':    ['ap_pos', 'ap_bills', 'ap_payments', 'ap_debits', 'ap_vendors'],
     'Inventory':           ['inv_items', 'inv_adj'],
     'HR & Payroll':        ['hr_employees', 'hr_attendance', 'hr_payroll'],

@@ -15,7 +15,9 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -25,7 +27,8 @@
     "prisma": "^6.2.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.3",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",

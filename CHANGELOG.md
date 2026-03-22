@@ -10,14 +10,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Features planned for upcoming releases.
 
 ### 🔴 Critical (All Businesses)
-- ~~**Data Persistence** — save all data to localStorage / IndexedDB (currently all data is mock/hardcoded)~~ ✅ Done in v0.5.0 / v0.5.1
-- **Inventory Adjustments** — stock corrections, write-offs, damage recording (route exists, page pending)
-- **Purchase Order (PO) module** — create POs before receiving supplier bills
-- **AP Aging Report** — overdue payables breakdown (AR Aging already exists)
-- **Cash Flow Statement** — missing from Reports; essential third financial statement
-- ~~**Edit routes** — open & edit existing invoices, customers, vendors, items by ID~~ ✅ Done in v0.5.0
-- **Print / PDF Export** — printable layout for invoices, bills, reports
-- **Tax Configuration (PPN 11%)** — global tax rate setting; auto-apply on invoices instead of manual entry
+- **Inventory Valuation** — FIFO / Weighted Average costing, COGS auto-calculation
+- **Bank Statement Import** — CSV/OFX import + auto-matching + reconciliation
+- ~~**Backend routes for remaining sub-modules**~~ ✅ Done in v0.9.0
 - **Vendor Categories** — group vendors by type (like Customer Categories)
 
 ### 🟡 Beauty Clinic
@@ -41,6 +36,35 @@ Features planned for upcoming releases.
 - Multi-price tier — wholesale vs. retail selling price
 - Supplier price list / purchase price history
 - Stock opname / physical count module
+
+---
+
+## [0.9.0] — 2026-03-22
+
+### ✨ Added — Frontend → Backend Connection (All Modules Wired)
+- **All 6 core modules now read/write via React Query hooks** — Banking, GL, AR, AP, Inventory, HR fully wired to PostgreSQL backend
+- Hook files: `useBanking.js`, `useGL.js`, `useAR.js`, `useAP.js`, `useInventory.js`, `useHR.js` (all in `src/hooks/`)
+- **13 list pages** read from API via `useQuery`; **10 form pages** write via `useMutation`
+- Field normalization in hooks: uppercase API enums ↔ title-case UI values; Prisma Decimal coerced to Number; API-generated IDs used as display IDs
+- **Sub-module API routes + hooks** — Credit Notes, Debit Notes, Sales Returns, Purchase Returns, Customer Categories, Warehouses
+  - 12 new route files in `src/app/api/v1/` (credit-notes, debit-notes, sales-returns, purchase-returns, customer-categories, warehouses)
+  - `useReturns.js` hook with full CRUD for all sub-modules + warehouses + customer categories
+  - All 11 pages previously importing from `mockData` now use React Query hooks — **zero mockData imports remain in pages/**
+- **Error boundaries** — `ErrorBoundary` component with `PageErrorFallback` and `WidgetErrorFallback` variants
+  - Wraps entire App router, Dashboard page, and each dashboard widget independently
+- **Unit tests** — Vitest installed; 26 tests passing for `formatters.js` and `shopeeImport.js`
+
+### 🐛 Fixed
+- **`formatIDR('not-a-number')` returned `'RpNaN'`** — now safely coerces to `Rp0,00` (caught by new test suite)
+
+### 🗑️ Removed — Dead Code Cleanup
+- Deleted `src_vanilla/` — legacy vanilla JS codebase (unused since Tailwind migration)
+- Deleted empty `src/components/Customers/` directory
+- Deleted `PLAN-roadmap-sync-landing-pages.md` — stale execution plan
+
+### 🔄 Changed
+- **Manufacturing/BOM moved to separate project** — will be developed as MSM Manufacturing, a standalone premium add-on integrating via API
+- Updated ROADMAP.md to reflect v0.9.0 status and manufacturing separation
 
 ---
 

@@ -1,7 +1,7 @@
 # MSM Accounting Software — Improvement Roadmap
 
 > Benchmarked against ERPNext (open-source ERP).
-> Created 2026-02-27 | Current version: v0.8.1
+> Created 2026-02-27 | Current version: v0.9.0
 
 ---
 
@@ -23,7 +23,7 @@
 - [x] Migrate from localStorage to a real database (SQLite / PostgreSQL / Supabase)
   - PostgreSQL running; 43 tables applied via `prisma db push`; API route handlers live across modules; JWT auth + middleware enabled
   - All list pages read from API via React Query hooks; all form pages write via React Query mutations
-  - Remaining on Zustand: credit notes, debit notes, sales returns, purchase returns (no API routes yet); batch import (Shopee); print item templates
+  - Remaining on Zustand: batch import (Shopee ImportInvoicesModal); print item templates
 - [x] Proper CRUD with server-side validation
   - Zod validation in existing routes; all new routes have try/catch + `withCors` error responses; ~60 route handlers total
   - 10 form pages wired: CustomerForm, InvoiceForm, AR PaymentForm, VendorForm, BillForm, POForm, AP PaymentForm, InventoryForm, AdjustmentForm, EmployeeForm
@@ -35,7 +35,8 @@
   - Hook files: `useBanking.js`, `useGL.js`, `useAR.js`, `useAP.js`, `useInventory.js`, `useHR.js`
   - All 13 list pages read from API; all 10 form pages with API routes write via mutations
   - Field normalization: uppercase API enums ↔ title-case UI values; Prisma Decimal coerced to Number; API-generated numbers (BILL-xxxxx, EMP-xxxxx, etc.) used as display IDs
-  - 4 form pages still on Zustand (CreditNote, DebitNote, SalesReturn, PurchaseReturn) — need backend routes first
+  - All sub-modules now wired: CreditNote, DebitNote, SalesReturn, PurchaseReturn, CustomerCategories, Warehouses — API routes + React Query hooks
+  - `useReturns.js` hook file: credit notes, debit notes, sales returns, purchase returns, warehouses, customer categories
   - Batch import operations (Shopee ImportInvoicesModal) and print item templates still use local Zustand stores as intermediary
 - [ ] Data migration tool (localStorage → DB for existing users)
 
@@ -220,14 +221,11 @@
 
 > Goal: Full ERP capability. Multi-company, manufacturing, project management.
 
-### 4.1 Manufacturing / BOM
-- [ ] Bill of Materials (BOM) — multi-level
-- [ ] Work Order creation from Sales Orders
-- [ ] Job Card for production steps
-- [ ] Material consumption tracking
-- [ ] Production cost calculation
-- [ ] Scrap / by-product management
-- [ ] Production planning (Make to Order / Make to Stock)
+### ~~4.1 Manufacturing / BOM~~ — Moved to separate project (MSM Manufacturing)
+
+> Manufacturing (BOM, work orders, production planning, MRP) will be developed as a
+> standalone premium add-on that integrates with MSM Accounting via API.
+> See: MSM Manufacturing (separate repo).
 
 ### 4.2 Project Management
 - [ ] Project CRUD with tasks and milestones
@@ -307,9 +305,9 @@
 |------|--------|----------|
 | Migrate to real database (Phase 1.1) | Done — PostgreSQL + Prisma (43 tables); auth + API routes; all 6 modules wired (reads + writes); 4 sub-modules pending backend routes (credit/debit notes, sales/purchase returns) | Critical |
 | Add TypeScript | Not started | Medium |
-| Unit tests for stores & utils | Not started | High |
+| Unit tests for stores & utils | [~] Vitest installed; formatters + shopeeImport tests passing (26 tests) | High |
 | E2E tests (Playwright/Cypress) | Not started | Medium |
-| Error boundaries & error handling | Not started | High |
+| Error boundaries & error handling | [x] ErrorBoundary component with page/widget variants; wraps App, Dashboard, and each widget | High |
 | Loading states & skeleton screens | Not started | Medium |
 | Mobile responsive layout | Not started | Medium |
 | Accessibility (a11y) audit | Not started | Low |
@@ -401,7 +399,7 @@
 | CRM | No | Yes | High |
 | HR & Payroll | Partial (Employee master data) | Yes | High |
 | Asset Management | No | Yes | High |
-| Manufacturing / BOM | No | Yes | High |
+| Manufacturing / BOM | Separate project (MSM Manufacturing) | Yes | N/A |
 | Project Management | No | Yes | Medium |
 | Multi-Company | No | Yes | Medium |
 | Workflow Engine | No | Yes | Medium |
@@ -456,6 +454,7 @@ v1.6   — E-Commerce Auto-Posting (Phase 3.5)
 v1.7   — HR & Payroll full (Phase 3.2)
 v1.8   — Asset Management + Budget Controls (Phase 3.3, 3.4)
 v2.0   — Multi-Company + REST API + Workflow Engine (Phase 4)
+         Manufacturing / BOM developed separately as MSM Manufacturing add-on
 v3.0   — Domain-specific verticals (Phase 5)
 ```
 
