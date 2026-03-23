@@ -1,20 +1,16 @@
 /**
  * Central API client for MSM Accounting Software.
- * Reads VITE_API_URL, attaches credentials cookie, and injects x-org-id
- * from the auth store on every request.
+ * Reads VITE_API_URL and attaches credentials cookie on every request.
+ * Tenant context is derived server-side from the session cookie — no x-org-id header is sent.
  */
-import { useAuthStore } from '../stores/useAuthStore';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 function getHeaders(extra = {}) {
-  const org = useAuthStore.getState().org;
-  const headers = {
+  return {
     'Content-Type': 'application/json',
     ...extra,
   };
-  if (org?.id) headers['x-org-id'] = org.id;
-  return headers;
 }
 
 async function apiFetch(path, options = {}) {

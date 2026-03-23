@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
@@ -10,11 +9,12 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const orgId = req.headers.get('x-org-id')!;
   try {
-    const cn = await prisma.creditNote.findUnique({
-      where: { id },
+    const cn = await prisma.creditNote.findFirst({
+      where: { id, organizationId: orgId },
       include: {
         customer: { select: { id: true, name: true, code: true } },
         salesReturn: true,
@@ -31,8 +31,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const orgId = req.headers.get('x-org-id')!;
   try {
-    const orgId = req.headers.get('x-org-id');
     const body = await req.json();
     const cn = await prisma.creditNote.update({
       where: { id, organizationId: orgId },
@@ -43,7 +43,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         updatedAt: new Date(),
       },
     });
-    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(cn));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
@@ -51,12 +51,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const orgId = req.headers.get('x-org-id')!;
   try {
-    const orgId = _req.headers.get('x-org-id');
     await prisma.creditNote.delete({ where: { id, organizationId: orgId } });
-    logAudit({ orgId: orgId!, actorId: _req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id, action: 'DELETE', payload: null });
+    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

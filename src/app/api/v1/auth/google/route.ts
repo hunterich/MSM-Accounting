@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
       include: {
         memberships: {
           where: { isActive: true },
+          orderBy: [{ joinedAt: 'asc' as const }, { id: 'asc' as const }],
           include: {
             role: {
               include: {

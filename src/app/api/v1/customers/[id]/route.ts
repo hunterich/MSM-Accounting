@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
@@ -10,10 +9,11 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const orgId = req.headers.get('x-org-id')!;
   try {
-    const customer = await prisma.customer.findUnique({ where: { id: id } });
+    const customer = await prisma.customer.findFirst({ where: { id, organizationId: orgId } });
     if (!customer) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     return withCors(NextResponse.json(customer));
   } catch (error) {
@@ -24,14 +24,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const orgId = req.headers.get('x-org-id')!;
   try {
-    const orgId = req.headers.get('x-org-id');
     const body = await req.json();
     const customer = await prisma.customer.update({
-      where: { id: id, organizationId: orgId },
+      where: { id, organizationId: orgId },
       data: { ...body, updatedAt: new Date() },
     });
-    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Customer', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Customer', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(customer));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
@@ -39,12 +39,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const orgId = req.headers.get('x-org-id')!;
   try {
-    const orgId = _req.headers.get('x-org-id');
-    await prisma.customer.delete({ where: { id: id, organizationId: orgId } });
-    logAudit({ orgId: orgId!, actorId: _req.headers.get('x-user-id'), entityType: 'Customer', entityId: id, action: 'DELETE', payload: null });
+    await prisma.customer.delete({ where: { id, organizationId: orgId } });
+    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Customer', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

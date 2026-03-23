@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextResponse } from 'next/server';
 import { withCors } from '@/lib/cors';
 import { prisma as defaultPrisma } from '@/lib/prisma';
