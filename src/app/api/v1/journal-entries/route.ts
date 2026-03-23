@@ -7,7 +7,7 @@ import {
   createJournalEntryResponseSchema,
 } from '@/types/api';
 import { corsPreflightResponse } from '@/lib/cors';
-import { listResponse } from '@/lib/api-utils';
+import { listResponse, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -255,6 +255,7 @@ export async function POST(request: NextRequest) {
       status: createdEntry.status,
     });
 
+    logAudit({ orgId: orgId!, actorId: request.headers.get('x-user-id'), entityType: 'JournalEntry', entityId: createdEntry.id, action: 'CREATE', payload: rawPayload });
     return NextResponse.json(responsePayload, { status: 201 });
   } catch (error) {
     if (error instanceof ApiError) {

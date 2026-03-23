@@ -39,13 +39,13 @@ const BANK_TO_ACCOUNT_MAP = {
 const CreditNoteForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { data: bankAccounts = [] } = useBankAccounts();
-    const { data: invoicesData } = useInvoices();
+    const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
+    const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = invoicesData?.data ?? [];
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
-    const { data: cnData } = useCreditNotes();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: cnData, isLoading: creditNotesLoading } = useCreditNotes();
     const creditNotes = cnData?.data ?? [];
-    const { data: srData } = useSalesReturns();
+    const { data: srData, isLoading: salesReturnsLoading } = useSalesReturns();
     const salesReturns = srData?.data ?? [];
     const createCreditNote = useCreateCreditNote();
     const updateCreditNoteMutation = useUpdateCreditNote();
@@ -231,6 +231,12 @@ const CreditNoteForm = () => {
         totals.taxAmount,
         totals.total
     ]);
+    const isPageLoading =
+        bankAccountsLoading ||
+        invoicesLoading ||
+        chartOfAccountsLoading ||
+        creditNotesLoading ||
+        salesReturnsLoading;
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
@@ -292,11 +298,10 @@ const CreditNoteForm = () => {
             return;
         }
 
-        const creditNumber = numberingMode === 'auto' ? creditNoPreview : formData.creditNumber || creditNoPreview;
-        setFormData((prev) => ({ ...prev, creditNumber }));
+        const creditNumber = numberingMode === 'manual' ? formData.creditNumber : undefined;
 
         const notePayload = {
-            id: creditNumber,
+            ...(creditNumber && { id: creditNumber }),
             date: formData.creditDate,
             returnId: formData.linkedReturnId,
             customerName: formData.customerName,
@@ -327,6 +332,7 @@ const CreditNoteForm = () => {
             containerClassName="ar-module"
             title="Credit Note"
             backTo="/ar/credits"
+            isLoading={isPageLoading}
             actions={(
                 <>
                     <Button text="Print" variant="secondary" />
@@ -338,7 +344,7 @@ const CreditNoteForm = () => {
 
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{formData.creditNumber || 'CRN-XXXX'}</div>
+                    <div className="module-status-number">{formData.creditNumber || 'Otomatis'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Posted' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total || formData.amount)}</div>
@@ -357,7 +363,7 @@ const CreditNoteForm = () => {
                         </div>
                         {numberingMode === 'auto' && (
                             <div className="numbering-preview">
-                                Assigned on save • Preview: {creditNoPreview}
+                                Nomor ditetapkan server saat disimpan
                             </div>
                         )}
                     </div>

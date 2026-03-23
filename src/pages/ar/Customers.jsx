@@ -8,12 +8,13 @@ import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
 import { formatIDR } from '../../utils/formatters';
 import { useCustomers } from '../../hooks/useAR';
-import { Loader } from 'lucide-react';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const MAX_TABS_PER_ROW = 5;
 
 const Customers = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('ar_customers');
     const { data: cuResult, isLoading } = useCustomers();
     const customerList = cuResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
@@ -92,7 +93,7 @@ const Customers = () => {
         { key: 'paymentTerms', label: 'Terms', align: 'right', render: (val) => (val === 0 ? 'Due on Receipt' : `Net ${val}`) },
         { key: 'balance', label: 'Open Balance', align: 'right', render: (val) => formatIDR(val) },
         { key: 'status', label: 'Status', render: (val) => <StatusTag status={val} /> },
-        { key: 'actions', label: '', render: (_, row) => <Button text="Edit" size="small" variant="tertiary" onClick={(e) => { e.stopPropagation(); handleEditCustomer(row.id); }} /> }
+        { key: 'actions', label: '', render: (_, row) => <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(e) => { e.stopPropagation(); handleEditCustomer(row.id); }} /> }
     ];
 
     const firstRowDynamicLimit = Math.max(0, MAX_TABS_PER_ROW - 2);
@@ -129,7 +130,7 @@ const Customers = () => {
                         <List size={16} />
                         Catalog
                     </button>
-                    <button className="border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer" onClick={handleNewCustomer}>
+                    <button className={`border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} onClick={handleNewCustomer} disabled={!canCreate}>
                         <Plus size={16} />
                         New Customer
                     </button>
@@ -153,19 +154,15 @@ const Customers = () => {
                         placeholder="Search by name or email..."
                     />
                     <Card padding={false}>
-                        {isLoading ? (
-                            <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                                <Loader size={16} className="animate-spin" /> Loading customers…
-                            </div>
-                        ) : (
-                            <Table
-                                columns={columns}
-                                data={filteredData}
-                                onRowClick={(row) => openCustomerTab(row.id)}
-                                showCount
-                                countLabel="customers"
-                            />
-                        )}
+                        <Table
+                            columns={columns}
+                            data={filteredData}
+                            onRowClick={(row) => openCustomerTab(row.id)}
+                            showCount
+                            countLabel="customers"
+                            isLoading={isLoading}
+                            loadingLabel="Loading customers..."
+                        />
                     </Card>
                 </>
             )}
@@ -178,7 +175,7 @@ const Customers = () => {
                             <StatusTag status={selectedCustomer.status} />
                         </div>
                         <div className="flex gap-2">
-                            <Button text="Edit" size="small" variant="primary" onClick={() => handleEditCustomer(selectedCustomer.id)} />
+                            <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => handleEditCustomer(selectedCustomer.id)} />
                         </div>
                     </div>
                     <div className="grid grid-cols-4 gap-2 py-2.5 px-3 border-b border-[#d7dbe0]">

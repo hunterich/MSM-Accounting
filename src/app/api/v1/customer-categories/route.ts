@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
+import { logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
     const category = await prisma.customerCategory.create({
       data: { ...body, organizationId: orgId },
     });
+    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'CustomerCategory', entityId: category.id, action: 'CREATE', payload: { name: category.name } });
     return withCors(NextResponse.json(category, { status: 201 }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create category';

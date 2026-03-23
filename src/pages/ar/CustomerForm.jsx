@@ -68,7 +68,7 @@ const CustomerForm = () => {
     const isEditMode = mode === 'edit';
     const isCreateMode = mode === 'create';
 
-    const { data: customersData } = useCustomers();
+    const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = customersData?.data || [];
     const categories = useCustomerStore(state => state.customerCategories);
     const createCustomer = useCreateCustomer();
@@ -128,6 +128,7 @@ const CustomerForm = () => {
     };
 
     const isSaving = createCustomer.isPending || updateCustomerMutation.isPending;
+    const isPageLoading = customersLoading;
 
     const handleSave = async () => {
         const nextErrors = {};
@@ -163,6 +164,7 @@ const CustomerForm = () => {
             title={pageTitle}
             backTo="/ar/customers"
             backLabel="Back to Customers"
+            isLoading={isPageLoading}
             actions={
                 isViewMode ? (
                     <Button text="Close" variant="primary" onClick={() => navigate('/ar/customers')} />

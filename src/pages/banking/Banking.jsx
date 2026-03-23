@@ -4,15 +4,18 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search, Loader } from 'lucide-react';
+import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search } from 'lucide-react';
 import { useBankAccounts, useBankTransactions } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import ListPage from '../../components/Layout/ListPage';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { SkeletonBlock } from '../../components/UI/LoadingSkeleton';
 
 
 
 const Banking = () => {
     const navigate = useNavigate();
+    const { canCreate } = useModulePermissions('banking');
 
     const { data: accounts = [], isLoading: accountsLoading } = useBankAccounts();
     const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -89,11 +92,11 @@ const Banking = () => {
             label: '',
             render: (_, row) => (
                 row.status === 'Unmatched'
-                    ? <Button text="Match" size="small" variant="secondary" onClick={(event) => { event.stopPropagation(); openTransactionAction(row, 'edit'); }} />
-                    : <Button text="View" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); openTransactionAction(row, 'edit'); }} />
+                    ? <Button text="Match" size="small" variant="secondary" disabled={!canCreate} onClick={(event) => { event.stopPropagation(); openTransactionAction(row, 'edit'); }} />
+                    : <Button text="View" size="small" variant="tertiary" disabled={!canCreate} onClick={(event) => { event.stopPropagation(); openTransactionAction(row, 'edit'); }} />
             ),
         },
-    ]), [navigate]);
+    ]), [canCreate, navigate]);
 
     return (
         <ListPage
@@ -106,24 +109,28 @@ const Banking = () => {
                         text="Transfer"
                         variant="tertiary"
                         icon={<ArrowRightLeft size={16} />}
+                        disabled={!canCreate}
                         onClick={() => navigate('/banking/transfer')}
                     />
                     <Button
                         text="Expense"
                         variant="tertiary"
                         icon={<TrendingDown size={16} />}
+                        disabled={!canCreate}
                         onClick={() => navigate('/banking/expense')}
                     />
                     <Button
                         text="Income"
                         variant="tertiary"
                         icon={<TrendingUp size={16} />}
+                        disabled={!canCreate}
                         onClick={() => navigate('/banking/income')}
                     />
                     <Button
                         text="Add Account"
                         variant="primary"
                         icon={<Plus size={16} />}
+                        disabled={!canCreate}
                         onClick={() => navigate('/banking/account')}
                     />
                 </div>
@@ -132,8 +139,19 @@ const Banking = () => {
             {/* Account Summary Cards */}
             <div className="grid-12 banking-accounts-grid">
                 {accountsLoading ? (
-                    <div className="col-span-12 flex items-center gap-2 py-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading accounts...
+                    <div className="col-span-12">
+                        <div className="text-sm text-neutral-500 mb-3">Loading accounts...</div>
+                        <div className="grid grid-cols-4 gap-4">
+                            {Array.from({ length: 4 }).map((_, index) => (
+                                <Card key={`account-skeleton-${index}`} padding>
+                                    <div className="space-y-3">
+                                        <SkeletonBlock className="h-4 w-28" />
+                                        <SkeletonBlock className="h-8 w-36" />
+                                        <SkeletonBlock className="h-4 w-24" />
+                                    </div>
+                                </Card>
+                            ))}
+                        </div>
                     </div>
                 ) : (
                     <>
@@ -210,17 +228,13 @@ const Banking = () => {
                     </div>
                 </div>
 
-                {txnsLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading transactions...
-                    </div>
-                ) : (
-                    <Table
-                        columns={transactionColumns}
-                        data={filteredTransactions}
-                        onRowClick={(row) => openTransactionAction(row, 'edit')}
-                    />
-                )}
+                <Table
+                    columns={transactionColumns}
+                    data={filteredTransactions}
+                    onRowClick={canCreate ? (row) => openTransactionAction(row, 'edit') : undefined}
+                    isLoading={txnsLoading}
+                    loadingLabel="Loading transactions..."
+                />
             </Card>
         </ListPage>
     );

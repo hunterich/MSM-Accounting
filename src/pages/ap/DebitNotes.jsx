@@ -9,9 +9,11 @@ import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'luci
 import { useBills } from '../../hooks/useAP';
 import { useDebitNotes, usePurchaseReturns, useWarehouses } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const DebitNotes = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit, canDelete } = useModulePermissions('ap_debits');
     const { data: billsData } = useBills();
     const bills = billsData?.data ?? [];
     const { data: dnData } = useDebitNotes();
@@ -121,7 +123,7 @@ const DebitNotes = () => {
             render: (_, row) => (
                 <div className="row-actions-end">
                     <Button text="View" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); openDoc('debit', row.id); }} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); navigate('/ap/debits/edit', { state: { mode: 'edit', debitId: row.id } }); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); navigate('/ap/debits/edit', { state: { mode: 'edit', debitId: row.id } }); }} />
                 </div>
             )
         }
@@ -190,7 +192,7 @@ const DebitNotes = () => {
                         <List size={16} />
                         Catalog
                     </button>
-                    <button className="workbench-doc-tab workbench-doc-tab-new" onClick={() => navigate('/ap/returns/new', { state: { mode: 'create' } })}>
+                    <button className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`} onClick={() => navigate('/ap/returns/new', { state: { mode: 'create' } })} disabled={!canCreate}>
                         <Plus size={16} />
                         New Purchase Return
                     </button>
@@ -250,7 +252,7 @@ const DebitNotes = () => {
                         </div>
                         <div className="detail-header-actions">
                             <Button text="Print" size="small" variant="secondary" onClick={() => window.alert('Print is not connected yet.')} />
-                            <Button text="Edit" size="small" variant="primary" onClick={() => navigate('/ap/debits/edit', { state: { mode: 'edit', debitId: selectedDebitNote.id } })} />
+                            <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ap/debits/edit', { state: { mode: 'edit', debitId: selectedDebitNote.id } })} />
                         </div>
                     </div>
                     <div className="dense-header-grid">
@@ -329,7 +331,7 @@ const DebitNotes = () => {
                             <button className="dense-side-btn" title="Details"><FileText size={18} /></button>
                             <button className="dense-side-btn" title="Attachments"><Paperclip size={18} /></button>
                             <button className="dense-side-btn success" title="More"><MoreHorizontal size={18} /></button>
-                            <button className="dense-side-btn danger" title="Delete"><Trash2 size={18} /></button>
+                            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
                         </div>
                     </div>
                 </div>
@@ -344,7 +346,7 @@ const DebitNotes = () => {
                         </div>
                         <div className="detail-header-actions">
                             <Button text="Print" size="small" variant="secondary" onClick={() => window.alert('Print is not connected yet.')} />
-                            <Button text="Edit" size="small" variant="primary" onClick={() => navigate('/ap/returns/new', { state: { mode: 'edit', returnId: selectedReturn.id } })} />
+                            <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ap/returns/new', { state: { mode: 'edit', returnId: selectedReturn.id } })} />
                         </div>
                     </div>
                     <div className="dense-header-grid">

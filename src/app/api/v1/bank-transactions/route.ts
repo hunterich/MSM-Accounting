@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse } from '@/lib/api-utils';
+import { ok, listResponse, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -54,5 +54,6 @@ export async function POST(req: NextRequest) {
     return txn;
   });
 
+  logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'BankTransaction', entityId: result.id, action: 'CREATE', payload: { bankAccountId, type, amount } });
   return ok(result, 201);
 }

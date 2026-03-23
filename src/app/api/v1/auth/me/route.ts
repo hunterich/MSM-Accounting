@@ -55,7 +55,11 @@ export async function GET(req: NextRequest) {
       NextResponse.json({
         user: { id: user.id, email: user.email, fullName: user.fullName },
         org: { id: membership.organization.id, name: membership.organization.displayName },
-        role: { type: membership.role.roleType, permissions: membership.role.permissions },
+        role: {
+          type: membership.role.roleType,
+          permissions: membership.role.permissions,
+          invoiceAccessScope: membership.role.invoiceAccessScope,
+        },
       })
     );
   } catch {

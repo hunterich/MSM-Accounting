@@ -13,7 +13,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
 import { List, X, Plus, Download, Upload } from 'lucide-react';
 import ImportInvoicesModal from '../../components/ar/invoices/ImportInvoicesModal';
-import { useAccessStore } from '../../stores/useAccessStore';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const InvoiceWorkbench = () => {
     const navigate = useNavigate();
@@ -45,8 +45,7 @@ const InvoiceWorkbench = () => {
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
 
-    const hasPermission = useAccessStore((s) => s.hasPermission);
-    const canCreate = hasPermission('ar_invoices', 'create');
+    const { canCreate, canEdit, canDelete } = useModulePermissions('ar_invoices');
 
     useEffect(() => {
         const state = location.state || {};
@@ -220,6 +219,7 @@ const InvoiceWorkbench = () => {
             onDateRangeChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
             onSelectInvoice={openInvoiceTab}
             onViewInvoice={openInvoiceTab}
+            canEdit={canEdit}
             onEditInvoice={handleEdit}
             onPrintInvoice={queuePrintInvoice}
         />
@@ -230,6 +230,8 @@ const InvoiceWorkbench = () => {
             invoice={selectedInvoice}
             onEdit={() => handleEdit(selectedInvoice.id)}
             onPrint={() => queuePrintInvoice(selectedInvoice.id)}
+            canEdit={canEdit}
+            canDelete={canDelete}
         />
     ) : (
         <div className="invoice-workbench-card">
@@ -274,8 +276,9 @@ const InvoiceWorkbench = () => {
                         Catalog
                     </button>
                     <button
-                        className="workbench-doc-tab workbench-doc-tab-new"
+                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
                         onClick={() => navigate('/ar/invoices/new')}
+                        disabled={!canCreate}
                         title="New invoice"
                     >
                         <Plus size={16} />

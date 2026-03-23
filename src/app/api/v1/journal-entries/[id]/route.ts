@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err } from '@/lib/api-utils';
+import { ok, err, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -51,6 +51,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       include: { lines: { include: { account: { select: { code: true, name: true } } } } },
     });
   });
+  logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'JournalEntry', entityId: id, action: 'UPDATE', payload: body });
   return ok(updated);
 }
 
@@ -61,5 +62,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!existing) return err('Not found', 404);
   if (existing.status !== 'DRAFT') return err('Only DRAFT entries can be deleted', 400);
   await prisma.journalEntry.delete({ where: { id: id, organizationId: orgId } });
+  logAudit({ orgId: orgId!, actorId: _req.headers.get('x-user-id'), entityType: 'JournalEntry', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
 }

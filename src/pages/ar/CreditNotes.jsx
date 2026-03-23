@@ -8,9 +8,11 @@ import FilterBar from '../../components/UI/FilterBar';
 import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useCreditNotes, useSalesReturns, useWarehouses } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const CreditNotes = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit, canDelete } = useModulePermissions('ar_credits');
     const { data: cnData } = useCreditNotes();
     const creditNotes = cnData?.data ?? [];
     const { data: srData } = useSalesReturns();
@@ -111,7 +113,7 @@ const CreditNotes = () => {
             render: (_, row) => (
                 <div className="row-actions-end">
                     <Button text="View" size="small" variant="tertiary" onClick={(e) => { e.stopPropagation(); openDoc('credit', row.id); }} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={(e) => { e.stopPropagation(); navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: row.id } }); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(e) => { e.stopPropagation(); navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: row.id } }); }} />
                 </div>
             )
         }
@@ -190,8 +192,9 @@ const CreditNotes = () => {
                         Catalog
                     </button>
                     <button
-                        className="workbench-doc-tab workbench-doc-tab-new"
+                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
                         onClick={() => navigate('/ar/returns/new', { state: { mode: 'create' } })}
+                        disabled={!canCreate}
                     >
                         <Plus size={16} />
                         New Sales Return
@@ -256,7 +259,7 @@ const CreditNotes = () => {
                         </div>
                         <div className="detail-header-actions">
                             <Button text="Print" size="small" variant="secondary" onClick={() => alert('Print is not connected yet.')} />
-                            <Button text="Edit" size="small" variant="primary" onClick={() => navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: selectedCredit.id } })} />
+                            <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: selectedCredit.id } })} />
                         </div>
                     </div>
                     <div className="dense-header-grid">
@@ -357,7 +360,7 @@ const CreditNotes = () => {
                             <button className="dense-side-btn" title="Details"><FileText size={18} /></button>
                             <button className="dense-side-btn" title="Attachments"><Paperclip size={18} /></button>
                             <button className="dense-side-btn success" title="More"><MoreHorizontal size={18} /></button>
-                            <button className="dense-side-btn danger" title="Delete"><Trash2 size={18} /></button>
+                            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
                         </div>
                     </div>
                 </div>
@@ -372,7 +375,7 @@ const CreditNotes = () => {
                         </div>
                         <div className="detail-header-actions">
                             <Button text="Print" size="small" variant="secondary" onClick={() => alert('Print is not connected yet.')} />
-                            <Button text="Edit" size="small" variant="primary" onClick={() => navigate('/ar/returns/new', { state: { mode: 'edit', returnId: selectedReturn.id } })} />
+                            <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ar/returns/new', { state: { mode: 'edit', returnId: selectedReturn.id } })} />
                         </div>
                     </div>
                     <div className="dense-header-grid">
@@ -471,7 +474,7 @@ const CreditNotes = () => {
                             <button className="dense-side-btn" title="Details"><FileText size={18} /></button>
                             <button className="dense-side-btn" title="Attachments"><Paperclip size={18} /></button>
                             <button className="dense-side-btn success" title="More"><MoreHorizontal size={18} /></button>
-                            <button className="dense-side-btn danger" title="Delete"><Trash2 size={18} /></button>
+                            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
                         </div>
                     </div>
                 </div>

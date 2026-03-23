@@ -2,12 +2,58 @@ import { create } from 'zustand';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-export const useAuthStore = create((set) => ({
+const EMPTY_SESSION = {
   user: null,
   org: null,
   roleType: null,
+  invoiceAccessScope: 'ALL',
+  permissions: [],
+  isLoading: false,
+};
+
+const normalizeModuleKey = (moduleKey) => String(moduleKey || '').trim().toLowerCase();
+
+const getPermissionsFromResponse = (data = {}) => data.role?.permissions || data.permissions || [];
+
+const getRoleTypeFromResponse = (data = {}) => data.role?.type || data.roleType || null;
+
+const getInvoiceAccessScopeFromResponse = (data = {}) => data.role?.invoiceAccessScope || 'ALL';
+
+export const hasModulePermission = (permissions, moduleKey, action = 'view') => {
+  const normalizedModuleKey = normalizeModuleKey(moduleKey);
+  if (!normalizedModuleKey || !action) return false;
+
+  if (Array.isArray(permissions)) {
+    const row = permissions.find((permission) => normalizeModuleKey(permission?.moduleKey) === normalizedModuleKey);
+    if (!row) return false;
+
+    const actionMap = {
+      view: row.canView === true,
+      create: row.canCreate === true,
+      edit: row.canEdit === true,
+      delete: row.canDelete === true,
+    };
+
+    return actionMap[action] === true;
+  }
+
+  if (permissions && typeof permissions === 'object') {
+    return permissions[normalizedModuleKey]?.[action] === true;
+  }
+
+  return false;
+};
+
+export const useAuthStore = create((set, get) => ({
+  user: null,
+  org: null,
+  roleType: null,
+  invoiceAccessScope: 'ALL',
   permissions: [],
   isLoading: true,
+
+  hasPermission: (moduleKey, action = 'view') =>
+    hasModulePermission(get().permissions, moduleKey, action),
 
   checkSession: async () => {
     set({ isLoading: true });
@@ -21,28 +67,17 @@ export const useAuthStore = create((set) => ({
         set({
           user: data.user,
           org: data.org,
-          roleType: data.role?.type || null,
-          permissions: data.role?.permissions || [],
+          roleType: getRoleTypeFromResponse(data),
+          invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
+          permissions: getPermissionsFromResponse(data),
           isLoading: false,
         });
         return;
       }
 
-      set({
-        user: null,
-        org: null,
-        roleType: null,
-        permissions: [],
-        isLoading: false,
-      });
+      set(EMPTY_SESSION);
     } catch {
-      set({
-        user: null,
-        org: null,
-        roleType: null,
-        permissions: [],
-        isLoading: false,
-      });
+      set(EMPTY_SESSION);
     }
   },
 
@@ -64,8 +99,9 @@ export const useAuthStore = create((set) => ({
     set({
       user: data.user,
       org: data.org,
-      roleType: data.roleType,
-      permissions: data.permissions || [],
+      roleType: getRoleTypeFromResponse(data),
+      invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
+      permissions: getPermissionsFromResponse(data),
       isLoading: false,
     });
 
@@ -90,8 +126,9 @@ export const useAuthStore = create((set) => ({
     set({
       user: data.user,
       org: data.org,
-      roleType: data.roleType,
-      permissions: data.permissions || [],
+      roleType: getRoleTypeFromResponse(data),
+      invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
+      permissions: getPermissionsFromResponse(data),
       isLoading: false,
     });
 
@@ -105,13 +142,7 @@ export const useAuthStore = create((set) => ({
         credentials: 'include',
       });
     } finally {
-      set({
-        user: null,
-        org: null,
-        roleType: null,
-        permissions: [],
-        isLoading: false,
-      });
+      set(EMPTY_SESSION);
     }
   },
 }));

@@ -7,15 +7,17 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import BillPrintTemplate from '../../components/print/BillPrintTemplate';
-import { Plus, Search, List, Download, Loader } from 'lucide-react';
+import { Plus, Search, List, Download } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useBills } from '../../hooks/useAP';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const Bills = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('ap_bills');
     const { data: billsResult, isLoading } = useBills();
     const bills = billsResult?.data ?? [];
     // billItemTemplates stays in the local store (used for print until API supports line fetch)
@@ -91,7 +93,7 @@ const Bills = () => {
             key: 'actions', label: '', render: (_, row) => (
                 <div className="flex gap-1.5 justify-end">
                     <Button text="View" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); navigate(`/ap/bills/new?billId=${row.id}&mode=view`); }} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); navigate(`/ap/bills/edit?billId=${row.id}&mode=edit`); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); navigate(`/ap/bills/edit?billId=${row.id}&mode=edit`); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); queuePrintBill(row.id); }} />
                 </div>
             )
@@ -114,8 +116,9 @@ const Bills = () => {
                         Catalog
                     </button>
                     <button
-                        className="border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
+                        className={`border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                         onClick={() => navigate('/ap/bills/new')}
+                        disabled={!canCreate}
                     >
                         <Plus size={16} />
                         New Bill
@@ -182,19 +185,15 @@ const Bills = () => {
             </div>
 
             <Card padding={false}>
-                {isLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading bills…
-                    </div>
-                ) : (
-                    <Table
-                        columns={columns}
-                        data={filteredData}
-                        onRowClick={(row) => navigate(`/ap/bills/new?billId=${row.id}&mode=view`)}
-                        showCount
-                        countLabel="bills"
-                    />
-                )}
+                <Table
+                    columns={columns}
+                    data={filteredData}
+                    onRowClick={(row) => navigate(`/ap/bills/new?billId=${row.id}&mode=view`)}
+                    showCount
+                    countLabel="bills"
+                    isLoading={isLoading}
+                    loadingLabel="Loading bills..."
+                />
             </Card>
 
             <PrintPreviewModal

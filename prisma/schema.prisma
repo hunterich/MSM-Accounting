@@ -70,6 +70,7 @@ model User {
 
   memberships    UserOrganization[]
   journalEntries JournalEntry[]
+  salesInvoices  SalesInvoice[]
   auditLogs      AuditLog[]
 }
 
@@ -94,6 +95,7 @@ model Role {
   organizationId String
   name           String
   roleType       RoleType @default(CUSTOM)
+  invoiceAccessScope InvoiceAccessScope @default(ALL)
   isActive       Boolean  @default(true)
   allowedDays    Json?
   startTime      String?
@@ -350,6 +352,7 @@ model Warehouse {
 model SalesInvoice {
   id              String        @id @default(cuid())
   organizationId  String
+  createdById     String?
   number          String
   customerId      String
   invoiceType     String        @default("Sales Invoice")
@@ -375,6 +378,7 @@ model SalesInvoice {
   updatedAt       DateTime      @updatedAt
 
   organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy       User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
   customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   lines           SalesInvoiceLine[]
   attachments     SalesInvoiceAttachment[]
@@ -384,6 +388,7 @@ model SalesInvoice {
   creditNotes     CreditNote[]
 
   @@unique([organizationId, number])
+  @@index([organizationId, createdById, issueDate])
   @@index([organizationId, issueDate])
   @@index([organizationId, status])
   @@index([customerId, status])
@@ -1023,6 +1028,11 @@ enum RoleType {
   ACCOUNTANT
   VIEWER
   CUSTOM
+}
+
+enum InvoiceAccessScope {
+  ALL
+  OWN
 }
 
 enum ModuleKey {

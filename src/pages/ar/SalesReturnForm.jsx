@@ -36,15 +36,15 @@ const SalesReturnForm = () => {
     const isView = mode === 'view';
     const { addSalesReturn, updateSalesReturn } = useReturnStore();
 
-    const { data: customersData } = useCustomers();
+    const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = customersData?.data ?? [];
-    const { data: invoicesData } = useInvoices();
+    const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = invoicesData?.data ?? [];
-    const { data: srData } = useSalesReturns();
+    const { data: srData, isLoading: salesReturnsLoading } = useSalesReturns();
     const salesReturns = srData?.data ?? [];
-    const { data: warehouses = [] } = useWarehouses();
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
-    const { data: productsData } = useItems();
+    const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: productsData, isLoading: productsLoading } = useItems();
     const products = productsData?.data ?? [];
     const createSalesReturnMutation = useCreateSalesReturn();
     const updateSalesReturnMutation = useUpdateSalesReturn();
@@ -252,6 +252,13 @@ const SalesReturnForm = () => {
         totals.taxAmount,
         totals.total
     ]);
+    const isPageLoading =
+        customersLoading ||
+        invoicesLoading ||
+        salesReturnsLoading ||
+        warehousesLoading ||
+        chartOfAccountsLoading ||
+        productsLoading;
 
     const hydrateLinesFromInvoice = (invoiceId) => {
         const template = invoiceItemTemplates[invoiceId] || [];
@@ -312,15 +319,15 @@ const SalesReturnForm = () => {
             return;
         }
 
-        const returnNumber = returnNumberingMode === 'auto' ? returnNoPreview : returnData.returnNumber || returnNoPreview;
+        const returnNumber = returnNumberingMode === 'manual' ? returnData.returnNumber : undefined;
         const payload = {
             ...returnData,
-            returnNumber,
+            ...(returnNumber && { returnNumber }),
             lines: selectedLines
         };
         // Persist the return via API
         const returnRecord = {
-            id: returnNumber,
+            ...(returnNumber && { id: returnNumber }),
             ...payload,
             status: 'Pending Credit Note',
         };
@@ -378,6 +385,7 @@ const SalesReturnForm = () => {
             containerClassName="ar-module"
             title="Sales Return"
             backTo="/ar/credits"
+            isLoading={isPageLoading}
             actions={(
                 <>
                     <Button text="Print" variant="secondary" />
@@ -389,7 +397,7 @@ const SalesReturnForm = () => {
 
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{returnData.returnNumber || 'SRN-XXXX'}</div>
+                    <div className="module-status-number">{returnData.returnNumber || 'Otomatis'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Approved' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total)}</div>

@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap } from 'lucide-react';
 import SecurityRolesTab from './SecurityRolesTab';
+import AuditLogPanel from '../../components/UI/AuditLogPanel';
+import DataMigrationPanel from './DataMigrationPanel';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const Settings = () => {
@@ -37,6 +39,8 @@ const Settings = () => {
         { id: 'customers', label: 'Customers & Sales', icon: User },
         { id: 'security', label: 'Security & Roles', icon: Shield },
         { id: 'notifications', label: 'Notifications', icon: Bell },
+        { id: 'audit', label: 'Audit Log', icon: ScrollText },
+        { id: 'migration', label: 'Migrasi Data', icon: DatabaseZap },
     ];
 
     const saveSection = (sectionId) => {
@@ -325,6 +329,20 @@ const Settings = () => {
                         <div className="settings-save-wrap">
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('notifications')} />
                         </div>
+                    </Card>
+                )}
+
+                {activeTab === 'audit' && (
+                    <Card title="Audit Log">
+                        <p className="settings-muted">Riwayat seluruh perubahan data — siapa mengubah apa dan kapan.</p>
+                        <AuditLogPanel />
+                    </Card>
+                )}
+
+                {activeTab === 'migration' && (
+                    <Card title="Migrasi Data">
+                        <p className="settings-muted">Pindahkan data dari localStorage (versi lama) ke database PostgreSQL.</p>
+                        <DataMigrationPanel />
                     </Card>
                 )}
             </div>

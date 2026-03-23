@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
+import { logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -50,6 +51,7 @@ export async function POST(req: NextRequest) {
     const vendor = await prisma.vendor.create({
       data: { ...body, organizationId: orgId },
     });
+    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Vendor', entityId: vendor.id, action: 'CREATE', payload: null });
     return withCors(NextResponse.json(vendor, { status: 201 }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create vendor';

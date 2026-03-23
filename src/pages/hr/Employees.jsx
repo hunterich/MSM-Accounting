@@ -1,15 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { List, Plus, Search, Loader } from 'lucide-react';
+import { List, Plus, Search } from 'lucide-react';
 import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatIDR } from '../../utils/formatters';
 import { useEmployees } from '../../hooks/useHR';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const Employees = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('hr_employees');
     const { data: empResult, isLoading } = useEmployees();
     const employeeList = empResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
@@ -58,6 +60,7 @@ const Employees = () => {
                         text="Edit"
                         size="small"
                         variant="tertiary"
+                        disabled={!canEdit}
                         onClick={(event) => {
                             event.stopPropagation();
                             navigate(`/hr/employees/edit?employeeId=${row.id}&mode=edit`);
@@ -83,8 +86,9 @@ const Employees = () => {
                         Catalog
                     </button>
                     <button
-                        className="border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
+                        className={`border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                         onClick={() => navigate('/hr/employees/new?mode=create')}
+                        disabled={!canCreate}
                     >
                         <Plus size={16} />
                         New Employee
@@ -129,19 +133,15 @@ const Employees = () => {
             </div>
 
             <Card padding={false}>
-                {isLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading employees…
-                    </div>
-                ) : (
-                    <Table
-                        columns={columns}
-                        data={filteredData}
-                        onRowClick={(row) => navigate(`/hr/employees/edit?employeeId=${row.id}&mode=view`)}
-                        showCount
-                        countLabel="employees"
-                    />
-                )}
+                <Table
+                    columns={columns}
+                    data={filteredData}
+                    onRowClick={(row) => navigate(`/hr/employees/edit?employeeId=${row.id}&mode=view`)}
+                    showCount
+                    countLabel="employees"
+                    isLoading={isLoading}
+                    loadingLabel="Loading employees..."
+                />
             </Card>
         </div>
     );

@@ -5,6 +5,7 @@ import Button from '../../components/UI/Button';
 import FormPage from '../../components/Layout/FormPage';
 import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const buildFormData = (adj) => {
     if (!adj) {
@@ -55,6 +56,7 @@ const buildItems = (adj, expenseAccounts) => {
 
 const AdjustmentForm = () => {
     const navigate = useNavigate();
+    const { canEdit } = useModulePermissions('inv_adj');
     const [searchParams] = useSearchParams();
     const adjId = searchParams.get('id') || '';
     const rawMode = searchParams.get('mode');
@@ -63,13 +65,14 @@ const AdjustmentForm = () => {
 
     const createAdjustment = useCreateStockAdjustment();
     const updateAdjustmentMutation = useUpdateStockAdjustment();
-    const { data: adjustmentsData } = useStockAdjustments();
+    const { data: adjustmentsData, isLoading: adjustmentsLoading } = useStockAdjustments();
     const adjustments = adjustmentsData?.data ?? [];
-    const { data: itemsData } = useItems();
+    const { data: itemsData, isLoading: itemsLoading } = useItems();
     const products = itemsData?.data ?? [];
-    const { data: allAccounts = [] } = useChartOfAccounts();
+    const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
 
     const isSaving = createAdjustment.isPending || updateAdjustmentMutation.isPending;
+    const isPageLoading = adjustmentsLoading || itemsLoading || accountsLoading;
 
     const selectedAdj = useMemo(() => adjustments.find((a) => a.id === adjId) || null, [adjId, adjustments]);
 
@@ -209,11 +212,12 @@ const AdjustmentForm = () => {
         <FormPage
             title={mode === 'new' ? 'New Inventory Adjustment' : `Adjustment ${selectedAdj?.id || ''}`}
             backLink="/inventory/adjustments"
+            isLoading={isPageLoading}
             actions={
                 <div className="flex gap-2">
                     <Button text="Cancel" variant="secondary" onClick={() => navigate('/inventory/adjustments')} disabled={isSaving} />
                     {!isViewMode && <Button text={isSaving ? 'Saving...' : 'Save Adjustment'} variant="primary" onClick={handleSubmit} disabled={isSaving} />}
-                    {isViewMode && <Button text="Edit Adjustment" variant="primary" onClick={() => navigate(`/inventory/adjustments/edit?id=${adjId}&mode=edit`)} />}
+                    {isViewMode && <Button text="Edit Adjustment" variant="primary" disabled={!canEdit} onClick={() => navigate(`/inventory/adjustments/edit?id=${adjId}&mode=edit`)} />}
                 </div>
             }
         >

@@ -45,10 +45,10 @@ const VendorForm = () => {
     const isEditMode = mode === 'edit';
     const isCreateMode = mode === 'create';
 
-    const { data: vendorsData } = useVendors();
+    const { data: vendorsData, isLoading: vendorsLoading } = useVendors();
     const vendors = vendorsData?.data || [];
 
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
 
     const createVendor = useCreateVendor();
     const updateVendor = useUpdateVendor();
@@ -93,6 +93,7 @@ const VendorForm = () => {
     };
 
     const isPending = createVendor.isPending || updateVendor.isPending;
+    const isPageLoading = vendorsLoading || chartOfAccountsLoading;
 
     const pageTitle = isViewMode
         ? `View Vendor${vendorId ? ` ${vendorId}` : ''}`
@@ -106,6 +107,7 @@ const VendorForm = () => {
             title={pageTitle}
             backTo="/ap/vendors"
             backLabel="Back to Vendors"
+            isLoading={isPageLoading}
             actions={
                 isViewMode ? (
                     <Button text="Close" variant="primary" onClick={() => navigate('/ap/vendors')} />

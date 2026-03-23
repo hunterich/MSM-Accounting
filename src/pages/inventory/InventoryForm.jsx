@@ -129,7 +129,7 @@ const InventoryForm = () => {
 
     const createItem = useCreateItem();
     const updateItem = useUpdateItem();
-    const { data: itemsData } = useItems();
+    const { data: itemsData, isLoading: itemsLoading } = useItems();
     const storeProducts = itemsData?.data ?? [];
 
     const itemId   = searchParams.get('itemId') || '';
@@ -158,7 +158,7 @@ const InventoryForm = () => {
     }, [itemId, mode, selectedItem]);
 
     // ── Filtered account lists ────────────────────────────────────────────
-    const { data: allAccounts = [] } = useChartOfAccounts();
+    const { data: allAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const inventoryAccounts = useMemo(
         () => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Asset'),
         [allAccounts]
@@ -283,12 +283,15 @@ const InventoryForm = () => {
         return Array.from(all).sort();
     }, [formData.category]);
 
+    const isPageLoading = itemsLoading || chartOfAccountsLoading;
+
     return (
         <FormPage
             containerClassName="inventory-module"
             title={pageTitle}
             backTo="/inventory"
             backLabel="Back to Inventory"
+            isLoading={isPageLoading}
             actions={
                 isViewMode ? (
                     <Button text="Close" variant="primary" onClick={() => navigate('/inventory')} />

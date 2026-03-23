@@ -4,12 +4,14 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List, Loader } from 'lucide-react';
+import { Plus, Search, List } from 'lucide-react';
 import { formatDateID } from '../../utils/formatters';
 import { useStockAdjustments } from '../../hooks/useInventory';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const InventoryAdjustments = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('inv_adj');
     const { data: adjResult, isLoading } = useStockAdjustments();
     const adjustments = adjResult?.data ?? [];
 
@@ -47,7 +49,7 @@ const InventoryAdjustments = () => {
             key: 'actions', label: '', render: (_, row) => (
                 <div className="flex gap-1.5 justify-end">
                     <Button text="View" size="small" variant="tertiary" onClick={() => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=view`)} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={() => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=edit`)} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={() => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=edit`)} />
                 </div>
             )
         }
@@ -69,8 +71,9 @@ const InventoryAdjustments = () => {
                         Adjustments
                     </button>
                     <button
-                        className="border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
+                        className={`border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                         onClick={() => navigate('/inventory/adjustments/new')}
+                        disabled={!canCreate}
                     >
                         <Plus size={16} />
                         New Adjustment
@@ -139,19 +142,15 @@ const InventoryAdjustments = () => {
             </div>
 
             <Card padding={false}>
-                {isLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading adjustments…
-                    </div>
-                ) : (
-                    <Table
-                        columns={columns}
-                        data={filteredData}
-                        onRowClick={(row) => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=view`)}
-                        showCount
-                        countLabel="adjustments"
-                    />
-                )}
+                <Table
+                    columns={columns}
+                    data={filteredData}
+                    onRowClick={(row) => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=view`)}
+                    showCount
+                    countLabel="adjustments"
+                    isLoading={isLoading}
+                    loadingLabel="Loading adjustments..."
+                />
             </Card>
         </div>
     );

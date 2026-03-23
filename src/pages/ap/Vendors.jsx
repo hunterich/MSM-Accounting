@@ -4,12 +4,14 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List, Loader } from 'lucide-react';
+import { Plus, Search, List } from 'lucide-react';
 import { formatIDR } from '../../utils/formatters';
 import { useVendors } from '../../hooks/useAP';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const Vendors = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('ap_vendors');
     const { data: vendorsResult, isLoading } = useVendors();
     const vendorList = vendorsResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
@@ -40,7 +42,7 @@ const Vendors = () => {
             render: (_, row) => (
                 <div className="flex gap-1.5 justify-end">
                     <Button text="View" size="small" variant="tertiary" onClick={() => navigate(`/ap/vendors/new?vendorId=${row.id}&mode=view`)} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={() => navigate(`/ap/vendors/edit?vendorId=${row.id}&mode=edit`)} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={() => navigate(`/ap/vendors/edit?vendorId=${row.id}&mode=edit`)} />
                 </div>
             )
         }
@@ -61,8 +63,9 @@ const Vendors = () => {
                         Catalog
                     </button>
                     <button
-                        className="border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
+                        className={`border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                         onClick={() => navigate('/ap/vendors/new?mode=create')}
+                        disabled={!canCreate}
                     >
                         <Plus size={16} />
                         Add Vendor
@@ -107,19 +110,15 @@ const Vendors = () => {
             </div>
 
             <Card padding={false}>
-                {isLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading vendors…
-                    </div>
-                ) : (
-                    <Table
-                        columns={columns}
-                        data={filteredData}
-                        onRowClick={(row) => navigate(`/ap/vendors/new?vendorId=${row.id}&mode=view`)}
-                        showCount
-                        countLabel="vendors"
-                    />
-                )}
+                <Table
+                    columns={columns}
+                    data={filteredData}
+                    onRowClick={(row) => navigate(`/ap/vendors/new?vendorId=${row.id}&mode=view`)}
+                    showCount
+                    countLabel="vendors"
+                    isLoading={isLoading}
+                    loadingLabel="Loading vendors..."
+                />
             </Card>
         </div>
     );

@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { nextNumber } from '@/lib/api-utils';
+import { nextNumber, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
       data: { ...body, organizationId: orgId, number },
       include: { vendor: { select: { id: true, name: true, code: true } } },
     });
+    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'APPayment', entityId: payment.id, action: 'CREATE', payload: { number } });
     return withCors(NextResponse.json(payment, { status: 201 }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create AP payment';

@@ -13,7 +13,8 @@ import {
     Briefcase,
     Users
 } from 'lucide-react';
-import { useAccessStore } from '../../stores/useAccessStore';
+import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 const navItems = [
     {
@@ -163,10 +164,19 @@ const SidebarIcon = ({ item, isActive, onFlyoutOpen, onFlyoutClose, flyoutOpen }
 const Sidebar = () => {
     const location = useLocation();
     const [flyout, setFlyout] = useState(null);
+    const hasPermission = useAuthStore((s) => s.hasPermission);
 
-    // RBAC: get permission check functions from the access store
-    const canSeeSidebarItem = useAccessStore(s => s.canSeeSidebarItem);
-    const canSeeSubItem = useAccessStore(s => s.canSeeSubItem);
+    const canSeeSidebarItem = (navLabel) => {
+        const keys = SIDEBAR_PERMISSION_MAP[navLabel];
+        if (!keys) return true;
+        return keys.some((key) => hasPermission(key, 'view'));
+    };
+
+    const canSeeSubItem = (path) => {
+        const key = SUBITEM_PERMISSION_MAP[path];
+        if (!key) return true;
+        return hasPermission(key, 'view');
+    };
 
     // Filter nav items based on current user's role permissions
     const visibleNavItems = navItems

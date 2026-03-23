@@ -71,12 +71,14 @@ async function main() {
     },
     update: {
       roleType: RoleType.ADMIN,
+      invoiceAccessScope: 'ALL',
       isActive: true,
     },
     create: {
       organizationId: org.id,
       name: 'Administrator',
       roleType: RoleType.ADMIN,
+      invoiceAccessScope: 'ALL',
       isActive: true,
       allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
       startTime: '00:00',
@@ -106,7 +108,94 @@ async function main() {
     },
   });
 
+  const cashierRole = await prisma.role.upsert({
+    where: {
+      organizationId_name: {
+        organizationId: org.id,
+        name: 'Cashier',
+      },
+    },
+    update: {
+      roleType: RoleType.CUSTOM,
+      invoiceAccessScope: 'OWN',
+      isActive: true,
+    },
+    create: {
+      organizationId: org.id,
+      name: 'Cashier',
+      roleType: RoleType.CUSTOM,
+      invoiceAccessScope: 'OWN',
+      isActive: true,
+      allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      startTime: '08:00',
+      endTime: '18:00',
+    },
+  });
+
+  await prisma.rolePermission.createMany({
+    data: [
+      { roleId: cashierRole.id, moduleKey: ModuleKey.DASHBOARD, canView: true, canCreate: false, canEdit: false, canDelete: false },
+      { roleId: cashierRole.id, moduleKey: ModuleKey.AR_INVOICES, canView: true, canCreate: true, canEdit: true, canDelete: false },
+      { roleId: cashierRole.id, moduleKey: ModuleKey.AR_CUSTOMERS, canView: true, canCreate: false, canEdit: false, canDelete: false },
+      { roleId: cashierRole.id, moduleKey: ModuleKey.AR_PAYMENTS, canView: true, canCreate: true, canEdit: false, canDelete: false },
+    ],
+    skipDuplicates: true,
+  });
+
+  await prisma.rolePermission.updateMany({
+    where: {
+      roleId: cashierRole.id,
+      moduleKey: ModuleKey.DASHBOARD,
+    },
+    data: {
+      canView: true,
+      canCreate: false,
+      canEdit: false,
+      canDelete: false,
+    },
+  });
+
+  await prisma.rolePermission.updateMany({
+    where: {
+      roleId: cashierRole.id,
+      moduleKey: ModuleKey.AR_INVOICES,
+    },
+    data: {
+      canView: true,
+      canCreate: true,
+      canEdit: true,
+      canDelete: false,
+    },
+  });
+
+  await prisma.rolePermission.updateMany({
+    where: {
+      roleId: cashierRole.id,
+      moduleKey: ModuleKey.AR_CUSTOMERS,
+    },
+    data: {
+      canView: true,
+      canCreate: false,
+      canEdit: false,
+      canDelete: false,
+    },
+  });
+
+  await prisma.rolePermission.updateMany({
+    where: {
+      roleId: cashierRole.id,
+      moduleKey: ModuleKey.AR_PAYMENTS,
+    },
+    data: {
+      canView: true,
+      canCreate: true,
+      canEdit: false,
+      canDelete: false,
+    },
+  });
+
   const passwordHash = await bcrypt.hash('admin123', 12);
+  const cashierPasswordHash = await bcrypt.hash('cashier123', 12);
 
   const user = await prisma.user.upsert({
     where: { email: 'admin@demo.com' },
@@ -119,6 +208,21 @@ async function main() {
       email: 'admin@demo.com',
       fullName: 'Admin User',
       passwordHash,
+      status: 'ACTIVE',
+    },
+  });
+
+  const cashierUser = await prisma.user.upsert({
+    where: { email: 'cashier@demo.com' },
+    update: {
+      fullName: 'Cashier User',
+      passwordHash: cashierPasswordHash,
+      status: 'ACTIVE',
+    },
+    create: {
+      email: 'cashier@demo.com',
+      fullName: 'Cashier User',
+      passwordHash: cashierPasswordHash,
       status: 'ACTIVE',
     },
   });
@@ -138,6 +242,25 @@ async function main() {
       userId: user.id,
       organizationId: org.id,
       roleId: role.id,
+      isActive: true,
+    },
+  });
+
+  await prisma.userOrganization.upsert({
+    where: {
+      userId_organizationId: {
+        userId: cashierUser.id,
+        organizationId: org.id,
+      },
+    },
+    update: {
+      roleId: cashierRole.id,
+      isActive: true,
+    },
+    create: {
+      userId: cashierUser.id,
+      organizationId: org.id,
+      roleId: cashierRole.id,
       isActive: true,
     },
   });
@@ -334,16 +457,22 @@ async function main() {
   for (const inv of invoiceSeeds) {
     const existing = await prisma.salesInvoice.findUnique({
       where: { organizationId_number: { organizationId: org.id, number: inv.number } },
+      select: { id: true, createdById: true },
     });
     if (!existing) {
       const created = await prisma.salesInvoice.create({
-        data: { organizationId: org.id, ...inv, currency: 'IDR' },
+        data: { organizationId: org.id, createdById: user.id, ...inv, currency: 'IDR' },
       });
       await prisma.salesInvoiceLine.createMany({
         data: [
           { invoiceId: created.id, lineNo: 1, description: 'Widget A x5',  quantity: 5, price: 100_000, lineSubtotal: 500_000 },
           { invoiceId: created.id, lineNo: 2, description: 'Service Alpha', quantity: 1, price: 500_000, lineSubtotal: 500_000 },
         ],
+      });
+    } else if (!existing.createdById) {
+      await prisma.salesInvoice.update({
+        where: { id: existing.id },
+        data: { createdById: user.id },
       });
     }
   }
@@ -499,7 +628,7 @@ async function main() {
     }
   }
 
-  console.log('Seed complete. Login: admin@demo.com / admin123');
+  console.log('Seed complete. Login: admin@demo.com / admin123 or cashier@demo.com / cashier123');
 }
 
 main()

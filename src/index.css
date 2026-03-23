@@ -79,6 +79,7 @@
     /* Animation */
     --animate-modal-slide-in: modal-slide-in 0.3s ease-out;
     --animate-shake: shake 0.5s infinite;
+    --animate-skeleton-shimmer: skeleton-shimmer 1.5s ease-in-out infinite;
 }
 
 @keyframes modal-slide-in {
@@ -108,6 +109,12 @@
 
     100% {
         transform: rotate(0deg);
+    }
+}
+
+@keyframes skeleton-shimmer {
+    100% {
+        transform: translateX(100%);
     }
 }
 
@@ -188,6 +195,22 @@
         background: linear-gradient(90deg, #001c53, rgba(0, 28, 83, 0.69));
         z-index: 50;
         overflow: visible;
+    }
+
+    .skeleton-block {
+        position: relative;
+        overflow: hidden;
+        border-radius: 0.5rem;
+        background: linear-gradient(180deg, rgba(233, 236, 239, 0.9), rgba(241, 243, 245, 0.95));
+    }
+
+    .skeleton-block::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+        animation: var(--animate-skeleton-shimmer);
     }
 
     .sidebar-logo {

@@ -35,14 +35,14 @@ const PurchaseReturnForm = () => {
     const isView = mode === 'view';
     const { addPurchaseReturn, updatePurchaseReturn } = useReturnStore();
 
-    const { data: vendorsData } = useVendors();
+    const { data: vendorsData, isLoading: vendorsLoading } = useVendors();
     const vendors = vendorsData?.data ?? [];
-    const { data: billsData } = useBills();
+    const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data ?? [];
-    const { data: prData } = usePurchaseReturns();
+    const { data: prData, isLoading: purchaseReturnsLoading } = usePurchaseReturns();
     const purchaseReturns = prData?.data ?? [];
-    const { data: warehouses = [] } = useWarehouses();
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const createPurchaseReturnMutation = useCreatePurchaseReturn();
     const updatePurchaseReturnMutation = useUpdatePurchaseReturn();
 
@@ -296,16 +296,16 @@ const PurchaseReturnForm = () => {
             return;
         }
 
-        const returnNumber = returnNumberingMode === 'auto' ? returnNoPreview : returnData.returnNumber || returnNoPreview;
+        const returnNumber = returnNumberingMode === 'manual' ? returnData.returnNumber : undefined;
         const payload = {
             ...returnData,
-            returnNumber,
+            ...(returnNumber && { returnNumber }),
             lines: selectedLines
         };
 
         // Persist the return via API
         const returnRecord = {
-            id: returnNumber,
+            ...(returnNumber && { id: returnNumber }),
             ...payload,
             status: 'Pending Debit Note',
         };
@@ -324,11 +324,19 @@ const PurchaseReturnForm = () => {
         });
     };
 
+    const isPageLoading =
+        vendorsLoading ||
+        billsLoading ||
+        purchaseReturnsLoading ||
+        warehousesLoading ||
+        chartOfAccountsLoading;
+
     return (
         <FormPage
             containerClassName="ap-module"
             title="Purchase Return"
             backTo="/ap/debits"
+            isLoading={isPageLoading}
             actions={
                 <>
                     <Button text="Print" variant="secondary" />
@@ -343,7 +351,7 @@ const PurchaseReturnForm = () => {
         >
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{returnData.returnNumber || 'PRN-XXXX'}</div>
+                    <div className="module-status-number">{returnData.returnNumber || 'Otomatis'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Approved' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total)}</div>

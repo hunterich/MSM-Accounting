@@ -1,7 +1,7 @@
 # MSM Accounting Software — Improvement Roadmap
 
 > Benchmarked against ERPNext (open-source ERP).
-> Created 2026-02-27 | Current version: v0.9.0
+> Created 2026-02-27 | Current version: v1.0.0
 
 ---
 
@@ -38,7 +38,7 @@
   - All sub-modules now wired: CreditNote, DebitNote, SalesReturn, PurchaseReturn, CustomerCategories, Warehouses — API routes + React Query hooks
   - `useReturns.js` hook file: credit notes, debit notes, sales returns, purchase returns, warehouses, customer categories
   - Batch import operations (Shopee ImportInvoicesModal) and print item templates still use local Zustand stores as intermediary
-- [ ] Data migration tool (localStorage → DB for existing users)
+- [x] Data migration tool (localStorage → DB for existing users) — `DataMigrationPanel.jsx` in Settings; migrates customers, vendors, items from localStorage Zustand stores to PostgreSQL via API batch POST
 
 ### 1.2 Print / PDF Export
 - [x] Printable invoice layout (A4) — `src/components/print/InvoicePrintTemplate.jsx`
@@ -120,9 +120,9 @@
 - [x] Access time & day restrictions per role (Pembatasan Akses)
 - [x] User authentication — Login page, JWT httpOnly cookie (`msm_token`), `ProtectedRoute` wrapper, session persistence on refresh
 - [x] Login UX refresh — modern/minimalist responsive sign-in layout aligned with current product theme tokens
-- [ ] Document-level permissions (e.g., Cashier can only see own invoices)
-- [ ] Audit log (who changed what, when)
-- [ ] Enforce RBAC on routes (redirect to /403 if user navigates directly to restricted URL)
+- [x] Document-level permissions (invoice ownership + per-role "all" vs "own" visibility)
+- [x] Audit log (who changed what, when) — `logAudit()` wired into all 38 API route handlers (POST/PUT/DELETE); `AuditLog` Prisma model; `/api/v1/audit-logs` endpoint; `AuditLogPanel.jsx` UI; `useAuditLog.js` React Query hook
+- [x] Enforce RBAC on routes (redirect to /403 if user navigates directly to restricted URL) — `PermissionRoute` wrapper component; `Forbidden.jsx` page with smart fallback navigation; wired into App.jsx for all module routes
 
 ### 2.5 Email Integration
 - [ ] Send invoice PDF to customer via email
@@ -308,7 +308,7 @@
 | Unit tests for stores & utils | [~] Vitest installed; formatters + shopeeImport tests passing (26 tests) | High |
 | E2E tests (Playwright/Cypress) | Not started | Medium |
 | Error boundaries & error handling | [x] ErrorBoundary component with page/widget variants; wraps App, Dashboard, and each widget | High |
-| Loading states & skeleton screens | Not started | Medium |
+| Loading states & skeleton screens | [~] `LoadingSkeleton.jsx` (`SkeletonBlock`, `TableSkeleton`) added; not yet applied to all pages | Medium |
 | Mobile responsive layout | Not started | Medium |
 | Accessibility (a11y) audit | Not started | Low |
 | Virtual scrolling / lazy-load for large lists (Accurate pattern) | [~] Table.jsx supports @tanstack/react-virtual (auto >50 rows), record count footer on all list pages | **Critical** |
@@ -339,7 +339,7 @@
 - [x] Pembatasan Akses (time & day restrictions) per role
 - [x] Persisted via Zustand + localStorage (`msm-access` key)
 - [x] Sidebar dynamically filters based on current user's role permissions
-- [~] Route-level enforcement — auth guard implemented (`ProtectedRoute` + API middleware); RBAC `/403` route blocking still pending
+- [x] Route-level enforcement — auth guard (`ProtectedRoute` + API middleware) + RBAC blocking via `PermissionRoute` → `/403` redirect
 - [ ] Per-action enforcement in UI (disable Create button if no `create` permission)
 
 ### Catalog / List View Pattern
@@ -442,8 +442,12 @@ v0.9   — Frontend → Backend Connection (Phase 1.1 complete) ✓
           All 6 modules wired (reads + writes): Banking ✓ GL ✓ AR ✓ AP ✓ Inventory ✓ HR ✓
           13 list pages + 10 form pages on React Query; 4 sub-forms pending backend routes
 
-v1.0   — Multi-User Auth live + all data in PostgreSQL
+v1.0   — Multi-User Auth live + all data in PostgreSQL ✓
           ↑ First production-ready release (Phase 1.1 + 2.4 complete)
+          Audit log — logAudit() in all 38 API route handlers + AuditLogPanel UI
+          RBAC route enforcement — PermissionRoute + Forbidden.jsx + App.jsx wiring
+          Data migration tool — DataMigrationPanel in Settings (localStorage → PostgreSQL)
+          Loading skeletons — SkeletonBlock + TableSkeleton components
 
 v1.1   — Inventory Valuation + Bank Statement Import (Phase 1.4, 1.5)
 v1.2   — Batch/Expiry Tracking (Phase 2.2)

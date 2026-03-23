@@ -2,7 +2,9 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ErrorBoundary, PageErrorFallback } from './components/UI/ErrorBoundary'
 import Layout from './components/Layout/Layout'
 import ProtectedRoute from './components/auth/ProtectedRoute'
+import PermissionRoute from './components/auth/PermissionRoute'
 import Login from './pages/Login'
+import Forbidden from './pages/Forbidden'
 import Dashboard from './pages/Dashboard'
 import ChartOfAccounts from './pages/gl/ChartOfAccounts'
 import JournalEntries from './pages/gl/JournalEntries'
@@ -50,6 +52,12 @@ import Integrations from './pages/integrations/Integrations'
 import CompanySetup from './pages/company/CompanySetup'
 
 function App() {
+    const withPermission = (element, moduleKey, action = 'view') => (
+        <PermissionRoute moduleKey={moduleKey} action={action}>
+            {element}
+        </PermissionRoute>
+    )
+
     return (
         <ErrorBoundary fallback={PageErrorFallback}>
         <Router>
@@ -57,81 +65,88 @@ function App() {
                 <Route path="/login" element={<Login />} />
 
                 <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                    <Route index element={<ErrorBoundary fallback={PageErrorFallback}><Dashboard /></ErrorBoundary>} />
+                    <Route path="403" element={<Forbidden />} />
+                    <Route
+                        index
+                        element={withPermission(
+                            <ErrorBoundary fallback={PageErrorFallback}><Dashboard /></ErrorBoundary>,
+                            'dashboard'
+                        )}
+                    />
 
                     {/* General Ledger */}
-                    <Route path="gl" element={<ChartOfAccounts />} />
-                    <Route path="gl/journals" element={<JournalEntries />} />
-                    <Route path="gl/journals/new" element={<JournalEntryForm />} />
-                    <Route path="gl/journals/edit" element={<JournalEntryForm />} />
+                    <Route path="gl" element={withPermission(<ChartOfAccounts />, 'gl_coa')} />
+                    <Route path="gl/journals" element={withPermission(<JournalEntries />, 'gl_journal')} />
+                    <Route path="gl/journals/new" element={withPermission(<JournalEntryForm />, 'gl_journal', 'create')} />
+                    <Route path="gl/journals/edit" element={withPermission(<JournalEntryForm />, 'gl_journal', 'edit')} />
 
                     {/* Accounts Receivable */}
                     <Route path="ar" element={<Navigate to="/ar/sales-orders" replace />} />
-                    <Route path="ar/invoices" element={<Invoices />} />
-                    <Route path="ar/invoices/workbench" element={<InvoiceWorkbench />} />
-                    <Route path="ar/invoices/new" element={<InvoiceForm />} />
-                    <Route path="ar/invoices/edit" element={<InvoiceForm />} />
-                    <Route path="ar/sales-orders" element={<SalesOrderWorkbench />} />
-                    <Route path="ar/sales-orders/new" element={<SOForm mode="create" />} />
-                    <Route path="ar/sales-orders/edit" element={<SOForm mode="edit" />} />
-                    <Route path="ar/customers" element={<Customers />} />
-                    <Route path="ar/customers/new" element={<CustomerForm />} />
-                    <Route path="ar/customers/edit" element={<CustomerForm />} />
-                    <Route path="ar/categories" element={<CustomerCategories />} />
-                    <Route path="ar/payments" element={<Payments />} />
-                    <Route path="ar/payments/new" element={<PaymentForm />} />
-                    <Route path="ar/payments/edit" element={<PaymentForm />} />
-                    <Route path="ar/credits" element={<CreditNotes />} />
-                    <Route path="ar/credits/new" element={<CreditNoteForm />} />
-                    <Route path="ar/credits/edit" element={<CreditNoteForm />} />
-                    <Route path="ar/returns/new" element={<SalesReturnForm />} />
+                    <Route path="ar/invoices" element={withPermission(<Invoices />, 'ar_invoices')} />
+                    <Route path="ar/invoices/workbench" element={withPermission(<InvoiceWorkbench />, 'ar_invoices')} />
+                    <Route path="ar/invoices/new" element={withPermission(<InvoiceForm />, 'ar_invoices', 'create')} />
+                    <Route path="ar/invoices/edit" element={withPermission(<InvoiceForm />, 'ar_invoices', 'edit')} />
+                    <Route path="ar/sales-orders" element={withPermission(<SalesOrderWorkbench />, 'ar_sales_orders')} />
+                    <Route path="ar/sales-orders/new" element={withPermission(<SOForm mode="create" />, 'ar_sales_orders', 'create')} />
+                    <Route path="ar/sales-orders/edit" element={withPermission(<SOForm mode="edit" />, 'ar_sales_orders', 'edit')} />
+                    <Route path="ar/customers" element={withPermission(<Customers />, 'ar_customers')} />
+                    <Route path="ar/customers/new" element={withPermission(<CustomerForm />, 'ar_customers', 'create')} />
+                    <Route path="ar/customers/edit" element={withPermission(<CustomerForm />, 'ar_customers', 'edit')} />
+                    <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customers')} />
+                    <Route path="ar/payments" element={withPermission(<Payments />, 'ar_payments')} />
+                    <Route path="ar/payments/new" element={withPermission(<PaymentForm />, 'ar_payments', 'create')} />
+                    <Route path="ar/payments/edit" element={withPermission(<PaymentForm />, 'ar_payments', 'edit')} />
+                    <Route path="ar/credits" element={withPermission(<CreditNotes />, 'ar_credits')} />
+                    <Route path="ar/credits/new" element={withPermission(<CreditNoteForm />, 'ar_credits', 'create')} />
+                    <Route path="ar/credits/edit" element={withPermission(<CreditNoteForm />, 'ar_credits', 'edit')} />
+                    <Route path="ar/returns/new" element={withPermission(<SalesReturnForm />, 'ar_credits', 'create')} />
 
                     {/* Accounts Payable */}
                     <Route path="ap" element={<Navigate to="/ap/bills" replace />} />
-                    <Route path="ap/pos" element={<PurchaseOrders />} />
-                    <Route path="ap/pos/new" element={<POForm />} />
-                    <Route path="ap/pos/edit" element={<POForm />} />
-                    <Route path="ap/bills" element={<Bills />} />
-                    <Route path="ap/bills/new" element={<BillForm />} />
-                    <Route path="ap/bills/edit" element={<BillForm />} />
-                    <Route path="ap/payments" element={<APPayments />} />
-                    <Route path="ap/payments/new" element={<APPaymentForm />} />
-                    <Route path="ap/payments/edit" element={<APPaymentForm />} />
-                    <Route path="ap/debits" element={<APDebitNotes />} />
-                    <Route path="ap/returns/new" element={<PurchaseReturnForm />} />
-                    <Route path="ap/debits/new" element={<DebitNoteForm />} />
-                    <Route path="ap/debits/edit" element={<DebitNoteForm />} />
-                    <Route path="ap/vendors" element={<Vendors />} />
-                    <Route path="ap/vendors/new" element={<VendorForm />} />
-                    <Route path="ap/vendors/edit" element={<VendorForm />} />
+                    <Route path="ap/pos" element={withPermission(<PurchaseOrders />, 'ap_pos')} />
+                    <Route path="ap/pos/new" element={withPermission(<POForm />, 'ap_pos', 'create')} />
+                    <Route path="ap/pos/edit" element={withPermission(<POForm />, 'ap_pos', 'edit')} />
+                    <Route path="ap/bills" element={withPermission(<Bills />, 'ap_bills')} />
+                    <Route path="ap/bills/new" element={withPermission(<BillForm />, 'ap_bills', 'create')} />
+                    <Route path="ap/bills/edit" element={withPermission(<BillForm />, 'ap_bills', 'edit')} />
+                    <Route path="ap/payments" element={withPermission(<APPayments />, 'ap_payments')} />
+                    <Route path="ap/payments/new" element={withPermission(<APPaymentForm />, 'ap_payments', 'create')} />
+                    <Route path="ap/payments/edit" element={withPermission(<APPaymentForm />, 'ap_payments', 'edit')} />
+                    <Route path="ap/debits" element={withPermission(<APDebitNotes />, 'ap_debits')} />
+                    <Route path="ap/returns/new" element={withPermission(<PurchaseReturnForm />, 'ap_debits', 'create')} />
+                    <Route path="ap/debits/new" element={withPermission(<DebitNoteForm />, 'ap_debits', 'create')} />
+                    <Route path="ap/debits/edit" element={withPermission(<DebitNoteForm />, 'ap_debits', 'edit')} />
+                    <Route path="ap/vendors" element={withPermission(<Vendors />, 'ap_vendors')} />
+                    <Route path="ap/vendors/new" element={withPermission(<VendorForm />, 'ap_vendors', 'create')} />
+                    <Route path="ap/vendors/edit" element={withPermission(<VendorForm />, 'ap_vendors', 'edit')} />
 
                     {/* Inventory */}
                     <Route path="inventory" element={<Navigate to="/inventory/items" replace />} />
-                    <Route path="inventory/items" element={<Inventory />} />
-                    <Route path="inventory/new" element={<InventoryForm />} />
-                    <Route path="inventory/adjustments" element={<InventoryAdjustments />} />
-                    <Route path="inventory/adjustments/new" element={<AdjustmentForm />} />
-                    <Route path="inventory/adjustments/edit" element={<AdjustmentForm />} />
+                    <Route path="inventory/items" element={withPermission(<Inventory />, 'inv_items')} />
+                    <Route path="inventory/new" element={withPermission(<InventoryForm />, 'inv_items', 'create')} />
+                    <Route path="inventory/adjustments" element={withPermission(<InventoryAdjustments />, 'inv_adj')} />
+                    <Route path="inventory/adjustments/new" element={withPermission(<AdjustmentForm />, 'inv_adj', 'create')} />
+                    <Route path="inventory/adjustments/edit" element={withPermission(<AdjustmentForm />, 'inv_adj', 'edit')} />
 
                     {/* Banking */}
-                    <Route path="banking" element={<Banking />} />
-                    <Route path="banking/transfer" element={<BankingActionForm />} />
-                    <Route path="banking/expense" element={<BankingActionForm />} />
-                    <Route path="banking/income" element={<BankingActionForm />} />
-                    <Route path="banking/account" element={<BankingActionForm />} />
+                    <Route path="banking" element={withPermission(<Banking />, 'banking')} />
+                    <Route path="banking/transfer" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/expense" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/income" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/account" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
 
                     {/* HR & Payroll */}
                     <Route path="hr" element={<Navigate to="/hr/employees" replace />} />
-                    <Route path="hr/employees" element={<Employees />} />
-                    <Route path="hr/employees/new" element={<EmployeeForm />} />
-                    <Route path="hr/employees/edit" element={<EmployeeForm />} />
-                    <Route path="hr/attendance" element={<Attendance />} />
-                    <Route path="hr/payroll-run" element={<PayrollRun />} />
+                    <Route path="hr/employees" element={withPermission(<Employees />, 'hr_employees')} />
+                    <Route path="hr/employees/new" element={withPermission(<EmployeeForm />, 'hr_employees', 'create')} />
+                    <Route path="hr/employees/edit" element={withPermission(<EmployeeForm />, 'hr_employees', 'edit')} />
+                    <Route path="hr/attendance" element={withPermission(<Attendance />, 'hr_attendance')} />
+                    <Route path="hr/payroll-run" element={withPermission(<PayrollRun />, 'hr_payroll')} />
 
-                    <Route path="integrations" element={<Integrations />} />
-                    <Route path="reports" element={<Reports />} />
-                    <Route path="company-setup" element={<CompanySetup />} />
-                    <Route path="settings" element={<Settings />} />
+                    <Route path="integrations" element={withPermission(<Integrations />, 'integrations')} />
+                    <Route path="reports" element={withPermission(<Reports />, 'reports')} />
+                    <Route path="company-setup" element={withPermission(<CompanySetup />, 'company')} />
+                    <Route path="settings" element={withPermission(<Settings />, 'settings')} />
                 </Route>
             </Routes>
         </Router>

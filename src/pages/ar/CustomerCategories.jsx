@@ -7,8 +7,10 @@ import Input from '../../components/UI/Input';
 import Modal from '../../components/UI/Modal';
 import { useCustomerCategories, useCreateCustomerCategory, useUpdateCustomerCategory, useDeleteCustomerCategory } from '../../hooks/useReturns';
 import { formatIDR } from '../../utils/formatters';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const CustomerCategories = () => {
+    const { canCreate, canEdit, canDelete } = useModulePermissions('ar_customers');
     const { data: categories = [], isLoading } = useCustomerCategories();
     const createCategoryMutation = useCreateCustomerCategory();
     const updateCategoryMutation = useUpdateCustomerCategory();
@@ -103,6 +105,7 @@ const CustomerCategories = () => {
                         variant="ghost"
                         size="small"
                         icon={<Edit2 size={16} />}
+                        disabled={!canEdit}
                         onClick={() => handleOpenModal(row)}
                     />
                     <Button
@@ -110,6 +113,7 @@ const CustomerCategories = () => {
                         size="small"
                         className="text-red-500"
                         icon={<Trash2 size={16} />}
+                        disabled={!canDelete}
                         onClick={() => handleDelete(row.id)}
                     />
                 </div>
@@ -129,6 +133,7 @@ const CustomerCategories = () => {
                         variant="primary"
                         icon={<Plus size={16} />}
                         text="New Category"
+                        disabled={!canCreate}
                         onClick={() => handleOpenModal()}
                     />
                 </div>
@@ -233,6 +238,7 @@ const CustomerCategories = () => {
                             variant="primary"
                             text="Save Category"
                             icon={<Save size={16} />}
+                            disabled={editingCategory ? !canEdit : !canCreate}
                         />
                     </div>
                 </form>

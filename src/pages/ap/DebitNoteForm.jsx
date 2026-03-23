@@ -41,13 +41,13 @@ const toReturnTotals = (purchaseReturn) => {
 const DebitNoteForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { data: bankAccounts = [] } = useBankAccounts();
-    const { data: billsData } = useBills();
+    const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
+    const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data ?? [];
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
-    const { data: dnData } = useDebitNotes();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: dnData, isLoading: debitNotesLoading } = useDebitNotes();
     const debitNotes = dnData?.data ?? [];
-    const { data: prData } = usePurchaseReturns();
+    const { data: prData, isLoading: purchaseReturnsLoading } = usePurchaseReturns();
     const purchaseReturns = prData?.data ?? [];
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
@@ -265,11 +265,10 @@ const DebitNoteForm = () => {
             return;
         }
 
-        const debitNumber = numberingMode === 'auto' ? debitNoPreview : formData.debitNumber || debitNoPreview;
-        setFormData((prev) => ({ ...prev, debitNumber }));
+        const debitNumber = numberingMode === 'manual' ? formData.debitNumber : undefined;
 
         const notePayload = {
-            id: debitNumber,
+            ...(debitNumber && { id: debitNumber }),
             date: formData.debitDate,
             returnId: formData.linkedReturnId,
             vendorId: formData.vendorId,
@@ -294,11 +293,19 @@ const DebitNoteForm = () => {
         navigate('/ap/debits');
     };
 
+    const isPageLoading =
+        bankAccountsLoading ||
+        billsLoading ||
+        chartOfAccountsLoading ||
+        debitNotesLoading ||
+        purchaseReturnsLoading;
+
     return (
         <FormPage
             containerClassName="ap-module"
             title="Debit Note"
             backTo="/ap/debits"
+            isLoading={isPageLoading}
             actions={
                 <>
                     <Button text="Print" variant="secondary" />
@@ -309,7 +316,7 @@ const DebitNoteForm = () => {
         >
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{formData.debitNumber || 'DBN-XXXX'}</div>
+                    <div className="module-status-number">{formData.debitNumber || 'Otomatis'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Posted' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total || formData.amount)}</div>
@@ -326,7 +333,7 @@ const DebitNoteForm = () => {
                             </select>
                             <Input className="mb-0" value={formData.debitNumber} onChange={(event) => setFormData((prev) => ({ ...prev, debitNumber: event.target.value }))} disabled={isView || numberingMode === 'auto'} placeholder={debitNoPreview} />
                         </div>
-                        {numberingMode === 'auto' ? <div className="numbering-preview">Assigned on save • Preview: {debitNoPreview}</div> : null}
+                        {numberingMode === 'auto' ? <div className="numbering-preview">Nomor ditetapkan server saat disimpan</div> : null}
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Debit Date</label>

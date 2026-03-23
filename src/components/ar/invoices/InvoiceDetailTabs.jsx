@@ -17,7 +17,7 @@ const tabs = [
     { id: 'audit', label: 'Audit / Journal' }
 ];
 
-const InvoiceDetailTabs = ({ invoice, onEdit, onPrint }) => {
+const InvoiceDetailTabs = ({ invoice, onEdit, onPrint, canEdit = true, canDelete = false }) => {
     const [activeTab, setActiveTab] = useState('items');
 
     const renderTabContent = () => {
@@ -46,7 +46,7 @@ const InvoiceDetailTabs = ({ invoice, onEdit, onPrint }) => {
                 </div>
                 <div className="flex gap-2">
                     <Button text="Print" size="small" variant="secondary" onClick={onPrint} />
-                    <Button text="Edit" size="small" variant="primary" onClick={onEdit} />
+                    <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={onEdit} />
                 </div>
             </div>
             <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-0 border-b border-neutral-200">
@@ -92,7 +92,7 @@ const InvoiceDetailTabs = ({ invoice, onEdit, onPrint }) => {
                     <button className="border border-neutral-300 bg-neutral-0 text-neutral-700 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" title="Details"><FileText size={18} /></button>
                     <button className="border border-neutral-300 bg-neutral-0 text-neutral-700 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" title="Attachments"><Paperclip size={18} /></button>
                     <button className="border border-neutral-300 bg-neutral-0 text-success-600 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" title="More"><MoreHorizontal size={18} /></button>
-                    <button className="border border-neutral-300 bg-neutral-0 text-danger-500 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" title="Delete"><Trash2 size={18} /></button>
+                    <button className={`border border-neutral-300 bg-neutral-0 text-danger-500 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center hover:bg-neutral-100 ${canDelete ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
                 </div>
             </div>
         </div>

@@ -7,6 +7,8 @@ import {
   createInvoiceInputSchema,
   createInvoiceResponseSchema,
 } from '@/types/api';
+import { logAudit } from '@/lib/api-utils';
+import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 
 export const runtime = 'nodejs';
 
@@ -17,7 +19,11 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest) {
   try {
     const orgId = req.headers.get('x-org-id');
+    const userId = req.headers.get('x-user-id');
     if (!orgId) {
+      return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+    }
+    if (!userId) {
       return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     }
 
@@ -27,7 +33,8 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
     const search = searchParams.get('search');
 
-    const where: any = { organizationId: orgId };
+    const access = await getInvoiceAccessContext(orgId, userId);
+    const where: any = applyInvoiceAccessScope({ organizationId: orgId }, access);
     if (status) where.status = status;
     if (search) where.OR = [
       { number: { contains: search, mode: 'insensitive' } },
@@ -38,13 +45,21 @@ export async function GET(req: NextRequest) {
       prisma.salesInvoice.findMany({
         where, skip: (page - 1) * limit, take: limit,
         orderBy: { issueDate: 'desc' },
-        include: { customer: { select: { id: true, name: true, code: true } }, lines: true },
+        include: {
+          customer: { select: { id: true, name: true, code: true } },
+          createdBy: { select: { id: true, fullName: true, email: true } },
+          lines: true,
+        },
       }),
       prisma.salesInvoice.count({ where }),
     ]);
 
     return withCors(NextResponse.json({ data, total, page, limit }));
   } catch (error) {
+    if (error instanceof AccessError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
+
     const message = error instanceof Error ? error.message : 'Failed to list invoices';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
@@ -183,9 +198,15 @@ const calculateInvoiceTotals = (
 export async function POST(request: NextRequest) {
   try {
     const orgId = request.headers.get('x-org-id');
+    const userId = request.headers.get('x-user-id');
     if (!orgId) {
       return withCors(NextResponse.json({ message: 'Unauthenticated' }, { status: 401 }));
     }
+    if (!userId) {
+      return withCors(NextResponse.json({ message: 'Unauthenticated' }, { status: 401 }));
+    }
+
+    await getInvoiceAccessContext(orgId, userId);
 
     const rawPayload = await request.json();
     if (rawPayload?.organizationId && rawPayload.organizationId !== orgId) {
@@ -248,6 +269,7 @@ export async function POST(request: NextRequest) {
       return tx.salesInvoice.create({
         data: {
           organizationId: payload.organizationId,
+          createdById: userId,
           number,
           customerId: payload.customerId,
           invoiceType: payload.invoiceType,
@@ -295,8 +317,13 @@ export async function POST(request: NextRequest) {
       currency: createdInvoice.currency,
     });
 
+    logAudit({ orgId: orgId!, actorId: request.headers.get('x-user-id'), entityType: 'SalesInvoice', entityId: createdInvoice.id, action: 'CREATE', payload: { number: createdInvoice.number } });
     return withCors(NextResponse.json(responsePayload, { status: 201 }));
   } catch (error) {
+    if (error instanceof AccessError) {
+      return withCors(NextResponse.json({ message: error.message }, { status: error.status }));
+    }
+
     if (error instanceof ApiError) {
       return withCors(NextResponse.json({ message: error.message }, { status: error.status }));
     }

@@ -22,7 +22,7 @@ const mapStatusForTag = (status) => {
     return { status, label: status || '-' };
 };
 
-const SODetailTabs = ({ salesOrder, lineItems = [], onEdit, onPrint, onConvertToInvoice }) => {
+const SODetailTabs = ({ salesOrder, lineItems = [], onEdit, onPrint, onConvertToInvoice, canEdit = true, canConvertToInvoice = true }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const tag = mapStatusForTag(salesOrder.status);
     const canConvert = ['Confirmed', 'Delivered'].includes(salesOrder.status);
@@ -72,9 +72,9 @@ const SODetailTabs = ({ salesOrder, lineItems = [], onEdit, onPrint, onConvertTo
                     <StatusTag status={tag.status} label={tag.label} />
                 </div>
                 <div className="flex gap-2">
-                    {canConvert ? <Button text="Convert to Invoice" size="small" variant="primary" onClick={onConvertToInvoice} /> : null}
+                    {canConvert ? <Button text="Convert to Invoice" size="small" variant="primary" disabled={!canConvertToInvoice} onClick={onConvertToInvoice} /> : null}
                     <Button text="Print" size="small" variant="secondary" onClick={onPrint} />
-                    <Button text="Edit" size="small" variant="primary" onClick={onEdit} />
+                    <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={onEdit} />
                 </div>
             </div>
             <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-0 border-b border-neutral-200">

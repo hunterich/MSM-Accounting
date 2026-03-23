@@ -20,15 +20,15 @@ const BANK_TO_GL_ACCOUNT_MAP = {
 const PaymentForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { data: customersData } = useCustomers();
+    const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = customersData?.data || [];
-    const { data: invoicesData } = useInvoices();
+    const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = invoicesData?.data || [];
-    const { data: paymentsData } = useARPayments();
+    const { data: paymentsData, isLoading: paymentsLoading } = useARPayments();
     const payments = paymentsData?.data || [];
-    const { data: bankAccountsData } = useBankAccounts();
+    const { data: bankAccountsData, isLoading: bankAccountsLoading } = useBankAccounts();
     const bankAccounts = bankAccountsData || [];
-    const { data: coaData } = useChartOfAccounts();
+    const { data: coaData, isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const chartOfAccounts = coaData || [];
     const createARPayment = useCreateARPayment();
     const updateARPayment = useUpdateARPayment();
@@ -274,6 +274,12 @@ const PaymentForm = () => {
     };
 
     const isSaving = createARPayment.isPending || updateARPayment.isPending;
+    const isPageLoading =
+        customersLoading ||
+        invoicesLoading ||
+        paymentsLoading ||
+        bankAccountsLoading ||
+        chartOfAccountsLoading;
 
     const handleSave = async () => {
         if (!paymentData.customerId) {
@@ -301,15 +307,6 @@ const PaymentForm = () => {
             );
             return;
         }
-
-        let paymentNo = paymentData.paymentNumber;
-        if (paymentNumberingMode === 'auto') {
-            const bankCode = getBankCode(paymentData.depositTo);
-            const seq = paymentSeqByBank[bankCode] || 1;
-            paymentNo = buildPaymentNo(bankCode, paymentData.date, seq);
-            setPaymentSeqByBank(prev => ({ ...prev, [bankCode]: seq + 1 }));
-        }
-        setPaymentData(prev => ({ ...prev, paymentNumber: paymentNo }));
 
         const newPayment = {
             customerId: paymentData.customerId,
@@ -382,6 +379,7 @@ const PaymentForm = () => {
             containerClassName="ar-module"
             title="Receive Payment"
             backTo="/ar/payments"
+            isLoading={isPageLoading}
             actions={(
                 <>
                     <Button text="Save Draft" variant="secondary" disabled={isSaving} />
@@ -392,7 +390,7 @@ const PaymentForm = () => {
 
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{paymentData.paymentNumber || 'PAY-XXXX'}</div>
+                    <div className="module-status-number">{paymentData.paymentNumber || 'Otomatis'}</div>
                     <StatusTag status={mode === 'view' ? 'Completed' : 'Draft'} label={mode === 'view' ? 'Completed' : 'Draft'} />
                 </div>
                 <div className="module-status-total">
@@ -444,7 +442,7 @@ const PaymentForm = () => {
                             </div>
                             {paymentNumberingMode === 'auto' && (
                                 <div className="numbering-preview">
-                                    Assigned on save • Preview: {paymentNoPreview}
+                                    Nomor ditetapkan server saat disimpan
                                 </div>
                             )}
                         </div>

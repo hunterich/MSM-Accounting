@@ -4,12 +4,14 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Loader } from 'lucide-react';
+import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useAPPayments } from '../../hooks/useAP';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const Payments = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit, canDelete } = useModulePermissions('ap_payments');
 
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ status: '' });
@@ -85,7 +87,7 @@ const Payments = () => {
             render: (_, row) => (
                 <div className="row-actions-end">
                     <Button text="View" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); openPaymentTab(row.id); }} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); navigate('/ap/payments/edit', { state: { mode: 'edit', paymentId: row.id } }); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); navigate('/ap/payments/edit', { state: { mode: 'edit', paymentId: row.id } }); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); window.alert('Print is not connected yet.'); }} />
                 </div>
             )
@@ -135,8 +137,9 @@ const Payments = () => {
                         Catalog
                     </button>
                     <button
-                        className="workbench-doc-tab workbench-doc-tab-new"
+                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
                         onClick={() => navigate('/ap/payments/new', { state: { mode: 'create' } })}
+                        disabled={!canCreate}
                     >
                         <Plus size={16} />
                         Pay Bills
@@ -182,19 +185,15 @@ const Payments = () => {
                         ) : null}
                     </div>
                     <Card padding={false}>
-                        {isLoading ? (
-                            <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                                <Loader size={16} className="animate-spin" /> Loading payments…
-                            </div>
-                        ) : (
-                            <Table
-                                columns={columns}
-                                data={filteredData}
-                                onRowClick={(row) => openPaymentTab(row.id)}
-                                showCount
-                                countLabel="payments"
-                            />
-                        )}
+                        <Table
+                            columns={columns}
+                            data={filteredData}
+                            onRowClick={(row) => openPaymentTab(row.id)}
+                            showCount
+                            countLabel="payments"
+                            isLoading={isLoading}
+                            loadingLabel="Loading payments..."
+                        />
                     </Card>
                 </>
             )}
@@ -208,7 +207,7 @@ const Payments = () => {
                         </div>
                         <div className="detail-header-actions">
                             <Button text="Print" size="small" variant="secondary" onClick={() => window.alert('Print is not connected yet.')} />
-                            <Button text="Edit" size="small" variant="primary" onClick={() => navigate('/ap/payments/edit', { state: { mode: 'edit', paymentId: selectedPayment.id } })} />
+                            <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ap/payments/edit', { state: { mode: 'edit', paymentId: selectedPayment.id } })} />
                         </div>
                     </div>
                     <div className="dense-header-grid">
@@ -281,7 +280,7 @@ const Payments = () => {
                             <button className="dense-side-btn" title="Details"><FileText size={18} /></button>
                             <button className="dense-side-btn" title="Attachments"><Paperclip size={18} /></button>
                             <button className="dense-side-btn success" title="More"><MoreHorizontal size={18} /></button>
-                            <button className="dense-side-btn danger" title="Delete"><Trash2 size={18} /></button>
+                            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
                         </div>
                     </div>
                 </div>

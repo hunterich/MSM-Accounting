@@ -4,9 +4,11 @@ import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import Input from '../../components/UI/Input';
-import { Plus, Upload, ChevronDown, ChevronRight, PencilLine, Trash2, Archive, RotateCcw, Search, Loader } from 'lucide-react';
+import { Plus, Upload, ChevronDown, ChevronRight, PencilLine, Trash2, Archive, RotateCcw, Search } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
+import { SkeletonBlock } from '../../components/UI/LoadingSkeleton';
 import { useChartOfAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount } from '../../hooks/useGL';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 import {
     buildAccountTree,
     flattenTree,
@@ -65,6 +67,7 @@ const ChartOfAccounts = () => {
     const createAccount = useCreateAccount();
     const updateAccount = useUpdateAccount();
     const deleteAccount = useDeleteAccount();
+    const { canCreate, canEdit, canDelete } = useModulePermissions('gl_coa');
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAccountId, setEditingAccountId] = useState(null);
@@ -152,6 +155,7 @@ const ChartOfAccounts = () => {
     };
 
     const openCreate = () => {
+        if (!canCreate) return;
         setEditingAccountId(null);
         setForm({
             ...EMPTY_FORM,
@@ -162,6 +166,7 @@ const ChartOfAccounts = () => {
     };
 
     const openEdit = (account) => {
+        if (!canEdit) return;
         setEditingAccountId(account.id);
         setForm({
             code: account.code,
@@ -243,6 +248,7 @@ const ChartOfAccounts = () => {
     };
 
     const handleToggleArchive = async (account) => {
+        if (!canEdit) return;
         try {
             await updateAccount.mutateAsync({ id: account.id, isActive: !account.isActive });
         } catch (err) {
@@ -251,6 +257,7 @@ const ChartOfAccounts = () => {
     };
 
     const handleDelete = async (account) => {
+        if (!canDelete) return;
         const deleteRules = canArchiveAccount(account, accounts);
         if (!deleteRules.canDelete) { window.alert(deleteRules.reason); return; }
         if (!window.confirm(`Delete account ${account.code} ${account.name}?`)) return;
@@ -343,6 +350,7 @@ const ChartOfAccounts = () => {
                             size="small"
                             variant="tertiary"
                             icon={<PencilLine size={14} />}
+                            disabled={!canEdit}
                             onClick={() => openEdit(account)}
                         />
                         <Button
@@ -350,6 +358,7 @@ const ChartOfAccounts = () => {
                             size="small"
                             variant="tertiary"
                             icon={account.isActive ? <Archive size={14} /> : <RotateCcw size={14} />}
+                            disabled={!canEdit}
                             onClick={() => handleToggleArchive(account)}
                         />
                         <Button
@@ -357,7 +366,7 @@ const ChartOfAccounts = () => {
                             size="small"
                             variant="tertiary"
                             icon={<Trash2 size={14} />}
-                            disabled={!deleteRules.canDelete}
+                            disabled={!canDelete || !deleteRules.canDelete}
                             onClick={() => handleDelete(account)}
                         />
                     </div>
@@ -378,15 +387,27 @@ const ChartOfAccounts = () => {
             actions={(
                 <div className="flex gap-2 items-center">
                     <Button text="Import CoA" variant="secondary" icon={<Upload size={16} />} />
-                    <Button text="Add Account" variant="primary" icon={<Plus size={16} />} onClick={openCreate} />
+                    <Button text="Add Account" variant="primary" icon={<Plus size={16} />} disabled={!canCreate} onClick={openCreate} />
                 </div>
             )}
         >
-            {isLoading && (
-                <div className="flex items-center gap-2 py-4 text-sm text-neutral-400">
-                    <Loader size={16} className="animate-spin" /> Loading accounts…
+            {isLoading ? (
+                <div className="space-y-3 mb-4" role="status" aria-live="polite">
+                    <div className="text-sm text-neutral-500">Loading accounts...</div>
+                    <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 space-y-3">
+                        <div className="grid grid-cols-[180px_minmax(240px,1fr)_180px_180px] gap-3">
+                            <SkeletonBlock className="h-10 w-full rounded-md" />
+                            <SkeletonBlock className="h-10 w-full rounded-md" />
+                            <SkeletonBlock className="h-10 w-full rounded-md" />
+                            <SkeletonBlock className="h-10 w-full rounded-md" />
+                        </div>
+                        <SkeletonBlock className="h-12 w-full rounded-md" />
+                        <SkeletonBlock className="h-12 w-full rounded-md" />
+                        <SkeletonBlock className="h-12 w-full rounded-md" />
+                        <SkeletonBlock className="h-12 w-full rounded-md" />
+                    </div>
                 </div>
-            )}
+            ) : null}
 
             <div className="grid grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
                 <div className="relative flex items-center">
@@ -546,15 +567,15 @@ const ChartOfAccounts = () => {
                             <div className="bg-danger-50 border border-danger-200 rounded-md text-danger-700 text-sm px-3 py-2">{errors._api}</div>
                         </div>
                     )}
-                    <div className="col-span-12 flex justify-end gap-2 pt-2 border-t border-neutral-200">
-                        <Button text="Cancel" variant="secondary" onClick={closeModal} />
-                        <Button
-                            text={isSaving ? 'Saving…' : editingAccount ? 'Save Changes' : 'Save Account'}
-                            variant="primary"
-                            onClick={handleSaveAccount}
-                            disabled={isSaving}
-                        />
-                    </div>
+                </div>
+                <div className="flex justify-end gap-3 mt-6">
+                    <Button text="Cancel" variant="tertiary" onClick={closeModal} />
+                    <Button
+                        text={isSaving ? 'Saving…' : editingAccount ? 'Save Changes' : 'Save Account'}
+                        variant="primary"
+                        onClick={handleSaveAccount}
+                        disabled={isSaving}
+                    />
                 </div>
             </Modal>
         </ListPage>

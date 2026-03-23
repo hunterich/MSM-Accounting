@@ -4,9 +4,10 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, Loader } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
 import { useJournalEntries } from '../../hooks/useGL';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { formatIDR, formatDateID } from '../../utils/formatters';
 
 const PERIODS = [
@@ -22,6 +23,7 @@ const PERIODS = [
 
 const JournalEntries = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('gl_journal');
 
     const columns = [
         { key: 'entryNo',     label: 'Entry No.',   sortable: true },
@@ -39,6 +41,7 @@ const JournalEntries = () => {
                     text={row.status === 'Draft' ? 'Edit' : 'View'}
                     size="small"
                     variant="tertiary"
+                    disabled={row.status === 'Draft' && !canEdit}
                     onClick={(e) => {
                         e.stopPropagation();
                         navigate('/gl/journals/edit', {
@@ -81,6 +84,7 @@ const JournalEntries = () => {
                     text="New Journal Entry"
                     variant="primary"
                     icon={<Plus size={16} />}
+                    disabled={!canCreate}
                     onClick={() => navigate('/gl/journals/new')}
                 />
             }
@@ -121,13 +125,14 @@ const JournalEntries = () => {
             </div>
 
             <Card title="All Journal Entries" padding={false}>
-                {isLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading journal entries…
-                    </div>
-                ) : (
-                    <Table columns={columns} data={filteredEntries} showCount countLabel="entries" />
-                )}
+                <Table
+                    columns={columns}
+                    data={filteredEntries}
+                    showCount
+                    countLabel="entries"
+                    isLoading={isLoading}
+                    loadingLabel="Loading journal entries..."
+                />
             </Card>
         </ListPage>
     );

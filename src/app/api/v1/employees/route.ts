@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse, nextNumber } from '@/lib/api-utils';
+import { ok, listResponse, nextNumber, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -45,5 +45,6 @@ export async function POST(req: NextRequest) {
   const employee = await prisma.employee.create({
     data: { ...body, organizationId: orgId, employeeNo },
   });
+  logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Employee', entityId: employee.id, action: 'CREATE', payload: { name: employee.name, employeeNo: employee.employeeNo } });
   return ok(employee, 201);
 }

@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import RecordCount from './RecordCount';
+import { TableSkeleton } from './LoadingSkeleton';
 
 const AUTO_VIRTUALIZE_THRESHOLD = 50;
 
@@ -13,7 +14,10 @@ const Table = ({
     maxHeight = 600,
     rowHeight = 44,
     showCount = false,
-    countLabel = 'records'
+    countLabel = 'records',
+    isLoading = false,
+    loadingLabel = 'Loading records...',
+    loadingRowCount = 6
 }) => {
     const [sortConfig, setSortConfig] = useState(null);
     const scrollElementRef = useRef(null);
@@ -101,6 +105,18 @@ const Table = ({
             ))}
         </tr>
     );
+
+    if (isLoading) {
+        return (
+            <TableSkeleton
+                columnCount={columns.length}
+                rowCount={loadingRowCount}
+                showCount={showCount}
+                className={className}
+                label={loadingLabel}
+            />
+        );
+    }
 
     if (sortedData.length === 0) {
         return (

@@ -42,11 +42,11 @@ const InvoiceForm = () => {
     const [masterCreditLimit, setMasterCreditLimit] = useState(5000000); // Mocked from Settings
 
     // Manage customers state dynamically
-    const { data: customersData } = useCustomers();
+    const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customerList = customersData?.data || [];
-    const { data: invoicesData } = useInvoices();
+    const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = (invoicesData?.data || []).filter(Boolean);
-    const { data: itemsData } = useItems();
+    const { data: itemsData, isLoading: itemsLoading } = useItems();
     const products = itemsData?.data || [];
     const createInvoice = useCreateInvoice();
     const updateInvoiceMutation = useUpdateInvoice();
@@ -302,6 +302,7 @@ const InvoiceForm = () => {
     };
 
     const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
+    const isPageLoading = customersLoading || invoicesLoading || itemsLoading;
 
     const handleApprove = async () => {
         let assignedNo = formData.number;
@@ -422,6 +423,7 @@ const InvoiceForm = () => {
             containerClassName="ar-module invoice-form"
             title="Sales Invoice"
             onBack={handleBack}
+            isLoading={isPageLoading}
             actions={(
                 <>
                     <Button text="Print" variant="secondary" icon={<Printer size={16} />} onClick={handlePrint} />

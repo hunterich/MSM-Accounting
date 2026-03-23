@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0] — 2026-03-22
+
+### 🎉 First Production-Ready Release — Phase 1.1 + 2.4 Complete
+
+#### Audit Log
+- **`logAudit()` wired into all 38 API route handlers** — every POST (CREATE), PUT (UPDATE), and DELETE operation across all modules now writes a fire-and-forget audit record to PostgreSQL
+  - Modules covered: invoices, AR/AP payments, bills, purchase orders, customers, vendors, accounts, journal entries, items, stock adjustments, bank accounts, bank transactions, employees, customer categories, credit/debit notes, sales/purchase returns
+- **`/api/v1/audit-logs` endpoint** — list audit events per org with filtering
+- **`AuditLogPanel.jsx`** — reusable UI panel showing audit history for any entity
+- **`useAuditLog.js`** — React Query hook for fetching audit events
+
+#### RBAC Route Enforcement
+- **`PermissionRoute` component** (`src/components/auth/PermissionRoute.jsx`) — wraps protected routes; redirects to `/403` if the current user lacks the required `moduleKey`/`action` permission
+- **`Forbidden.jsx`** (`src/pages/Forbidden.jsx`) — polished 403 page with smart fallback navigation (tries the first permitted module before falling back to dashboard)
+- **All module routes in `App.jsx` wrapped** with `PermissionRoute` — direct URL navigation to restricted pages now redirects to `/403` instead of rendering the page
+
+#### Data Migration Tool
+- **`DataMigrationPanel.jsx`** in Settings — one-click migration of existing localStorage Zustand data to PostgreSQL
+  - Migrates: customers, vendors, inventory items (with field mapping/normalization per entity)
+  - Per-store progress indicators, error reporting, and idempotent (safe to re-run)
+
+#### Loading Skeletons
+- **`LoadingSkeleton.jsx`** — `SkeletonBlock` and `TableSkeleton` components for consistent loading states across list pages
+
+### 🔄 Changed
+- ROADMAP.md updated: all v1.0 items marked complete; version bumped to v1.0.0
+
+---
+
 ## [Unreleased] — Roadmap
 
 Features planned for upcoming releases.

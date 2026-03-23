@@ -6,6 +6,7 @@ import Table from '../../components/UI/Table';
 import StatusTag from '../../components/UI/StatusTag';
 import { Save, Plus, Edit2, Trash2, Clock, Shield, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useAccessStore, MODULE_KEYS, noPermissions } from '../../stores/useAccessStore';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -25,6 +26,7 @@ const groupOrder = [
 ];
 
 const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }) => {
+    const { canCreate, canEdit } = useModulePermissions('settings');
     /* ---- Pull from Zustand store ---- */
     const roles = useAccessStore(s => s.roles);
     const users = useAccessStore(s => s.users);
@@ -123,7 +125,8 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }) => 
         {
             key: 'actions', label: '', render: (_, row) => (
                 <button
-                    className="text-neutral-500 hover:text-primary-600 transition-colors"
+                    className={`text-neutral-500 transition-colors ${canEdit ? 'hover:text-primary-600' : 'opacity-60 cursor-not-allowed'}`}
+                    disabled={!canEdit}
                     onClick={() => { setEditingRole({ ...row, permissions: { ...noPermissions(), ...row.permissions } }); setActiveGroup('Dashboard'); }}
                 >
                     <Edit2 size={16} />
@@ -347,7 +350,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }) => 
                 </div>
 
                 <div className="flex gap-3 mt-4">
-                    <Button text="Save Role" variant="primary" icon={<Save size={16} />} onClick={handleSaveRole} />
+                    <Button text="Save Role" variant="primary" icon={<Save size={16} />} disabled={!canEdit} onClick={handleSaveRole} />
                     <Button text="Cancel" variant="secondary" onClick={() => setEditingRole(null)} />
                 </div>
             </Card>
@@ -361,7 +364,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }) => 
         <div className="flex flex-col gap-5">
             <Card
                 title="Users Directory (Daftar Pengguna)"
-                actions={<Button text="Add User" variant="secondary" icon={<Plus size={16} />} onClick={() => setShowUserForm(!showUserForm)} />}
+                actions={<Button text="Add User" variant="secondary" icon={<Plus size={16} />} disabled={!canCreate} onClick={() => setShowUserForm(!showUserForm)} />}
                 padding={false}
             >
                 {showUserForm && (
@@ -386,7 +389,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }) => 
                                 </select>
                             </div>
                             <div className="col-span-3 flex gap-2 h-10">
-                                <Button text="Save" variant="primary" onClick={handleAddUser} className="w-full" />
+                                <Button text="Save" variant="primary" disabled={!canCreate} onClick={handleAddUser} className="w-full" />
                                 <Button text="Cancel" variant="secondary" onClick={() => setShowUserForm(false)} />
                             </div>
                         </div>
@@ -399,7 +402,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }) => 
 
             <Card
                 title="Access Roles & Permissions (Akses Grup)"
-                actions={<Button text="Create Role" variant="primary" icon={<Plus size={16} />} onClick={handleAddRole} />}
+                actions={<Button text="Create Role" variant="primary" icon={<Plus size={16} />} disabled={!canCreate} onClick={handleAddRole} />}
                 padding={false}
             >
                 <Table columns={roleColumns} data={roles} />
@@ -440,7 +443,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }) => 
                     </div>
                 </div>
                 <div className="mt-5">
-                    <Button text="Save Settings" variant="primary" icon={<Save size={16} />} onClick={onSave} />
+                    <Button text="Save Settings" variant="primary" icon={<Save size={16} />} disabled={!canEdit} onClick={onSave} />
                 </div>
             </Card>
         </div>

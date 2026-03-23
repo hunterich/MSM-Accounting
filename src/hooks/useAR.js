@@ -61,6 +61,8 @@ function normalizeInvoice(raw) {
         notes:        raw.notes     || '',
         poNumber:     raw.poNumber  || '',
         currency:     raw.currency  || 'IDR',
+        createdById:  raw.createdById || raw.createdBy?.id || '',
+        createdByName: raw.createdBy?.fullName || '',
         lines: (raw.lines || []).map((l) => ({
             ...l,
             price:        Number(l.price        ?? 0),

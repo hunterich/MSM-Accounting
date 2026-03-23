@@ -30,15 +30,15 @@ const PaymentForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const { data: vendorsData } = useVendors();
+    const { data: vendorsData, isLoading: vendorsLoading } = useVendors();
     const vendors = vendorsData?.data || [];
 
-    const { data: billsData } = useBills();
+    const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data || [];
 
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
 
-    const { data: bankAccountsData = [] } = useBankAccounts();
+    const { data: bankAccountsData = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const bankAccounts = Array.isArray(bankAccountsData) ? bankAccountsData : [];
 
     const { apPayments } = useAPPaymentStore();
@@ -315,18 +315,7 @@ const PaymentForm = () => {
             return;
         }
 
-        let paymentNo = paymentData.paymentNumber;
-        if (paymentNumberingMode === 'auto') {
-            const bankCode = getBankCode(paymentData.payFrom);
-            const seq = paymentSeqByBank[bankCode] || 1;
-            paymentNo = buildPaymentNo(bankCode, paymentData.date, seq);
-            setPaymentSeqByBank((prev) => ({ ...prev, [bankCode]: seq + 1 }));
-        }
-
-        setPaymentData((prev) => ({ ...prev, paymentNumber: paymentNo }));
-
         const newPayment = {
-            id: paymentNo,
             vendorId: paymentData.vendorId,
             vendorName: vendors.find((v) => v.id === paymentData.vendorId)?.name || '',
             date: paymentData.date,
@@ -354,12 +343,18 @@ const PaymentForm = () => {
     };
 
     const isPending = createAPPayment.isPending || updateAPPayment.isPending;
+    const isPageLoading =
+        vendorsLoading ||
+        billsLoading ||
+        chartOfAccountsLoading ||
+        bankAccountsLoading;
 
     return (
         <FormPage
             containerClassName="ap-module"
             title="Bill Payment"
             backTo="/ap/payments"
+            isLoading={isPageLoading}
             actions={
                 <>
                     <Button text="Save Draft" variant="secondary" />
@@ -374,7 +369,7 @@ const PaymentForm = () => {
         >
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{paymentData.paymentNumber || 'APP-XXXX'}</div>
+                    <div className="module-status-number">{paymentData.paymentNumber || 'Otomatis'}</div>
                     <StatusTag status={mode === 'view' ? 'Completed' : 'Draft'} label={mode === 'view' ? 'Completed' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(paymentData.totalAmount)}</div>
@@ -410,7 +405,7 @@ const PaymentForm = () => {
                                 <Input className="mb-0" value={paymentData.paymentNumber} onChange={(event) => setPaymentData((prev) => ({ ...prev, paymentNumber: event.target.value }))} disabled={mode === 'view' || paymentNumberingMode === 'auto'} placeholder={paymentNoPreview} />
                             </div>
                             {paymentNumberingMode === 'auto' ? (
-                                <div className="numbering-preview">Assigned on save • Preview: {paymentNoPreview}</div>
+                                <div className="numbering-preview">Nomor ditetapkan server saat disimpan</div>
                             ) : null}
                         </div>
 

@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err } from '@/lib/api-utils';
+import { ok, err, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -28,6 +28,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     where: { id: id, organizationId: orgId },
     data: { ...body, updatedAt: new Date() },
   });
+  logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Account', entityId: id, action: 'UPDATE', payload: body });
   return ok(account);
 }
 
@@ -38,5 +39,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const childCount = await prisma.account.count({ where: { parentId: id } });
   if (childCount > 0) return err('Cannot delete account with sub-accounts', 400);
   await prisma.account.delete({ where: { id: id, organizationId: orgId } });
+  logAudit({ orgId: orgId!, actorId: _req.headers.get('x-user-id'), entityType: 'Account', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
 }

@@ -9,9 +9,12 @@ import SalesOrderPrintTemplate from '../../components/print/SalesOrderPrintTempl
 import { useSalesOrderStore } from '../../stores/useSalesOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { List, X, Plus } from 'lucide-react';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const SalesOrderWorkbench = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('ar_sales_orders');
+    const { canCreate: canCreateInvoice } = useModulePermissions('ar_invoices');
     const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -206,6 +209,7 @@ const SalesOrderWorkbench = () => {
             onDateRangeChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
             onSelectSalesOrder={openSoTab}
             onViewSalesOrder={openSoTab}
+            canEdit={canEdit}
             onEditSalesOrder={handleEdit}
             onPrintSalesOrder={queuePrintSo}
         />
@@ -218,6 +222,8 @@ const SalesOrderWorkbench = () => {
             onEdit={() => handleEdit(selectedSalesOrder.id)}
             onPrint={() => queuePrintSo(selectedSalesOrder.id)}
             onConvertToInvoice={() => handleConvert(selectedSalesOrder.id)}
+            canEdit={canEdit}
+            canConvertToInvoice={canCreateInvoice}
         />
     ) : (
         <div className="invoice-workbench-card">
@@ -243,8 +249,9 @@ const SalesOrderWorkbench = () => {
                         Catalog
                     </button>
                     <button
-                        className="workbench-doc-tab workbench-doc-tab-new"
+                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
                         onClick={() => navigate('/ar/sales-orders/new')}
+                        disabled={!canCreate}
                         title="New sales order"
                     >
                         <Plus size={16} />

@@ -80,7 +80,7 @@ const BankingActionForm = () => {
     const sourceTransaction = location.state?.transaction || null;
 
     // ── API hooks
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const { data: bankAccounts = [], isLoading: accountsLoading } = useBankAccounts();
     const createAccount     = useCreateBankAccount();
     const createTransaction = useCreateBankTransaction();
@@ -156,6 +156,7 @@ const BankingActionForm = () => {
     };
 
     const isSaving = createAccount.isPending || createTransaction.isPending;
+    const isPageLoading = chartOfAccountsLoading || accountsLoading;
 
     const handleSave = async () => {
         const nextErrors = validate();
@@ -264,6 +265,7 @@ const BankingActionForm = () => {
             title={ACTION_TITLES[action]}
             backTo="/banking"
             backLabel="Back to Banking"
+            isLoading={isPageLoading}
             actions={
                 <>
                     <Button text="Cancel" variant="secondary" onClick={() => navigate('/banking')} />

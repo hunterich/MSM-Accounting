@@ -48,7 +48,14 @@ export async function POST(req: NextRequest) {
       include: {
         memberships: {
           where: { isActive: true },
-          include: { role: true, organization: true },
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+            organization: true,
+          },
           take: 1,
         },
       },
@@ -78,7 +85,11 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({
       user: { id: user.id, email: user.email, fullName: user.fullName },
       org: { id: membership.organization.id, name: membership.organization.displayName },
-      roleType: membership.role.roleType,
+      role: {
+        type: membership.role.roleType,
+        permissions: membership.role.permissions,
+        invoiceAccessScope: membership.role.invoiceAccessScope,
+      },
     });
 
     response.cookies.set(COOKIE_NAME, token, {

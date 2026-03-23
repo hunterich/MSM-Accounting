@@ -11,8 +11,10 @@ import { useCustomers } from '../../hooks/useAR';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useIntegrationStore } from '../../stores/useIntegrationStore';
 import ListPage from '../../components/Layout/ListPage';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const Integrations = () => {
+    const { canCreate, canEdit, canDelete } = useModulePermissions('integrations');
     const { data: customersData } = useCustomers();
     const customers = customersData?.data ?? [];
     const { data: bankAccounts = [] } = useBankAccounts();
@@ -125,8 +127,8 @@ const Integrations = () => {
             label: '',
             render: (_, row) => (
                 <div className="row-actions-end">
-                    <Button icon={<Settings size={14} />} size="small" variant="secondary" onClick={() => setSettingsShopId(row.id)} />
-                    <Button icon={<Trash2 size={14} />} size="small" variant="danger" onClick={() => handleDeleteShop(row.id)} />
+                    <Button icon={<Settings size={14} />} size="small" variant="secondary" disabled={!canEdit} onClick={() => setSettingsShopId(row.id)} />
+                    <Button icon={<Trash2 size={14} />} size="small" variant="danger" disabled={!canDelete} onClick={() => handleDeleteShop(row.id)} />
                 </div>
             )
         }
@@ -137,7 +139,7 @@ const Integrations = () => {
             containerClassName="integrations-module"
             title="E-Commerce Integrations"
             subtitle="Manage your customized shop connections and accounting mappings."
-            actions={<Button text="Add New Shop" variant="primary" icon={<Plus size={16} />} onClick={() => { setFormErrors({}); setIsModalOpen(true); }} />}
+            actions={<Button text="Add New Shop" variant="primary" icon={<Plus size={16} />} disabled={!canCreate} onClick={() => { setFormErrors({}); setIsModalOpen(true); }} />}
         >
 
             <div className="grid-12 integrations-info-grid">
@@ -234,7 +236,7 @@ const Integrations = () => {
 
                 <div className="integrations-modal-actions">
                     <Button text="Cancel" variant="tertiary" onClick={resetModal} />
-                    <Button text="Save Connection" variant="primary" onClick={handleSaveShop} />
+                    <Button text="Save Connection" variant="primary" disabled={!canCreate} onClick={handleSaveShop} />
                 </div>
             </Modal>
 
@@ -259,6 +261,7 @@ const Integrations = () => {
                                         name="importStatusFilter"
                                         value="Selesai"
                                         checked={settingsShop.importStatusFilter === 'Selesai'}
+                                        disabled={!canEdit}
                                         onChange={() => handleSaveSettings('Selesai')}
                                     />
                                     <span className="text-sm">Selesai (Completed only)</span>
@@ -269,6 +272,7 @@ const Integrations = () => {
                                         name="importStatusFilter"
                                         value="All"
                                         checked={settingsShop.importStatusFilter === 'All'}
+                                        disabled={!canEdit}
                                         onChange={() => handleSaveSettings('All')}
                                     />
                                     <span className="text-sm">Semua Status (All statuses)</span>

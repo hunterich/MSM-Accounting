@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
+import { logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -51,6 +52,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         include: { vendor: true, lines: true },
       });
     });
+    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'PurchaseOrder', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(updated));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
@@ -63,6 +65,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   try {
     const orgId = _req.headers.get('x-org-id');
     await prisma.purchaseOrder.delete({ where: { id: id, organizationId: orgId } });
+    logAudit({ orgId: orgId!, actorId: _req.headers.get('x-user-id'), entityType: 'PurchaseOrder', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

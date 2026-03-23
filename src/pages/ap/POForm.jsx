@@ -9,6 +9,7 @@ import { useVendors } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const buildFormData = (po) => {
     if (!po) {
@@ -56,21 +57,22 @@ const buildItems = (poId, expenseAccounts, templates) => {
 
 const POForm = () => {
     const navigate = useNavigate();
+    const { canEdit } = useModulePermissions('ap_pos');
     const [searchParams] = useSearchParams();
     const poId = searchParams.get('poId') || '';
     const rawMode = searchParams.get('mode');
     const mode = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'new';
     const isViewMode = mode === 'view';
 
-    const { data: posData } = usePurchaseOrders();
+    const { data: posData, isLoading: purchaseOrdersLoading } = usePurchaseOrders();
     const purchaseOrders = posData?.data || [];
 
     // Keep Zustand for print templates only
     const poItemTemplates = usePurchaseOrderStore(s => s.poItemTemplates);
     const setPoItemTemplates = usePurchaseOrderStore(s => s.setPoItemTemplates);
 
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
-    const { data: vendorsData } = useVendors();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: vendorsData, isLoading: vendorsLoading } = useVendors();
     const vendors = vendorsData?.data || [];
 
     const createPurchaseOrder = useCreatePurchaseOrder();
@@ -211,11 +213,13 @@ const POForm = () => {
     };
 
     const isPending = createPurchaseOrder.isPending || updatePurchaseOrder.isPending;
+    const isPageLoading = purchaseOrdersLoading || chartOfAccountsLoading || vendorsLoading;
 
     return (
         <FormPage
             title={mode === 'new' ? 'New Purchase Order' : `Purchase Order ${selectedPO?.id || ''}`}
             backLink="/ap/pos"
+            isLoading={isPageLoading}
             actions={
                 <div className="flex gap-2">
                     <Button text="Cancel" variant="secondary" onClick={() => navigate('/ap/pos')} />
@@ -227,7 +231,7 @@ const POForm = () => {
                             disabled={isPending}
                         />
                     )}
-                    {isViewMode && <Button text="Edit Purchase Order" variant="primary" onClick={() => navigate(`/ap/pos/edit?poId=${poId}&mode=edit`)} />}
+                    {isViewMode && <Button text="Edit Purchase Order" variant="primary" disabled={!canEdit} onClick={() => navigate(`/ap/pos/edit?poId=${poId}&mode=edit`)} />}
                 </div>
             }
         >

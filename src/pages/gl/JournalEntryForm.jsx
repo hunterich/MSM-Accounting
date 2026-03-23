@@ -48,7 +48,7 @@ const JournalEntryForm = () => {
     const location = useLocation();
 
     // ── API hooks
-    const { data: allAccounts = [] } = useChartOfAccounts();
+    const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
     const postableAccounts = useMemo(
         () => allAccounts.filter((a) => a.isPostable && a.isActive),
         [allAccounts]
@@ -173,6 +173,7 @@ const JournalEntryForm = () => {
     };
 
     const isSaving = createJE.isPending || updateJE.isPending;
+    const isPageLoading = accountsLoading || entryLoading;
 
     const persistEntry = async (status) => {
         try {
@@ -196,6 +197,7 @@ const JournalEntryForm = () => {
             title="New Journal Entry"
             backTo="/gl/journals"
             backLabel="Back to Journal Entries"
+            isLoading={isPageLoading}
             actions={
                 <>
                     <Button text="Cancel"     variant="secondary" onClick={() => navigate('/gl/journals')} />

@@ -4,10 +4,11 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, Loader } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
 import { formatIDR } from '../../utils/formatters';
 import { useItems } from '../../hooks/useInventory';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 // Derive stock status label from qty on hand
 const getStockStatus = (stock) => {
@@ -18,6 +19,7 @@ const getStockStatus = (stock) => {
 
 const Inventory = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('inv_items');
     const { data: itemsResult, isLoading } = useItems();
     // API normalizer already computes stock, cost, price, and status
     const items = itemsResult?.data ?? [];
@@ -75,7 +77,7 @@ const Inventory = () => {
             render: (_, row) => (
                 <div className="row-actions-end">
                     <Button text="View" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); openItem(row, 'view'); }} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); openItem(row, 'edit'); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); openItem(row, 'edit'); }} />
                 </div>
             )
         },
@@ -91,6 +93,7 @@ const Inventory = () => {
                     text="Add Item"
                     variant="primary"
                     icon={<Plus size={16} />}
+                    disabled={!canCreate}
                     onClick={() => navigate('/inventory/new')}
                 />
             }
@@ -135,19 +138,15 @@ const Inventory = () => {
             </div>
 
             <Card padding={false}>
-                {isLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading items…
-                    </div>
-                ) : (
-                    <Table
-                        columns={columns}
-                        data={filteredItems}
-                        onRowClick={(row) => openItem(row, 'view')}
-                        showCount
-                        countLabel="items"
-                    />
-                )}
+                <Table
+                    columns={columns}
+                    data={filteredItems}
+                    onRowClick={(row) => openItem(row, 'view')}
+                    showCount
+                    countLabel="items"
+                    isLoading={isLoading}
+                    loadingLabel="Loading inventory items..."
+                />
             </Card>
         </ListPage>
     );

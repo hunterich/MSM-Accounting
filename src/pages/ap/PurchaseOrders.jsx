@@ -7,14 +7,16 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import PurchaseOrderPrintTemplate from '../../components/print/PurchaseOrderPrintTemplate';
-import { Plus, Search, List, Loader } from 'lucide-react';
+import { Plus, Search, List } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { usePurchaseOrders } from '../../hooks/useAP';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const PurchaseOrders = () => {
     const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('ap_pos');
     const { data: posResult, isLoading } = usePurchaseOrders();
     const purchaseOrders = posResult?.data ?? [];
     // poItemTemplates stays in local store (for print until API supports line fetch)
@@ -66,7 +68,7 @@ const PurchaseOrders = () => {
             key: 'actions', label: '', render: (_, row) => (
                 <div className="flex gap-1.5 justify-end">
                     <Button text="View" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row.id}&mode=view`); }} />
-                    <Button text="Edit" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row.id}&mode=edit`); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row.id}&mode=edit`); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(event) => { event.stopPropagation(); queuePrintPo(row.id); }} />
                 </div>
             )
@@ -89,8 +91,9 @@ const PurchaseOrders = () => {
                         Catalog
                     </button>
                     <button
-                        className="border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
+                        className={`border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                         onClick={() => navigate('/ap/pos/new')}
+                        disabled={!canCreate}
                     >
                         <Plus size={16} />
                         New PO
@@ -150,19 +153,15 @@ const PurchaseOrders = () => {
             </div>
 
             <Card padding={false}>
-                {isLoading ? (
-                    <div className="flex items-center gap-2 py-8 px-4 text-sm text-neutral-400">
-                        <Loader size={16} className="animate-spin" /> Loading purchase orders…
-                    </div>
-                ) : (
-                    <Table
-                        columns={columns}
-                        data={filteredData}
-                        onRowClick={(row) => navigate(`/ap/pos/edit?poId=${row.id}&mode=view`)}
-                        showCount
-                        countLabel="orders"
-                    />
-                )}
+                <Table
+                    columns={columns}
+                    data={filteredData}
+                    onRowClick={(row) => navigate(`/ap/pos/edit?poId=${row.id}&mode=view`)}
+                    showCount
+                    countLabel="orders"
+                    isLoading={isLoading}
+                    loadingLabel="Loading purchase orders..."
+                />
             </Card>
 
             <PrintPreviewModal

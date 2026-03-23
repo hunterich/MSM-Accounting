@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse, nextNumber } from '@/lib/api-utils';
+import { ok, listResponse, nextNumber, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -79,5 +79,6 @@ export async function POST(req: NextRequest) {
     });
   });
 
+  logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'StockAdjustment', entityId: result!.id, action: 'CREATE', payload: { number: result!.number } });
   return ok(result, 201);
 }

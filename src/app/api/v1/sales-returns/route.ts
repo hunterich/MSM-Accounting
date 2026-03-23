@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { nextNumber } from '@/lib/api-utils';
+import { nextNumber, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
       });
     });
 
+    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'SalesReturn', entityId: salesReturn.id, action: 'CREATE', payload: { number: salesReturn.number } });
     return withCors(NextResponse.json(salesReturn, { status: 201 }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create sales return';

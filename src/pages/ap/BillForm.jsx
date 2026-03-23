@@ -60,14 +60,14 @@ const BillForm = () => {
     const mode = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'new';
     const isViewMode = mode === 'view';
 
-    const { data: billsData } = useBills();
+    const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data || [];
 
     // Keep Zustand for print templates only
     const billItemTemplates = useBillStore(s => s.billItemTemplates);
     const setBillItemTemplates = useBillStore(s => s.setBillItemTemplates);
 
-    const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
 
     const createBill = useCreateBill();
     const updateBill = useUpdateBill();
@@ -260,6 +260,7 @@ const BillForm = () => {
     };
 
     const isPending = createBill.isPending || updateBill.isPending;
+    const isPageLoading = billsLoading || chartOfAccountsLoading;
 
     const pageTitle = isViewMode
         ? `View Bill${billId ? ` ${billId}` : ''}`
@@ -273,6 +274,7 @@ const BillForm = () => {
             title={pageTitle}
             backTo="/ap/bills"
             backLabel="Back to Bills"
+            isLoading={isPageLoading}
             actions={(
                 isViewMode ? (
                     <Button text="Close" variant="primary" onClick={() => navigate('/ap/bills')} />
