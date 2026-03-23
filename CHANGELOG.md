@@ -26,8 +26,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Migrates: customers, vendors, inventory items (with field mapping/normalization per entity)
   - Per-store progress indicators, error reporting, and idempotent (safe to re-run)
 
+#### Per-Action UI Enforcement
+- **`useModulePermissions(moduleKey)` hook** (`src/hooks/useModulePermissions.js`) — returns `{ canView, canCreate, canEdit, canDelete }` derived from the authenticated user's role permissions
+- **All 20+ list and form pages wired** — Create / Edit / Delete buttons are disabled (with `opacity-60 cursor-not-allowed`) when the user lacks the required permission; no silent failures
+  - Covered: Invoices, Sales Orders, Customers, Customer Categories, AR Payments, Credit Notes, Sales Returns, Bills, Purchase Orders, AP Payments, Debit Notes, Purchase Returns, Vendors, Chart of Accounts, Journal Entries, Banking, Items, Inventory Adjustments, Employees
+
+#### Document-Level Permissions (Invoice Ownership)
+- **`InvoiceAccessScope` enum** added to Prisma schema (`ALL` | `OWN`) — roles can be restricted to seeing only their own invoices
+- **`invoiceAccessScope` field** on the `Role` model — Admins always get `ALL`; custom roles default to `ALL` but can be set to `OWN`
+- **`createdById` field** on `SalesInvoice` — tracks which user created each invoice for ownership filtering
+- **`lib/document-access.ts`** — `getInvoiceAccessContext()` server utility that resolves the user's scope from the DB; `AccessError` class for 403 responses
+- **`useAuthStore`** updated — `hasPermission(moduleKey, action)` method; `invoiceAccessScope` and `permissions[]` populated from API `/auth/me` response; `hasModulePermission` standalone utility exported
+
+#### Seed Data
+- **Cashier role** added to `prisma/seed.ts` — `roleType: CUSTOM`, `invoiceAccessScope: OWN`, permissions: Dashboard (view), AR Invoices (view/create/edit), Customers (view), AR Payments (view/create); working hours Mon–Sat 08:00–18:00
+
 #### Loading Skeletons
-- **`LoadingSkeleton.jsx`** — `SkeletonBlock` and `TableSkeleton` components for consistent loading states across list pages
+- **`LoadingSkeleton.jsx`** — `SkeletonBlock` and `TableSkeleton` components for consistent loading states
+- Applied to Banking and Chart of Accounts pages
 
 ### 🔄 Changed
 - ROADMAP.md updated: all v1.0 items marked complete; version bumped to v1.0.0

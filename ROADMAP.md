@@ -340,7 +340,7 @@
 - [x] Persisted via Zustand + localStorage (`msm-access` key)
 - [x] Sidebar dynamically filters based on current user's role permissions
 - [x] Route-level enforcement — auth guard (`ProtectedRoute` + API middleware) + RBAC blocking via `PermissionRoute` → `/403` redirect
-- [ ] Per-action enforcement in UI (disable Create button if no `create` permission)
+- [x] Per-action enforcement in UI — `useModulePermissions(moduleKey)` hook returns `{ canCreate, canEdit, canDelete }`; all 20+ list/form pages disable Create/Edit/Delete buttons when user lacks permission
 
 ### Catalog / List View Pattern
 - [x] **Virtual scrolling** — `Table.jsx` supports `@tanstack/react-virtual`, auto-activates when data > 50 rows, per-row `<table>` layout with `colgroup` sync
