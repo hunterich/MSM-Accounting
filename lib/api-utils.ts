@@ -1,9 +1,20 @@
+import { Prisma } from '@prisma/client';
 import { NextResponse } from 'next/server';
 import { withCors } from '@/lib/cors';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 
 export function ok(data: unknown, status = 200) {
   return withCors(NextResponse.json(data, { status }));
+}
+
+function normalizeAuditPayload(
+  payload: unknown,
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  if (payload === undefined) return undefined;
+  if (payload === null) return Prisma.JsonNull;
+
+  // Round-trip through JSON to guarantee Prisma receives JSON-safe data.
+  return JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue;
 }
 
 /**
@@ -16,8 +27,16 @@ export function logAudit(opts: {
   entityType: string;
   entityId: string;
   action: 'CREATE' | 'UPDATE' | 'DELETE';
-  payload?: Record<string, unknown> | null;
+  payload?: unknown;
 }) {
+  let payload: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined;
+  try {
+    payload = normalizeAuditPayload(opts.payload);
+  } catch (error) {
+    console.error('[AuditLog] Failed to serialize payload:', error);
+    payload = undefined;
+  }
+
   defaultPrisma.auditLog.create({
     data: {
       organizationId: opts.orgId,
@@ -25,7 +44,7 @@ export function logAudit(opts: {
       entityType: opts.entityType,
       entityId: opts.entityId,
       action: opts.action,
-      payload: opts.payload ?? undefined,
+      payload,
     },
   }).catch((err) => {
     console.error('[AuditLog] Failed to write:', err);
