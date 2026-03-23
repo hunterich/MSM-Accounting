@@ -12,14 +12,17 @@ const Settings = () => {
     const [activeTab, setActiveTab] = useState('customers');
     const storeCompanyInfo = useSettingsStore(s => s.companyInfo);
     const storeTaxSettings = useSettingsStore(s => s.taxSettings);
+    const storeCustomerCreditSettings = useSettingsStore(s => s.customerCreditSettings);
     const updateCompanyInfo = useSettingsStore(s => s.updateCompanyInfo);
     const updateTaxSettings = useSettingsStore(s => s.updateTaxSettings);
+    const updateCustomerCreditSettings = useSettingsStore(s => s.updateCustomerCreditSettings);
 
     const [generalSettings, setGeneralSettings] = useState(storeCompanyInfo);
     const [taxData, setTaxData] = useState(storeTaxSettings);
     const [creditLimitSettings, setCreditLimitSettings] = useState({
-        defaultLimit: '5000',
-        enforceLimit: true
+        defaultLimit: String(storeCustomerCreditSettings.defaultLimit),
+        defaultPaymentTerms: String(storeCustomerCreditSettings.defaultPaymentTerms),
+        enforceLimit: storeCustomerCreditSettings.enforceLimit,
     });
     const [securitySettings, setSecuritySettings] = useState({
         require2FA: false,
@@ -43,6 +46,26 @@ const Settings = () => {
         { id: 'migration', label: 'Migrasi Data', icon: DatabaseZap },
     ];
 
+    const saveCustomerCreditSettings = () => {
+        const defaultLimit = Number(creditLimitSettings.defaultLimit);
+        const defaultPaymentTerms = Number(creditLimitSettings.defaultPaymentTerms);
+        if (isNaN(defaultLimit) || defaultLimit < 0) {
+            window.alert('Default credit limit must be a non-negative number.');
+            return false;
+        }
+        if (isNaN(defaultPaymentTerms) || defaultPaymentTerms < 0) {
+            window.alert('Default credit terms must be a non-negative number of days.');
+            return false;
+        }
+
+        updateCustomerCreditSettings({
+            defaultLimit,
+            defaultPaymentTerms,
+            enforceLimit: creditLimitSettings.enforceLimit,
+        });
+        return true;
+    };
+
     const saveSection = (sectionId) => {
         if (sectionId === 'general') {
             if (!generalSettings.companyName.trim()) {
@@ -55,12 +78,13 @@ const Settings = () => {
             }
             updateCompanyInfo(generalSettings);
             updateTaxSettings(taxData);
+            if (!saveCustomerCreditSettings()) {
+                return;
+            }
         }
 
         if (sectionId === 'customers') {
-            const value = Number(creditLimitSettings.defaultLimit);
-            if (isNaN(value) || value < 0) {
-                window.alert('Default credit limit must be a non-negative number.');
+            if (!saveCustomerCreditSettings()) {
                 return;
             }
         }
@@ -234,6 +258,29 @@ const Settings = () => {
                             )}
                         </div>
 
+                        <div className="mb-4 pt-6 border-t border-neutral-200 mt-6">
+                            <h3 className="text-lg font-semibold text-neutral-800 mb-2">Customer Credit Settings</h3>
+                            <p className="settings-muted mb-4">Master credit defaults for new customers that use the general setting.</p>
+
+                            <div className="mb-4">
+                                <label className="form-label settings-label-strong">Master Credit Limit (Default)</label>
+                                <Input
+                                    type="number"
+                                    value={creditLimitSettings.defaultLimit}
+                                    onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, defaultLimit: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="form-label settings-label-strong">Master Credit Terms (Days)</label>
+                                <Input
+                                    type="number"
+                                    value={creditLimitSettings.defaultPaymentTerms}
+                                    onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, defaultPaymentTerms: e.target.value })}
+                                />
+                            </div>
+                        </div>
+
                         <div className="settings-save-wrap">
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('general')} />
                         </div>
@@ -253,6 +300,18 @@ const Settings = () => {
                                 type="number"
                                 value={creditLimitSettings.defaultLimit}
                                 onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, defaultLimit: e.target.value })}
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="form-label settings-label-strong">Master Credit Terms (Days)</label>
+                            <div className="settings-help-text">
+                                New customers using the master setting will start with these payment terms.
+                            </div>
+                            <Input
+                                type="number"
+                                value={creditLimitSettings.defaultPaymentTerms}
+                                onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, defaultPaymentTerms: e.target.value })}
                             />
                         </div>
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
+import { Eye, EyeOff } from 'lucide-react';
 import Button from '../components/UI/Button';
 import Input from '../components/UI/Input';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -14,6 +15,7 @@ const Login = () => {
 
   const [email, setEmail] = useState('admin@demo.com');
   const [password, setPassword] = useState('admin123');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
@@ -105,14 +107,34 @@ const Login = () => {
               required
             />
 
-            <Input
-              label="Password"
-              type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="mb-4">
+              <label className="block mb-2 text-sm font-medium text-neutral-700">
+                Password
+                <span className="text-danger-500"> *</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="block w-full rounded-md border border-neutral-300 bg-neutral-0 px-3 py-2 pr-12 text-base leading-normal text-neutral-900 transition-[border-color,box-shadow] duration-150 min-h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                  placeholder="Enter your password"
+                  value={password}
+                  required
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center rounded-r-md text-neutral-500 transition hover:text-neutral-700"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <div className="mt-1 text-xs text-neutral-500">
+                Demo login: `admin@demo.com` / `admin123`
+              </div>
+            </div>
 
             {error ? (
               <div className="mb-4 rounded-md border border-danger-200 bg-danger-50 px-3 py-2 text-sm text-danger-600">

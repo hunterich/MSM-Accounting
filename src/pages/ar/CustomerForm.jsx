@@ -4,6 +4,7 @@ import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { useCustomerStore } from '../../stores/useCustomerStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers, useCreateCustomer, useUpdateCustomer } from '../../hooks/useAR';
 
 // Mock store for categories (in a real app this would be in a context or redux)
@@ -13,7 +14,7 @@ import { useCustomers, useCreateCustomer, useUpdateCustomer } from '../../hooks/
 // However, to make it work better for the demo, let's try to read from localStorage if we implemented it there?
 // The user didn't ask for localStorage persistence, so I'll stick to the imported mock data + local state pattern.
 
-const buildCustomerState = (customer) => {
+const buildCustomerState = (customer, masterCreditSettings) => {
     if (!customer) {
         return {
             id: '',
@@ -22,10 +23,10 @@ const buildCustomerState = (customer) => {
             email: '',
             phone: '',
             website: '',
-            paymentTerms: 0,
+            paymentTerms: masterCreditSettings.defaultPaymentTerms,
             defaultDiscount: 0,
-            creditLimit: 0,
-            useCategoryDefaults: true,
+            creditLimit: masterCreditSettings.defaultLimit,
+            useCategoryDefaults: false,
             address1: '',
             city: '',
             province: '',
@@ -71,12 +72,19 @@ const CustomerForm = () => {
     const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = customersData?.data || [];
     const categories = useCustomerStore(state => state.customerCategories);
+    const masterCreditSettings = useSettingsStore((state) => state.customerCreditSettings);
     const createCustomer = useCreateCustomer();
     const updateCustomerMutation = useUpdateCustomer();
 
     const selectedCustomer = useMemo(() => customers.find((c) => c.id === customerId) || null, [customerId, customers]);
-    const [formData, setFormData] = useState(() => buildCustomerState(selectedCustomer));
+    const [formData, setFormData] = useState(() => buildCustomerState(selectedCustomer, masterCreditSettings));
     const [errors, setErrors] = useState({});
+
+    useEffect(() => {
+        if ((isEditMode || isViewMode) && selectedCustomer) {
+            setFormData(buildCustomerState(selectedCustomer, masterCreditSettings));
+        }
+    }, [selectedCustomer, isEditMode, isViewMode, masterCreditSettings]);
 
     // Effect to apply category defaults when category changes
     useEffect(() => {
@@ -120,6 +128,19 @@ const CustomerForm = () => {
 
     const handleChange = (event) => {
         const { name, value, type, checked } = event.target;
+        if (name === 'useCategoryDefaults') {
+            setFormData((prev) => ({
+                ...prev,
+                useCategoryDefaults: checked,
+                ...(checked ? {} : {
+                    paymentTerms: masterCreditSettings.defaultPaymentTerms,
+                    creditLimit: masterCreditSettings.defaultLimit,
+                }),
+            }));
+            setErrors((prev) => ({ ...prev, [name]: null }));
+            return;
+        }
+
         setFormData((prev) => ({
             ...prev,
             [name]: type === 'checkbox' ? checked : value
@@ -297,7 +318,7 @@ const CustomerForm = () => {
                                 disabled={isViewMode}
                                 className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
                             />
-                            <span>Use Category Defaults for Credit Limit & Terms</span>
+                            <span>Use Category Defaults for Credit Limit, Terms, and Discount</span>
                         </label>
                         <label className="flex items-center gap-2 text-sm font-medium text-neutral-700 cursor-pointer">
                             <input
@@ -321,6 +342,7 @@ const CustomerForm = () => {
                             onChange={handleChange}
                             disabled={isViewMode || formData.useCategoryDefaults}
                             placeholder="0"
+                            helperText={!formData.useCategoryDefaults ? 'Using master credit terms from Settings.' : ''}
                         />
                     </div>
                     <div className="col-span-3">
@@ -343,6 +365,7 @@ const CustomerForm = () => {
                             onChange={handleChange}
                             disabled={isViewMode || formData.useCategoryDefaults}
                             placeholder="0"
+                            helperText={!formData.useCategoryDefaults ? 'Using master credit limit from Settings.' : ''}
                         />
                     </div>
 

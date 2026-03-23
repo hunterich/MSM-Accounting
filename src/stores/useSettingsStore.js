@@ -19,11 +19,18 @@ const DEFAULT_TAX_SETTINGS = {
     inclusiveByDefault: false
 };
 
+const DEFAULT_CUSTOMER_CREDIT_SETTINGS = {
+    defaultLimit: 5000,
+    defaultPaymentTerms: 0,
+    enforceLimit: true,
+};
+
 export const useSettingsStore = create(
     persist(
         (set, get) => ({
             companyInfo: DEFAULT_COMPANY_INFO,
             taxSettings: DEFAULT_TAX_SETTINGS,
+            customerCreditSettings: DEFAULT_CUSTOMER_CREDIT_SETTINGS,
             dashboardConfig: {}, // Record<userId, widgetId[]>
 
             setCompanyInfo: (fields) => {
@@ -41,6 +48,11 @@ export const useSettingsStore = create(
                     taxSettings: { ...state.taxSettings, ...updates }
                 }));
             },
+            updateCustomerCreditSettings: (updates) => {
+                set((state) => ({
+                    customerCreditSettings: { ...state.customerCreditSettings, ...updates }
+                }));
+            },
             getDashboardWidgets: (userId) => {
                 return get().dashboardConfig[userId] ?? DEFAULT_WIDGET_IDS;
             },
@@ -52,7 +64,7 @@ export const useSettingsStore = create(
         }),
         {
             name: 'msm-settings',
-            version: 3,
+            version: 4,
             migrate: (persistedState) => ({
                 ...persistedState,
                 companyInfo: {
@@ -62,6 +74,10 @@ export const useSettingsStore = create(
                 taxSettings: {
                     ...DEFAULT_TAX_SETTINGS,
                     ...(persistedState?.taxSettings || {}),
+                },
+                customerCreditSettings: {
+                    ...DEFAULT_CUSTOMER_CREDIT_SETTINGS,
+                    ...(persistedState?.customerCreditSettings || {}),
                 },
             }),
         }

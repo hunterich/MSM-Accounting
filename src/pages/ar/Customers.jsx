@@ -9,6 +9,7 @@ import FilterBar from '../../components/UI/FilterBar';
 import { formatIDR } from '../../utils/formatters';
 import { useCustomers } from '../../hooks/useAR';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const MAX_TABS_PER_ROW = 5;
 
@@ -16,14 +17,13 @@ const Customers = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('ar_customers');
     const { data: cuResult, isLoading } = useCustomers();
+    const masterCreditSettings = useSettingsStore((state) => state.customerCreditSettings);
     const customerList = cuResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ category: '', status: '' });
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
     const [openCustomerIds, setOpenCustomerIds] = useState([]);
     const [detailTab, setDetailTab] = useState('summary');
-    const [masterCreditLimit] = useState(5000000); // Fixed typo from 5000 to 5m for realism
-
     const filteredData = useMemo(() => {
         return customerList.filter((item) => {
             const keyword = searchTerm.toLowerCase();
@@ -219,7 +219,9 @@ const Customers = () => {
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Payment Terms</label><strong>{selectedCustomer.paymentTerms === 0 ? 'Due on Receipt' : `Net ${selectedCustomer.paymentTerms}`}</strong></div>
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Default Discount</label><strong>{selectedCustomer.defaultDiscount || 0}%</strong></div>
-                                        <div className="border border-neutral-200 rounded-lg p-2.5 col-span-2"><label className="block text-[0.78rem] text-neutral-600 mb-1">Credit Limit Source</label><strong>Master Setting ({formatIDR(masterCreditLimit)})</strong></div>
+                                        <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Credit Limit</label><strong>{formatIDR(selectedCustomer.creditLimit || 0)}</strong></div>
+                                        <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Master Payment Terms</label><strong>{masterCreditSettings.defaultPaymentTerms === 0 ? 'Due on Receipt' : `Net ${masterCreditSettings.defaultPaymentTerms}`}</strong></div>
+                                        <div className="border border-neutral-200 rounded-lg p-2.5 col-span-2"><label className="block text-[0.78rem] text-neutral-600 mb-1">Master Credit Limit</label><strong>{formatIDR(masterCreditSettings.defaultLimit || 0)}</strong></div>
                                     </div>
                                 )}
                                 {detailTab === 'address' && (

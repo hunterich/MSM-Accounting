@@ -32,10 +32,12 @@ function normalizeCustomer(raw) {
         phone:           raw.phone           || '',
         status:          CUSTOMER_STATUS_DOWN[raw.status] ?? raw.status,
         // Fields not yet in API — default to safe values
-        category:        raw.category        || '',
-        balance:         Number(raw.balance  ?? 0),
+        category:        raw.category?.name  || raw.category || '',
+        balance:         Number(raw.balance  ?? raw.openingBalance ?? 0),
         defaultDiscount: Number(raw.defaultDiscount ?? 0),
-        paymentTerms:    Number(raw.paymentTerms    ?? 0),
+        paymentTerms:    Number(raw.paymentTermsDays ?? raw.paymentTerms ?? 0),
+        creditLimit:     Number(raw.creditLimit ?? 0),
+        useCategoryDefaults: raw.useCategoryDefaults ?? true,
         billingAddress:  raw.billingAddress  || '',
         shippingAddress: raw.shippingAddress || '',
     };
