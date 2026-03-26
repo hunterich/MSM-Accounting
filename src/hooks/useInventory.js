@@ -4,6 +4,7 @@ import { api } from '../api/apiClient';
 export const INV_KEYS = {
     items:       ['invItems'],
     item:        (id) => ['invItems', id],
+    categories:  ['invItemCategories'],
     adjustments: ['invAdjustments'],
     adjustment:  (id) => ['invAdjustments', id],
 };
@@ -21,18 +22,43 @@ const ADJ_STATUS_UP   = { Draft: 'DRAFT', Approved: 'APPROVED' };
 function normalizeItem(raw) {
     const stock = Number(raw.openingStock ?? raw.stockQty ?? raw.stock ?? 0);
     return {
-        id:       raw.id,
-        sku:      raw.sku      || '',
-        name:     raw.name     || '',
-        type:     raw.type     || '',
-        category: raw.category || '',
+        id:                       raw.id,
+        sku:                      raw.sku      || '',
+        name:                     raw.name     || '',
+        type:                     raw.type     || '',
+        categoryId:               raw.categoryId || null,
+        category:                 raw.category?.name || '',
+        categoryCode:             raw.category?.code || '',
         stock,
-        cost:  Number(raw.cost  ?? 0),
-        price: Number(raw.price ?? 0),
+        cost:  Number(raw.cost  ?? raw.costPrice  ?? 0),
+        price: Number(raw.price ?? raw.sellingPrice ?? 0),
         unit:  raw.unit || 'PCS',
-        notes: raw.notes || '',
-        // Compute stock status (mirrors Inventory.jsx getStockStatus)
+        purchaseUnit:             raw.purchaseUnit || '',
+        purchaseConversionFactor: raw.purchaseConversionFactor != null ? Number(raw.purchaseConversionFactor) : null,
+        sellUnit:                 raw.sellUnit || '',
+        sellConversionFactor:     raw.sellConversionFactor != null ? Number(raw.sellConversionFactor) : null,
+        notes:       raw.notes || '',
+        description: raw.description || '',
+        barcode:     raw.barcode || '',
+        weight:      raw.weight != null ? Number(raw.weight) : '',
+        openingStock: stock,
+        reorderPoint: Number(raw.reorderPoint ?? 0),
+        inventoryAccountId: raw.inventoryAccountId || '',
+        revenueAccountId:   raw.revenueAccountId   || '',
+        cogsAccountId:      raw.cogsAccountId      || '',
+        // Compute stock status
         status: stock === 0 ? 'Out of Stock' : stock < 5 ? 'Low Stock' : 'In Stock',
+    };
+}
+
+function normalizeItemCategory(raw) {
+    return {
+        id:          raw.id,
+        name:        raw.name        || '',
+        code:        raw.code        || '',
+        description: raw.description || '',
+        isActive:    raw.isActive !== false,
+        skuSequence: raw.skuSequence ?? 0,
     };
 }
 
@@ -106,6 +132,56 @@ export function useDeleteItem() {
     return useMutation({
         mutationFn: (id) => api.delete(`/api/v1/items/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: INV_KEYS.items }),
+    });
+}
+
+// ── Item Categories ───────────────────────────────────────────────────────────
+
+export function useItemCategories() {
+    return useQuery({
+        queryKey: INV_KEYS.categories,
+        queryFn:  () => api.get('/api/v1/item-categories', { limit: 200 }),
+        select:   (res) => (res.data || []).map(normalizeItemCategory),
+        staleTime: 60_000,
+    });
+}
+
+export function useCreateItemCategory() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body) => api.post('/api/v1/item-categories', body),
+        onSuccess: () => qc.invalidateQueries({ queryKey: INV_KEYS.categories }),
+    });
+}
+
+export function useUpdateItemCategory() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...updates }) => api.put(`/api/v1/item-categories/${id}`, updates),
+        onSuccess: () => qc.invalidateQueries({ queryKey: INV_KEYS.categories }),
+    });
+}
+
+export function useDeleteItemCategory() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id) => api.delete(`/api/v1/item-categories/${id}`),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: INV_KEYS.categories });
+            qc.invalidateQueries({ queryKey: INV_KEYS.items }); // items lose their category
+        },
+    });
+}
+
+/**
+ * useNextItemSku — call imperatively (not as a query) via mutate().
+ * POST /api/v1/item-categories/:id/next-sku returns { sku: "ELE-0042" }
+ */
+export function useNextItemSku() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (categoryId) => api.post(`/api/v1/item-categories/${categoryId}/next-sku`, {}),
+        onSuccess: () => qc.invalidateQueries({ queryKey: INV_KEYS.categories }),
     });
 }
 

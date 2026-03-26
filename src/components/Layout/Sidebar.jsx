@@ -65,6 +65,7 @@ const navItems = [
         icon: Package,
         subItems: [
             { label: 'Items', path: '/inventory/items' },
+            { label: 'Categories', path: '/inventory/categories' },
             { label: 'Adjustments', path: '/inventory/adjustments' }
         ]
     },

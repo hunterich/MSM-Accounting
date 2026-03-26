@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     { sku: { contains: search, mode: 'insensitive' } },
   ];
   const [data, total] = await Promise.all([
-    prisma.item.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { name: 'asc' } }),
+    prisma.item.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { name: 'asc' }, include: { category: { select: { id: true, name: true, code: true } } } }),
     prisma.item.count({ where }),
   ]);
   return listResponse(data, total, page, limit);
@@ -33,8 +33,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   const body = await req.json();
+  const { categoryId, purchaseUnit, purchaseConversionFactor, sellUnit, sellConversionFactor, ...rest } = body;
   const item = await prisma.item.create({
-    data: { ...body, organizationId: orgId },
+    data: {
+      ...rest,
+      organizationId: orgId,
+      ...(categoryId && { categoryId }),
+      ...(purchaseUnit && { purchaseUnit }),
+      ...(purchaseConversionFactor != null && { purchaseConversionFactor }),
+      ...(sellUnit && { sellUnit }),
+      ...(sellConversionFactor != null && { sellConversionFactor }),
+    },
+    include: { category: { select: { id: true, name: true, code: true } } },
   });
   logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Item', entityId: item.id, action: 'CREATE', payload: { name: item.name } });
   return ok(item, 201);

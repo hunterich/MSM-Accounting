@@ -18,6 +18,7 @@ const ALL_MODULE_KEYS: ModuleKey[] = [
   ModuleKey.AP_DEBITS,
   ModuleKey.AP_VENDORS,
   ModuleKey.INV_ITEMS,
+  ModuleKey.INV_CATEGORIES,
   ModuleKey.INV_ADJ,
   ModuleKey.HR_EMPLOYEES,
   ModuleKey.HR_ATTENDANCE,

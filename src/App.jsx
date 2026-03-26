@@ -37,6 +37,7 @@ import DebitNoteForm from './pages/ap/DebitNoteForm'
 
 import Inventory from './pages/inventory/Inventory'
 import InventoryForm from './pages/inventory/InventoryForm'
+import ItemCategories from './pages/inventory/ItemCategories'
 import InventoryAdjustments from './pages/inventory/InventoryAdjustments'
 import AdjustmentForm from './pages/inventory/AdjustmentForm'
 import Banking from './pages/banking/Banking'
@@ -124,6 +125,7 @@ function App() {
                     <Route path="inventory" element={<Navigate to="/inventory/items" replace />} />
                     <Route path="inventory/items" element={withPermission(<Inventory />, 'inv_items')} />
                     <Route path="inventory/new" element={withPermission(<InventoryForm />, 'inv_items', 'create')} />
+                    <Route path="inventory/categories" element={withPermission(<ItemCategories />, 'inv_categories')} />
                     <Route path="inventory/adjustments" element={withPermission(<InventoryAdjustments />, 'inv_adj')} />
                     <Route path="inventory/adjustments/new" element={withPermission(<AdjustmentForm />, 'inv_adj', 'create')} />
                     <Route path="inventory/adjustments/edit" element={withPermission(<AdjustmentForm />, 'inv_adj', 'edit')} />

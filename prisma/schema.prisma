@@ -35,6 +35,7 @@ model Organization {
   periods                AccountingPeriod[]
   journalEntries         JournalEntry[]
   customerCategories     CustomerCategory[]
+  itemCategories         ItemCategory[]
   customers              Customer[]
   vendors                Vendor[]
   items                  Item[]
@@ -296,29 +297,53 @@ model Vendor {
   @@index([organizationId, status])
 }
 
+model ItemCategory {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  description    String?
+  isActive       Boolean  @default(true)
+  skuSequence    Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items          Item[]
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
 model Item {
-  id                 String        @id @default(cuid())
-  organizationId     String
-  sku                String
-  name               String
-  category           String?
-  type               ItemType      @default(PRODUCT)
-  unit               String        @default("PCS")
-  barcode            String?
-  description        String?
-  weight             Decimal?      @db.Decimal(18, 4)
-  costPrice          Decimal       @default(0) @db.Decimal(18, 2)
-  sellingPrice       Decimal       @default(0) @db.Decimal(18, 2)
-  openingStock       Decimal       @default(0) @db.Decimal(18, 4)
-  reorderPoint       Decimal       @default(0) @db.Decimal(18, 4)
-  inventoryAccountId String?
-  revenueAccountId   String?
-  cogsAccountId      String?
-  isActive           Boolean       @default(true)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id                       String        @id @default(cuid())
+  organizationId           String
+  sku                      String
+  name                     String
+  categoryId               String?
+  type                     ItemType      @default(PRODUCT)
+  unit                     String        @default("PCS")
+  purchaseUnit             String?
+  purchaseConversionFactor Decimal?      @db.Decimal(18, 4)
+  sellUnit                 String?
+  sellConversionFactor     Decimal?      @db.Decimal(18, 4)
+  barcode                  String?
+  description              String?
+  weight                   Decimal?      @db.Decimal(18, 4)
+  costPrice                Decimal       @default(0) @db.Decimal(18, 2)
+  sellingPrice             Decimal       @default(0) @db.Decimal(18, 2)
+  openingStock             Decimal       @default(0) @db.Decimal(18, 4)
+  reorderPoint             Decimal       @default(0) @db.Decimal(18, 4)
+  inventoryAccountId       String?
+  revenueAccountId         String?
+  cogsAccountId            String?
+  isActive                 Boolean       @default(true)
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
 
   organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category           ItemCategory? @relation(fields: [categoryId], references: [id])
   invoiceLines       SalesInvoiceLine[]
   poLines            PurchaseOrderLine[]
   billLines          BillLine[]
@@ -329,7 +354,7 @@ model Item {
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
-  @@index([organizationId, category])
+  @@index([organizationId, categoryId])
 }
 
 model Warehouse {
@@ -1050,6 +1075,7 @@ enum ModuleKey {
   AP_DEBITS
   AP_VENDORS
   INV_ITEMS
+  INV_CATEGORIES
   INV_ADJ
   HR_EMPLOYEES
   HR_ATTENDANCE

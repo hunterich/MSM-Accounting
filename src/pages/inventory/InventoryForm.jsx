@@ -1,50 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus } from 'lucide-react';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { useItems, useCreateItem, useUpdateItem } from '../../hooks/useInventory';
+import { useItems, useCreateItem, useUpdateItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-/**
- * Item types available. The default type depends on the company's
- * business model — in a real app this would come from company settings.
- * "Product" is the right default for distribution/trading companies.
- * "Service" would be the default for service businesses.
- */
 const ITEM_TYPES = ['Product', 'Service', 'Raw Material', 'Consumable', 'Fixed Asset'];
 
-const UNITS = ['PCS', 'BOX', 'KG', 'GRAM', 'LITER', 'METER', 'HOUR', 'DAY', 'SET', 'UNIT', 'CARTON', 'DOZEN'];
+const UNITS = ['PCS', 'BOX', 'KG', 'GRAM', 'LITER', 'METER', 'HOUR', 'DAY', 'SET', 'UNIT', 'CARTON', 'DOZEN', 'STRIP', 'TABLET', 'SACHET', 'BOTTLE', 'PACK'];
 
-/**
- * Pre-defined inventory categories.
- * Categories are used in inventory reports (Sales by Category, Stock by Category).
- * Users can pick from this list or add a new one inline.
- */
-const DEFAULT_CATEGORIES = [
-    'Hardware',
-    'Accessories',
-    'Electronics',
-    'Peripherals',
-    'Software',
-    'Service',
-    'Consumables',
-    'Raw Material',
-    'Finished Goods',
-    'Semi-Finished',
-    'Packaging',
-    'Spare Parts',
-    'Office Supplies',
-];
-
-// Default GL account IDs — from mockData chart of accounts.
-// Users can override these per item.
-const DEFAULT_INVENTORY_ACCOUNT = 'COA-1310'; // 131 — Persediaan Barang Dagang (Inventory Asset)
-const DEFAULT_REVENUE_ACCOUNT   = 'COA-4100'; // 41  — Penjualan (Sales Revenue)
-const DEFAULT_COGS_ACCOUNT      = 'COA-5100'; // 51  — Harga Pokok Penjualan (COGS)
+const DEFAULT_INVENTORY_ACCOUNT = 'COA-1310';
+const DEFAULT_REVENUE_ACCOUNT   = 'COA-4100';
+const DEFAULT_COGS_ACCOUNT      = 'COA-5100';
 
 const INVENTORY_ITEM_SEED = [
     { id: 'SKU-001', name: 'MacBook Pro 16"', category: 'Hardware', stock: 15, cost: 22000000, price: 25000000, status: 'In Stock' },
@@ -55,10 +25,6 @@ const INVENTORY_ITEM_SEED = [
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-/**
- * SelectField — wraps label + select in form-group so it aligns perfectly
- * with the Input component inside the grid.
- */
 const SelectField = ({ label, name, value, onChange, error, disabled, children }) => (
     <div>
         {label && <label className="form-label">{label}</label>}
@@ -79,12 +45,15 @@ const buildItemState = (item) => {
     if (!item) {
         return {
             sku:                '',
+            skuManuallyEdited:  false,
             name:               '',
-            category:           '',
-            customCategory:     '',
-            showCustomCategory: false,
-            type:               'Product',          // Default for distribution/trading
+            categoryId:         '',
+            type:               'Product',
             unit:               'PCS',
+            purchaseUnit:       '',
+            purchaseConversionFactor: '',
+            sellUnit:           '',
+            sellConversionFactor:     '',
             cost:               '',
             price:              '',
             openingStock:       '0',
@@ -99,16 +68,19 @@ const buildItemState = (item) => {
         };
     }
     return {
-        sku:                item.id || '',
+        sku:                item.sku || item.id || '',
+        skuManuallyEdited:  true,
         name:               item.name || '',
-        category:           item.category || '',
-        customCategory:     '',
-        showCustomCategory: false,
+        categoryId:         item.categoryId || '',
         type:               item.type || 'Product',
         unit:               item.unit || 'PCS',
+        purchaseUnit:       item.purchaseUnit || '',
+        purchaseConversionFactor: item.purchaseConversionFactor != null ? String(item.purchaseConversionFactor) : '',
+        sellUnit:           item.sellUnit || '',
+        sellConversionFactor:     item.sellConversionFactor != null ? String(item.sellConversionFactor) : '',
         cost:               item.cost != null ? String(item.cost) : '',
         price:              item.price != null ? String(item.price) : '',
-        openingStock:       item.stock != null ? String(item.stock) : '0',
+        openingStock:       item.openingStock != null ? String(item.openingStock) : item.stock != null ? String(item.stock) : '0',
         reorderPoint:       item.reorderPoint != null ? String(item.reorderPoint) : '5',
         inventoryAccountId: item.inventoryAccountId || DEFAULT_INVENTORY_ACCOUNT,
         revenueAccountId:   item.revenueAccountId   || DEFAULT_REVENUE_ACCOUNT,
@@ -127,9 +99,11 @@ const InventoryForm = () => {
     const location        = useLocation();
     const [searchParams]  = useSearchParams();
 
-    const createItem = useCreateItem();
-    const updateItem = useUpdateItem();
+    const createItem   = useCreateItem();
+    const updateItem   = useUpdateItem();
+    const nextSkuMut   = useNextItemSku();
     const { data: itemsData, isLoading: itemsLoading } = useItems();
+    const { data: itemCategories = [], isLoading: categoriesLoading } = useItemCategories();
     const storeProducts = itemsData?.data ?? [];
 
     const itemId   = searchParams.get('itemId') || '';
@@ -143,7 +117,6 @@ const InventoryForm = () => {
         const stateItem = location.state?.item;
         if (stateItem && (!itemId || stateItem.id === itemId)) return stateItem;
         if (!itemId) return null;
-        // Look up from API data first, fall back to seed
         return storeProducts.find((p) => p.id === itemId)
             || INVENTORY_ITEM_SEED.find((item) => item.id === itemId)
             || null;
@@ -157,20 +130,11 @@ const InventoryForm = () => {
         setErrors({});
     }, [itemId, mode, selectedItem]);
 
-    // ── Filtered account lists ────────────────────────────────────────────
+    // ── Account lists ─────────────────────────────────────────────────────
     const { data: allAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
-    const inventoryAccounts = useMemo(
-        () => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Asset'),
-        [allAccounts]
-    );
-    const revenueAccounts = useMemo(
-        () => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Revenue'),
-        [allAccounts]
-    );
-    const cogsAccounts = useMemo(
-        () => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Expense'),
-        [allAccounts]
-    );
+    const inventoryAccounts = useMemo(() => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Asset'), [allAccounts]);
+    const revenueAccounts   = useMemo(() => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Revenue'), [allAccounts]);
+    const cogsAccounts      = useMemo(() => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Expense'), [allAccounts]);
 
     // Computed margin
     const margin = useMemo(() => {
@@ -181,38 +145,39 @@ const InventoryForm = () => {
         return { amount: price - cost, pct: pct.toFixed(1) };
     }, [formData.cost, formData.price]);
 
-    // ── Handlers ─────────────────────────────────────────────────────────
+    // ── Handlers ──────────────────────────────────────────────────────────
     const handleChange = (event) => {
         const { name, value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         setErrors((prev)    => ({ ...prev, [name]: null }));
     };
 
-    const handleCategoryChange = (event) => {
-        const { value } = event.target;
-        if (value === '__new__') {
-            setFormData((prev) => ({ ...prev, category: '', showCustomCategory: true }));
-        } else {
-            setFormData((prev) => ({ ...prev, category: value, showCustomCategory: false, customCategory: '' }));
-            setErrors((prev)   => ({ ...prev, category: null }));
-        }
+    const handleSkuChange = (e) => {
+        setFormData((prev) => ({ ...prev, sku: e.target.value, skuManuallyEdited: true }));
+        setErrors((prev)   => ({ ...prev, sku: null }));
     };
 
-    const handleConfirmCustomCategory = () => {
-        const trimmed = formData.customCategory.trim();
-        if (!trimmed) {
-            setErrors((prev) => ({ ...prev, category: 'Category is required.' }));
-            return;
+    const handleCategoryChange = async (e) => {
+        const categoryId = e.target.value;
+        setFormData((prev) => ({ ...prev, categoryId }));
+        setErrors((prev)   => ({ ...prev, categoryId: null }));
+
+        // Auto-generate SKU if not manually edited (create mode only)
+        if (mode === 'create' && !formData.skuManuallyEdited && categoryId) {
+            try {
+                const result = await nextSkuMut.mutateAsync(categoryId);
+                setFormData((prev) => ({ ...prev, categoryId, sku: result.sku || prev.sku }));
+            } catch {
+                // silently ignore — user can type SKU manually
+            }
         }
-        setFormData((prev) => ({ ...prev, category: trimmed, showCustomCategory: false, customCategory: '' }));
-        setErrors((prev) => ({ ...prev, category: null }));
     };
 
     const validate = () => {
         const nextErrors = {};
-        if (!formData.name.trim())     nextErrors.name     = 'Item name is required.';
-        if (!formData.sku.trim())      nextErrors.sku      = 'SKU is required.';
-        if (!formData.category.trim()) nextErrors.category = 'Category is required.';
+        if (!formData.name.trim())     nextErrors.name       = 'Item name is required.';
+        if (!formData.sku.trim())      nextErrors.sku        = 'SKU is required.';
+        if (!formData.categoryId)      nextErrors.categoryId = 'Category is required.';
         if (formData.price === '' || isNaN(Number(formData.price)) || Number(formData.price) < 0) {
             nextErrors.price = 'Selling price must be a valid non-negative number.';
         }
@@ -226,8 +191,15 @@ const InventoryForm = () => {
             nextErrors.reorderPoint = 'Reorder point must be a valid non-negative number.';
         }
         if (!formData.inventoryAccountId) nextErrors.inventoryAccountId = 'Select an inventory account.';
-        if (!formData.revenueAccountId) nextErrors.revenueAccountId = 'Select a revenue account.';
-        if (!formData.cogsAccountId) nextErrors.cogsAccountId = 'Select a COGS account.';
+        if (!formData.revenueAccountId)   nextErrors.revenueAccountId   = 'Select a revenue account.';
+        if (!formData.cogsAccountId)      nextErrors.cogsAccountId      = 'Select a COGS account.';
+        // UoM validation: if purchase/sell unit set, factor must be > 0
+        if (formData.purchaseUnit && (!formData.purchaseConversionFactor || Number(formData.purchaseConversionFactor) <= 0)) {
+            nextErrors.purchaseConversionFactor = 'Enter how many base units = 1 purchase unit.';
+        }
+        if (formData.sellUnit && (!formData.sellConversionFactor || Number(formData.sellConversionFactor) <= 0)) {
+            nextErrors.sellConversionFactor = 'Enter how many base units = 1 sell unit.';
+        }
         return nextErrors;
     };
 
@@ -235,16 +207,16 @@ const InventoryForm = () => {
         const nextErrors = validate();
         if (Object.keys(nextErrors).length > 0) { setErrors(nextErrors); return; }
 
-        const category = formData.showCustomCategory
-            ? formData.customCategory.trim()
-            : formData.category;
-
         const payload = {
             sku:                formData.sku.trim(),
             name:               formData.name.trim(),
-            category,
+            categoryId:         formData.categoryId || null,
             type:               formData.type,
             unit:               formData.unit,
+            purchaseUnit:       formData.purchaseUnit || null,
+            purchaseConversionFactor: formData.purchaseUnit && formData.purchaseConversionFactor ? Number(formData.purchaseConversionFactor) : null,
+            sellUnit:           formData.sellUnit || null,
+            sellConversionFactor: formData.sellUnit && formData.sellConversionFactor ? Number(formData.sellConversionFactor) : null,
             cost:               Number(formData.cost),
             price:              Number(formData.price),
             openingStock:       Number(formData.openingStock),
@@ -276,14 +248,12 @@ const InventoryForm = () => {
         ? `Edit Item${itemId ? ` — ${itemId}` : ''}`
         : 'New Inventory Item';
 
-    // Build category select options — include existing item's category if not in default list
-    const categoryOptions = useMemo(() => {
-        const all = new Set([...DEFAULT_CATEGORIES]);
-        if (formData.category && !all.has(formData.category)) all.add(formData.category);
-        return Array.from(all).sort();
-    }, [formData.category]);
+    const isPageLoading = itemsLoading || chartOfAccountsLoading || categoriesLoading;
 
-    const isPageLoading = itemsLoading || chartOfAccountsLoading;
+    const selectedCategory = itemCategories.find((c) => c.id === formData.categoryId);
+
+    // Units available for purchase/sell (exclude base unit)
+    const otherUnits = UNITS.filter((u) => u !== formData.unit);
 
     return (
         <FormPage
@@ -316,7 +286,7 @@ const InventoryForm = () => {
                 </div>
 
                 <div className="grid-12 form-grid-start">
-                    {/* Row 1: Name(5) SKU(3) Category(4) */}
+                    {/* Row 1: Name(5) SKU(3) Barcode(4) */}
                     <div className="col-span-5">
                         <Input
                             label="Item Name *"
@@ -333,8 +303,8 @@ const InventoryForm = () => {
                             label="SKU / Item Code *"
                             name="sku"
                             value={formData.sku}
-                            onChange={handleChange}
-                            placeholder="e.g. SKU-005"
+                            onChange={handleSkuChange}
+                            placeholder="Auto-generated or type manually"
                             error={errors.sku}
                             disabled={isViewMode}
                         />
@@ -352,101 +322,49 @@ const InventoryForm = () => {
 
                     {/* Row 2: Category(4) Type(3) Unit(2) Status(3) */}
                     <div className="col-span-4">
-                        {/* Category: dropdown + add new inline */}
-                        {formData.showCustomCategory ? (
-                            <div>
-                                <label className="form-label">Category * <span className="text-muted" style={{ fontWeight: 400 }}>— New</span></label>
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <input
-                                        className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                                        name="customCategory"
-                                        value={formData.customCategory}
-                                        onChange={handleChange}
-                                        placeholder="e.g. Networking"
-                                        autoFocus
-                                        onKeyDown={(e) => e.key === 'Enter' && handleConfirmCustomCategory()}
-                                    />
-                                    <button
-                                        type="button"
-                                        className="h-8 px-3 text-sm font-medium bg-primary-700 text-white rounded-md hover:bg-primary-800"
-                                        onClick={handleConfirmCustomCategory}
-                                        style={{ whiteSpace: 'nowrap', padding: '0 12px' }}
-                                    >
-                                        Add
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="h-8 px-3 text-sm font-medium bg-neutral-100 text-neutral-700 border border-neutral-300 rounded-md hover:bg-neutral-200"
-                                        onClick={() => setFormData((prev) => ({ ...prev, showCustomCategory: false, customCategory: '' }))}
-                                        style={{ padding: '0 10px' }}
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                                {errors.category && <div className="form-feedback invalid-feedback">{errors.category}</div>}
-                            </div>
-                        ) : (
-                            <div>
-                                <label className="form-label">
-                                    Category *
-                                    {formData.category && (
-                                        <span className="inventory-category-badge">{formData.category}</span>
-                                    )}
-                                </label>
-                                <select
-                                    className={`w-full h-10 px-3 rounded-md border bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 ${errors.category ? 'border-danger-500' : 'border-neutral-300'}`}
-                                    name="category"
-                                    value={formData.category}
-                                    onChange={handleCategoryChange}
-                                    disabled={isViewMode}
-                                >
-                                    <option value="">— Select Category —</option>
-                                    {categoryOptions.map((cat) => (
-                                        <option key={cat} value={cat}>{cat}</option>
-                                    ))}
-                                    {!isViewMode && <option value="__new__">+ Add new category…</option>}
-                                </select>
-                                {errors.category && <div className="form-feedback invalid-feedback">{errors.category}</div>}
-                            </div>
-                        )}
+                        <div>
+                            <label className="form-label">
+                                Category *
+                                {selectedCategory && (
+                                    <span className="inventory-category-badge">{selectedCategory.name}</span>
+                                )}
+                            </label>
+                            <select
+                                className={`w-full h-10 px-3 rounded-md border bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 ${errors.categoryId ? 'border-danger-500' : 'border-neutral-300'}`}
+                                value={formData.categoryId}
+                                onChange={handleCategoryChange}
+                                disabled={isViewMode}
+                            >
+                                <option value="">— Select Category —</option>
+                                {itemCategories.filter((c) => c.isActive).map((cat) => (
+                                    <option key={cat.id} value={cat.id}>{cat.code} — {cat.name}</option>
+                                ))}
+                            </select>
+                            {errors.categoryId && <div className="form-feedback invalid-feedback">{errors.categoryId}</div>}
+                            {!isViewMode && itemCategories.length === 0 && !categoriesLoading && (
+                                <p className="text-xs text-amber-600 mt-1">No categories yet — <a href="/inventory/categories" className="underline">create one first</a>.</p>
+                            )}
+                        </div>
                     </div>
 
                     <div className="col-span-3">
-                        <SelectField
-                            label="Item Type"
-                            name="type"
-                            value={formData.type}
-                            onChange={handleChange}
-                            disabled={isViewMode}
-                        >
+                        <SelectField label="Item Type" name="type" value={formData.type} onChange={handleChange} disabled={isViewMode}>
                             {ITEM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                         </SelectField>
                     </div>
                     <div className="col-span-2">
-                        <SelectField
-                            label="Unit"
-                            name="unit"
-                            value={formData.unit}
-                            onChange={handleChange}
-                            disabled={isViewMode}
-                        >
+                        <SelectField label="Base Unit" name="unit" value={formData.unit} onChange={handleChange} disabled={isViewMode}>
                             {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
                         </SelectField>
                     </div>
                     <div className="col-span-3">
-                        <SelectField
-                            label="Status"
-                            name="status"
-                            value={formData.status}
-                            onChange={handleChange}
-                            disabled={isViewMode}
-                        >
+                        <SelectField label="Status" name="status" value={formData.status} onChange={handleChange} disabled={isViewMode}>
                             <option value="Active">Active</option>
                             <option value="Inactive">Inactive (Hidden from sales)</option>
                         </SelectField>
                     </div>
 
-                    {/* Row 3: Description (full) */}
+                    {/* Row 3: Description */}
                     <div className="col-span-12">
                         <Input
                             label="Description"
@@ -460,6 +378,74 @@ const InventoryForm = () => {
                 </div>
             </div>
 
+            {/* ── Unit Conversion ───────────────────────────────────────── */}
+            <div className="invoice-panel">
+                <div className="invoice-panel-header">
+                    <div>
+                        <span className="invoice-panel-title">Unit Conversion</span>
+                        <span className="invoice-panel-subtitle"> — optional reference for stock calculation</span>
+                    </div>
+                </div>
+
+                <div className="grid-12 form-grid-start">
+                    {/* Purchase unit */}
+                    <div className="col-span-3">
+                        <SelectField label="Purchase Unit" name="purchaseUnit" value={formData.purchaseUnit} onChange={handleChange} disabled={isViewMode}>
+                            <option value="">— None —</option>
+                            {otherUnits.map((u) => <option key={u} value={u}>{u}</option>)}
+                        </SelectField>
+                    </div>
+                    <div className="col-span-3">
+                        <Input
+                            label={`1 ${formData.purchaseUnit || 'purchase unit'} = ? ${formData.unit}`}
+                            name="purchaseConversionFactor"
+                            type="number"
+                            value={formData.purchaseConversionFactor}
+                            onChange={handleChange}
+                            placeholder="e.g. 12"
+                            error={errors.purchaseConversionFactor}
+                            disabled={isViewMode || !formData.purchaseUnit}
+                        />
+                    </div>
+                    <div className="col-span-6 flex items-end pb-1">
+                        {formData.purchaseUnit && formData.purchaseConversionFactor && Number(formData.purchaseConversionFactor) > 0 && (
+                            <p className="text-sm text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2">
+                                1 <strong>{formData.purchaseUnit}</strong> = {formData.purchaseConversionFactor} <strong>{formData.unit}</strong>
+                                {' '}· 10 {formData.purchaseUnit} = {10 * Number(formData.purchaseConversionFactor)} {formData.unit}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Sell unit */}
+                    <div className="col-span-3">
+                        <SelectField label="Sell Unit" name="sellUnit" value={formData.sellUnit} onChange={handleChange} disabled={isViewMode}>
+                            <option value="">— None —</option>
+                            {otherUnits.map((u) => <option key={u} value={u}>{u}</option>)}
+                        </SelectField>
+                    </div>
+                    <div className="col-span-3">
+                        <Input
+                            label={`1 ${formData.sellUnit || 'sell unit'} = ? ${formData.unit}`}
+                            name="sellConversionFactor"
+                            type="number"
+                            value={formData.sellConversionFactor}
+                            onChange={handleChange}
+                            placeholder="e.g. 10"
+                            error={errors.sellConversionFactor}
+                            disabled={isViewMode || !formData.sellUnit}
+                        />
+                    </div>
+                    <div className="col-span-6 flex items-end pb-1">
+                        {formData.sellUnit && formData.sellConversionFactor && Number(formData.sellConversionFactor) > 0 && (
+                            <p className="text-sm text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2">
+                                1 <strong>{formData.sellUnit}</strong> = {formData.sellConversionFactor} <strong>{formData.unit}</strong>
+                                {' '}· 10 {formData.sellUnit} = {10 * Number(formData.sellConversionFactor)} {formData.unit}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
+
             {/* ── Pricing & Stock ───────────────────────────────────────── */}
             <div className="invoice-panel">
                 <div className="invoice-panel-header">
@@ -467,30 +453,11 @@ const InventoryForm = () => {
                 </div>
 
                 <div className="grid-12 form-grid-start">
-                    {/* Row: Cost + Price + Margin display + Opening Stock + Reorder */}
                     <div className="col-span-3">
-                        <Input
-                            label="Cost Price *"
-                            name="cost"
-                            type="number"
-                            value={formData.cost}
-                            onChange={handleChange}
-                            placeholder="0"
-                            error={errors.cost}
-                            disabled={isViewMode}
-                        />
+                        <Input label="Cost Price *" name="cost" type="number" value={formData.cost} onChange={handleChange} placeholder="0" error={errors.cost} disabled={isViewMode} />
                     </div>
                     <div className="col-span-3">
-                        <Input
-                            label="Selling Price *"
-                            name="price"
-                            type="number"
-                            value={formData.price}
-                            onChange={handleChange}
-                            placeholder="0"
-                            error={errors.price}
-                            disabled={isViewMode}
-                        />
+                        <Input label="Selling Price *" name="price" type="number" value={formData.price} onChange={handleChange} placeholder="0" error={errors.price} disabled={isViewMode} />
                     </div>
 
                     {/* Margin preview */}
@@ -504,28 +471,10 @@ const InventoryForm = () => {
                     </div>
 
                     <div className="col-span-2">
-                        <Input
-                            label="Opening Stock"
-                            name="openingStock"
-                            type="number"
-                            value={formData.openingStock}
-                            onChange={handleChange}
-                            placeholder="0"
-                            error={errors.openingStock}
-                            disabled={isViewMode}
-                        />
+                        <Input label="Opening Stock" name="openingStock" type="number" value={formData.openingStock} onChange={handleChange} placeholder="0" error={errors.openingStock} disabled={isViewMode} />
                     </div>
                     <div className="col-span-2">
-                        <Input
-                            label="Reorder Point"
-                            name="reorderPoint"
-                            type="number"
-                            value={formData.reorderPoint}
-                            onChange={handleChange}
-                            placeholder="5"
-                            error={errors.reorderPoint}
-                            disabled={isViewMode}
-                        />
+                        <Input label="Reorder Point" name="reorderPoint" type="number" value={formData.reorderPoint} onChange={handleChange} placeholder="5" error={errors.reorderPoint} disabled={isViewMode} />
                     </div>
                 </div>
             </div>
@@ -540,50 +489,22 @@ const InventoryForm = () => {
                 </div>
 
                 <div className="grid-12 form-grid-start">
-                    {/* Row: 3 account selects each col-span-4 = 12 */}
                     <div className="col-span-4">
-                        <SelectField
-                            label="Inventory Account"
-                            name="inventoryAccountId"
-                            value={formData.inventoryAccountId}
-                            onChange={handleChange}
-                            error={errors.inventoryAccountId}
-                            disabled={isViewMode}
-                        >
+                        <SelectField label="Inventory Account" name="inventoryAccountId" value={formData.inventoryAccountId} onChange={handleChange} error={errors.inventoryAccountId} disabled={isViewMode}>
                             <option value="">— Select Account —</option>
-                            {inventoryAccounts.map((a) => (
-                                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                            ))}
+                            {inventoryAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </SelectField>
                     </div>
                     <div className="col-span-4">
-                        <SelectField
-                            label="Revenue / Sales Account"
-                            name="revenueAccountId"
-                            value={formData.revenueAccountId}
-                            onChange={handleChange}
-                            error={errors.revenueAccountId}
-                            disabled={isViewMode}
-                        >
+                        <SelectField label="Revenue / Sales Account" name="revenueAccountId" value={formData.revenueAccountId} onChange={handleChange} error={errors.revenueAccountId} disabled={isViewMode}>
                             <option value="">— Select Account —</option>
-                            {revenueAccounts.map((a) => (
-                                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                            ))}
+                            {revenueAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </SelectField>
                     </div>
                     <div className="col-span-4">
-                        <SelectField
-                            label="COGS Account"
-                            name="cogsAccountId"
-                            value={formData.cogsAccountId}
-                            onChange={handleChange}
-                            error={errors.cogsAccountId}
-                            disabled={isViewMode}
-                        >
+                        <SelectField label="COGS Account" name="cogsAccountId" value={formData.cogsAccountId} onChange={handleChange} error={errors.cogsAccountId} disabled={isViewMode}>
                             <option value="">— Select Account —</option>
-                            {cogsAccounts.map((a) => (
-                                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                            ))}
+                            {cogsAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </SelectField>
                     </div>
                 </div>

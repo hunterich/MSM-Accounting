@@ -7,36 +7,21 @@ import StatusTag from '../../components/UI/StatusTag';
 import { Plus, Search } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
 import { formatIDR } from '../../utils/formatters';
-import { useItems } from '../../hooks/useInventory';
+import { useItems, useItemCategories } from '../../hooks/useInventory';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
-// Derive stock status label from qty on hand
-const getStockStatus = (stock) => {
-    if (stock === 0) return 'Out of Stock';
-    if (stock < 5) return 'Low Stock';
-    return 'In Stock';
-};
 
 const Inventory = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('inv_items');
     const { data: itemsResult, isLoading } = useItems();
+    const { data: itemCategories = [] } = useItemCategories();
     // API normalizer already computes stock, cost, price, and status
     const items = itemsResult?.data ?? [];
 
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
-
-    const categories = useMemo(
-        () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
-        [items]
-    );
-
-    const statuses = useMemo(
-        () => Array.from(new Set(items.map((item) => item.status))).sort(),
-        [items]
-    );
 
     const filteredItems = useMemo(() => {
         const keyword = searchTerm.toLowerCase();
@@ -45,11 +30,16 @@ const Inventory = () => {
                 (item.sku || '').toLowerCase().includes(keyword) ||
                 item.name.toLowerCase().includes(keyword) ||
                 (item.category || '').toLowerCase().includes(keyword);
-            const matchesCategory = categoryFilter ? item.category === categoryFilter : true;
+            const matchesCategory = categoryFilter ? item.categoryId === categoryFilter : true;
             const matchesStatus = statusFilter ? item.status === statusFilter : true;
             return matchesSearch && matchesCategory && matchesStatus;
         });
     }, [items, searchTerm, categoryFilter, statusFilter]);
+
+    const statuses = useMemo(
+        () => Array.from(new Set(items.map((item) => item.status))).sort(),
+        [items]
+    );
 
     const openItem = (row, mode = 'view') => {
         navigate(`/inventory/new?mode=${mode}&itemId=${row.id}`, { state: { item: row } });
@@ -117,8 +107,8 @@ const Inventory = () => {
                         onChange={(e) => setCategoryFilter(e.target.value)}
                     >
                         <option value="">All Categories</option>
-                        {categories.map((cat) => (
-                            <option key={cat} value={cat}>{cat}</option>
+                        {itemCategories.map((cat) => (
+                            <option key={cat.id} value={cat.id}>{cat.name}</option>
                         ))}
                     </select>
                 </div>
@@ -130,9 +120,9 @@ const Inventory = () => {
                         onChange={(e) => setStatusFilter(e.target.value)}
                     >
                         <option value="">All Statuses</option>
-                        {statuses.map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                        ))}
+                        <option value="In Stock">In Stock</option>
+                        <option value="Low Stock">Low Stock</option>
+                        <option value="Out of Stock">Out of Stock</option>
                     </select>
                 </div>
             </div>
