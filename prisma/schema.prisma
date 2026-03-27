@@ -58,6 +58,7 @@ model Organization {
   employees              Employee[]
   ecommerceConnections   EcommerceConnection[]
   auditLogs              AuditLog[]
+  salesOrders            SalesOrder[]
 }
 
 model User {
@@ -398,6 +399,7 @@ model SalesInvoice {
   taxRate         Decimal       @default(11) @db.Decimal(5, 2)
   taxAmount       Decimal       @default(0) @db.Decimal(18, 2)
   totalAmount     Decimal       @default(0) @db.Decimal(18, 2)
+  soId            String?
   notes           String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -463,6 +465,44 @@ model SalesInvoiceAuditLog {
   invoice     SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId, createdAt])
+}
+
+enum SoStatus {
+  DRAFT
+  CONFIRMED
+  INVOICED
+  CANCELLED
+}
+
+model SalesOrder {
+  id             String    @id @default(cuid())
+  organizationId String
+  number         String?
+  customerId     String?
+  customerName   String
+  issueDate      DateTime  @default(now())
+  expiryDate     DateTime?
+  status         SoStatus  @default(DRAFT)
+  notes          String?
+  invoiceId      String?
+  items          SalesOrderItem[]
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  @@index([organizationId])
+}
+
+model SalesOrderItem {
+  id           String     @id @default(cuid())
+  salesOrderId String
+  productId    String?
+  code         String?
+  description  String
+  quantity     Decimal    @default(1) @db.Decimal(18,4)
+  unit         String?    @default("PCS")
+  price        Decimal    @default(0) @db.Decimal(18,4)
+  discount     Decimal    @default(0) @db.Decimal(5,2)
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
 }
 
 model ARPayment {

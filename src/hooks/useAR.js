@@ -247,3 +247,69 @@ export function useDeleteARPayment() {
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.payments }),
     });
 }
+
+// ─── Sales Orders ────────────────────────────────────────────────────
+const SO_KEYS = { all: ['salesOrders'] };
+
+const normalizeSO = (raw) => ({
+    id:           raw.id,
+    number:       raw.number || raw.id,
+    customerName: raw.customerName,
+    customerId:   raw.customerId || '',
+    issueDate:    raw.issueDate  ? raw.issueDate.slice(0, 10)  : '',
+    expiryDate:   raw.expiryDate ? raw.expiryDate.slice(0, 10) : '',
+    status:       raw.status?.toLowerCase() ?? 'draft',
+    notes:        raw.notes    || '',
+    invoiceId:    raw.invoiceId || null,
+    items: (raw.items || []).map(i => ({
+        id:          i.id,
+        productId:   i.productId   || '',
+        code:        i.code        || '',
+        description: i.description,
+        quantity:    Number(i.quantity),
+        unit:        i.unit        || 'PCS',
+        price:       Number(i.price),
+        discount:    Number(i.discount),
+    })),
+});
+
+export const useSalesOrders = (params = {}) =>
+    useQuery({
+        queryKey: [...SO_KEYS.all, params],
+        queryFn:  () => api.get('/api/v1/sales-orders', params).then(r => ({ ...r, data: r.data.map(normalizeSO) })),
+    });
+
+export const useCreateSalesOrder = () => {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (data) => api.post('/api/v1/sales-orders', data),
+        onSuccess:  () => qc.invalidateQueries({ queryKey: SO_KEYS.all }),
+    });
+};
+
+export const useUpdateSalesOrder = () => {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...data }) => api.put(`/api/v1/sales-orders/${id}`, data),
+        onSuccess:  () => qc.invalidateQueries({ queryKey: SO_KEYS.all }),
+    });
+};
+
+export const useDeleteSalesOrder = () => {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id) => api.delete(`/api/v1/sales-orders/${id}`),
+        onSuccess:  () => qc.invalidateQueries({ queryKey: SO_KEYS.all }),
+    });
+};
+
+export const useConvertSOToInvoice = () => {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (soId) => api.post(`/api/v1/sales-orders/${soId}/convert`),
+        onSuccess:  () => {
+            qc.invalidateQueries({ queryKey: SO_KEYS.all });
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoices });
+        },
+    });
+};

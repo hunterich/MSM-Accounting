@@ -6,8 +6,8 @@ import SOCatalogPanel from '../../components/ar/salesorders/SOCatalogPanel';
 import SODetailTabs from '../../components/ar/salesorders/SODetailTabs';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import SalesOrderPrintTemplate from '../../components/print/SalesOrderPrintTemplate';
-import { useSalesOrderStore } from '../../stores/useSalesOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSalesOrders, useConvertSOToInvoice } from '../../hooks/useAR';
 import { List, X, Plus } from 'lucide-react';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
@@ -18,9 +18,9 @@ const SalesOrderWorkbench = () => {
     const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
 
-    const salesOrders = useSalesOrderStore((s) => s.salesOrders);
-    const soItemTemplates = useSalesOrderStore((s) => s.soItemTemplates);
-    const convertToInvoice = useSalesOrderStore((s) => s.convertToInvoice);
+    const { data: soResult, isLoading: soLoading } = useSalesOrders();
+    const salesOrders = soResult?.data ?? [];
+    const convertSOToInvoice = useConvertSOToInvoice();
     const company = useSettingsStore((s) => s.companyInfo);
 
     const [filters, setFilters] = useState({
@@ -88,10 +88,10 @@ const SalesOrderWorkbench = () => {
     }, [filters, salesOrders]);
 
     const selectedSalesOrder = salesOrders.find((order) => order.id === selectedSoId) || null;
-    const selectedLines = selectedSalesOrder ? (soItemTemplates[selectedSalesOrder.id] || []) : [];
+    const selectedLines = selectedSalesOrder ? (selectedSalesOrder.items || []) : [];
 
     const activePrintSo = salesOrders.find((order) => order.id === printSoId) || null;
-    const activePrintLines = activePrintSo ? (soItemTemplates[activePrintSo.id] || []) : [];
+    const activePrintLines = activePrintSo ? (activePrintSo.items || []) : [];
 
 
 
@@ -130,13 +130,13 @@ const SalesOrderWorkbench = () => {
     }, [selectedSoId]);
 
     const handleConvert = async (soId) => {
-        const invoiceId = await convertToInvoice(soId);
-        if (!invoiceId) {
-            window.alert('Unable to convert sales order to invoice.');
-            return;
+        try {
+            const result = await convertSOToInvoice.mutateAsync(soId);
+            const invoiceId = result?.invoice?.id || result?.invoice?.number;
+            navigate(`/ar/invoices${invoiceId ? `?invoiceId=${invoiceId}` : ''}`);
+        } catch (err) {
+            window.alert(`Unable to convert sales order to invoice: ${err?.message || 'Unknown error'}`);
         }
-
-        navigate(`/ar/invoices?invoiceId=${invoiceId}`);
     };
 
     const renderSoTab = (soId) => {

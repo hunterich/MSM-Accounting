@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash } from 'lucide-react';
 import SecurityRolesTab from './SecurityRolesTab';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from './DataMigrationPanel';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('customers');
@@ -16,6 +16,8 @@ const Settings = () => {
     const updateCompanyInfo = useSettingsStore(s => s.updateCompanyInfo);
     const updateTaxSettings = useSettingsStore(s => s.updateTaxSettings);
     const updateCustomerCreditSettings = useSettingsStore(s => s.updateCustomerCreditSettings);
+    const documentNumbering = useSettingsStore(s => s.documentNumbering ?? DEFAULT_DOCUMENT_NUMBERING);
+    const updateDocumentNumbering = useSettingsStore(s => s.updateDocumentNumbering);
 
     const [generalSettings, setGeneralSettings] = useState(storeCompanyInfo);
     const [taxData, setTaxData] = useState(storeTaxSettings);
@@ -40,6 +42,7 @@ const Settings = () => {
     const menuItems = [
         { id: 'general', label: 'Company Info', icon: Briefcase },
         { id: 'customers', label: 'Customers & Sales', icon: User },
+        { id: 'numbering', label: 'Document Numbering', icon: Hash },
         { id: 'security', label: 'Security & Roles', icon: Shield },
         { id: 'notifications', label: 'Notifications', icon: Bell },
         { id: 'audit', label: 'Audit Log', icon: ScrollText },
@@ -329,6 +332,68 @@ const Settings = () => {
 
                         <div className="settings-save-wrap">
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('customers')} />
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'numbering' && (
+                    <Card title="Document Numbering">
+                        <p className="text-sm text-neutral-600 mb-6">Configure auto-numbering format for each document type.</p>
+                        <div className="space-y-4">
+                            {[
+                                { key: 'ar_invoice',  label: 'Sales Invoice' },
+                                { key: 'ap_bill',     label: 'Purchase Bill' },
+                                { key: 'so_order',    label: 'Sales Order' },
+                                { key: 'po_order',    label: 'Purchase Order' },
+                                { key: 'ar_payment',  label: 'AR Payment' },
+                                { key: 'ap_payment',  label: 'AP Payment' },
+                            ].map(({ key, label }) => {
+                                const cfg = documentNumbering[key] || {};
+                                return (
+                                    <div key={key} className="grid grid-cols-12 gap-3 items-end pb-4 border-b border-neutral-100 last:border-0 last:pb-0">
+                                        <div className="col-span-3">
+                                            <div className="text-sm font-semibold text-neutral-700">{label}</div>
+                                            <div className="text-xs text-neutral-500 mt-0.5">
+                                                Preview: {cfg.prefix}/{new Date().getFullYear()}/{String(new Date().getMonth()+1).padStart(2,'0')}/{String(1).padStart(cfg.seqLength || 6, '0')}
+                                            </div>
+                                        </div>
+                                        <div className="col-span-3">
+                                            <label className="form-label">Prefix</label>
+                                            <Input
+                                                value={cfg.prefix || ''}
+                                                onChange={(e) => updateDocumentNumbering(key, { prefix: e.target.value.toUpperCase() })}
+                                                placeholder="e.g. INV"
+                                                inputClassName="font-mono uppercase"
+                                            />
+                                        </div>
+                                        <div className="col-span-3">
+                                            <label className="form-label">Reset Period</label>
+                                            <select
+                                                className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                                                value={cfg.resetPeriod || 'monthly'}
+                                                onChange={(e) => updateDocumentNumbering(key, { resetPeriod: e.target.value })}
+                                            >
+                                                <option value="monthly">Monthly</option>
+                                                <option value="yearly">Yearly</option>
+                                                <option value="never">Never reset</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-3">
+                                            <label className="form-label">Sequence Length</label>
+                                            <select
+                                                className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                                                value={cfg.seqLength || 6}
+                                                onChange={(e) => updateDocumentNumbering(key, { seqLength: Number(e.target.value) })}
+                                            >
+                                                <option value={4}>4 digits</option>
+                                                <option value={5}>5 digits</option>
+                                                <option value={6}>6 digits</option>
+                                                <option value={8}>8 digits</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </Card>
                 )}

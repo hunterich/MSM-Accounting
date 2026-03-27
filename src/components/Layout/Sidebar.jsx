@@ -9,7 +9,6 @@ import {
     Landmark,
     BarChart3,
     Settings,
-    ShoppingBag,
     Briefcase,
     Users
 } from 'lucide-react';
@@ -44,7 +43,8 @@ const navItems = [
             { label: 'Payments', path: '/ar/payments' },
             { label: 'Returns & Credits', path: '/ar/credits' },
             { label: 'Customers', path: '/ar/customers' },
-            { label: 'Customer Categories', path: '/ar/categories' }
+            { label: 'Customer Categories', path: '/ar/categories' },
+            { label: 'Shop Integrations', path: '/integrations' }
         ]
     },
     {
@@ -89,14 +89,6 @@ const navItems = [
             { label: 'Employees', path: '/hr/employees' },
             { label: 'Attendance', path: '/hr/attendance' },
             { label: 'Payroll Run', path: '/hr/payroll-run' }
-        ]
-    },
-    {
-        label: 'Integrations',
-        path: '/integrations',
-        icon: ShoppingBag,
-        subItems: [
-            { label: 'Shop Connections', path: '/integrations' }
         ]
     },
     {

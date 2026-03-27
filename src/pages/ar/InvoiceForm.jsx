@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import Card from '../../components/UI/Card';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
-import Table from '../../components/UI/Table';
-import StatusTag from '../../components/UI/StatusTag';
 import { Printer, Save, Search, Info, Package, Paperclip, FileText, X } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
@@ -34,9 +31,10 @@ class TableErrorBoundary extends React.Component {
 const InvoiceForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const [viewMode, setViewMode] = useState('new'); // 'new' | 'saved'
+    const [editingInvoiceId, setEditingInvoiceId] = useState(null);
     const [activeTab, setActiveTab] = useState('items'); // 'items', 'info', 'attachments'
     const [numberingMode, setNumberingMode] = useState('auto'); // 'auto' | 'manual'
+    const [selectedCustomerTerms, setSelectedCustomerTerms] = useState(null);
 
     // Customer State
     const [masterCreditLimit, setMasterCreditLimit] = useState(5000000); // Mocked from Settings
@@ -69,6 +67,7 @@ const InvoiceForm = () => {
         invoiceType: 'Sales Invoice'
     });
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
+    const docNumbering = useSettingsStore(s => s.documentNumbering?.ar_invoice ?? { prefix: 'INV', resetPeriod: 'monthly', seqLength: 6 });
 
     const [taxSettings, setTaxSettings] = useState({
         enabled: globalTaxSettings.enabled,
@@ -76,7 +75,7 @@ const InvoiceForm = () => {
         rate: globalTaxSettings.defaultRate
     });
 
-    const [selectedSavedId, setSelectedSavedId] = useState(invoices[0]?.id || null);
+
 
     // Item Search State
     const [itemSearchTerm, setItemSearchTerm] = useState('');
@@ -84,11 +83,11 @@ const InvoiceForm = () => {
     const itemSearchRef = useRef(null);
     const fileInputRef = useRef(null);
 
-    // Numbering Configuration (Mocked)
+    // Numbering Configuration (from Settings)
     const numberingConfig = {
-        prefix: 'INV',
-        reset: 'monthly',
-        seqLength: 6
+        prefix: docNumbering.prefix,
+        reset: docNumbering.resetPeriod,
+        seqLength: docNumbering.seqLength,
     };
 
     const getMaxSequence = () => {
@@ -116,19 +115,24 @@ const InvoiceForm = () => {
 
     useEffect(() => {
         const state = location.state || {};
-        if (state.openInvoiceId) {
+        if (state.openInvoiceId && state.mode === 'edit' && invoices.length > 0) {
             const exists = invoices.find(inv => inv.id === state.openInvoiceId);
             if (exists) {
-                setViewMode('saved');
-                setSelectedSavedId(state.openInvoiceId);
-                if (state.mode === 'edit') {
-                    openSavedInvoice(exists);
-                }
+                setEditingInvoiceId(exists.id);
+                setNumberingMode('manual');
+                setFormData(prev => ({
+                    ...prev,
+                    customerId: exists.customerId || '',
+                    issueDate: exists.issueDate || prev.issueDate,
+                    dueDate: exists.dueDate || '',
+                    number: exists.number || '',
+                    notes: exists.notes || '',
+                    items: exists.items || [],
+                }));
+                setActiveTab('items');
             }
-        } else if (state.mode === 'new') {
-            setViewMode('new');
         }
-    }, [location.state]);
+    }, [location.state, invoices.length]);
 
     // Click outside to close item search range
     useEffect(() => {
@@ -159,8 +163,10 @@ const InvoiceForm = () => {
                 discount: customer.defaultDiscount,
                 dueDate: newDueDate
             }));
+            setSelectedCustomerTerms(customer.paymentTerms ?? null);
         } else {
             setFormData(prev => ({ ...prev, customerId: custId, email: '', billingAddress: '', shippingAddress: '' }));
+            setSelectedCustomerTerms(null);
         }
     };
 
@@ -268,39 +274,6 @@ const InvoiceForm = () => {
         return taxSettings.enabled && !taxSettings.inclusive ? net + tax : net;
     };
 
-    const selectedSaved = invoices.find(inv => inv.id === selectedSavedId);
-
-    const calculateSavedTotal = (inv) => {
-        if (!inv) return 0;
-        return (inv.items || []).reduce((acc, item) => {
-            const sub = item.quantity * item.price;
-            const disc = sub * (item.discount / 100);
-            return acc + (sub - disc);
-        }, 0);
-    };
-
-    const openSavedInvoice = (inv) => {
-        setNumberingMode('manual');
-        setFormData(prev => ({
-            ...prev,
-            customerId: inv.customerId,
-            email: '',
-            billingAddress: '',
-            shippingAddress: '',
-            poNumber: '',
-            issueDate: inv.issueDate,
-            dueDate: inv.dueDate,
-            shippingDate: prev.shippingDate,
-            number: inv.number,
-            discount: 0,
-            notes: inv.notes || '',
-            items: inv.items || [],
-            attachments: []
-        }));
-        setActiveTab('items');
-        setViewMode('new');
-    };
-
     const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
     const isPageLoading = customersLoading || invoicesLoading || itemsLoading;
 
@@ -317,13 +290,15 @@ const InvoiceForm = () => {
             ...formData,
             number: assignedNo,
             customerName,
-            id: viewMode === 'saved' ? selectedSavedId : (formData.id || `INV-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`),
-            status: viewMode === 'saved' ? (selectedSaved?.status || 'Sent') : 'Draft'
+            id: editingInvoiceId || (formData.id || `INV-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`),
+            status: editingInvoiceId
+                ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
+                : 'Draft'
         };
 
         try {
-            if (viewMode === 'saved' && selectedSavedId) {
-                await updateInvoiceMutation.mutateAsync({ id: selectedSavedId, ...finalInvoiceData });
+            if (editingInvoiceId) {
+                await updateInvoiceMutation.mutateAsync({ id: editingInvoiceId, ...finalInvoiceData });
             } else {
                 await createInvoice.mutateAsync(finalInvoiceData);
             }
@@ -433,101 +408,12 @@ const InvoiceForm = () => {
                 </>
             )}
         >
-            <div className="flex gap-2 border-b border-neutral-200 bg-neutral-0 px-2 mb-5">
-                <button
-                    className={`inline-flex items-center gap-2 py-2.5 px-3.5 border border-transparent border-b-2 bg-transparent font-semibold text-sm cursor-pointer transition-colors ${viewMode === 'new' ? 'text-primary-700 border-b-primary-600' : 'text-neutral-600 border-b-transparent hover:text-neutral-900'}`}
-                    onClick={() => setViewMode('new')}
-                >
-                    New Invoice
-                </button>
-                <button
-                    className={`inline-flex items-center gap-2 py-2.5 px-3.5 border border-transparent border-b-2 bg-transparent font-semibold text-sm cursor-pointer transition-colors ${viewMode === 'saved' ? 'text-primary-700 border-b-primary-600' : 'text-neutral-600 border-b-transparent hover:text-neutral-900'}`}
-                    onClick={() => setViewMode('saved')}
-                >
-                    Saved Invoices
-                </button>
-            </div>
-
-            {viewMode === 'saved' && (
-                <TableErrorBoundary>
-                    <div className="grid grid-cols-12 gap-4">
-                        <div className="col-span-7">
-                            <Card title="Saved Invoices" padding={false}>
-                                <Table
-                                    columns={[
-                                        { key: 'number', label: 'Invoice #' },
-                                        { key: 'customerName', label: 'Customer' },
-                                        { key: 'issueDate', label: 'Date', render: (val) => formatDateID(val) },
-                                        { key: 'status', label: 'Status', render: (val) => <StatusTag status={val} /> },
-                                        {
-                                            key: 'actions',
-                                            label: '',
-                                            render: (_, row) => (
-                                                <Button text="Open" size="small" variant="tertiary" onClick={() => openSavedInvoice(row)} />
-                                            )
-                                        }
-                                    ]}
-                                    data={invoices}
-                                    onRowClick={(row) => setSelectedSavedId(row?.id)}
-                                />
-                            </Card>
-                        </div>
-                        <div className="col-span-5">
-                            <Card title="Preview">
-                                {selectedSaved ? (
-                                    <>
-                                        <div className="text-2xl font-bold mb-2">{selectedSaved.number}</div>
-                                        <div className="text-neutral-600 text-sm mb-1">{selectedSaved.customerName}</div>
-                                        <div className="text-neutral-600 text-sm mb-1">Issue: {formatDateID(selectedSaved.issueDate)}</div>
-                                        <div className="text-neutral-600 text-sm mb-4">Due: {formatDateID(selectedSaved.dueDate)}</div>
-
-                                        <div className="border-t border-neutral-200 pt-3">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <div className="font-semibold text-neutral-800">Items</div>
-                                                <div className="text-xs text-neutral-600">{(selectedSaved.items || []).length} line(s)</div>
-                                            </div>
-                                            <div className="max-h-[220px] overflow-y-auto border border-neutral-200 rounded-lg">
-                                                <table className="w-full border-collapse text-sm">
-                                                    <thead>
-                                                        <tr>
-                                                            <th className="sticky top-0 z-10 bg-neutral-100 p-2 text-left font-semibold text-neutral-600 border-b border-neutral-200">Item</th>
-                                                            <th className="sticky top-0 z-10 bg-neutral-100 p-2 text-center font-semibold text-neutral-600 border-b border-neutral-200 w-[60px]">Qty</th>
-                                                            <th className="sticky top-0 z-10 bg-neutral-100 p-2 text-right font-semibold text-neutral-600 border-b border-neutral-200 w-[110px]">Amount</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {(selectedSaved.items || []).map(item => (
-                                                            <tr key={item.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
-                                                                <td className="p-2">{item.description}</td>
-                                                                <td className="p-2 text-center">{item.quantity}</td>
-                                                                <td className="p-2 text-right">{formatIDR(item.quantity * item.price)}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                            <div className="text-right mt-3 text-base font-bold text-neutral-900">
-                                                Total: {formatIDR(calculateSavedTotal(selectedSaved))}
-                                            </div>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="p-8 text-center text-neutral-500">
-                                        Select an invoice from the list to view details
-                                    </div>
-                                )}
-                            </Card>
-                        </div>
-                    </div>
-                </TableErrorBoundary>
-            )}
-
-            {viewMode === 'new' && (
-                <form onSubmit={(e) => e.preventDefault()}>
-                    {/* Header Section: Customer & Invoice Info */}
-                    <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-5 mt-4 border-t-3 border-t-primary-500 mb-4">
-                        <div className="grid-12 form-grid-tight">
-                            <div className="col-span-6">
+            <form onSubmit={(e) => e.preventDefault()}>
+                    {/* Header Section: compact single row */}
+                    <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-4 border-t-3 border-t-primary-500 mb-4">
+                        <div className="grid grid-cols-12 gap-3">
+                            {/* Customer */}
+                            <div className="col-span-4">
                                 <SearchableSelect
                                     label="Customer *"
                                     options={customerOptions}
@@ -537,51 +423,60 @@ const InvoiceForm = () => {
                                     placeholder="Search & Select Customer..."
                                 />
                             </div>
-                            <div className="col-span-3">
-                                <label className="block mb-2 text-sm font-semibold text-neutral-700">Invoice Date *</label>
+                            {/* Invoice Date */}
+                            <div className="col-span-2">
+                                <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Invoice Date *</label>
                                 <Input type="date" name="issueDate" value={formData.issueDate} onChange={handleChange} />
                             </div>
-                            <div className="col-span-3">
-                                <label className="block mb-2 text-sm font-semibold text-neutral-700">Due Date</label>
+                            {/* Due Date */}
+                            <div className="col-span-2">
+                                <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Due Date</label>
                                 <Input type="date" name="dueDate" value={formData.dueDate} onChange={handleChange} />
+                                {selectedCustomerTerms !== null && (
+                                    <div className="text-[11px] text-neutral-500 mt-1">
+                                        {selectedCustomerTerms === 0 ? 'Due on Receipt' : `Net ${selectedCustomerTerms} days`}
+                                    </div>
+                                )}
                             </div>
-                            <div className="col-span-6">
-                                <label className="block mb-2 text-sm font-semibold text-neutral-700">Invoice #</label>
-                                <div className="flex gap-1.5 items-start">
+                            {/* Invoice Type */}
+                            <div className="col-span-2">
+                                <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Invoice Type</label>
+                                <select
+                                    className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                                    value={formData.invoiceType}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, invoiceType: e.target.value }))}
+                                >
+                                    <option>Sales Invoice</option>
+                                </select>
+                            </div>
+                            {/* Invoice # */}
+                            <div className="col-span-2">
+                                <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Invoice #</label>
+                                <div className="flex gap-1 items-start">
                                     <select
-                                        className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[100px] shrink-0"
+                                        className="h-10 px-1.5 rounded-md border border-neutral-300 bg-neutral-0 text-xs focus:border-primary-500 focus:outline-0 w-[58px] shrink-0"
                                         value={numberingMode}
                                         onChange={(e) => setNumberingMode(e.target.value)}
                                     >
                                         <option value="auto">Auto</option>
                                         <option value="manual">Manual</option>
                                     </select>
-                                    <div className="flex-1">
+                                    <div className="flex-1 min-w-0">
                                         <input
                                             value={formData.number}
                                             onChange={handleChange}
                                             name="number"
                                             disabled={numberingMode === 'auto'}
-                                            placeholder={numberingMode === 'auto' ? autoNumberPreview : 'Invoice #'}
-                                            className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md transition-all duration-150 h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 text-right font-bold tracking-[0.5px]"
+                                            placeholder={numberingMode === 'auto' ? '—' : 'Invoice #'}
+                                            className="block w-full px-2 text-xs leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 text-right font-bold tracking-[0.5px]"
                                         />
                                         {numberingMode === 'auto' && (
-                                            <div className="text-xs text-neutral-600 mt-1.5 text-left">
-                                                Assigned on approval • Preview: {autoNumberPreview}
+                                            <div className="text-[10px] text-neutral-500 mt-1 truncate" title={autoNumberPreview}>
+                                                {autoNumberPreview}
                                             </div>
                                         )}
                                     </div>
                                 </div>
-                            </div>
-                            <div className="col-span-6">
-                                <label className="block mb-2 text-sm font-semibold text-neutral-700">Invoice Type</label>
-                                <select
-                                    className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md transition-all duration-150 h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                                    value={formData.invoiceType}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, invoiceType: e.target.value }))}
-                                >
-                                    <option>Sales Invoice</option>
-                                </select>
                             </div>
                         </div>
                     </div>
@@ -908,7 +803,6 @@ const InvoiceForm = () => {
                     )}
 
                 </form>
-            )}
         </FormPage>
     );
 };

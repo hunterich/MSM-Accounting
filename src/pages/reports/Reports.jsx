@@ -1,877 +1,717 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import Card from '../../components/UI/Card';
-import Button from '../../components/UI/Button';
-import Table from '../../components/UI/Table';
-import ListPage from '../../components/Layout/ListPage';
-import { useChartOfAccounts } from '../../hooks/useGL';
-import { rollupBalances } from '../../utils/coa';
-import { formatDateID, formatIDR } from '../../utils/formatters';
-import { useReportStore } from '../../stores/useReportStore';
-import { useGLStore } from '../../stores/useGLStore';
-import APAging from './APAging';
-import CashFlow from './CashFlow';
-import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
-import ReportPrintTemplate from '../../components/print/ReportPrintTemplate';
-import { exportToExcel } from '../../utils/exportExcel';
-import { exportToPdf } from '../../utils/exportPdf';
+import React, { useState } from 'react';
+import {
+  ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package,
+  Search, Printer, Download, X, LayoutGrid, BarChart3
+} from 'lucide-react';
+import { formatIDR, formatDateID } from '../../utils/formatters';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import Button from '../../components/UI/Button';
+import Modal from '../../components/UI/Modal';
+import { api } from '../../api/apiClient';
 
-// ─── Date Range Helpers ────────────────────────────────────────────────────
+// ─── Icon Components ────────────────────────────────────────────────────────
+
+const TableIcon = () => (
+  <div className="w-12 h-12 rounded-lg bg-purple-50 flex items-center justify-center">
+    <LayoutGrid size={24} className="text-purple-600" />
+  </div>
+);
+
+const ChartIcon = () => (
+  <div className="w-12 h-12 rounded-lg bg-orange-50 flex items-center justify-center">
+    <BarChart3 size={24} className="text-orange-500" />
+  </div>
+);
+
+// ─── Report Card ─────────────────────────────────────────────────────────────
+
+const ReportCard = ({ report, onClick }) => (
+  <button
+    onClick={() => onClick(report)}
+    className="flex items-start gap-4 p-4 bg-neutral-0 border border-neutral-200 rounded-lg text-left hover:border-primary-400 hover:shadow-sm transition-all cursor-pointer w-full"
+  >
+    {report.type === 'chart' ? <ChartIcon /> : <TableIcon />}
+    <div>
+      <div className="font-semibold text-neutral-900 text-sm mb-0.5">{report.name}</div>
+      <div className="text-xs text-neutral-500 leading-relaxed">{report.description}</div>
+    </div>
+  </button>
+);
+
+// ─── Data Definitions ────────────────────────────────────────────────────────
+
+const CATEGORIES = [
+  { id: 'sales',     label: 'Penjualan',  icon: ShoppingCart },
+  { id: 'gl',        label: 'Buku Besar', icon: BookOpen },
+  { id: 'banking',   label: 'Kas & Bank', icon: Landmark },
+  { id: 'ar',        label: 'Piutang',    icon: ArrowDownLeft },
+  { id: 'ap',        label: 'Utang',      icon: ArrowUpRight },
+  { id: 'inventory', label: 'Persediaan', icon: Package },
+];
+
+const SALES_REPORTS = [
+  {
+    id: 'by-customer',
+    name: 'Penjualan per Pelanggan',
+    description: 'Menampilkan daftar nilai penjualan per pelanggan',
+    type: 'table',
+  },
+  {
+    id: 'by-item',
+    name: 'Penjualan per Barang',
+    description: 'Menampilkan daftar nilai penjualan per barang',
+    type: 'table',
+  },
+  {
+    id: 'by-item-customer',
+    name: 'Penjualan Barang per Pelanggan',
+    description: 'Menampilkan nilai penjualan barang per pelanggan',
+    type: 'table',
+  },
+  {
+    id: 'history',
+    name: 'Histori Penjualan',
+    description: 'Menampilkan riwayat faktur penjualan beserta status',
+    type: 'table',
+  },
+  {
+    id: 'monthly-chart',
+    name: 'Grafik Penjualan Bulanan',
+    description: 'Menampilkan grafik batang penjualan per bulan',
+    type: 'chart',
+  },
+  {
+    id: 'share-by-customer',
+    name: 'Porsi Penjualan per Pelanggan',
+    description: 'Menampilkan porsi penjualan dari pelanggan',
+    type: 'chart',
+  },
+];
+
+// ─── Date Helpers ─────────────────────────────────────────────────────────────
 
 const pad = (n) => String(n).padStart(2, '0');
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const today = new Date();
+const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-const getPresetRange = (preset, referenceDate = new Date()) => {
-    const year = referenceDate.getFullYear();
-    const month = referenceDate.getMonth(); // 0-indexed
-
-    switch (preset) {
-        case 'this-month': {
-            return { startDate: fmtDate(new Date(year, month, 1)), endDate: fmtDate(new Date(year, month + 1, 0)) };
-        }
-        case 'last-month': {
-            return { startDate: fmtDate(new Date(year, month - 1, 1)), endDate: fmtDate(new Date(year, month, 0)) };
-        }
-        case 'this-quarter': {
-            const qs = Math.floor(month / 3) * 3;
-            return { startDate: fmtDate(new Date(year, qs, 1)), endDate: fmtDate(new Date(year, qs + 3, 0)) };
-        }
-        case 'last-quarter': {
-            const qs = Math.floor(month / 3) * 3 - 3;
-            return { startDate: fmtDate(new Date(year, qs, 1)), endDate: fmtDate(new Date(year, qs + 3, 0)) };
-        }
-        case 'this-year': {
-            return { startDate: `${year}-01-01`, endDate: `${year}-12-31` };
-        }
-        case 'last-year': {
-            return { startDate: `${year - 1}-01-01`, endDate: `${year - 1}-12-31` };
-        }
-        case 'this-week': {
-            const offset = (referenceDate.getDay() + 6) % 7;
-            const mon = new Date(referenceDate); mon.setDate(referenceDate.getDate() - offset);
-            const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-            return { startDate: fmtDate(mon), endDate: fmtDate(sun) };
-        }
-        case 'last-week': {
-            const offset = (referenceDate.getDay() + 6) % 7;
-            const thisMonday = new Date(referenceDate); thisMonday.setDate(referenceDate.getDate() - offset);
-            const lastMonday = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate() - 7);
-            const lastSunday = new Date(lastMonday); lastSunday.setDate(lastMonday.getDate() + 6);
-            return { startDate: fmtDate(lastMonday), endDate: fmtDate(lastSunday) };
-        }
-        default:
-            return { startDate: '', endDate: '' };
-    }
-};
-
-const PERIOD_PRESETS = [
-    { value: 'this-month', label: 'This Month' },
-    { value: 'last-month', label: 'Last Month' },
-    { value: 'this-week', label: 'This Week' },
-    { value: 'last-week', label: 'Last Week' },
-    { value: 'this-quarter', label: 'This Quarter' },
-    { value: 'last-quarter', label: 'Last Quarter' },
-    { value: 'this-year', label: 'This Year' },
-    { value: 'last-year', label: 'Last Year' },
-    { value: 'custom', label: 'Custom Range' },
-];
-
-const TABS = [
-    { id: 'balance-sheet', label: 'Balance Sheet' },
-    { id: 'profit-loss', label: 'Profit & Loss' },
-    { id: 'trial-balance', label: 'Trial Balance' },
-    { id: 'gl-detail', label: 'GL Detail' },
-    { id: 'sales-by-item', label: 'Sales by Item' },
-    { id: 'sales-by-customer', label: 'Sales by Customer' },
-    { id: 'ar-aging', label: 'A/R Aging' },
-    { id: 'ap-aging', label: 'A/P Aging' },
-    { id: 'cash-flow', label: 'Cash Flow' },
-];
-
-// ─── Period selector sub-component ────────────────────────────────────────
-
-const PeriodSelector = ({ label, preset, onPreset, customStart, onCustomStart, customEnd, onCustomEnd }) => (
-    <div className="flex flex-col gap-2">
-        {label && <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">{label}</span>}
-        <div className="flex flex-wrap gap-2 items-end">
-            <div>
-                <label className="form-label">Period</label>
-                <select
-                    className="h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                    value={preset}
-                    onChange={(e) => onPreset(e.target.value)}
-                >
-                    {PERIOD_PRESETS.map((p) => (
-                        <option key={p.value} value={p.value}>{p.label}</option>
-                    ))}
-                </select>
-            </div>
-            {preset === 'custom' && (
-                <>
-                    <div>
-                        <label className="form-label">From</label>
-                        <input
-                            type="date"
-                            className="h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                            value={customStart}
-                            onChange={(e) => onCustomStart(e.target.value)}
-                        />
-                    </div>
-                    <div>
-                        <label className="form-label">To</label>
-                        <input
-                            type="date"
-                            className="h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                            value={customEnd}
-                            onChange={(e) => onCustomEnd(e.target.value)}
-                        />
-                    </div>
-                </>
-            )}
-        </div>
-    </div>
-);
-
-// ─── Period-aware balance computation ─────────────────────────────────────
-
-/**
- * Derive account balances for a given date range by scanning journal entries.
- *
- * Strategy:
- * - Start from the static opening `accountBalancesById` snapshot (represents
- *   balances BEFORE any journal entries, i.e., opening balances).
- * - Add debit/credit movements from journal entries that fall within the
- *   given date range.
- * - Return an `ownBalanceById` map identical in shape to what `rollupBalances`
- *   expects so `buildGroupedRows` stays unchanged.
- *
- * Debit increases Debit-normal accounts (Asset, Expense) and decreases
- * Credit-normal accounts (Liability, Equity, Revenue).
- */
-const computePeriodBalances = (accounts, openingBalances, journalEntries, startDate, endDate) => {
-    // Build account type lookup
-    const typeById = accounts.reduce((m, a) => { m[a.id] = a.type; return m; }, {});
-    const debitNormal = new Set(['Asset', 'Expense']);
-
-    // Start from opening balances
-    const ownBalanceById = { ...openingBalances };
-
-    // Apply journal entry movements in range
-    journalEntries.forEach((entry) => {
-        if (!entry.lines) return;
-        if (startDate && entry.date < startDate) return;
-        if (endDate && entry.date > endDate) return;
-
-        entry.lines.forEach((line) => {
-            const acctId = line.accountId;
-            if (!typeById[acctId]) return;
-            const isDebitNorm = debitNormal.has(typeById[acctId]);
-            const debit = Number(line.debit || 0);
-            const credit = Number(line.credit || 0);
-            const prev = Number(ownBalanceById[acctId] || 0);
-            // Debit-normal: +debit -credit / Credit-normal: -debit +credit
-            ownBalanceById[acctId] = isDebitNorm
-                ? prev + debit - credit
-                : prev - debit + credit;
-        });
-    });
-
-    return ownBalanceById;
-};
-
-// ─── Build grouped rows for BS / P&L ─────────────────────────────────────
-
-const buildGroupedRows = (accounts, ownBalanceById, allowedTypes) => {
-    const accountRows = accounts
-        .filter((a) => a.isPostable && a.isActive && allowedTypes.includes(a.type))
-        .map((a) => ({
-            id: a.id,
-            section: a.reportGroup,
-            subGroup: a.reportSubGroup || '-',
-            account: `${a.code} - ${a.name}`,
-            amountValue: ownBalanceById[a.id] || 0,
-        }))
-        .sort((a, b) => {
-            if (a.section !== b.section) return a.section.localeCompare(b.section);
-            if (a.subGroup !== b.subGroup) return a.subGroup.localeCompare(b.subGroup);
-            return a.account.localeCompare(b.account);
-        });
-
-    const grouped = [];
-    let currentGroupKey = '';
-    let subtotal = 0;
-
-    accountRows.forEach((row, index) => {
-        const rowGroupKey = `${row.section}::${row.subGroup}`;
-        const isNewGroup = rowGroupKey !== currentGroupKey;
-
-        if (isNewGroup && currentGroupKey) {
-            const [, sg] = currentGroupKey.split('::');
-            grouped.push({ id: `subtotal-${currentGroupKey}`, section: '', subGroup: `Subtotal ${sg}`, account: '', amountValue: subtotal, isSubtotal: true });
-            subtotal = 0;
-        }
-
-        grouped.push({ ...row, section: isNewGroup ? row.section : '', subGroup: isNewGroup ? row.subGroup : '' });
-        subtotal += row.amountValue;
-        currentGroupKey = rowGroupKey;
-
-        if (index === accountRows.length - 1) {
-            const [, sg] = rowGroupKey.split('::');
-            grouped.push({ id: `subtotal-${rowGroupKey}`, section: '', subGroup: `Subtotal ${sg}`, account: '', amountValue: subtotal, isSubtotal: true });
-        }
-    });
-
-    return grouped;
-};
-
-// ─── Merge two period row arrays into comparison columns ──────────────────
-
-const mergeComparisonRows = (rowsA, rowsB) => {
-    // Build map from id → amountValue for period B
-    const bMap = rowsB.reduce((m, r) => { m[r.id] = r.amountValue; return m; }, {});
-
-    return rowsA.map((row) => {
-        const aVal = row.amountValue || 0;
-        const bVal = bMap[row.id] || 0;
-        const diff = aVal - bVal;
-        const pct = bVal !== 0 ? ((diff / Math.abs(bVal)) * 100).toFixed(1) : null;
-        return { ...row, bVal, diff, pct };
-    });
-};
-
-// ─── Aging bucket helper ───────────────────────────────────────────────────
-
-const getAgingBucket = (days) => {
-    if (days <= 0) return 'current';
-    if (days <= 30) return '1-30';
-    if (days <= 60) return '31-60';
-    if (days <= 90) return '61-90';
-    return '90+';
-};
-
-// ─── Component ─────────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 const Reports = () => {
-    const company = useSettingsStore((s) => s.companyInfo);
-    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const company = useSettingsStore(s => s.companyInfo);
 
-    // ── API hooks ───────────────────────────────────────────────────────────
-    const { data: apiChartOfAccounts = [] } = useChartOfAccounts();
-    const accountBalancesById = useMemo(() => {
-        const map = {};
-        apiChartOfAccounts.forEach(a => { map[a.id] = a.balance ?? 0; });
-        return map;
-    }, [apiChartOfAccounts]);
+  const [activeCategory, setActiveCategory] = useState('sales');
+  const [searchTerm, setSearchTerm] = useState('');
 
-    // ── Store data ──────────────────────────────────────────────────────────
-    const salesLines = useReportStore((s) => s.salesLines);
-    const agingInvoices = useReportStore((s) => s.agingInvoices);
-    const journalEntries = useGLStore((s) => s.journalEntries);
-    const glChartOfAccounts = useGLStore((s) => s.chartOfAccounts);
-    const glAccountBalances = useGLStore((s) => s.accountBalancesById);
+  // Parameter modal state
+  const [paramModal, setParamModal] = useState(null); // null or report object
+  const [dateFrom, setDateFrom] = useState(fmtDate(firstOfMonth));
+  const [dateTo, setDateTo] = useState(fmtDate(today));
 
-    // Use store data when available, fall back to API data
-    const accounts = glChartOfAccounts?.length ? glChartOfAccounts : apiChartOfAccounts;
-    const openingBal = glAccountBalances && Object.keys(glAccountBalances).length ? glAccountBalances : accountBalancesById;
+  // Report-specific filter state
+  const [filterCustomer, setFilterCustomer] = useState('');
+  const [topNCustomer, setTopNCustomer]     = useState(false);
+  const [filterItem, setFilterItem]         = useState('');
+  const [topNItem, setTopNItem]             = useState(false);
+  const [itemSortBy, setItemSortBy]         = useState('total'); // 'total' | 'qty'
 
-    // ── Tab ─────────────────────────────────────────────────────────────────
-    const [activeTab, setActiveTab] = useState('balance-sheet');
+  // Report result state
+  const [activeReport, setActiveReport] = useState(null); // { report, data, dateFrom, dateTo, params }
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-    // ── Period A (primary) ──────────────────────────────────────────────────
-    const [presetA, setPresetA] = useState('this-year');
-    const [customStartA, setCustomStartA] = useState('');
-    const [customEndA, setCustomEndA] = useState('');
+  const filteredReports = SALES_REPORTS.filter(r =>
+    r.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-    // ── Period B (comparison) ───────────────────────────────────────────────
-    const [compareMode, setCompareMode] = useState(false);
-    const [presetB, setPresetB] = useState('last-year');
-    const [customStartB, setCustomStartB] = useState('');
-    const [customEndB, setCustomEndB] = useState('');
+  const handleCardClick = (report) => {
+    // Reset filters when switching to a different report type
+    if (!activeReport || activeReport.report.id !== report.id) {
+      setFilterCustomer(''); setTopNCustomer(false);
+      setFilterItem(''); setTopNItem(false); setItemSortBy('total');
+    }
+    setParamModal(report);
+  };
 
-    // ── Resolve date ranges ─────────────────────────────────────────────────
-    const rangeA = useMemo(() => {
-        if (presetA === 'custom') return { startDate: customStartA, endDate: customEndA };
-        return getPresetRange(presetA);
-    }, [presetA, customStartA, customEndA]);
+  const handleRunReport = async () => {
+    if (!paramModal) return;
+    const reportToRun = paramModal;
+    setParamModal(null);
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params = { type: reportToRun.id, dateFrom, dateTo };
+      if (reportToRun.id === 'by-customer') {
+        if (filterCustomer) params.customerSearch = filterCustomer;
+        if (topNCustomer)   params.topN = 30;
+      }
+      if (reportToRun.id === 'by-item') {
+        if (filterItem)             params.itemSearch = filterItem;
+        if (topNItem)               params.topN = 30;
+        if (itemSortBy === 'qty')   params.sortBy = 'qty';
+      }
+      const data = await api.get('/api/v1/reports/sales', params);
+      setActiveReport({ report: reportToRun, data, dateFrom, dateTo, params });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    const rangeB = useMemo(() => {
-        if (presetB === 'custom') return { startDate: customStartB, endDate: customEndB };
-        return getPresetRange(presetB);
-    }, [presetB, customStartB, customEndB]);
+  const handleExportCsv = () => {
+    if (!activeReport) return;
+    const { report, data } = activeReport;
+    let csv = '';
+    if (report.id === 'by-customer') {
+      csv = 'Pelanggan,Jumlah Invoice,Total Penjualan\n';
+      csv += data.rows.map(r => `"${r.customerName}",${r.invoiceCount},${r.total}`).join('\n');
+      csv += `\nTotal,,${data.grandTotal}`;
+    } else if (report.id === 'by-item') {
+      csv = 'Barang,Qty,Total Penjualan\n';
+      csv += data.rows.map(r => `"${r.description}",${r.qty},${r.total}`).join('\n');
+      csv += `\nTotal,,${data.grandTotal}`;
+    } else if (report.id === 'history') {
+      csv = 'No Faktur,Tanggal,Pelanggan,Status,Total\n';
+      csv += data.rows.map(r => `"${r.number}","${r.issueDate}","${r.customerName}","${r.status}",${r.totalAmount}`).join('\n');
+    } else if (report.id === 'by-item-customer') {
+      csv = 'Pelanggan,Barang,Qty,Total\n';
+      csv += data.rows.map(r => `"${r.customerName}","${r.description}",${r.qty},${r.total}`).join('\n');
+    } else if (report.id === 'monthly-chart') {
+      csv = 'Bulan,Total Penjualan\n';
+      csv += data.rows.map(r => `"${r.month}",${r.total}`).join('\n');
+    } else if (report.id === 'share-by-customer') {
+      csv = 'Pelanggan,Total,Porsi (%)\n';
+      csv += data.rows.map(r =>
+        `"${r.customerName}",${r.total},${data.grandTotal > 0 ? ((r.total / data.grandTotal) * 100).toFixed(1) : 0}`
+      ).join('\n');
+    }
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${report.id}-${activeReport.dateFrom}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-    // Alias for non-BS/PL tabs which only use one period
-    const { startDate, endDate } = rangeA;
+  // ─── Report Result Renderer ───────────────────────────────────────────────
 
-    // ── Period labels ───────────────────────────────────────────────────────
-    const periodLabel = useCallback(({ startDate: s, endDate: e }) => {
-        if (s && e) return `${formatDateID(s)} – ${formatDateID(e)}`;
-        if (s) return `From ${formatDateID(s)}`;
-        if (e) return `To ${formatDateID(e)}`;
-        return 'All Periods';
-    }, []);
+  const renderReportResult = () => {
+    if (isLoading) return <div className="p-12 text-center text-neutral-500">Memuat laporan...</div>;
+    if (error) return <div className="p-8 text-center text-danger-600">Error: {error}</div>;
+    if (!activeReport) return null;
+    const { report, data } = activeReport;
 
-    const labelA = periodLabel(rangeA);
-    const labelB = periodLabel(rangeB);
+    if (report.id === 'by-customer') {
+      return (
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-blue-50">
+              <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[120px]">Jml Invoice</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[180px]">Penjualan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row, i) => (
+              <tr key={i} className="hover:bg-neutral-50">
+                <td className="p-3 border border-neutral-200">{row.customerName}</td>
+                <td className="p-3 border border-neutral-200 text-right">{row.invoiceCount}</td>
+                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-blue-50 font-bold">
+              <td className="p-3 border border-neutral-300">Total Pelanggan</td>
+              <td className="p-3 border border-neutral-300 text-right">{data.rows.length}</td>
+              <td className="p-3 border border-neutral-300 text-right">{formatIDR(data.grandTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      );
+    }
 
-    // ── isInRange helper (for non-BS tabs) ─────────────────────────────────
-    const isInRange = useCallback((dateStr) => {
-        if (!startDate && !endDate) return true;
-        if (startDate && dateStr < startDate) return false;
-        if (endDate && dateStr > endDate) return false;
-        return true;
-    }, [startDate, endDate]);
+    if (report.id === 'by-item') {
+      return (
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-blue-50">
+              <th className="p-3 text-left font-semibold border border-neutral-300">Barang</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[100px]">Qty</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[180px]">Penjualan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row, i) => (
+              <tr key={i} className="hover:bg-neutral-50">
+                <td className="p-3 border border-neutral-200">{row.description}</td>
+                <td className="p-3 border border-neutral-200 text-right">{Number(row.qty).toFixed(0)}</td>
+                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-blue-50 font-bold">
+              <td className="p-3 border border-neutral-300">Total</td>
+              <td className="p-3 border border-neutral-300 text-right">
+                {data.rows.reduce((s, r) => s + Number(r.qty), 0).toFixed(0)}
+              </td>
+              <td className="p-3 border border-neutral-300 text-right">{formatIDR(data.grandTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      );
+    }
 
-    // ── Period-aware balance maps ───────────────────────────────────────────
-    const balancesA = useMemo(
-        () => computePeriodBalances(accounts, openingBal, journalEntries, rangeA.startDate, rangeA.endDate),
-        [accounts, openingBal, journalEntries, rangeA.startDate, rangeA.endDate]
-    );
+    if (report.id === 'by-item-customer') {
+      return (
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-blue-50">
+              <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300">Barang</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[100px]">Qty</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[180px]">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row, i) => (
+              <tr key={i} className="hover:bg-neutral-50">
+                <td className="p-3 border border-neutral-200">{row.customerName}</td>
+                <td className="p-3 border border-neutral-200">{row.description}</td>
+                <td className="p-3 border border-neutral-200 text-right">{Number(row.qty).toFixed(0)}</td>
+                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-blue-50 font-bold">
+              <td colSpan={3} className="p-3 border border-neutral-300">Total</td>
+              <td className="p-3 border border-neutral-300 text-right">{formatIDR(data.grandTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      );
+    }
 
-    const balancesB = useMemo(
-        () => compareMode
-            ? computePeriodBalances(accounts, openingBal, journalEntries, rangeB.startDate, rangeB.endDate)
-            : null,
-        [accounts, openingBal, journalEntries, rangeB.startDate, rangeB.endDate, compareMode]
-    );
+    if (report.id === 'history') {
+      return (
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-blue-50">
+              <th className="p-3 text-left font-semibold border border-neutral-300">No Faktur</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300 w-[120px]">Tanggal</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300 w-[100px]">Status</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[160px]">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row, i) => (
+              <tr key={i} className="hover:bg-neutral-50">
+                <td className="p-3 border border-neutral-200 font-mono text-xs">{row.number}</td>
+                <td className="p-3 border border-neutral-200">{formatDateID(row.issueDate)}</td>
+                <td className="p-3 border border-neutral-200">{row.customerName}</td>
+                <td className="p-3 border border-neutral-200">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    row.status === 'PAID'    ? 'bg-success-50 text-success-700' :
+                    row.status === 'OVERDUE' ? 'bg-danger-50 text-danger-700' :
+                    row.status === 'SENT'    ? 'bg-primary-50 text-primary-700' :
+                    'bg-neutral-100 text-neutral-600'
+                  }`}>{row.status}</span>
+                </td>
+                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.totalAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-blue-50 font-bold">
+              <td colSpan={4} className="p-3 border border-neutral-300">Total ({data.rows.length} faktur)</td>
+              <td className="p-3 border border-neutral-300 text-right">{formatIDR(data.grandTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      );
+    }
 
-    // ── Build BS / P&L row sets ─────────────────────────────────────────────
-    const bsTypes = ['Asset', 'Liability', 'Equity'];
-    const plTypes = ['Revenue', 'Expense'];
-
-    const bsRowsA = useMemo(() => buildGroupedRows(accounts, balancesA, bsTypes), [accounts, balancesA]);
-    const plRowsA = useMemo(() => buildGroupedRows(accounts, balancesA, plTypes), [accounts, balancesA]);
-
-    const bsRowsB = useMemo(
-        () => balancesB ? buildGroupedRows(accounts, balancesB, bsTypes) : null,
-        [accounts, balancesB]
-    );
-    const plRowsB = useMemo(
-        () => balancesB ? buildGroupedRows(accounts, balancesB, plTypes) : null,
-        [accounts, balancesB]
-    );
-
-    // Merged comparison rows
-    const bsRows = useMemo(
-        () => bsRowsB ? mergeComparisonRows(bsRowsA, bsRowsB) : bsRowsA,
-        [bsRowsA, bsRowsB]
-    );
-    const plRows = useMemo(
-        () => plRowsB ? mergeComparisonRows(plRowsA, plRowsB) : plRowsA,
-        [plRowsA, plRowsB]
-    );
-
-    // ── Single-column formatted rows (no comparison) ───────────────────────
-    const fmtRows = (rows) => rows.map((r) => ({ ...r, amount: formatIDR(r.amountValue || 0) }));
-
-    // ── Trial Balance ───────────────────────────────────────────────────────
-    const trialBalance = useMemo(() => {
-        const rows = accounts
-            .filter((a) => a.isPostable && a.isActive)
-            .map((a) => {
-                const balance = balancesA[a.id] || 0;
-                const isDr = a.normalSide === 'Debit';
-                return {
-                    id: a.id,
-                    code: a.code,
-                    name: a.name,
-                    type: a.type,
-                    debitValue: isDr ? Math.abs(balance) : balance < 0 ? Math.abs(balance) : 0,
-                    creditValue: !isDr ? Math.abs(balance) : balance < 0 ? Math.abs(balance) : 0,
-                };
-            })
-            .filter((r) => r.debitValue !== 0 || r.creditValue !== 0)
-            .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-
-        const totalDebit = rows.reduce((s, r) => s + r.debitValue, 0);
-        const totalCredit = rows.reduce((s, r) => s + r.creditValue, 0);
-
-        return {
-            rows: rows.map((r) => ({ ...r, debit: formatIDR(r.debitValue), credit: formatIDR(r.creditValue) })),
-            totalDebit,
-            totalCredit,
-            balanced: Math.abs(totalDebit - totalCredit) < 1,
-        };
-    }, [accounts, balancesA]);
-
-    // ── GL Detail ───────────────────────────────────────────────────────────
-    const accountMap = useMemo(() => accounts.reduce((m, a) => { m[a.id] = a; return m; }, {}), [accounts]);
-
-    const glDetail = useMemo(() => {
-        const lines = [];
-        journalEntries.forEach((entry, ei) => {
-            if (!entry.lines || !isInRange(entry.date)) return;
-            entry.lines.forEach((line, li) => {
-                lines.push({
-                    id: `${entry.entryNo}-${line.accountId}-${line.id ?? `${ei}-${li}`}`,
-                    date: entry.date,
-                    entryNo: entry.entryNo,
-                    memo: entry.memo,
-                    accountId: line.accountId,
-                    debit: line.debit || 0,
-                    credit: line.credit || 0,
-                });
-            });
-        });
-        return lines.sort((a, b) => a.date.localeCompare(b.date) || a.entryNo.localeCompare(b.entryNo));
-    }, [journalEntries, isInRange]);
-
-    // ── Sales reports ───────────────────────────────────────────────────────
-    const filteredSalesLines = useMemo(
-        () => salesLines.filter((l) => isInRange(l.date)),
-        [salesLines, isInRange]
-    );
-
-    const salesByItem = useMemo(() => {
-        const map = {};
-        filteredSalesLines.forEach((l) => {
-            if (!map[l.itemId]) map[l.itemId] = { id: l.itemId, itemName: l.itemName, category: l.category, qty: 0, totalValue: 0, invoiceCount: new Set() };
-            map[l.itemId].qty += l.qty;
-            map[l.itemId].totalValue += l.total;
-            map[l.itemId].invoiceCount.add(l.invoiceId);
-        });
-        return Object.values(map)
-            .map((r) => ({ ...r, invoiceCount: r.invoiceCount.size, total: formatIDR(r.totalValue) }))
-            .sort((a, b) => b.totalValue - a.totalValue);
-    }, [filteredSalesLines]);
-
-    const salesByItemTotal = useMemo(() => filteredSalesLines.reduce((s, l) => s + l.total, 0), [filteredSalesLines]);
-
-    const salesByCustomer = useMemo(() => {
-        const map = {};
-        filteredSalesLines.forEach((l) => {
-            if (!map[l.customerId]) map[l.customerId] = { id: l.customerId, customerName: l.customerName, totalValue: 0, invoiceCount: new Set(), itemCount: 0 };
-            map[l.customerId].totalValue += l.total;
-            map[l.customerId].invoiceCount.add(l.invoiceId);
-            map[l.customerId].itemCount += l.qty;
-        });
-        return Object.values(map)
-            .map((r) => ({ ...r, invoiceCount: r.invoiceCount.size, total: formatIDR(r.totalValue) }))
-            .sort((a, b) => b.totalValue - a.totalValue);
-    }, [filteredSalesLines]);
-
-    // ── AR Aging ────────────────────────────────────────────────────────────
-    const agingRows = useMemo(() => agingInvoices
-        .filter((inv) => isInRange(inv.invoiceDate))
-        .map((inv) => ({
-            ...inv,
-            bucket: getAgingBucket(inv.daysOverdue),
-            current: inv.daysOverdue <= 0 ? inv.balance : 0,
-            d1_30: inv.daysOverdue > 0 && inv.daysOverdue <= 30 ? inv.balance : 0,
-            d31_60: inv.daysOverdue > 30 && inv.daysOverdue <= 60 ? inv.balance : 0,
-            d61_90: inv.daysOverdue > 60 && inv.daysOverdue <= 90 ? inv.balance : 0,
-            d90plus: inv.daysOverdue > 90 ? inv.balance : 0,
-        })),
-        [agingInvoices, isInRange]);
-
-    const agingTotals = useMemo(() => ({
-        current: agingRows.reduce((s, r) => s + r.current, 0),
-        d1_30: agingRows.reduce((s, r) => s + r.d1_30, 0),
-        d31_60: agingRows.reduce((s, r) => s + r.d31_60, 0),
-        d61_90: agingRows.reduce((s, r) => s + r.d61_90, 0),
-        d90plus: agingRows.reduce((s, r) => s + r.d90plus, 0),
-        balance: agingRows.reduce((s, r) => s + r.balance, 0),
-    }), [agingRows]);
-
-    // ── Column definitions ──────────────────────────────────────────────────
-
-    // Single-period grouped report columns (BS / P&L without compare)
-    const singleReportColumns = (accountLabel = 'Account') => [
-        { key: 'section', label: 'Report Group' },
-        { key: 'subGroup', label: 'Sub-group' },
-        {
-            key: 'account', label: accountLabel,
-            render: (val, row) => row.isSubtotal ? <span className="text-strong">Subtotal</span> : val
-        },
-        {
-            key: 'amount', label: 'Amount', align: 'right',
-            render: (val, row) => row.isSubtotal ? <span className="text-strong">{val}</span> : val
-        },
-    ];
-
-    // Comparison columns — Period A | Period B | Variance | %
-    const compareColumns = (accountLabel = 'Account') => [
-        { key: 'section', label: 'Report Group' },
-        { key: 'subGroup', label: 'Sub-group' },
-        {
-            key: 'account', label: accountLabel,
-            render: (val, row) => row.isSubtotal ? <span className="text-strong">Subtotal</span> : val
-        },
-        {
-            key: 'amountValue', label: labelA, align: 'right',
-            render: (val, row) => {
-                const f = formatIDR(val || 0);
-                return row.isSubtotal ? <span className="text-strong">{f}</span> : f;
-            }
-        },
-        {
-            key: 'bVal', label: labelB, align: 'right',
-            render: (val, row) => {
-                const f = formatIDR(val || 0);
-                return row.isSubtotal ? <span className="text-strong">{f}</span> : f;
-            }
-        },
-        {
-            key: 'diff', label: 'Variance', align: 'right',
-            render: (val, row) => {
-                const v = val || 0;
-                const color = v > 0 ? 'text-success-600' : v < 0 ? 'text-danger-600' : 'text-neutral-400';
-                const f = `${v >= 0 ? '+' : ''}${formatIDR(v)}`;
-                return row.isSubtotal
-                    ? <span className={`text-strong ${color}`}>{f}</span>
-                    : <span className={color}>{f}</span>;
-            }
-        },
-        {
-            key: 'pct', label: '% Change', align: 'right',
-            render: (val, row) => {
-                if (row.isSubtotal) return null;
-                if (val === null) return <span className="text-neutral-400">—</span>;
-                const color = Number(val) > 0 ? 'text-success-600' : Number(val) < 0 ? 'text-danger-600' : 'text-neutral-400';
-                return <span className={color}>{val > 0 ? '+' : ''}{val}%</span>;
-            }
-        },
-    ];
-
-    const tbColumns = [
-        { key: 'code', label: 'Code' },
-        { key: 'name', label: 'Account Name' },
-        { key: 'type', label: 'Type' },
-        { key: 'debit', label: 'Debit', align: 'right' },
-        { key: 'credit', label: 'Credit', align: 'right' },
-    ];
-
-    const glColumns = [
-        { key: 'date', label: 'Date', sortable: true, render: (val) => formatDateID(val) },
-        { key: 'entryNo', label: 'Entry No.' },
-        { key: 'memo', label: 'Memo' },
-        {
-            key: 'accountId', label: 'Account',
-            render: (val) => { const a = accountMap[val]; return a ? `${a.code} - ${a.name}` : val; }
-        },
-        { key: 'debit', label: 'Debit', align: 'right', render: (val) => val ? formatIDR(val) : '—' },
-        { key: 'credit', label: 'Credit', align: 'right', render: (val) => val ? formatIDR(val) : '—' },
-    ];
-
-    const salesByItemColumns = [
-        { key: 'itemName', label: 'Item', sortable: true },
-        { key: 'category', label: 'Category', sortable: true },
-        { key: 'invoiceCount', label: 'Invoices', align: 'right' },
-        { key: 'qty', label: 'Qty Sold', align: 'right' },
-        { key: 'total', label: 'Sales Amount', align: 'right' },
-    ];
-
-    const salesByCustomerColumns = [
-        { key: 'customerName', label: 'Customer', sortable: true },
-        { key: 'invoiceCount', label: 'Invoices', align: 'right' },
-        { key: 'itemCount', label: 'Items Sold', align: 'right' },
-        { key: 'total', label: 'Sales Amount', align: 'right' },
-    ];
-
-    const agingColumns = [
-        { key: 'invoiceId', label: 'Invoice', sortable: true },
-        { key: 'customerName', label: 'Customer', sortable: true },
-        { key: 'invoiceDate', label: 'Inv. Date', render: (val) => formatDateID(val) },
-        { key: 'dueDate', label: 'Due Date', render: (val) => formatDateID(val) },
-        {
-            key: 'daysOverdue', label: 'Days', align: 'right',
-            render: (val) => val > 0 ? <span className="stock-danger">{val}</span> : <span className="stock-normal">Current</span>
-        },
-        { key: 'current', label: 'Current', align: 'right', render: (val) => val ? formatIDR(val) : '—' },
-        { key: 'd1_30', label: '1–30 days', align: 'right', render: (val) => val ? <span className="stock-warning">{formatIDR(val)}</span> : '—' },
-        { key: 'd31_60', label: '31–60 days', align: 'right', render: (val) => val ? <span className="stock-danger">{formatIDR(val)}</span> : '—' },
-        { key: 'd61_90', label: '61–90 days', align: 'right', render: (val) => val ? <span className="stock-danger">{formatIDR(val)}</span> : '—' },
-        { key: 'd90plus', label: '90+ days', align: 'right', render: (val) => val ? <span className="stock-danger">{formatIDR(val)}</span> : '—' },
-        { key: 'balance', label: 'Balance', align: 'right', render: (val) => <span className="text-strong">{formatIDR(val)}</span> },
-    ];
-
-    // ── Export and Print Helpers ─────────────────────────────────────────────
-    const getActiveReportData = () => {
-        switch (activeTab) {
-            case 'balance-sheet': return { title: 'Balance Sheet', cols: compareMode ? compareColumns('Account') : singleReportColumns('Account'), data: compareMode ? bsRows : fmtRows(bsRows) };
-            case 'profit-loss': return { title: 'Profit & Loss', cols: compareMode ? compareColumns('Description') : singleReportColumns('Description'), data: compareMode ? plRows : fmtRows(plRows) };
-            case 'trial-balance': return { title: 'Trial Balance', cols: tbColumns, data: trialBalance.rows, totals: [{ label: 'Total Debit', value: formatIDR(trialBalance.totalDebit) }, { label: 'Total Credit', value: formatIDR(trialBalance.totalCredit) }] };
-            case 'gl-detail': return { title: 'General Ledger Detail', cols: glColumns, data: glDetail };
-            case 'sales-by-item': return { title: 'Sales by Item', cols: salesByItemColumns, data: salesByItem, totals: [{ label: 'Total Sales', value: formatIDR(salesByItemTotal) }] };
-            case 'sales-by-customer': return { title: 'Sales by Customer', cols: salesByCustomerColumns, data: salesByCustomer, totals: [{ label: 'Total Sales', value: formatIDR(salesByItemTotal) }] };
-            case 'ar-aging': return { title: 'A/R Aging', cols: agingColumns, data: agingRows, totals: [{ label: 'Total Outstanding', value: formatIDR(agingTotals.balance) }] };
-            default: return null;
-        }
-    };
-
-    const handleExportExcel = () => {
-        const report = getActiveReportData();
-        if (!report) return window.alert('Export not supported for this tab yet.');
-        exportToExcel(`Report_${report.title.replace(/\\s+/g, '_')}_${new Date().getTime()}`, report.title, report.cols, report.data);
-    };
-
-    const handleExportPdf = () => {
-        const report = getActiveReportData();
-        if (!report) return window.alert('Export not supported for this tab yet.');
-        exportToPdf(`Report_${report.title.replace(/\\s+/g, '_')}_${new Date().getTime()}`, report.title, report.cols, report.data, company);
-    };
-
-    const activeReportData = getActiveReportData();
-
-    // ── Tabs that show period filter vs comparison controls ─────────────────
-    const isBSOrPL = activeTab === 'balance-sheet' || activeTab === 'profit-loss';
-    const showDateFilter = !isBSOrPL && ['trial-balance', 'gl-detail', 'sales-by-item', 'sales-by-customer', 'ar-aging', 'ap-aging', 'cash-flow'].includes(activeTab);
-
-    // ── Render ──────────────────────────────────────────────────────────────
-    return (
-        <ListPage
-            containerClassName="reporting-module"
-            title="Financial Reports"
-            subtitle="Core financial statements and sales analytics."
-            actions={
-                <div className="flex gap-2">
-                    <Button text="Print / Preview" variant="secondary" size="small" onClick={() => {
-                        if (!getActiveReportData()) return window.alert('Print not supported for this tab yet.');
-                        setIsPreviewOpen(true);
-                    }} />
-                    <Button text="Export PDF" variant="secondary" size="small" onClick={handleExportPdf} />
-                    <Button text="Export Excel" variant="secondary" size="small" onClick={handleExportExcel} />
+    if (report.id === 'monthly-chart') {
+      const max = Math.max(...data.rows.map(r => r.total), 1);
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return (
+        <div>
+          <div className="flex items-end gap-2 h-[280px] px-4 pb-8 pt-4 overflow-x-auto">
+            {data.rows.map((row, i) => {
+              const pct = (row.total / max) * 100;
+              const [year, month] = row.month.split('-');
+              const label = `${monthNames[parseInt(month) - 1]} ${year}`;
+              return (
+                <div key={i} className="flex flex-col items-center gap-1 flex-1 min-w-[60px]">
+                  <div className="text-xs font-medium text-neutral-600">{formatIDR(row.total)}</div>
+                  <div
+                    className="w-full bg-primary-500 rounded-t-sm transition-all"
+                    style={{ height: `${Math.max(pct * 2, 4)}px` }}
+                    title={formatIDR(row.total)}
+                  />
+                  <div className="text-[10px] text-neutral-500 text-center leading-tight">{label}</div>
                 </div>
-            }
-        >
-            {/* ── Tab Row ── */}
-            <div className="report-tabs-row">
-                {TABS.map((tab) => (
-                    <Button
-                        key={tab.id}
-                        text={tab.label}
-                        variant={activeTab === tab.id ? 'primary' : 'secondary'}
-                        size="small"
-                        onClick={() => setActiveTab(tab.id)}
-                    />
-                ))}
+              );
+            })}
+            {data.rows.length === 0 && (
+              <div className="w-full text-center text-neutral-500 self-center">No data</div>
+            )}
+          </div>
+          <div className="mt-4 pt-4 border-t border-neutral-200 flex justify-between items-center px-4">
+            <span className="text-sm text-neutral-600">Total Penjualan</span>
+            <span className="font-bold text-lg text-primary-700">{formatIDR(data.grandTotal)}</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (report.id === 'share-by-customer') {
+      const colors = ['bg-primary-500','bg-success-500','bg-warning-500','bg-purple-500','bg-pink-500','bg-cyan-500'];
+      return (
+        <div className="space-y-3">
+          {data.rows.map((row, i) => {
+            const share = data.grandTotal > 0 ? (row.total / data.grandTotal) * 100 : 0;
+            const color = colors[i % colors.length];
+            return (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-[180px] text-sm text-neutral-700 truncate" title={row.customerName}>
+                  {row.customerName}
+                </div>
+                <div className="flex-1 bg-neutral-100 rounded-full h-5 overflow-hidden">
+                  <div className={`${color} h-full rounded-full transition-all`} style={{ width: `${share}%` }} />
+                </div>
+                <div className="w-[100px] text-right text-sm font-medium">{share.toFixed(1)}%</div>
+                <div className="w-[140px] text-right text-sm text-neutral-600">{formatIDR(row.total)}</div>
+              </div>
+            );
+          })}
+          <div className="mt-4 pt-3 border-t border-neutral-200 flex justify-between font-bold">
+            <span className="text-sm">Total</span>
+            <span className="text-primary-700">{formatIDR(data.grandTotal)}</span>
+          </div>
+        </div>
+      );
+    }
+
+    return <div className="p-8 text-center text-neutral-500">No renderer for this report type.</div>;
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex h-full min-h-0" style={{ height: 'calc(100vh - 56px)' }}>
+      {/* Left category sidebar */}
+      <div className="w-[200px] shrink-0 border-r border-neutral-200 bg-neutral-50 p-3 flex flex-col gap-1 overflow-y-auto">
+        {CATEGORIES.map(cat => {
+          const Icon = cat.icon;
+          return (
+            <button
+              key={cat.id}
+              onClick={() => {
+                setActiveCategory(cat.id); setActiveReport(null); setError(null);
+                setFilterCustomer(''); setTopNCustomer(false);
+                setFilterItem(''); setTopNItem(false); setItemSortBy('total');
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-colors w-full ${
+                activeCategory === cat.id
+                  ? 'bg-primary-600 text-white'
+                  : 'text-neutral-700 hover:bg-neutral-200'
+              }`}
+            >
+              <Icon size={16} strokeWidth={1.8} />
+              {cat.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        {activeCategory === 'sales' ? (
+          <div className="p-6">
+            {/* Category header + search */}
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold text-neutral-900">Penjualan</h2>
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                <input
+                  type="text"
+                  placeholder="Cari laporan..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="h-9 pl-9 pr-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 w-[220px]"
+                />
+              </div>
             </div>
 
-            {/* ── BS / P&L Period Controls ── */}
-            {isBSOrPL && (
-                <div className="invoice-panel" style={{ marginBottom: 0 }}>
-                    <div className="flex flex-wrap gap-6 items-start p-4">
-                        {/* Period A */}
-                        <PeriodSelector
-                            label={compareMode ? 'Period A' : undefined}
-                            preset={presetA}
-                            onPreset={setPresetA}
-                            customStart={customStartA}
-                            onCustomStart={setCustomStartA}
-                            customEnd={customEndA}
-                            onCustomEnd={setCustomEndA}
-                        />
+            {/* Report cards grid — only show when no active report */}
+            {!activeReport && !isLoading && (
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {filteredReports.map(report => (
+                  <ReportCard key={report.id} report={report} onClick={handleCardClick} />
+                ))}
+              </div>
+            )}
 
-                        {/* Compare toggle */}
-                        <div className="flex flex-col gap-2">
-                            {compareMode && (
-                                <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide invisible">x</span>
-                            )}
-                            <div className="flex items-end h-10">
-                                <button
-                                    type="button"
-                                    onClick={() => setCompareMode((v) => !v)}
-                                    className={`h-10 px-4 rounded-md text-sm font-medium border transition-colors ${compareMode
-                                            ? 'bg-primary-700 text-white border-primary-700 hover:bg-primary-800'
-                                            : 'bg-neutral-0 text-neutral-700 border-neutral-300 hover:bg-neutral-100'
-                                        }`}
-                                >
-                                    {compareMode ? '✓ Comparing' : '⇄ Compare Period'}
-                                </button>
-                            </div>
-                        </div>
+            {/* Loading state */}
+            {isLoading && (
+              <div className="p-12 text-center text-neutral-500 text-sm">Memuat laporan...</div>
+            )}
 
-                        {/* Period B — only when compare is on */}
-                        {compareMode && (
-                            <>
-                                <div className="flex items-end h-10 pb-0">
-                                    <span className="text-sm text-neutral-400 font-medium mb-2.5">vs.</span>
-                                </div>
-                                <PeriodSelector
-                                    label="Period B"
-                                    preset={presetB}
-                                    onPreset={setPresetB}
-                                    customStart={customStartB}
-                                    onCustomStart={setCustomStartB}
-                                    customEnd={customEndB}
-                                    onCustomEnd={setCustomEndB}
-                                />
-                            </>
-                        )}
+            {/* Error state (no active report yet) */}
+            {error && !activeReport && !isLoading && (
+              <div className="p-8 text-center text-danger-600 text-sm">
+                Gagal memuat laporan: {error}
+              </div>
+            )}
+
+            {/* Active report result */}
+            {activeReport && !isLoading && (
+              <div>
+                {/* Report toolbar */}
+                <div className="mb-4 pb-3 border-b border-neutral-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => { setActiveReport(null); setError(null); }}
+                        className="flex items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
+                      >
+                        <X size={14} /> Tutup
+                      </button>
+                      <div className="h-4 w-px bg-neutral-300" />
+                      <span className="font-semibold text-neutral-900">{activeReport.report.name}</span>
+                      <span className="text-xs text-neutral-500">
+                        {formatDateID(activeReport.dateFrom)} s/d {formatDateID(activeReport.dateTo)}
+                      </span>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => window.print()}
+                        className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
+                      >
+                        <Printer size={14} /> Print
+                      </button>
+                      <button
+                        onClick={handleExportCsv}
+                        className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
+                      >
+                        <Download size={14} /> Export CSV
+                      </button>
+                    </div>
+                  </div>
+                  {/* Active filter badges */}
+                  {activeReport.params && (activeReport.params.customerSearch || activeReport.params.itemSearch || activeReport.params.topN || activeReport.params.sortBy === 'qty') && (
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <span className="text-xs text-neutral-500">Filter aktif:</span>
+                      {activeReport.params.customerSearch && (
+                        <span className="text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full border border-primary-200">
+                          Pelanggan: {activeReport.params.customerSearch}
+                        </span>
+                      )}
+                      {activeReport.params.itemSearch && (
+                        <span className="text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full border border-primary-200">
+                          Barang: {activeReport.params.itemSearch}
+                        </span>
+                      )}
+                      {activeReport.params.topN && (
+                        <span className="text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full border border-orange-200">
+                          Top {activeReport.params.topN}
+                        </span>
+                      )}
+                      {activeReport.params.sortBy === 'qty' && (
+                        <span className="text-xs bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded-full border border-neutral-300">
+                          Urut: Qty (pcs)
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setParamModal(activeReport.report)}
+                        className="text-xs text-primary-600 hover:text-primary-800 underline ml-1"
+                      >
+                        Ubah Filter
+                      </button>
+                    </div>
+                  )}
                 </div>
-            )}
 
-            {/* ── Other tabs: single date filter ── */}
-            {showDateFilter && (
-                <div className="filter-bar filter-bar--period">
-                    <div className="filter-bar__field">
-                        <label className="form-label">Period</label>
-                        <select
-                            className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                            value={presetA}
-                            onChange={(e) => setPresetA(e.target.value)}
-                        >
-                            {PERIOD_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                        </select>
-                    </div>
-                    {presetA === 'custom' && (
-                        <>
-                            <div className="filter-bar__field">
-                                <label className="form-label">From</label>
-                                <input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                                    value={customStartA} onChange={(e) => setCustomStartA(e.target.value)} />
-                            </div>
-                            <div className="filter-bar__field">
-                                <label className="form-label">To</label>
-                                <input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                                    value={customEndA} onChange={(e) => setCustomEndA(e.target.value)} />
-                            </div>
-                        </>
-                    )}
-                    {startDate && endDate && (
-                        <div className="filter-bar__label">
-                            Showing: <strong>{labelA}</strong>
-                        </div>
-                    )}
+                {/* Report header (Accurate-style printed header) */}
+                <div className="text-center mb-5">
+                  <div className="text-sm font-semibold text-neutral-700 uppercase tracking-wide">
+                    {company?.companyName || 'PT. Demo Accounting'}
+                  </div>
+                  <div className="text-lg font-bold text-primary-700 mt-1">{activeReport.report.name}</div>
+                  <div className="text-xs text-neutral-500 mt-1">
+                    Dari {formatDateID(activeReport.dateFrom)} s/d {formatDateID(activeReport.dateTo)}
+                  </div>
                 </div>
-            )}
 
-            {/* ── Balance Sheet ── */}
-            {activeTab === 'balance-sheet' && (
-                <Card
-                    title={compareMode ? `Balance Sheet — ${labelA} vs ${labelB}` : `Balance Sheet — ${labelA}`}
-                    padding={false}
-                >
-                    {compareMode
-                        ? <Table columns={compareColumns('Account')} data={bsRows} />
-                        : <Table columns={singleReportColumns('Account')} data={fmtRows(bsRows)} />
-                    }
-                </Card>
-            )}
+                {/* Report content */}
+                <div className="overflow-x-auto">
+                  {renderReportResult()}
+                </div>
 
-            {/* ── Profit & Loss ── */}
-            {activeTab === 'profit-loss' && (
-                <Card
-                    title={compareMode ? `Profit & Loss — ${labelA} vs ${labelB}` : `Profit & Loss — ${labelA}`}
-                    padding={false}
-                >
-                    {compareMode
-                        ? <Table columns={compareColumns('Description')} data={plRows} />
-                        : <Table columns={singleReportColumns('Description')} data={fmtRows(plRows)} />
-                    }
-                </Card>
+                {/* Show other report cards below */}
+                <div className="mt-8 pt-6 border-t border-neutral-200">
+                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
+                    Laporan Lainnya
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {SALES_REPORTS.filter(r => r.id !== activeReport.report.id).map(report => (
+                      <ReportCard key={report.id} report={report} onClick={handleCardClick} />
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
+          </div>
+        ) : (
+          // Other categories — coming soon
+          <div className="p-6">
+            <h2 className="text-xl font-bold text-neutral-900 mb-2">
+              {CATEGORIES.find(c => c.id === activeCategory)?.label}
+            </h2>
+            <div className="mt-12 text-center">
+              <div className="text-neutral-400 text-5xl mb-4">📊</div>
+              <div className="text-neutral-600 font-medium">Laporan akan segera tersedia</div>
+              <div className="text-neutral-400 text-sm mt-1">Coming soon</div>
+            </div>
+          </div>
+        )}
+      </div>
 
-            {/* ── Trial Balance ── */}
-            {activeTab === 'trial-balance' && (
-                <Card title={`Trial Balance — ${labelA}`} padding={false}>
-                    <Table columns={tbColumns} data={trialBalance.rows} />
-                    <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
-                        <div />
-                        <div className="journal-totals-meta">
-                            <div className="text-strong">Total Debit: {formatIDR(trialBalance.totalDebit)}</div>
-                            <div className="text-strong">Total Credit: {formatIDR(trialBalance.totalCredit)}</div>
-                            {trialBalance.balanced
-                                ? <div className="journal-balanced">&#10003; Balanced</div>
-                                : <div className="journal-unbalanced">Not Balanced</div>
-                            }
-                        </div>
-                    </div>
-                </Card>
-            )}
+      {/* Parameter Modal */}
+      {paramModal && (
+        <Modal
+          isOpen={true}
+          onClose={() => setParamModal(null)}
+          title="Parameter Laporan"
+          size="sm"
+        >
+          <div className="space-y-4">
+            {/* Date range */}
+            <div>
+              <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Tanggal</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-neutral-600 mb-1">Dari</label>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={e => setDateFrom(e.target.value)}
+                    className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-neutral-600 mb-1">s/d</label>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={e => setDateTo(e.target.value)}
+                    className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                  />
+                </div>
+              </div>
+            </div>
 
-            {/* ── GL Detail ── */}
-            {activeTab === 'gl-detail' && (
-                <Card title={`General Ledger Detail — ${labelA}`} padding={false}>
-                    {glDetail.length > 0
-                        ? <Table columns={glColumns} data={glDetail} />
-                        : <div className="module-empty-state">No journal entries found for this period.</div>
-                    }
-                </Card>
-            )}
-
-            {/* ── Sales by Item ── */}
-            {activeTab === 'sales-by-item' && (
-                <Card title={`Sales by Item — ${labelA}`} padding={false}>
-                    {salesByItem.length > 0 ? (
-                        <>
-                            <Table columns={salesByItemColumns} data={salesByItem} />
-                            <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
-                                <div /><div className="journal-totals-meta"><div className="text-strong">Total Sales: {formatIDR(salesByItemTotal)}</div></div>
-                            </div>
-                        </>
-                    ) : <div className="module-empty-state">No sales data found for this period.</div>}
-                </Card>
-            )}
-
-            {/* ── Sales by Customer ── */}
-            {activeTab === 'sales-by-customer' && (
-                <Card title={`Sales by Customer — ${labelA}`} padding={false}>
-                    {salesByCustomer.length > 0 ? (
-                        <>
-                            <Table columns={salesByCustomerColumns} data={salesByCustomer} />
-                            <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
-                                <div /><div className="journal-totals-meta"><div className="text-strong">Total Sales: {formatIDR(salesByItemTotal)}</div></div>
-                            </div>
-                        </>
-                    ) : <div className="module-empty-state">No sales data found for this period.</div>}
-                </Card>
-            )}
-
-            {/* ── A/R Aging ── */}
-            {activeTab === 'ar-aging' && (
-                <Card title="Accounts Receivable Aging" padding={false}>
-                    {agingRows.length > 0 ? (
-                        <>
-                            <Table columns={agingColumns} data={agingRows} />
-                            <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
-                                <div />
-                                <div className="journal-totals-meta" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                                    <div className="text-strong">Current: {formatIDR(agingTotals.current)}</div>
-                                    <div className="text-strong">1–30: {formatIDR(agingTotals.d1_30)}</div>
-                                    <div className="text-strong">31–60: {formatIDR(agingTotals.d31_60)}</div>
-                                    <div className="text-strong">61–90: {formatIDR(agingTotals.d61_90)}</div>
-                                    <div className="text-strong">90+: {formatIDR(agingTotals.d90plus)}</div>
-                                    <div className="text-strong" style={{ borderLeft: '1px solid var(--color-neutral-300)', paddingLeft: '24px' }}>
-                                        Total Outstanding: {formatIDR(agingTotals.balance)}
-                                    </div>
-                                </div>
-                            </div>
-                        </>
-                    ) : <div className="module-empty-state">No open invoices found.</div>}
-                </Card>
-            )}
-
-            {/* ── A/P Aging ── */}
-            {activeTab === 'ap-aging' && (
-                <APAging startDate={startDate} endDate={endDate} isInRange={isInRange} />
-            )}
-
-            {/* ── Cash Flow ── */}
-            {activeTab === 'cash-flow' && (
-                <CashFlow startDate={startDate} endDate={endDate} isInRange={isInRange} />
-            )}
-
-            <PrintPreviewModal
-                isOpen={isPreviewOpen}
-                onClose={() => setIsPreviewOpen(false)}
-                title="Report Print Preview"
-                documentTitle={activeReportData ? `Report_${activeReportData.title}` : 'Report'}
-            >
-                {activeReportData && (
-                    <ReportPrintTemplate
-                        title={activeReportData.title}
-                        dateRangeLabel={compareMode && isBSOrPL ? `${labelA} vs ${labelB}` : labelA}
-                        columns={activeReportData.cols}
-                        data={activeReportData.data}
-                        company={company}
-                        totals={activeReportData.totals}
+            {/* by-customer: customer filter + top 30 */}
+            {paramModal.id === 'by-customer' && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Pelanggan</div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">Nama Pelanggan <span className="text-neutral-400">(opsional)</span></label>
+                    <input
+                      type="text"
+                      value={filterCustomer}
+                      onChange={e => setFilterCustomer(e.target.value)}
+                      placeholder="Cari nama pelanggan..."
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
                     />
-                )}
-            </PrintPreviewModal>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={topNCustomer}
+                      onChange={e => setTopNCustomer(e.target.checked)}
+                      className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-neutral-700">Top 30 Pelanggan <span className="text-neutral-400">(berdasarkan nilai penjualan)</span></span>
+                  </label>
+                </div>
+              </div>
+            )}
 
-        </ListPage>
-    );
+            {/* by-item: item filter + top 30 + sort by */}
+            {paramModal.id === 'by-item' && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Barang</div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">Nama Barang <span className="text-neutral-400">(opsional)</span></label>
+                    <input
+                      type="text"
+                      value={filterItem}
+                      onChange={e => setFilterItem(e.target.value)}
+                      placeholder="Cari nama barang..."
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={topNItem}
+                      onChange={e => setTopNItem(e.target.checked)}
+                      className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-neutral-700">Top 30 Barang</span>
+                  </label>
+                  <div>
+                    <div className="text-sm text-neutral-600 mb-2">Urut berdasarkan</div>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="itemSortBy"
+                          value="total"
+                          checked={itemSortBy === 'total'}
+                          onChange={() => setItemSortBy('total')}
+                          className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="text-sm text-neutral-700">Nilai Penjualan</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="itemSortBy"
+                          value="qty"
+                          checked={itemSortBy === 'qty'}
+                          onChange={() => setItemSortBy('qty')}
+                          className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="text-sm text-neutral-700">Qty (pcs)</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2">
+              <Button
+                text="Tampilkan"
+                variant="primary"
+                onClick={handleRunReport}
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
 };
 
 export default Reports;
