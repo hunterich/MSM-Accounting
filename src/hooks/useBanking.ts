@@ -7,25 +7,30 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import type {
+  BankAccount, RawBankAccount,
+  BankTransaction, RawBankTransaction,
+  TxnType, BankAccountFormData, BankTxnFormData,
+} from '../types';
 
 // ─── Query Keys ──────────────────────────────────────────────────────────────
 
 export const BANK_KEYS = {
-  accounts: ['bankAccounts'],
-  account:  (id) => ['bankAccounts', id],
-  transactions: (filters) => ['bankTransactions', filters ?? {}],
-  transaction:  (id) => ['bankTransactions', id],
+  accounts:     ['bankAccounts'] as const,
+  account:      (id: string) => ['bankAccounts', id] as const,
+  transactions: (filters?: Record<string, unknown>) => ['bankTransactions', filters ?? {}] as const,
+  transaction:  (id: string) => ['bankTransactions', id] as const,
 };
 
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
-const TYPE_DOWN = { INCOME: 'income', EXPENSE: 'expense', TRANSFER: 'transfer' };
-const TYPE_UP   = { income: 'INCOME', expense: 'EXPENSE', transfer: 'TRANSFER' };
+const TYPE_DOWN: Record<string, TxnType> = { INCOME: 'income', EXPENSE: 'expense', TRANSFER: 'transfer' };
+const TYPE_UP:   Record<string, string>  = { income: 'INCOME', expense: 'EXPENSE', transfer: 'TRANSFER' };
 
-function normalizeAccount(raw) {
+function normalizeAccount(raw: RawBankAccount): BankAccount {
   return {
     id:               raw.id,
-    name:             raw.name,
+    name:             raw.name ?? '',
     code:             raw.bankName || raw.code || '',
     bankName:         raw.bankName || '',
     accountNumber:    raw.accountNumber || raw.last4 || '',
@@ -36,9 +41,8 @@ function normalizeAccount(raw) {
   };
 }
 
-function normalizeTxn(raw) {
-  const type = raw.type ? (TYPE_DOWN[raw.type] ?? raw.type.toLowerCase()) : 'income';
-  // Expenses are stored as positive in DB, displayed as negative in UI
+function normalizeTxn(raw: RawBankTransaction): BankTransaction {
+  const type = raw.type ? (TYPE_DOWN[raw.type] ?? (raw.type.toLowerCase() as TxnType)) : 'income';
   const amount = type === 'expense'
     ? -Math.abs(Number(raw.amount ?? 0))
     : Math.abs(Number(raw.amount ?? 0));
@@ -54,9 +58,8 @@ function normalizeTxn(raw) {
     notes:       raw.notes || '',
     costCenter:  raw.costCenter || '',
     taxType:     raw.taxType || 'none',
-    taxRate:     raw.taxRate ?? 0,
+    taxRate:     Number(raw.taxRate ?? 0),
     bankAccount: raw.bankAccount || null,
-    // action-specific fields
     toAccountId:      raw.toAccountId || '',
     payee:            raw.payee || '',
     expenseAccountId: raw.expenseAccountId || '',
@@ -67,21 +70,19 @@ function normalizeTxn(raw) {
 
 // ─── Account Hooks ────────────────────────────────────────────────────────────
 
-/** Fetch all bank accounts for the current org */
 export function useBankAccounts() {
   return useQuery({
     queryKey: BANK_KEYS.accounts,
-    queryFn:  () => api.get('/api/v1/bank-accounts').then((data) =>
+    queryFn:  () => api.get<RawBankAccount[]>('/api/v1/bank-accounts').then((data) =>
       Array.isArray(data) ? data.map(normalizeAccount) : []
     ),
   });
 }
 
-/** Create a new bank account */
 export function useCreateBankAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (formData) => api.post('/api/v1/bank-accounts', {
+    mutationFn: (formData: BankAccountFormData) => api.post('/api/v1/bank-accounts', {
       name:           formData.accountNickname,
       bankName:       formData.bankName,
       accountNumber:  formData.last4,
@@ -93,34 +94,31 @@ export function useCreateBankAccount() {
   });
 }
 
-/** Update an existing bank account */
 export function useUpdateBankAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }) => api.put(`/api/v1/bank-accounts/${id}`, body),
+    mutationFn: ({ id, ...body }: Partial<BankAccount> & { id: string }) =>
+      api.put(`/api/v1/bank-accounts/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: BANK_KEYS.accounts }),
   });
 }
 
-/** Delete a bank account */
 export function useDeleteBankAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => api.delete(`/api/v1/bank-accounts/${id}`),
+    mutationFn: (id: string) => api.delete(`/api/v1/bank-accounts/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: BANK_KEYS.accounts }),
   });
 }
 
 // ─── Transaction Hooks ────────────────────────────────────────────────────────
 
-/**
- * Fetch bank transactions.
- * @param {Object} [filters] - { bankAccountId, type, page, limit }
- */
-export function useBankTransactions(filters = {}) {
+export function useBankTransactions(filters: Record<string, unknown> = {}) {
   return useQuery({
     queryKey: BANK_KEYS.transactions(filters),
-    queryFn:  () => api.get('/api/v1/bank-transactions', filters).then((res) => ({
+    queryFn:  () => api.get<{ data?: RawBankTransaction[]; total?: number; page?: number; limit?: number }>(
+      '/api/v1/bank-transactions', filters
+    ).then((res) => ({
       data:  (res.data ?? []).map(normalizeTxn),
       total: res.total ?? 0,
       page:  res.page  ?? 1,
@@ -129,11 +127,7 @@ export function useBankTransactions(filters = {}) {
   });
 }
 
-/**
- * Build the API payload from BankingActionForm state.
- * Maps UI field names → DB field names, lowercase type → uppercase enum.
- */
-function buildTxnPayload(action, formData) {
+function buildTxnPayload(action: TxnType, formData: BankTxnFormData) {
   const amount = Math.abs(Number(formData.amount) || 0);
   const bankAccountId =
     action === 'transfer' ? formData.fromAccountId :
@@ -161,24 +155,11 @@ function buildTxnPayload(action, formData) {
   };
 }
 
-/** Record a new banking transaction (income / expense / transfer) */
 export function useCreateBankTransaction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ action, formData }) =>
+    mutationFn: ({ action, formData }: { action: TxnType; formData: BankTxnFormData }) =>
       api.post('/api/v1/bank-transactions', buildTxnPayload(action, formData)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
-      qc.invalidateQueries({ queryKey: BANK_KEYS.accounts }); // balance updated by API
-    },
-  });
-}
-
-/** Update an existing transaction */
-export function useUpdateBankTransaction() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, ...body }) => api.put(`/api/v1/bank-transactions/${id}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bankTransactions'] });
       qc.invalidateQueries({ queryKey: BANK_KEYS.accounts });
@@ -186,11 +167,22 @@ export function useUpdateBankTransaction() {
   });
 }
 
-/** Delete a transaction */
+export function useUpdateBankTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: Partial<BankTransaction> & { id: string }) =>
+      api.put(`/api/v1/bank-transactions/${id}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
+      qc.invalidateQueries({ queryKey: BANK_KEYS.accounts });
+    },
+  });
+}
+
 export function useDeleteBankTransaction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => api.delete(`/api/v1/bank-transactions/${id}`),
+    mutationFn: (id: string) => api.delete(`/api/v1/bank-transactions/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bankTransactions'] });
       qc.invalidateQueries({ queryKey: BANK_KEYS.accounts });
