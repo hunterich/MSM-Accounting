@@ -1,5 +1,27 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+
+type E = { id: string } & Record<string, unknown>;
+
+interface ReturnStore {
+    salesReturns:         E[];
+    purchaseReturns:      E[];
+    creditNotes:          E[];
+    debitNotes:           E[];
+    isLoading:            boolean;
+    error:                string | null;
+    addSalesReturn:       (ret: E) => Promise<void>;
+    updateSalesReturn:    (id: string, updates: Partial<E>) => Promise<void>;
+    addPurchaseReturn:    (ret: E) => Promise<void>;
+    updatePurchaseReturn: (id: string, updates: Partial<E>) => Promise<void>;
+    addCreditNote:        (note: E) => Promise<void>;
+    updateCreditNote:     (id: string, updates: Partial<E>) => Promise<void>;
+    addDebitNote:         (note: E) => Promise<void>;
+    updateDebitNote:      (id: string, updates: Partial<E>) => Promise<void>;
+    getSalesReturnById:   (id: string) => E | undefined;
+    getPurchaseReturnById:(id: string) => E | undefined;
+}
+
 import {
     salesReturns as salesReturnsSeed,
     purchaseReturns as purchaseReturnsSeed,
@@ -7,7 +29,7 @@ import {
     debitNotes as debitNotesSeed,
 } from '../data/mockData';
 
-export const useReturnStore = create(
+export const useReturnStore = create<ReturnStore>()(
     persist(
         (set, get) => ({
             salesReturns: salesReturnsSeed,

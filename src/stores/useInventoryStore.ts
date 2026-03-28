@@ -2,7 +2,45 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { products as productsSeed, warehouses as warehousesSeed } from '../data/mockData';
 
-export const useInventoryStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface AdjustmentItem {
+    itemId:    string;
+    itemName:  string;
+    accountId: string;
+    oldQty:    number;
+    newQty:    number;
+    qtyDiff:   number;
+    unitCost:  number;
+}
+
+interface Adjustment {
+    id:     string;
+    date:   string;
+    type:   string;
+    reason: string;
+    status: string;
+    notes:  string;
+    items:  AdjustmentItem[];
+}
+
+interface InventoryStore {
+    products:         E[];
+    warehouses:       E[];
+    adjustments:      Adjustment[];
+    isLoading:        boolean;
+    error:            string | null;
+    addAdjustment:    (adj: Adjustment) => void;
+    updateAdjustment: (id: string, updates: Partial<Adjustment>) => void;
+    addProduct:       (product: E) => Promise<void>;
+    updateProduct:    (id: string, updates: Partial<E>) => Promise<void>;
+    deleteProduct:    (id: string) => Promise<void>;
+    addWarehouse:     (warehouse: E) => Promise<void>;
+    updateWarehouse:  (id: string, updates: Partial<E>) => Promise<void>;
+    getProductById:   (id: string) => E | undefined;
+}
+
+export const useInventoryStore = create<InventoryStore>()(
     persist(
         (set, get) => ({
             products: productsSeed,

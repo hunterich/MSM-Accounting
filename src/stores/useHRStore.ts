@@ -1,6 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+type E = { id: string } & Record<string, unknown>;
+
+interface HRStore {
+    employees:      E[];
+    departments:    string[];
+    positions:      string[];
+    isLoading:      boolean;
+    error:          string | null;
+    addEmployee:    (employee: E) => Promise<void>;
+    updateEmployee: (id: string, updates: Partial<E>) => Promise<void>;
+    deleteEmployee: (id: string) => Promise<void>;
+    addDepartment:  (department: string) => Promise<void>;
+    addPosition:    (position: string) => Promise<void>;
+    getEmployeeById:(id: string) => E | undefined;
+}
+
 const departmentsSeed = ['Human Resources', 'Finance', 'Operations', 'Sales', 'IT'];
 const positionsSeed = ['HR Staff', 'Accounting Staff', 'Supervisor', 'Manager'];
 
@@ -35,7 +51,7 @@ const employeesSeed = [
     }
 ];
 
-export const useHRStore = create(
+export const useHRStore = create<HRStore>()(
     persist(
         (set, get) => ({
             employees: employeesSeed,

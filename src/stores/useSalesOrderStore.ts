@@ -2,6 +2,43 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useInvoiceStore } from './useInvoiceStore';
 
+interface SOItem {
+    id:          string;
+    description: string;
+    qty:         number;
+    unit:        string;
+    price:       number;
+    discount:    number;
+}
+
+interface SO {
+    id:                 string;
+    customerId:         string;
+    customerName:       string;
+    date:               string;
+    expectedDate:       string;
+    status:             string;
+    currency:           string;
+    amount:             number;
+    notes:              string;
+    shippingAddress?:   string;
+    deliveryNotes?:     string;
+    convertedInvoiceId: string | null;
+}
+
+interface SalesOrderStore {
+    salesOrders:      SO[];
+    soItemTemplates:  Record<string, SOItem[]>;
+    isLoading:        boolean;
+    error:            string | null;
+    addSalesOrder:    (order: Partial<SO>) => Promise<SO>;
+    updateSalesOrder: (id: string, updates: Partial<SO>) => Promise<void>;
+    deleteSalesOrder: (id: string) => Promise<void>;
+    setSoItemTemplates:(soId: string, items: SOItem[]) => Promise<void>;
+    getSalesOrderById: (id: string) => SO | undefined;
+    convertToInvoice:  (soId: string) => Promise<string | null>;
+}
+
 const seed = [
     { id: 'SO-1001', customerId: 'CUST-001', customerName: 'Acme Corp',  date: '2026-01-10', expectedDate: '2026-01-25', status: 'Confirmed', currency: 'IDR', amount: 5000000, notes: '', convertedInvoiceId: null },
     { id: 'SO-1002', customerId: 'CUST-002', customerName: 'Globex Inc', date: '2026-01-15', expectedDate: '2026-02-01', status: 'Draft',     currency: 'IDR', amount: 2200000, notes: '', convertedInvoiceId: null },
@@ -48,7 +85,7 @@ const nextId = (prefix, records) => {
     return `${prefix}-${String(maxNum + 1).padStart(4, '0')}`;
 };
 
-export const useSalesOrderStore = create(
+export const useSalesOrderStore = create<SalesOrderStore>()(
     persist(
         (set, get) => ({
             salesOrders: seed,

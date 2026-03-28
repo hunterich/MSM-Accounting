@@ -2,7 +2,24 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { customers as seed, initialCustomerCategories as categoriesSeed } from '../data/mockData';
 
-export const useCustomerStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface CustomerStore {
+    customers:          E[];
+    customerCategories: E[];
+    isLoading:          boolean;
+    error:              string | null;
+    addCustomer:        (customer: E) => Promise<void>;
+    updateCustomer:     (id: string, updates: Partial<E>) => Promise<void>;
+    deleteCustomer:     (id: string) => Promise<void>;
+    addCategory:        (category: E) => Promise<void>;
+    updateCategory:     (id: string, updates: Partial<E>) => Promise<void>;
+    deleteCategory:     (id: string) => Promise<void>;
+    getCustomerById:    (id: string) => E | undefined;
+    getCategoryById:    (id: string) => E | undefined;
+}
+
+export const useCustomerStore = create<CustomerStore>()(
     persist(
         (set, get) => ({
             customers: seed,

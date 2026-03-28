@@ -2,7 +2,21 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { bills as seed, billItemTemplates as templatesSeed } from '../data/mockData';
 
-export const useBillStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface BillStore {
+    bills:               E[];
+    billItemTemplates:   Record<string, E[]>;
+    isLoading:           boolean;
+    error:               string | null;
+    addBill:             (bill: E) => Promise<void>;
+    updateBill:          (id: string, updates: Partial<E>) => Promise<void>;
+    deleteBill:          (id: string) => Promise<void>;
+    setBillItemTemplates:(billId: string, items: E[]) => Promise<void>;
+    getBillById:         (id: string) => E | undefined;
+}
+
+export const useBillStore = create<BillStore>()(
     persist(
         (set, get) => ({
             bills: seed,

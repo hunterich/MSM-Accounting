@@ -6,7 +6,25 @@ import {
     journalEntries as journalSeed,
 } from '../data/mockData';
 
-export const useGLStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface GLStore {
+    chartOfAccounts:    E[];
+    accountBalancesById:Record<string, number>;
+    journalEntries:     E[];
+    isLoading:          boolean;
+    error:              string | null;
+    addAccount:         (account: E) => Promise<void>;
+    updateAccount:      (id: string, updates: Partial<E>) => Promise<void>;
+    deleteAccount:      (id: string) => Promise<void>;
+    setAccountBalance:  (accountId: string, balance: number) => Promise<void>;
+    addJournalEntry:    (entry: E) => Promise<void>;
+    updateJournalEntry: (entryNo: string, updates: Partial<E>) => Promise<void>;
+    deleteJournalEntry: (entryNo: string) => Promise<void>;
+    getAccountById:     (id: string) => E | undefined;
+}
+
+export const useGLStore = create<GLStore>()(
     persist(
         (set, get) => ({
             chartOfAccounts: coaSeed,

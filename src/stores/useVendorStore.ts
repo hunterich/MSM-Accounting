@@ -2,7 +2,19 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { vendors as seed } from '../data/mockData';
 
-export const useVendorStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface VendorStore {
+    vendors:       E[];
+    isLoading:     boolean;
+    error:         string | null;
+    addVendor:     (vendor: E) => Promise<void>;
+    updateVendor:  (id: string, updates: Partial<E>) => Promise<void>;
+    deleteVendor:  (id: string) => Promise<void>;
+    getVendorById: (id: string) => E | undefined;
+}
+
+export const useVendorStore = create<VendorStore>()(
     persist(
         (set, get) => ({
             vendors: seed,

@@ -1,6 +1,54 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type PermAction = 'view' | 'create' | 'edit' | 'delete';
+
+export interface ModulePermission {
+    view:   boolean;
+    create: boolean;
+    edit:   boolean;
+    delete: boolean;
+}
+
+export interface AccessRole {
+    id:          string;
+    name:        string;
+    isActive:    boolean;
+    allowedDays: string[];
+    startTime:   string;
+    endTime:     string;
+    permissions: Record<string, ModulePermission>;
+}
+
+export interface AccessUser {
+    id:     string;
+    name:   string;
+    email:  string;
+    roleId: string;
+    status: string;
+}
+
+interface AccessStore {
+    roles:           AccessRole[];
+    users:           AccessUser[];
+    currentUserId:   string;
+    getCurrentUser:  () => AccessUser;
+    getCurrentRole:  () => AccessRole;
+    hasPermission:   (moduleKey: string, action: PermAction) => boolean;
+    canSeeSidebarItem:(navLabel: string) => boolean;
+    canSeeSubItem:   (path: string) => boolean;
+    switchUser:      (userId: string) => void;
+    addRole:         (role: AccessRole) => void;
+    updateRole:      (updatedRole: AccessRole) => void;
+    deleteRole:      (roleId: string) => void;
+    addUser:         (user: Omit<AccessUser, 'id' | 'status'>) => void;
+    updateUser:      (updatedUser: AccessUser) => void;
+    deleteUser:      (userId: string) => void;
+    resetToDefaults: () => void;
+}
+
 /**
  * Module permission keys — these map to sidebar nav items and route groups.
  * Each key controls visibility of the corresponding sidebar icon + sub-items.
@@ -218,7 +266,7 @@ const defaultUsers = [
 /* ================================================================
    Zustand Store
    ================================================================ */
-export const useAccessStore = create(
+export const useAccessStore = create<AccessStore>()(
     persist(
         (set, get) => ({
             /* ---- data ---- */
