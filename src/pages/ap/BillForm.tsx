@@ -1,30 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-
-interface BillFormData {
-    vendor:      string;
-    poNumber:    string;
-    issueDate:   string;
-    dueDate:     string;
-    billNumber:  string;
-    apAccountId: string;
-    notes:       string;
-}
-
-interface BillLineItem {
-    id:          string | number;
-    description: string;
-    accountId:   string;
-    qty:         number;
-    unit:        string;
-    price:       number;
-}
-
-interface BillTaxSettings {
-    enabled:   boolean;
-    inclusive: boolean;
-    rate:      number;
-}
+import { billSchema, zodToFormErrors } from '../../utils/formSchemas';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';
@@ -231,11 +207,8 @@ const BillForm = () => {
             return;
         }
 
-        const nextErrors = {};
-        if (!formData.vendor.trim()) nextErrors.vendor = 'Vendor is required.';
-        if (!formData.apAccountId) nextErrors.apAccountId = 'A/P account is required.';
-        if (items.length === 0) nextErrors.items = 'Add at least one bill line.';
-        if (items.some((line) => !line.accountId)) nextErrors.items = 'Each line must have an expense/asset account.';
+        const schemaResult = billSchema.safeParse({ ...formData, items });
+        if (!schemaResult.success) { setErrors(zodToFormErrors(schemaResult.error)); return; }
 
         const invalidPostingAccounts = postingPreview
             .filter((line) => Number(line.amount || 0) > 0)
@@ -245,11 +218,7 @@ const BillForm = () => {
             })
             .map((line) => formatAccountOption(line.accountId));
         if (invalidPostingAccounts.length > 0) {
-            nextErrors.posting = `Posting blocked: inactive/legacy account detected (${invalidPostingAccounts.join(', ')}).`;
-        }
-
-        if (Object.keys(nextErrors).length > 0) {
-            setErrors(nextErrors);
+            setErrors({ posting: `Posting blocked: inactive/legacy account detected (${invalidPostingAccounts.join(', ')}).` });
             return;
         }
 

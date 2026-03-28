@@ -1,18 +1,6 @@
 import React, { useMemo, useState } from 'react';
-
-interface VendorFormData {
-    recordId:           string;
-    code:               string;
-    name:               string;
-    categoryId:         string;
-    email:              string;
-    phone:              string;
-    paymentTerms:       string;
-    npwp:               string;
-    defaultApAccountId: string;
-    status:             string;
-}
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { vendorSchema, zodToFormErrors } from '../../utils/formSchemas';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
@@ -83,14 +71,8 @@ const VendorForm = () => {
     };
 
     const handleSave = async () => {
-        const nextErrors = {};
-        if (!formData.name.trim()) nextErrors.name = 'Vendor name is required.';
-        if (!formData.category.trim()) nextErrors.category = 'Category is required.';
-        if (!formData.defaultApAccountId) nextErrors.defaultApAccountId = 'Default A/P account is required.';
-        if (Object.keys(nextErrors).length > 0) {
-            setErrors(nextErrors);
-            return;
-        }
+        const result = vendorSchema.safeParse(formData);
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         try {
             if (isCreateMode) {

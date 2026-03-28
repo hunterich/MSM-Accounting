@@ -8,6 +8,8 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+import { inventorySchema, zodToFormErrors } from '../../utils/formSchemas';
+
 interface SelectFieldProps {
     label?:    string;
     name:      string;
@@ -16,30 +18,6 @@ interface SelectFieldProps {
     error?:    string | null;
     disabled?: boolean;
     children:  React.ReactNode;
-}
-
-interface InventoryFormData {
-    sku:                      string;
-    skuManuallyEdited:        boolean;
-    name:                     string;
-    categoryId:               string;
-    type:                     string;
-    unit:                     string;
-    purchaseUnit:             string;
-    purchaseConversionFactor: string;
-    sellUnit:                 string;
-    sellConversionFactor:     string;
-    cost:                     string;
-    price:                    string;
-    openingStock:             string;
-    reorderPoint:             string;
-    inventoryAccountId:       string;
-    revenueAccountId:         string;
-    cogsAccountId:            string;
-    description:              string;
-    barcode:                  string;
-    weight:                   string;
-    status:                   string;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -209,39 +187,9 @@ const InventoryForm = () => {
         }
     };
 
-    const validate = () => {
-        const nextErrors = {};
-        if (!formData.name.trim())     nextErrors.name       = 'Item name is required.';
-        if (!formData.sku.trim())      nextErrors.sku        = 'SKU is required.';
-        if (!formData.categoryId)      nextErrors.categoryId = 'Category is required.';
-        if (formData.price === '' || isNaN(Number(formData.price)) || Number(formData.price) < 0) {
-            nextErrors.price = 'Selling price must be a valid non-negative number.';
-        }
-        if (formData.cost === '' || isNaN(Number(formData.cost)) || Number(formData.cost) < 0) {
-            nextErrors.cost  = 'Cost price must be a valid non-negative number.';
-        }
-        if (formData.openingStock === '' || isNaN(Number(formData.openingStock)) || Number(formData.openingStock) < 0) {
-            nextErrors.openingStock = 'Opening stock must be a valid non-negative number.';
-        }
-        if (formData.reorderPoint === '' || isNaN(Number(formData.reorderPoint)) || Number(formData.reorderPoint) < 0) {
-            nextErrors.reorderPoint = 'Reorder point must be a valid non-negative number.';
-        }
-        if (!formData.inventoryAccountId) nextErrors.inventoryAccountId = 'Select an inventory account.';
-        if (!formData.revenueAccountId)   nextErrors.revenueAccountId   = 'Select a revenue account.';
-        if (!formData.cogsAccountId)      nextErrors.cogsAccountId      = 'Select a COGS account.';
-        // UoM validation: if purchase/sell unit set, factor must be > 0
-        if (formData.purchaseUnit && (!formData.purchaseConversionFactor || Number(formData.purchaseConversionFactor) <= 0)) {
-            nextErrors.purchaseConversionFactor = 'Enter how many base units = 1 purchase unit.';
-        }
-        if (formData.sellUnit && (!formData.sellConversionFactor || Number(formData.sellConversionFactor) <= 0)) {
-            nextErrors.sellConversionFactor = 'Enter how many base units = 1 sell unit.';
-        }
-        return nextErrors;
-    };
-
     const handleSave = async () => {
-        const nextErrors = validate();
-        if (Object.keys(nextErrors).length > 0) { setErrors(nextErrors); return; }
+        const result = inventorySchema.safeParse(formData);
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         const payload = {
             sku:                formData.sku.trim(),

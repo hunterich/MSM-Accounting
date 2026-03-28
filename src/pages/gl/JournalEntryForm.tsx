@@ -1,29 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-
-interface SelectFieldProps {
-    label?:    string;
-    value:     string;
-    onChange:  React.ChangeEventHandler<HTMLSelectElement>;
-    disabled?: boolean;
-    children:  React.ReactNode;
-}
-
-interface JEHeader {
-    entryNo: string;
-    date:    string;
-    period:  string;
-    memo:    string;
-    source:  string;
-}
-
-interface JELine {
-    id:          number;
-    accountId:   string;
-    description: string;
-    debit:       string;
-    credit:      string;
-}
+import { journalEntryHeaderSchema, zodToFormErrors } from '../../utils/formSchemas';
 import { CheckCircle, Plus, Save, Trash2, AlertCircle } from 'lucide-react';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
@@ -165,12 +142,10 @@ const JournalEntryForm = () => {
     };
 
     const validate = (requireBalanced) => {
-        const hErr  = {};
-        const gErrs = [];
+        const headerResult = journalEntryHeaderSchema.safeParse(header);
+        const hErr = headerResult.success ? {} : zodToFormErrors(headerResult.error);
 
-        if (!header.date)        hErr.date   = 'Date is required.';
-        if (!header.period)      hErr.period  = 'Period is required.';
-        if (!header.memo.trim()) hErr.memo    = 'Memo / narration is required.';
+        const gErrs = [];
 
         const selectedPeriod = PERIODS.find((p) => p.value === header.period);
         if (selectedPeriod?.closed) {
