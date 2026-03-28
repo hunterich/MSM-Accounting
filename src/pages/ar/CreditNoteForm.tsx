@@ -3,6 +3,36 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
+
+interface CreditNoteLine {
+    itemId?:  string;
+    itemName: string;
+    qtyReturn: number;
+    unit:     string;
+    price:    number;
+}
+
+interface CreditNoteFormData {
+    creditNumber:        string;
+    creditDate:          string;
+    linkedReturnId:      string;
+    customerName:        string;
+    sourceInvoiceId:     string;
+    settlementType:      string;
+    settlementRef:       string;
+    refundBankId:        string;
+    refundMethod:        string;
+    arAccountId:         string;
+    returnAccountId:     string;
+    taxAccountId:        string;
+    settlementAccountId: string;
+    note:                string;
+    amount:              number;
+    lines:               CreditNoteLine[];
+    applyTax:            boolean;
+    taxIncluded:         boolean;
+    taxRate:             number;
+}
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';

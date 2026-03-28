@@ -3,6 +3,27 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+
+interface BillAdjustment {
+    discount: number;
+    penalty:  number;
+}
+
+interface APPaymentData {
+    paymentNumber:    string;
+    vendorId:         string;
+    date:             string;
+    method:           string;
+    payFrom:          string;
+    cashAccountId:    string;
+    apAccountId:      string;
+    discountAccountId: string;
+    penaltyAccountId: string;
+    reference:        string;
+    selectedBills:    string[];
+    adjustments:      Record<string, BillAdjustment>;
+    totalAmount:      number;
+}
 import StatusTag from '../../components/UI/StatusTag';
 import { Calendar, CreditCard, FileText, Hash } from 'lucide-react';
 import { useVendors, useBills, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';

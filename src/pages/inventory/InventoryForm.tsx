@@ -6,6 +6,42 @@ import Button from '../../components/UI/Button';
 import { useItems, useCreateItem, useUpdateItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface SelectFieldProps {
+    label?:    string;
+    name:      string;
+    value:     string;
+    onChange:  React.ChangeEventHandler<HTMLSelectElement>;
+    error?:    string | null;
+    disabled?: boolean;
+    children:  React.ReactNode;
+}
+
+interface InventoryFormData {
+    sku:                      string;
+    skuManuallyEdited:        boolean;
+    name:                     string;
+    categoryId:               string;
+    type:                     string;
+    unit:                     string;
+    purchaseUnit:             string;
+    purchaseConversionFactor: string;
+    sellUnit:                 string;
+    sellConversionFactor:     string;
+    cost:                     string;
+    price:                    string;
+    openingStock:             string;
+    reorderPoint:             string;
+    inventoryAccountId:       string;
+    revenueAccountId:         string;
+    cogsAccountId:            string;
+    description:              string;
+    barcode:                  string;
+    weight:                   string;
+    status:                   string;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 const ITEM_TYPES = ['Product', 'Service', 'Raw Material', 'Consumable', 'Fixed Asset'];

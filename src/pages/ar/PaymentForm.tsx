@@ -3,6 +3,27 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+
+interface InvoiceAdjustment {
+    discount: number;
+    penalty:  number;
+}
+
+interface ARPaymentData {
+    paymentNumber:     string;
+    customerId:        string;
+    date:              string;
+    method:            string;
+    depositTo:         string;
+    depositAccountId:  string;
+    arAccountId:       string;
+    discountAccountId: string;
+    penaltyAccountId:  string;
+    reference:         string;
+    selectedInvoices:  string[];
+    adjustments:       Record<string, InvoiceAdjustment>;
+    totalAmount:       number;
+}
 import StatusTag from '../../components/UI/StatusTag';
 import { Check, FileText, User, Calendar, CreditCard, Hash } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';

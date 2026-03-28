@@ -1,4 +1,17 @@
 import React, { useMemo, useState } from 'react';
+
+interface VendorFormData {
+    recordId:           string;
+    code:               string;
+    name:               string;
+    categoryId:         string;
+    email:              string;
+    phone:              string;
+    paymentTerms:       string;
+    npwp:               string;
+    defaultApAccountId: string;
+    status:             string;
+}
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';

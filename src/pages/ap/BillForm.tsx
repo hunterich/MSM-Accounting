@@ -1,5 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+
+interface BillFormData {
+    vendor:      string;
+    poNumber:    string;
+    issueDate:   string;
+    dueDate:     string;
+    billNumber:  string;
+    apAccountId: string;
+    notes:       string;
+}
+
+interface BillLineItem {
+    id:          string | number;
+    description: string;
+    accountId:   string;
+    qty:         number;
+    unit:        string;
+    price:       number;
+}
+
+interface BillTaxSettings {
+    enabled:   boolean;
+    inclusive: boolean;
+    rate:      number;
+}
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';

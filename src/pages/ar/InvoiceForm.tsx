@@ -1,5 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+
+interface InvoiceLineItem {
+    id:          string | number;
+    itemId?:     string;
+    description: string;
+    qty:         number;
+    unit:        string;
+    price:       number;
+    discount?:   number;
+}
+
+interface InvoiceFormData {
+    customerId:      string;
+    email:           string;
+    billingAddress:  string;
+    shippingAddress: string;
+    poNumber:        string;
+    issueDate:       string;
+    dueDate:         string;
+    shippingDate:    string;
+    number:          string;
+    discount:        number;
+    notes:           string;
+    items:           InvoiceLineItem[];
+    attachments:     unknown[];
+    currency:        string;
+    invoiceType:     string;
+}
+
+interface InvoiceTaxSettings {
+    enabled:   boolean;
+    inclusive: boolean;
+    rate:      number;
+}
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
