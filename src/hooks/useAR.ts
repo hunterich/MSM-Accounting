@@ -1,38 +1,46 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import type {
+  ListResponse,
+  Customer, RawCustomer,
+  Invoice,  RawInvoice,
+  ARPayment, RawARPayment,
+  SalesOrder, RawSalesOrder,
+  CustomerStatus, InvoiceStatus, PaymentStatus,
+} from '../types';
 
 export const AR_KEYS = {
-    customers: ['customers'],
-    customer:  (id) => ['customers', id],
-    invoices:  ['arInvoices'],
-    invoice:   (id) => ['arInvoices', id],
-    payments:  ['arPayments'],
-    payment:   (id) => ['arPayments', id],
+    customers: ['customers'] as const,
+    customer:  (id: string) => ['customers', id] as const,
+    invoices:  ['arInvoices'] as const,
+    invoice:   (id: string) => ['arInvoices', id] as const,
+    payments:  ['arPayments'] as const,
+    payment:   (id: string) => ['arPayments', id] as const,
 };
 
 // ── Status maps ───────────────────────────────────────────────────────────────
 
-const CUSTOMER_STATUS_DOWN = { ACTIVE: 'Active', INACTIVE: 'Inactive' };
-const CUSTOMER_STATUS_UP   = { Active: 'ACTIVE', Inactive: 'INACTIVE' };
+const CUSTOMER_STATUS_DOWN: Record<string, CustomerStatus> = { ACTIVE: 'Active', INACTIVE: 'Inactive' };
+const CUSTOMER_STATUS_UP:   Record<string, string>         = { Active: 'ACTIVE', Inactive: 'INACTIVE' };
 
-const INVOICE_STATUS_DOWN  = { DRAFT: 'Draft', SENT: 'Sent', PAID: 'Paid', OVERDUE: 'Overdue' };
-const INVOICE_STATUS_UP    = { Draft: 'DRAFT', Sent: 'SENT', Paid: 'PAID', Overdue: 'OVERDUE' };
+const INVOICE_STATUS_DOWN: Record<string, InvoiceStatus> = { DRAFT: 'Draft', SENT: 'Sent', PAID: 'Paid', OVERDUE: 'Overdue' };
+const INVOICE_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Sent: 'SENT', Paid: 'PAID', Overdue: 'OVERDUE' };
 
-const PAYMENT_STATUS_DOWN  = { DRAFT: 'Draft', PROCESSING: 'Processing', COMPLETED: 'Completed', VOID: 'Void' };
-const PAYMENT_STATUS_UP    = { Draft: 'DRAFT', Processing: 'PROCESSING', Completed: 'COMPLETED', Void: 'VOID' };
+const PAYMENT_STATUS_DOWN: Record<string, PaymentStatus> = { DRAFT: 'Draft', PROCESSING: 'Processing', COMPLETED: 'Completed', VOID: 'Void' };
+const PAYMENT_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Processing: 'PROCESSING', Completed: 'COMPLETED', Void: 'VOID' };
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
 
-function normalizeCustomer(raw) {
+function normalizeCustomer(raw: RawCustomer): Customer {
+    const category = raw.category;
     return {
         id:              raw.id,
         code:            raw.code            || '',
         name:            raw.name            || '',
         email:           raw.email           || '',
         phone:           raw.phone           || '',
-        status:          CUSTOMER_STATUS_DOWN[raw.status] ?? raw.status,
-        // Fields not yet in API — default to safe values
-        category:        raw.category?.name  || raw.category || '',
+        status:          CUSTOMER_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as CustomerStatus),
+        category:        (typeof category === 'object' && category !== null ? category.name : category) || '',
         balance:         Number(raw.balance  ?? raw.openingBalance ?? 0),
         defaultDiscount: Number(raw.defaultDiscount ?? 0),
         paymentTerms:    Number(raw.paymentTermsDays ?? raw.paymentTerms ?? 0),
@@ -43,7 +51,7 @@ function normalizeCustomer(raw) {
     };
 }
 
-function normalizeInvoice(raw) {
+function normalizeInvoice(raw: RawInvoice): Invoice {
     return {
         id:           raw.id,
         number:       raw.number    || '',
@@ -51,10 +59,9 @@ function normalizeInvoice(raw) {
         customerName: raw.customer?.name || '',
         customerCode: raw.customer?.code || '',
         issueDate:    raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
-        // keep .date as alias so InvoiceWorkbench date-range filter still works
         date:         raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
         dueDate:      raw.dueDate   ? String(raw.dueDate).slice(0, 10)   : '',
-        status:       INVOICE_STATUS_DOWN[raw.status] ?? raw.status,
+        status:       INVOICE_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as InvoiceStatus),
         amount:       Number(raw.totalAmount    ?? 0),
         totalAmount:  Number(raw.totalAmount    ?? 0),
         subtotal:     Number(raw.subtotal       ?? 0),
@@ -75,11 +82,10 @@ function normalizeInvoice(raw) {
     };
 }
 
-function normalizePayment(raw) {
+function normalizePayment(raw: RawARPayment): ARPayment {
     return {
-        // Use ARP-number as display ID to match existing UI (payment.id shown in tabs/columns)
         id:           raw.number || raw.id,
-        _id:          raw.id,                          // DB primary key for mutations
+        _id:          raw.id,
         number:       raw.number || '',
         customerId:   raw.customerId || '',
         customerName: raw.customer?.name || '',
@@ -87,7 +93,7 @@ function normalizePayment(raw) {
         method:       raw.method     || '',
         amount:       Number(raw.totalAmount ?? 0),
         totalAmount:  Number(raw.totalAmount ?? 0),
-        status:       PAYMENT_STATUS_DOWN[raw.status] ?? raw.status,
+        status:       PAYMENT_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as PaymentStatus),
         invoiceId:    raw.invoiceId  || '',
         bankId:       raw.bankId     || '',
     };
@@ -95,10 +101,10 @@ function normalizePayment(raw) {
 
 // ── Customers ─────────────────────────────────────────────────────────────────
 
-export function useCustomers(filters = {}) {
+export function useCustomers(filters: Record<string, unknown> = {}) {
     return useQuery({
         queryKey: [...AR_KEYS.customers, filters],
-        queryFn:  () => api.get('/api/v1/customers', filters),
+        queryFn:  () => api.get<ListResponse<RawCustomer>>('/api/v1/customers', filters),
         select:   (res) => ({
             ...res,
             data: (res.data || []).map(normalizeCustomer),
@@ -110,9 +116,9 @@ export function useCustomers(filters = {}) {
 export function useCreateCustomer() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (body) => api.post('/api/v1/customers', {
+        mutationFn: (body: Partial<Customer>) => api.post('/api/v1/customers', {
             ...body,
-            status: CUSTOMER_STATUS_UP[body.status] ?? body.status,
+            status: CUSTOMER_STATUS_UP[body.status ?? ''] ?? body.status,
         }),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.customers }),
     });
@@ -121,7 +127,7 @@ export function useCreateCustomer() {
 export function useUpdateCustomer() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }) => api.put(`/api/v1/customers/${id}`, {
+        mutationFn: ({ id, ...updates }: Partial<Customer> & { id: string }) => api.put(`/api/v1/customers/${id}`, {
             ...updates,
             ...(updates.status && { status: CUSTOMER_STATUS_UP[updates.status] ?? updates.status }),
         }),
@@ -132,17 +138,17 @@ export function useUpdateCustomer() {
 export function useDeleteCustomer() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (id) => api.delete(`/api/v1/customers/${id}`),
+        mutationFn: (id: string) => api.delete(`/api/v1/customers/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.customers }),
     });
 }
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
-export function useInvoices(filters = {}) {
+export function useInvoices(filters: Record<string, unknown> = {}) {
     return useQuery({
         queryKey: [...AR_KEYS.invoices, filters],
-        queryFn:  () => api.get('/api/v1/invoices', filters),
+        queryFn:  () => api.get<ListResponse<RawInvoice>>('/api/v1/invoices', filters),
         select:   (res) => ({
             ...res,
             data: (res.data || []).map(normalizeInvoice),
@@ -151,10 +157,10 @@ export function useInvoices(filters = {}) {
     });
 }
 
-export function useInvoice(id) {
+export function useInvoice(id: string | undefined) {
     return useQuery({
-        queryKey: AR_KEYS.invoice(id),
-        queryFn:  () => api.get(`/api/v1/invoices/${id}`),
+        queryKey: AR_KEYS.invoice(id ?? ''),
+        queryFn:  () => api.get<RawInvoice>(`/api/v1/invoices/${id}`),
         select:   normalizeInvoice,
         enabled:  Boolean(id),
         staleTime: 30_000,
@@ -164,7 +170,7 @@ export function useInvoice(id) {
 export function useCreateInvoice() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (body) => api.post('/api/v1/invoices', body),
+        mutationFn: (body: unknown) => api.post('/api/v1/invoices', body),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.invoices }),
     });
 }
@@ -172,7 +178,7 @@ export function useCreateInvoice() {
 export function useUpdateInvoice() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }) => api.put(`/api/v1/invoices/${id}`, {
+        mutationFn: ({ id, ...updates }: Partial<Invoice> & { id: string }) => api.put(`/api/v1/invoices/${id}`, {
             ...updates,
             ...(updates.status && { status: INVOICE_STATUS_UP[updates.status] ?? updates.status }),
         }),
@@ -186,17 +192,17 @@ export function useUpdateInvoice() {
 export function useDeleteInvoice() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (id) => api.delete(`/api/v1/invoices/${id}`),
+        mutationFn: (id: string) => api.delete(`/api/v1/invoices/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.invoices }),
     });
 }
 
 // ── AR Payments ───────────────────────────────────────────────────────────────
 
-export function useARPayments(filters = {}) {
+export function useARPayments(filters: Record<string, unknown> = {}) {
     return useQuery({
         queryKey: [...AR_KEYS.payments, filters],
-        queryFn:  () => api.get('/api/v1/ar-payments', filters),
+        queryFn:  () => api.get<ListResponse<RawARPayment>>('/api/v1/ar-payments', filters),
         select:   (res) => ({
             ...res,
             data: (res.data || []).map(normalizePayment),
@@ -205,10 +211,10 @@ export function useARPayments(filters = {}) {
     });
 }
 
-export function useARPayment(id) {
+export function useARPayment(id: string | undefined) {
     return useQuery({
-        queryKey: AR_KEYS.payment(id),
-        queryFn:  () => api.get(`/api/v1/ar-payments/${id}`),
+        queryKey: AR_KEYS.payment(id ?? ''),
+        queryFn:  () => api.get<RawARPayment>(`/api/v1/ar-payments/${id}`),
         select:   normalizePayment,
         enabled:  Boolean(id),
         staleTime: 30_000,
@@ -218,9 +224,9 @@ export function useARPayment(id) {
 export function useCreateARPayment() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (body) => api.post('/api/v1/ar-payments', {
+        mutationFn: (body: Partial<ARPayment>) => api.post('/api/v1/ar-payments', {
             ...body,
-            status: PAYMENT_STATUS_UP[body.status] ?? body.status ?? 'COMPLETED',
+            status: PAYMENT_STATUS_UP[body.status ?? ''] ?? body.status ?? 'COMPLETED',
         }),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.payments }),
     });
@@ -229,7 +235,7 @@ export function useCreateARPayment() {
 export function useUpdateARPayment() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }) => api.put(`/api/v1/ar-payments/${id}`, {
+        mutationFn: ({ id, ...updates }: Partial<ARPayment> & { id: string }) => api.put(`/api/v1/ar-payments/${id}`, {
             ...updates,
             ...(updates.status && { status: PAYMENT_STATUS_UP[updates.status] ?? updates.status }),
         }),
@@ -243,29 +249,30 @@ export function useUpdateARPayment() {
 export function useDeleteARPayment() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (id) => api.delete(`/api/v1/ar-payments/${id}`),
+        mutationFn: (id: string) => api.delete(`/api/v1/ar-payments/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.payments }),
     });
 }
 
-// ─── Sales Orders ────────────────────────────────────────────────────
-const SO_KEYS = { all: ['salesOrders'] };
+// ── Sales Orders ──────────────────────────────────────────────────────────────
 
-const normalizeSO = (raw) => ({
+const SO_KEYS = { all: ['salesOrders'] as const };
+
+const normalizeSO = (raw: RawSalesOrder): SalesOrder => ({
     id:           raw.id,
     number:       raw.number || raw.id,
-    customerName: raw.customerName,
+    customerName: raw.customerName ?? undefined,
     customerId:   raw.customerId || '',
     issueDate:    raw.issueDate  ? raw.issueDate.slice(0, 10)  : '',
     expiryDate:   raw.expiryDate ? raw.expiryDate.slice(0, 10) : '',
-    status:       raw.status?.toLowerCase() ?? 'draft',
+    status:       (raw.status?.toLowerCase() ?? 'draft') as SalesOrder['status'],
     notes:        raw.notes    || '',
     invoiceId:    raw.invoiceId || null,
-    items: (raw.items || []).map(i => ({
+    items: (raw.items || []).map((i) => ({
         id:          i.id,
         productId:   i.productId   || '',
         code:        i.code        || '',
-        description: i.description,
+        description: i.description ?? undefined,
         quantity:    Number(i.quantity),
         unit:        i.unit        || 'PCS',
         price:       Number(i.price),
@@ -273,16 +280,17 @@ const normalizeSO = (raw) => ({
     })),
 });
 
-export const useSalesOrders = (params = {}) =>
+export const useSalesOrders = (params: Record<string, unknown> = {}) =>
     useQuery({
         queryKey: [...SO_KEYS.all, params],
-        queryFn:  () => api.get('/api/v1/sales-orders', params).then(r => ({ ...r, data: r.data.map(normalizeSO) })),
+        queryFn:  () => api.get<ListResponse<RawSalesOrder>>('/api/v1/sales-orders', params)
+            .then((r) => ({ ...r, data: r.data.map(normalizeSO) })),
     });
 
 export const useCreateSalesOrder = () => {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (data) => api.post('/api/v1/sales-orders', data),
+        mutationFn: (data: unknown) => api.post('/api/v1/sales-orders', data),
         onSuccess:  () => qc.invalidateQueries({ queryKey: SO_KEYS.all }),
     });
 };
@@ -290,7 +298,8 @@ export const useCreateSalesOrder = () => {
 export const useUpdateSalesOrder = () => {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...data }) => api.put(`/api/v1/sales-orders/${id}`, data),
+        mutationFn: ({ id, ...data }: { id: string } & Record<string, unknown>) =>
+            api.put(`/api/v1/sales-orders/${id}`, data),
         onSuccess:  () => qc.invalidateQueries({ queryKey: SO_KEYS.all }),
     });
 };
@@ -298,7 +307,7 @@ export const useUpdateSalesOrder = () => {
 export const useDeleteSalesOrder = () => {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (id) => api.delete(`/api/v1/sales-orders/${id}`),
+        mutationFn: (id: string) => api.delete(`/api/v1/sales-orders/${id}`),
         onSuccess:  () => qc.invalidateQueries({ queryKey: SO_KEYS.all }),
     });
 };
@@ -306,7 +315,7 @@ export const useDeleteSalesOrder = () => {
 export const useConvertSOToInvoice = () => {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (soId) => api.post(`/api/v1/sales-orders/${soId}/convert`),
+        mutationFn: (soId: string) => api.post(`/api/v1/sales-orders/${soId}/convert`),
         onSuccess:  () => {
             qc.invalidateQueries({ queryKey: SO_KEYS.all });
             qc.invalidateQueries({ queryKey: AR_KEYS.invoices });

@@ -1,5 +1,35 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+
+interface SalaryLineItem {
+    id:     string;
+    name:   string;
+    amount: number;
+}
+
+interface EmployeeFormData {
+    id:                    string;
+    name:                  string;
+    ktp:                   string;
+    dob:                   string;
+    phone:                 string;
+    email:                 string;
+    address:               string;
+    joinDate:              string;
+    department:            string;
+    position:              string;
+    status:                string;
+    type:                  string;
+    bankName:              string;
+    accountNumber:         string;
+    accountHolder:         string;
+    npwp:                  string;
+    bpjsKesehatan:         string;
+    bpjsKetenagakerjaan:   string;
+    basicSalary:           number;
+    allowances:            SalaryLineItem[];
+    deductions:            SalaryLineItem[];
+}
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';

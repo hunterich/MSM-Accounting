@@ -1,5 +1,25 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+
+interface CustomerFormData {
+    id:                  string;
+    name:                string;
+    category:            string;
+    email:               string;
+    phone:               string;
+    website:             string;
+    paymentTerms:        string;
+    defaultDiscount:     number;
+    creditLimit:         number;
+    useCategoryDefaults: boolean;
+    address1:            string;
+    city:                string;
+    province:            string;
+    contactPerson:       string;
+    taxable:             boolean;
+    initialBalance:      number;
+    status:              string;
+}
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';

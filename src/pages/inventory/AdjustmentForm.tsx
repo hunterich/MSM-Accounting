@@ -1,5 +1,24 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+
+interface AdjustmentFormData {
+    id:     string;
+    date:   string;
+    type:   string;
+    reason: string;
+    notes:  string;
+    status: string;
+}
+
+interface AdjustmentLine {
+    id:        string;
+    itemId:    string;
+    accountId: string;
+    oldQty:    number;
+    newQty:    number;
+    qtyDiff:   number;
+    unitCost:  number;
+}
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import FormPage from '../../components/Layout/FormPage';

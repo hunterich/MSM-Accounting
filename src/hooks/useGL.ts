@@ -21,21 +21,26 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import type {
+  ListResponse,
+  Account, RawAccount,
+  JournalEntry, RawJournalEntry,
+  JEStatus, JEFormHeader, JEFormLine,
+} from '../types';
 
 // ─── Query Keys ──────────────────────────────────────────────────────────────
 
 export const GL_KEYS = {
-  accounts:       ['glAccounts'],
-  account:        (id) => ['glAccounts', id],
-  journalEntries: (filters) => ['journalEntries', filters ?? {}],
-  journalEntry:   (id) => ['journalEntries', id],
+  accounts:       ['glAccounts'] as const,
+  account:        (id: string) => ['glAccounts', id] as const,
+  journalEntries: (filters?: Record<string, unknown>) => ['journalEntries', filters ?? {}] as const,
+  journalEntry:   (id: string) => ['journalEntries', id] as const,
 };
 
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
-function normalizeAccount(raw) {
+function normalizeAccount(raw: RawAccount): Account {
   return {
-    // Core fields
     id:             raw.id,
     code:           raw.code  || '',
     name:           raw.name  || '',
@@ -46,27 +51,24 @@ function normalizeAccount(raw) {
     reportGroup:    raw.reportGroup    || '',
     reportSubGroup: raw.reportSubGroup || '',
     normalSide:     raw.normalSide  || '',
-    // Derived
     hasChildren: (raw._count?.children ?? 0) > 0,
-    // hasPostings: not returned by API yet; set false so API delete will guard it
     hasPostings: false,
-    // Tree fields populated by buildAccountTree / flattenTree utilities
     level: raw.level ?? 0,
     depth: raw.depth ?? 0,
   };
 }
 
-const STATUS_DOWN = { DRAFT: 'Draft', POSTED: 'Posted' };
-const STATUS_UP   = { Draft: 'DRAFT', Posted: 'POSTED' };
+const STATUS_DOWN: Record<string, JEStatus> = { DRAFT: 'Draft', POSTED: 'Posted' };
+const STATUS_UP:   Record<string, string>   = { Draft: 'DRAFT', Posted: 'POSTED' };
 
-function normalizeJE(raw) {
+function normalizeJE(raw: RawJournalEntry): JournalEntry {
   return {
     id:          raw.id,
     entryNo:     raw.entryNo    || '',
     date:        raw.date ? String(raw.date).slice(0, 10) : '',
     memo:        raw.memo       || '',
     source:      raw.source     || 'Manual',
-    status:      STATUS_DOWN[raw.status] ?? raw.status ?? 'Draft',
+    status:      STATUS_DOWN[raw.status ?? ''] ?? (raw.status as JEStatus) ?? 'Draft',
     totalDebit:  Number(raw.totalDebit  ?? 0),
     totalCredit: Number(raw.totalCredit ?? 0),
     periodId:    raw.periodId   || null,
@@ -74,7 +76,7 @@ function normalizeJE(raw) {
     lines: (raw.lines ?? []).map((l) => ({
       id:          l.id,
       lineNo:      l.lineNo,
-      accountId:   l.accountId,
+      accountId:   l.accountId ?? '',
       description: l.description || '',
       debit:       Number(l.debit  ?? 0),
       credit:      Number(l.credit ?? 0),
@@ -85,15 +87,11 @@ function normalizeJE(raw) {
 
 // ─── Chart of Accounts Hooks ──────────────────────────────────────────────────
 
-/**
- * Fetch all accounts for the current org.
- * @param {Object} [filters] – { type, search }
- */
-export function useChartOfAccounts(filters) {
+export function useChartOfAccounts(filters?: Record<string, unknown>) {
   return useQuery({
     queryKey: filters ? [...GL_KEYS.accounts, filters] : GL_KEYS.accounts,
     queryFn:  () =>
-      api.get('/api/v1/accounts', filters).then((data) =>
+      api.get<RawAccount[]>('/api/v1/accounts', filters).then((data) =>
         Array.isArray(data) ? data.map(normalizeAccount) : []
       ),
   });
@@ -102,7 +100,7 @@ export function useChartOfAccounts(filters) {
 export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body) => api.post('/api/v1/accounts', body),
+    mutationFn: (body: Partial<Account>) => api.post('/api/v1/accounts', body),
     onSuccess:  () => qc.invalidateQueries({ queryKey: GL_KEYS.accounts }),
   });
 }
@@ -110,7 +108,8 @@ export function useCreateAccount() {
 export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }) => api.put(`/api/v1/accounts/${id}`, body),
+    mutationFn: ({ id, ...body }: Partial<Account> & { id: string }) =>
+      api.put(`/api/v1/accounts/${id}`, body),
     onSuccess:  () => qc.invalidateQueries({ queryKey: GL_KEYS.accounts }),
   });
 }
@@ -118,22 +117,18 @@ export function useUpdateAccount() {
 export function useDeleteAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => api.delete(`/api/v1/accounts/${id}`),
+    mutationFn: (id: string) => api.delete(`/api/v1/accounts/${id}`),
     onSuccess:  () => qc.invalidateQueries({ queryKey: GL_KEYS.accounts }),
   });
 }
 
 // ─── Journal Entry Hooks ──────────────────────────────────────────────────────
 
-/**
- * Paginated journal entry list.
- * @param {Object} [filters] – { status, page, limit }
- */
-export function useJournalEntries(filters = {}) {
+export function useJournalEntries(filters: Record<string, unknown> = {}) {
   return useQuery({
     queryKey: GL_KEYS.journalEntries(filters),
     queryFn:  () =>
-      api.get('/api/v1/journal-entries', filters).then((res) => ({
+      api.get<ListResponse<RawJournalEntry>>('/api/v1/journal-entries', filters).then((res) => ({
         data:  (res.data ?? []).map(normalizeJE),
         total: res.total ?? 0,
         page:  res.page  ?? 1,
@@ -142,23 +137,16 @@ export function useJournalEntries(filters = {}) {
   });
 }
 
-/** Fetch a single journal entry by ID. */
-export function useJournalEntry(id) {
+export function useJournalEntry(id: string | undefined) {
   return useQuery({
-    queryKey: GL_KEYS.journalEntry(id),
+    queryKey: GL_KEYS.journalEntry(id ?? ''),
     queryFn:  () =>
-      api.get(`/api/v1/journal-entries/${id}`).then(normalizeJE),
+      api.get<RawJournalEntry>(`/api/v1/journal-entries/${id}`).then(normalizeJE),
     enabled: Boolean(id),
   });
 }
 
-/**
- * Build the API payload from the form state.
- * @param {Object} header – { date, memo, source }
- * @param {Array}  lines  – [{ accountId, description, debit, credit }]
- * @param {string} status – 'Draft' | 'Posted'
- */
-function buildJEPayload(header, lines, status) {
+function buildJEPayload(header: JEFormHeader, lines: JEFormLine[], status: JEStatus) {
   return {
     date:   header.date,
     memo:   header.memo,
@@ -178,7 +166,7 @@ function buildJEPayload(header, lines, status) {
 export function useCreateJournalEntry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ header, lines, status }) =>
+    mutationFn: ({ header, lines, status }: { header: JEFormHeader; lines: JEFormLine[]; status: JEStatus }) =>
       api.post('/api/v1/journal-entries', buildJEPayload(header, lines, status)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['journalEntries'] }),
   });
@@ -187,7 +175,7 @@ export function useCreateJournalEntry() {
 export function useUpdateJournalEntry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, header, lines, status }) =>
+    mutationFn: ({ id, header, lines, status }: { id: string; header: JEFormHeader; lines: JEFormLine[]; status: JEStatus }) =>
       api.put(`/api/v1/journal-entries/${id}`, buildJEPayload(header, lines, status)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['journalEntries'] }),
   });
@@ -196,7 +184,7 @@ export function useUpdateJournalEntry() {
 export function useDeleteJournalEntry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => api.delete(`/api/v1/journal-entries/${id}`),
+    mutationFn: (id: string) => api.delete(`/api/v1/journal-entries/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['journalEntries'] }),
   });
 }

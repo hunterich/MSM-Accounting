@@ -3,6 +3,40 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { useBankAccounts, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
+
+interface SelectFieldProps {
+    label?:    string;
+    name:      string;
+    value:     string;
+    onChange:  React.ChangeEventHandler<HTMLSelectElement>;
+    error?:    string | null;
+    disabled?: boolean;
+    children:  React.ReactNode;
+}
+
+interface BankingFormData {
+    fromAccountId:            string;
+    toAccountId:              string;
+    paidFromId:               string;
+    expenseAccountId:         string;
+    payee:                    string;
+    depositToId:              string;
+    incomeAccountId:          string;
+    receivedFrom:             string;
+    amount:                   string;
+    date:                     string;
+    reference:                string;
+    description:              string;
+    taxType:                  string;
+    taxRate:                  string;
+    costCenter:               string;
+    notes:                    string;
+    accountNickname:          string;
+    bankName:                 string;
+    last4:                    string;
+    openingBalance:           string;
+    currency:                 string;
+}
 import { useChartOfAccounts } from '../../hooks/useGL';
 import FormPage from '../../components/Layout/FormPage';
 

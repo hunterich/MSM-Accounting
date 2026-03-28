@@ -3,6 +3,37 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
+
+interface DebitNoteLine {
+    lineKey?:    string;
+    description: string;
+    qtyReturn:   number;
+    unit:        string;
+    price:       number;
+}
+
+interface DebitNoteFormData {
+    debitNumber:         string;
+    debitDate:           string;
+    linkedReturnId:      string;
+    vendorId:            string;
+    vendorName:          string;
+    sourceBillId:        string;
+    settlementType:      string;
+    settlementRef:       string;
+    refundBankId:        string;
+    refundMethod:        string;
+    settlementAccountId: string;
+    apAccountId:         string;
+    returnAccountId:     string;
+    taxAccountId:        string;
+    note:                string;
+    amount:              number;
+    lines:               DebitNoteLine[];
+    applyTax:            boolean;
+    taxIncluded:         boolean;
+    taxRate:             number;
+}
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';

@@ -1,5 +1,28 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+
+interface POFormData {
+    id:           string;
+    vendorId:     string;
+    date:         string;
+    expectedDate: string;
+    notes:        string;
+}
+
+interface POLineItem {
+    id:          string;
+    accountId:   string;
+    description: string;
+    qty:         number;
+    unit:        string;
+    price:       number;
+}
+
+interface POTaxSettings {
+    enabled:   boolean;
+    inclusive: boolean;
+    rate:      number;
+}
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';

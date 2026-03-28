@@ -3,6 +3,32 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+
+interface PurchaseReturnLine {
+    lineKey:       string;
+    description:   string;
+    qtyPurchased:  number;
+    qtyReturn:     number;
+    unit:          string;
+    price:         number;
+}
+
+interface PurchaseReturnData {
+    returnNumber:    string;
+    vendorId:        string;
+    billId:          string;
+    returnDate:      string;
+    warehouseId:     string;
+    apAccountId:     string;
+    returnAccountId: string;
+    taxAccountId:    string;
+    applyTax:        boolean;
+    taxIncluded:     boolean;
+    taxRate:         number;
+    reason:          string;
+    notes:           string;
+    lines:           PurchaseReturnLine[];
+}
 import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
