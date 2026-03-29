@@ -7,7 +7,43 @@ import Input from '../../components/UI/Input';
 import { useCreateVendor, useUpdateVendor, useVendorCategories, useVendors } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 
-const buildNextVendorCode = (vendors) => {
+interface VendorLike {
+    id?: string;
+    code?: string;
+    name?: string;
+    categoryId?: string;
+    category?: string;
+    email?: string;
+    phone?: string;
+    paymentTerms?: string;
+    npwp?: string;
+    defaultApAccountId?: string;
+    status?: string;
+}
+
+interface VendorCategoryLike {
+    id: string;
+    name: string;
+    defaultPaymentTerms?: string;
+    defaultApAccountId?: string;
+}
+
+interface VendorFormData {
+    recordId: string;
+    code: string;
+    name: string;
+    categoryId: string;
+    email: string;
+    phone: string;
+    paymentTerms: string;
+    npwp: string;
+    defaultApAccountId: string;
+    status: string;
+}
+
+type VendorFormErrors = Partial<Record<keyof VendorFormData, string | null>>;
+
+const buildNextVendorCode = (vendors: VendorLike[]) => {
     const nextNumber = vendors.reduce((max, vendor) => {
         const match = String(vendor.code || '').match(/^VND-(\d+)$/);
         return match ? Math.max(max, Number(match[1])) : max;
@@ -15,7 +51,12 @@ const buildNextVendorCode = (vendors) => {
     return `VND-${String(nextNumber).padStart(4, '0')}`;
 };
 
-const buildVendorState = (vendor, vendorCategories, fallbackAccountId, nextCode) => {
+const buildVendorState = (
+    vendor: VendorLike | null,
+    vendorCategories: VendorCategoryLike[],
+    fallbackAccountId: string,
+    nextCode: string
+): VendorFormData => {
     if (!vendor) {
         return {
             recordId: '',
@@ -80,10 +121,10 @@ const VendorForm = () => {
     const createVendor = useCreateVendor();
     const updateVendor = useUpdateVendor();
 
-    const [formData, setFormData] = useState(() =>
+    const [formData, setFormData] = useState<VendorFormData>(() =>
         buildVendorState(selectedVendor, vendorCategories, fallbackAccountId, nextVendorCode)
     );
-    const [errors, setErrors] = useState({});
+    const [errors, setErrors] = useState<VendorFormErrors>({});
 
     useEffect(() => {
         if (isCreateMode) {
@@ -101,13 +142,13 @@ const VendorForm = () => {
         }
     }, [fallbackAccountId, isCreateMode, nextVendorCode, selectedVendor, vendorCategories]);
 
-    const handleChange = (event) => {
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const handleCategoryChange = (event) => {
+    const handleCategoryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const categoryId = event.target.value;
         const selectedCategory = vendorCategories.find((category) => category.id === categoryId);
         setFormData((prev) => ({
@@ -137,13 +178,13 @@ const VendorForm = () => {
 
         try {
             if (isCreateMode) {
-                await createVendor.mutateAsync(payload);
+                await createVendor.mutateAsync(payload as any);
             } else if (isEditMode && formData.recordId) {
-                await updateVendor.mutateAsync({ id: formData.recordId, ...payload });
+                await updateVendor.mutateAsync({ id: formData.recordId, ...payload } as any);
             }
             navigate('/ap/vendors');
         } catch (error) {
-            window.alert(`Failed to save vendor: ${error?.message || 'Unknown error'}`);
+            window.alert(`Failed to save vendor: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     };
 

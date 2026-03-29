@@ -8,7 +8,48 @@ import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStock
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
-const buildFormData = (adj) => {
+interface AdjustmentLineDraft {
+    id?: string;
+    itemId?: string;
+    accountId?: string;
+    oldQty?: number;
+    newQty?: number;
+    qtyDiff?: number;
+    unitCost?: number;
+}
+
+interface AdjustmentDraft {
+    id?: string;
+    date?: string;
+    type?: string;
+    reason?: string;
+    notes?: string;
+    status?: string;
+    items?: AdjustmentLineDraft[];
+}
+
+interface AdjustmentFormData {
+    id: string;
+    date: string;
+    type: string;
+    reason: string;
+    notes: string;
+    status: string;
+}
+
+interface AdjustmentItemForm {
+    id: string;
+    itemId: string;
+    accountId: string;
+    oldQty: number;
+    newQty: number;
+    qtyDiff: number;
+    unitCost: number;
+}
+
+type AdjustmentErrors = Record<string, string | null | undefined>;
+
+const buildFormData = (adj: AdjustmentDraft | null) => {
     if (!adj) {
         return {
             id: '',
@@ -29,7 +70,7 @@ const buildFormData = (adj) => {
     };
 };
 
-const buildItems = (adj, expenseAccounts) => {
+const buildItems = (adj: AdjustmentDraft | null, expenseAccounts: Array<{ id?: string }>): AdjustmentItemForm[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
 
     if (adj && adj.items && adj.items.length > 0) {
@@ -86,9 +127,9 @@ const AdjustmentForm = () => {
         );
     }, [allAccounts]);
 
-    const [formData, setFormData] = useState(() => buildFormData(selectedAdj));
-    const [items, setItems] = useState(() => buildItems(selectedAdj, expenseTargetAccounts));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<AdjustmentFormData>(() => buildFormData(selectedAdj));
+    const [items, setItems] = useState<AdjustmentItemForm[]>(() => buildItems(selectedAdj, expenseTargetAccounts));
+    const [errors, setErrors] = useState<AdjustmentErrors>({});
 
     useEffect(() => {
         setFormData(buildFormData(selectedAdj));
@@ -96,24 +137,24 @@ const AdjustmentForm = () => {
         setErrors({});
     }, [selectedAdj, adjId, expenseTargetAccounts]);
 
-    const handleChange = (e) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         if (errors[name]) setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const handleItemSelect = (lineId, productId) => {
-        const product = products.find(p => p.id === productId);
+    const handleItemSelect = (lineId: string, productId: string) => {
+        const product = products.find((p) => p.id === productId) as any;
         if (product) {
             setItems((prev) => prev.map((line) => {
                 if (line.id === lineId) {
                     return {
                         ...line,
                         itemId: productId,
-                        oldQty: product.qtyOnHand || 0,
-                        newQty: product.qtyOnHand || 0,
+                        oldQty: Number(product.qtyOnHand || product.stock || 0),
+                        newQty: Number(product.qtyOnHand || product.stock || 0),
                         qtyDiff: 0,
-                        unitCost: product.unitPrice || 0 // Assuming unitPrice acts as cost for demo
+                        unitCost: Number(product.unitPrice || product.cost || 0)
                     };
                 }
                 return line;
@@ -123,10 +164,10 @@ const AdjustmentForm = () => {
         }
     };
 
-    const updateLine = (id, field, value) => {
+    const updateLine = (id: string, field: keyof AdjustmentItemForm, value: string | number) => {
         setItems((prev) => prev.map((line) => {
             if (line.id === id) {
-                const updatedLine = { ...line, [field]: value };
+                const updatedLine = { ...line, [field]: value } as AdjustmentItemForm;
                 if (field === 'newQty') {
                     updatedLine.qtyDiff = updatedLine.newQty - updatedLine.oldQty;
                 } else if (field === 'qtyDiff') {
@@ -153,13 +194,13 @@ const AdjustmentForm = () => {
         ]);
     };
 
-    const removeLine = (id) => {
+    const removeLine = (id: string) => {
         if (items.length > 1) {
             setItems((prev) => prev.filter((line) => line.id !== id));
         }
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement> | React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/inventory/adjustments');
@@ -189,20 +230,20 @@ const AdjustmentForm = () => {
 
         try {
             if (mode === 'edit' && selectedAdj) {
-                await updateAdjustmentMutation.mutateAsync({ id: selectedAdj._id || selectedAdj.id, ...payload });
+                await updateAdjustmentMutation.mutateAsync({ id: selectedAdj._id || selectedAdj.id, ...payload } as any);
             } else {
-                await createAdjustment.mutateAsync(payload);
+                await createAdjustment.mutateAsync(payload as any);
             }
             navigate('/inventory/adjustments');
         } catch (err) {
-            alert(`Failed to save adjustment: ${err?.message ?? 'Unknown error'}`);
+            alert(`Failed to save adjustment: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
     return (
         <FormPage
             title={mode === 'new' ? 'New Inventory Adjustment' : `Adjustment ${selectedAdj?.id || ''}`}
-            backLink="/inventory/adjustments"
+            backTo="/inventory/adjustments"
             isLoading={isPageLoading}
             actions={
                 <div className="flex gap-2">
@@ -314,7 +355,7 @@ const AdjustmentForm = () => {
                                 <tbody>
                                     {items.length === 0 ? (
                                         <tr>
-                                            <td colSpan="7" className="text-center p-6 text-neutral-400">
+                                            <td colSpan={7} className="text-center p-6 text-neutral-400">
                                                 No items added
                                             </td>
                                         </tr>

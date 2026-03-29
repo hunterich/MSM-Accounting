@@ -29,6 +29,11 @@ interface PurchaseReturnData {
     notes:           string;
     lines:           PurchaseReturnLine[];
 }
+interface PurchaseReturnLineInput extends Partial<PurchaseReturnLine> {
+    qty?: number;
+}
+
+type PurchaseReturnAccountField = 'apAccountId' | 'returnAccountId' | 'taxAccountId';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
@@ -37,16 +42,16 @@ import { useVendors, useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn } from '../../hooks/useReturns';
 
-const buildReturnNo = (dateStr, seq = 1) => {
+const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `PRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const normalizeLine = (line) => ({
-    lineKey: line.lineKey,
-    description: line.description,
+const normalizeLine = (line: PurchaseReturnLineInput): PurchaseReturnLine => ({
+    lineKey: line.lineKey || '',
+    description: line.description || '',
     qtyPurchased: Number(line.qtyPurchased || line.qty || 0),
     qtyReturn: Number(line.qtyReturn || 0),
     unit: line.unit || 'PCS',
@@ -56,7 +61,7 @@ const normalizeLine = (line) => ({
 const PurchaseReturnForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const state = location.state || {};
+    const state = (location.state || {}) as { mode?: string; returnId?: string };
     const mode = state.mode || 'create';
     const isView = mode === 'view';
     const { addPurchaseReturn, updatePurchaseReturn } = useReturnStore();
@@ -72,21 +77,21 @@ const PurchaseReturnForm = () => {
     const createPurchaseReturnMutation = useCreatePurchaseReturn();
     const updatePurchaseReturnMutation = useUpdatePurchaseReturn();
 
-    const billItemTemplates = useMemo(() => {
-        const map = {};
+    const billItemTemplates = useMemo<Record<string, PurchaseReturnLineInput[]>>(() => {
+        const map: Record<string, PurchaseReturnLineInput[]> = {};
         bills.forEach(bill => {
             if (bill.lines?.length) map[bill.id] = bill.lines.map(l => ({
-                description: l.description,
-                qty: l.quantity || l.qty,
-                unit: l.unit || 'PCS',
-                price: l.price
+                description: String(l.description || ''),
+                qty: Number(l.quantity || l.qty || 0),
+                unit: String(l.unit || 'PCS'),
+                price: Number(l.price || 0)
             }));
         });
         return map;
     }, [bills]);
 
     const [returnNumberingMode, setReturnNumberingMode] = useState('auto');
-    const [returnData, setReturnData] = useState({
+    const [returnData, setReturnData] = useState<PurchaseReturnData>({
         returnNumber: '',
         vendorId: '',
         billId: '',
@@ -103,8 +108,8 @@ const PurchaseReturnForm = () => {
         lines: []
     });
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, any>>(() => {
+        return chartOfAccounts.reduce((map: Record<string, any>, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -125,14 +130,15 @@ const PurchaseReturnForm = () => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
     }, [chartOfAccounts]);
 
-    const toLineIdentity = (line) => line.lineKey || `${line.description}|${line.unit}|${Number(line.price || 0)}`;
+    const toLineIdentity = (line: PurchaseReturnLineInput) =>
+        line.lineKey || `${line.description || ''}|${line.unit || 'PCS'}|${Number(line.price || 0)}`;
 
-    const getAlreadyReturnedQty = (billId, lineIdentity, excludeReturnId = state.returnId) => {
+    const getAlreadyReturnedQty = (billId: string, lineIdentity: string, excludeReturnId = state.returnId) => {
         return purchaseReturns
             .filter((ret) => ret.billId === billId)
             .filter((ret) => !excludeReturnId || ret.id !== excludeReturnId)
             .reduce((sum, ret) => {
-                const matched = (ret.lines || []).find((line) => toLineIdentity(line) === lineIdentity);
+                const matched = (ret.lines || []).find((line: PurchaseReturnLineInput) => toLineIdentity(line) === lineIdentity);
                 return sum + Number(matched?.qtyReturn || 0);
             }, 0);
     };
@@ -198,11 +204,11 @@ const PurchaseReturnForm = () => {
         return { subtotal, taxAmount, total };
     }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate]);
 
-    const hydrateLinesFromBill = (billId) => {
+    const hydrateLinesFromBill = (billId: string): PurchaseReturnLine[] => {
         const template = billItemTemplates[billId] || [];
-        return template.map((line, index) => normalizeLine({
+        return template.map((line: PurchaseReturnLineInput, index: number) => normalizeLine({
             lineKey: `${billId}-${index + 1}`,
-            description: line.description,
+            description: line.description || '',
             qtyPurchased: line.qty,
             qtyReturn: 0,
             unit: line.unit,
@@ -210,7 +216,7 @@ const PurchaseReturnForm = () => {
         }));
     };
 
-    const handleBillChange = (billId) => {
+    const handleBillChange = (billId: string) => {
         const foundBill = bills.find((item) => item.id === billId);
         const vendor = vendors.find((item) => item.id === foundBill?.vendorId);
         setReturnData((prev) => ({
@@ -222,10 +228,10 @@ const PurchaseReturnForm = () => {
         }));
     };
 
-    const updateLine = (index, field, value) => {
+    const updateLine = (index: number, field: keyof PurchaseReturnLine, value: string | number) => {
         setReturnData((prev) => {
             const nextLines = [...prev.lines];
-            const line = { ...nextLines[index] };
+            const line: PurchaseReturnLine = { ...nextLines[index] };
             if (field === 'qtyReturn') {
                 const parsed = Number(value || 0);
                 const lineIdentity = toLineIdentity(line);
@@ -233,19 +239,19 @@ const PurchaseReturnForm = () => {
                 const maxReturnableQty = Math.max(0, Number(line.qtyPurchased || 0) - alreadyReturned);
                 line.qtyReturn = Math.max(0, Math.min(parsed, maxReturnableQty));
             } else {
-                line[field] = value;
+                (line as any)[field] = value;
             }
             nextLines[index] = line;
             return { ...prev, lines: nextLines };
         });
     };
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -265,7 +271,7 @@ const PurchaseReturnForm = () => {
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: PurchaseReturnAccountField, options: any[], disabled = false) => {
         if (isAccountLegacy(returnData[key])) {
             return (
                 <div>
@@ -336,9 +342,9 @@ const PurchaseReturnForm = () => {
             status: 'Pending Debit Note',
         };
         if (state.returnId) {
-            updatePurchaseReturnMutation.mutate({ id: state.returnId, ...returnRecord });
+            updatePurchaseReturnMutation.mutate({ id: state.returnId, ...returnRecord } as any);
         } else {
-            createPurchaseReturnMutation.mutate(returnRecord);
+            createPurchaseReturnMutation.mutate(returnRecord as any);
         }
 
         navigate('/ap/debits/new', {
@@ -365,8 +371,8 @@ const PurchaseReturnForm = () => {
             isLoading={isPageLoading}
             actions={
                 <>
-                    <Button text="Print" variant="secondary" />
-                    <Button text="Save Draft" variant="secondary" />
+                    <Button text="Print" variant="secondary" onClick={() => {}} />
+                    <Button text="Save Draft" variant="secondary" onClick={() => {}} />
                     <Button
                         text={isView ? 'Close' : 'Save & Create Debit Note'}
                         variant="primary"
@@ -390,7 +396,7 @@ const PurchaseReturnForm = () => {
                         <SearchableSelect
                             options={vendorOptions}
                             value={returnData.vendorId}
-                            onChange={(value) => setReturnData((prev) => ({ ...prev, vendorId: value, billId: '', lines: [] }))}
+                            onChange={(value: string) => setReturnData((prev) => ({ ...prev, vendorId: value, billId: '', lines: [] }))}
                             placeholder="Select Vendor..."
                             disabled={isView}
                         />
@@ -413,7 +419,7 @@ const PurchaseReturnForm = () => {
                         <label className="form-label">Warehouse *</label>
                         <select className={fcBase} value={returnData.warehouseId} onChange={(event) => setReturnData((prev) => ({ ...prev, warehouseId: event.target.value }))} disabled={isView}>
                             {warehouses.map((warehouse) => (
-                                <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>
+                                <option key={warehouse.id} value={warehouse.id}>{String(warehouse.code)} - {warehouse.name}</option>
                             ))}
                         </select>
                     </div>

@@ -33,6 +33,8 @@ interface CreditNoteFormData {
     taxIncluded:         boolean;
     taxRate:             number;
 }
+
+type CreditNoteAccountField = 'arAccountId' | 'returnAccountId' | 'taxAccountId' | 'settlementAccountId';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';
@@ -40,14 +42,14 @@ import { useCreditNotes, useSalesReturns, useCreateCreditNote, useUpdateCreditNo
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
-const buildCreditNo = (dateStr, seq = 1) => {
+const buildCreditNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `CRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const toReturnTotals = (ret) => {
+const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
     if (!ret) return { subtotal: 0, taxAmount: 0, total: 0 };
     const subtotal = (ret.lines || []).reduce((sum, line) => sum + (Number(line.qtyReturn || 0) * Number(line.price || 0)), 0);
     if (!ret.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
@@ -60,7 +62,7 @@ const toReturnTotals = (ret) => {
     return { subtotal, taxAmount, total: subtotal + taxAmount };
 };
 
-const BANK_TO_ACCOUNT_MAP = {
+const BANK_TO_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
@@ -79,12 +81,12 @@ const CreditNoteForm = () => {
     const salesReturns = srData?.data ?? [];
     const createCreditNote = useCreateCreditNote();
     const updateCreditNoteMutation = useUpdateCreditNote();
-    const state = location.state || {};
+    const state = (location.state || {}) as { mode?: string; returnDraft?: any; creditId?: string };
     const mode = state.mode || 'create'; // create | view | edit
     const isView = mode === 'view';
 
     const [numberingMode, setNumberingMode] = useState('auto');
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<CreditNoteFormData>({
         creditNumber: '',
         creditDate: new Date().toISOString().split('T')[0],
         linkedReturnId: '',
@@ -122,7 +124,7 @@ const CreditNoteForm = () => {
                 taxAccountId: draft.taxAccountId || prev.taxAccountId,
                 settlementAccountId: draft.arAccountId || prev.settlementAccountId,
                 amount: toReturnTotals(draft).total,
-                lines: draft.lines || [],
+                lines: (draft.lines || []) as CreditNoteLine[],
                 applyTax: draft.applyTax,
                 taxIncluded: draft.taxIncluded,
                 taxRate: draft.taxRate
@@ -151,7 +153,7 @@ const CreditNoteForm = () => {
                 taxAccountId: found.taxAccountId || prev.taxAccountId,
                 settlementAccountId: found.settlementAccountId || prev.settlementAccountId,
                 amount: found.amount,
-                lines: linkedReturn?.lines || [],
+                lines: (linkedReturn?.lines || []) as CreditNoteLine[],
                 applyTax: found.applyTax,
                 taxIncluded: linkedReturn?.taxIncluded ?? false,
                 taxRate: linkedReturn?.taxRate ?? 11
@@ -171,12 +173,12 @@ const CreditNoteForm = () => {
 
     const creditNoPreview = useMemo(() => buildCreditNo(formData.creditDate, creditNotes.length + 1), [formData.creditDate]);
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, any>>(() => {
+        return chartOfAccounts.reduce((map: Record<string, any>, account) => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const arAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
@@ -216,12 +218,12 @@ const CreditNoteForm = () => {
         return { subtotal, taxAmount, total: subtotal + taxAmount };
     }, [formData.lines, formData.applyTax, formData.taxIncluded, formData.taxRate]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -270,7 +272,7 @@ const CreditNoteForm = () => {
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: CreditNoteAccountField, options: any[], disabled = false) => {
         if (isAccountLegacy(formData[key])) {
             return (
                 <div>
@@ -350,9 +352,9 @@ const CreditNoteForm = () => {
         };
 
         if (mode === 'edit' && formData.creditNumber) {
-            updateCreditNoteMutation.mutate({ id: formData.creditNumber, ...notePayload });
+            updateCreditNoteMutation.mutate({ id: formData.creditNumber, ...notePayload } as any);
         } else {
-            createCreditNote.mutate(notePayload);
+            createCreditNote.mutate(notePayload as any);
         }
         navigate('/ar/credits');
     };
@@ -365,8 +367,8 @@ const CreditNoteForm = () => {
             isLoading={isPageLoading}
             actions={(
                 <>
-                    <Button text="Print" variant="secondary" />
-                    <Button text="Save Draft" variant="secondary" />
+                    <Button text="Print" variant="secondary" onClick={() => {}} />
+                    <Button text="Save Draft" variant="secondary" onClick={() => {}} />
                     <Button text={isView ? 'Close' : 'Save Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : handleSaveCredit} />
                 </>
             )}

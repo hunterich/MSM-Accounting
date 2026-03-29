@@ -20,6 +20,32 @@ interface SelectFieldProps {
     children:  React.ReactNode;
 }
 
+interface InventoryFormData {
+    sku: string;
+    skuManuallyEdited: boolean;
+    name: string;
+    categoryId: string;
+    type: string;
+    unit: string;
+    purchaseUnit: string;
+    purchaseConversionFactor: string;
+    sellUnit: string;
+    sellConversionFactor: string;
+    cost: string;
+    price: string;
+    openingStock: string;
+    reorderPoint: string;
+    inventoryAccountId: string;
+    revenueAccountId: string;
+    cogsAccountId: string;
+    description: string;
+    barcode: string;
+    weight: string;
+    status: string;
+}
+
+type InventoryFormErrors = Record<string, string | null | undefined>;
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 const ITEM_TYPES = ['Product', 'Service', 'Raw Material', 'Consumable', 'Fixed Asset'];
@@ -39,7 +65,7 @@ const INVENTORY_ITEM_SEED = [
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-const SelectField = ({ label, name, value, onChange, error, disabled, children }) => (
+const SelectField = ({ label, name, value, onChange, error, disabled, children }: SelectFieldProps) => (
     <div>
         {label && <label className="form-label">{label}</label>}
         <select
@@ -55,7 +81,7 @@ const SelectField = ({ label, name, value, onChange, error, disabled, children }
     </div>
 );
 
-const buildItemState = (item) => {
+const buildItemState = (item: any): InventoryFormData => {
     if (!item) {
         return {
             sku:                '',
@@ -136,8 +162,8 @@ const InventoryForm = () => {
             || null;
     }, [itemId, location.state, storeProducts]);
 
-    const [formData, setFormData] = useState(() => buildItemState(selectedItem));
-    const [errors, setErrors]     = useState({});
+    const [formData, setFormData] = useState<InventoryFormData>(() => buildItemState(selectedItem));
+    const [errors, setErrors]     = useState<InventoryFormErrors>({});
 
     useEffect(() => {
         setFormData(buildItemState(selectedItem));
@@ -156,22 +182,23 @@ const InventoryForm = () => {
         const price = Number(formData.price) || 0;
         if (!price) return null;
         const pct = ((price - cost) / price) * 100;
-        return { amount: price - cost, pct: pct.toFixed(1) };
+        return { amount: price - cost, pct };
     }, [formData.cost, formData.price]);
 
     // ── Handlers ──────────────────────────────────────────────────────────
-    const handleChange = (event) => {
-        const { name, value } = event.target;
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const name = event.target.name as keyof InventoryFormData;
+        const { value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         setErrors((prev)    => ({ ...prev, [name]: null }));
     };
 
-    const handleSkuChange = (e) => {
+    const handleSkuChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFormData((prev) => ({ ...prev, sku: e.target.value, skuManuallyEdited: true }));
         setErrors((prev)   => ({ ...prev, sku: null }));
     };
 
-    const handleCategoryChange = async (e) => {
+    const handleCategoryChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const categoryId = e.target.value;
         setFormData((prev) => ({ ...prev, categoryId }));
         setErrors((prev)   => ({ ...prev, categoryId: null }));
@@ -216,13 +243,13 @@ const InventoryForm = () => {
 
         try {
             if (mode === 'edit' && itemId) {
-                await updateItem.mutateAsync({ id: itemId, ...payload });
+                await updateItem.mutateAsync({ id: itemId, ...payload } as any);
             } else {
                 await createItem.mutateAsync(payload);
             }
             navigate('/inventory');
         } catch (err) {
-            alert(`Failed to save item: ${err?.message ?? 'Unknown error'}`);
+            alert(`Failed to save item: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
@@ -449,7 +476,7 @@ const InventoryForm = () => {
                         <div>
                             <label className="form-label">Gross Margin</label>
                             <div className={`inventory-margin-badge ${margin && margin.pct > 0 ? 'positive' : 'zero'}`}>
-                                {margin ? `${margin.pct}%` : '—'}
+                                {margin ? `${margin.pct.toFixed(1)}%` : '—'}
                             </div>
                         </div>
                     </div>
