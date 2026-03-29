@@ -1,24 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-
-interface AdjustmentFormData {
-    id:     string;
-    date:   string;
-    type:   string;
-    reason: string;
-    notes:  string;
-    status: string;
-}
-
-interface AdjustmentLine {
-    id:        string;
-    itemId:    string;
-    accountId: string;
-    oldQty:    number;
-    newQty:    number;
-    qtyDiff:   number;
-    unitCost:  number;
-}
+import { adjustmentSchema, zodToFormErrors } from '../../utils/formSchemas';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import FormPage from '../../components/Layout/FormPage';
@@ -184,19 +166,9 @@ const AdjustmentForm = () => {
             return;
         }
 
-        const nextErrors = {};
-        if (!formData.date) nextErrors.date = 'Date is required';
-        if (!formData.reason) nextErrors.reason = 'Reason is required';
-
         const validItems = items.filter((line) => line.itemId && (line.qtyDiff !== 0 || line.unitCost > 0));
-        if (validItems.length === 0) {
-            nextErrors.items = 'At least one valid adjustment line is required';
-        }
-
-        if (Object.keys(nextErrors).length > 0) {
-            setErrors(nextErrors);
-            return;
-        }
+        const result = adjustmentSchema.safeParse({ ...formData, items: validItems });
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         const payload = {
             number: formData.id || undefined,

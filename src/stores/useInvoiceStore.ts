@@ -2,7 +2,24 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { invoices as seed, invoiceItemTemplates as templatesSeed } from '../data/mockData';
 
-export const useInvoiceStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface InvoiceStore {
+    invoices:                   E[];
+    invoiceItemTemplates:       Record<string, E[]>;
+    isLoading:                  boolean;
+    error:                      string | null;
+    addInvoice:                 (invoice: E) => Promise<void>;
+    updateInvoice:              (id: string, updates: Partial<E>) => Promise<void>;
+    deleteInvoice:              (id: string) => Promise<void>;
+    setInvoiceItemTemplates:    (invoiceId: string, items: E[]) => Promise<void>;
+    addInvoicesBatch:           (arr: E[]) => void;
+    updateInvoicesBatch:        (arr: E[]) => void;
+    setInvoiceItemTemplatesBatch:(map: Record<string, E[]>) => void;
+    getInvoiceById:             (id: string) => E | undefined;
+}
+
+export const useInvoiceStore = create<InvoiceStore>()(
     persist(
         (set, get) => ({
             invoices: seed,

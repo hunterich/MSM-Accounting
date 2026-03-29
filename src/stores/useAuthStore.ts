@@ -1,5 +1,41 @@
 import { create } from 'zustand';
 
+interface AuthUser {
+    id:       string;
+    fullName: string;
+    email:    string;
+    [key: string]: unknown;
+}
+
+interface AuthOrg {
+    id:   string;
+    name: string;
+    [key: string]: unknown;
+}
+
+interface RolePermission {
+    moduleKey:  string;
+    canView:    boolean;
+    canCreate:  boolean;
+    canEdit:    boolean;
+    canDelete:  boolean;
+    [key: string]: unknown;
+}
+
+interface AuthStore {
+    user:                AuthUser | null;
+    org:                 AuthOrg | null;
+    roleType:            string | null;
+    invoiceAccessScope:  string;
+    permissions:         RolePermission[];
+    isLoading:           boolean;
+    hasPermission:       (moduleKey: string, action?: string) => boolean;
+    checkSession:        () => Promise<void>;
+    login:               (email: string, password: string) => Promise<unknown>;
+    loginWithGoogle:     (credential: string) => Promise<unknown>;
+    logout:              () => Promise<void>;
+}
+
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const EMPTY_SESSION = {
@@ -44,7 +80,7 @@ export const hasModulePermission = (permissions, moduleKey, action = 'view') => 
   return false;
 };
 
-export const useAuthStore = create((set, get) => ({
+export const useAuthStore = create<AuthStore>()((set, get) => ({
   user: null,
   org: null,
   roleType: null,

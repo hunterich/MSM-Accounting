@@ -2,6 +2,23 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { bankAccounts as seed } from '../data/mockData';
 
+type E = { id: string } & Record<string, unknown>;
+
+interface BankingStore {
+    bankAccounts:       E[];
+    transactions:       E[];
+    isLoading:          boolean;
+    error:              string | null;
+    addBankAccount:     (account: E) => Promise<void>;
+    updateBankAccount:  (id: string, updates: Partial<E>) => Promise<void>;
+    deleteBankAccount:  (id: string) => Promise<void>;
+    getBankAccountById: (id: string) => E | undefined;
+    addTransaction:     (txn: E) => Promise<void>;
+    updateTransaction:  (id: string, updates: Partial<E>) => Promise<void>;
+    deleteTransaction:  (id: string) => Promise<void>;
+    getTransactionById: (id: string) => E | undefined;
+}
+
 const INITIAL_TRANSACTIONS = [
     { id: 'TXN-001', date: '2026-02-18', description: 'Payment received — Acme Corp INV-1001', amount: 1200000, type: 'income', accountId: 'BANK-001', status: 'Matched' },
     { id: 'TXN-002', date: '2026-02-17', description: 'AWS Monthly Subscription', amount: -120000, type: 'expense', accountId: 'BANK-001', status: 'Matched' },
@@ -11,7 +28,7 @@ const INITIAL_TRANSACTIONS = [
     { id: 'TXN-006', date: '2026-02-10', description: 'Internet Bill — Telkom', amount: -350000, type: 'expense', accountId: 'BANK-002', status: 'Unmatched' },
 ];
 
-export const useBankingStore = create(
+export const useBankingStore = create<BankingStore>()(
     persist(
         (set, get) => ({
             bankAccounts: seed,

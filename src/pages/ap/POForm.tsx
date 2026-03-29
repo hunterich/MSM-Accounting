@@ -1,28 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-
-interface POFormData {
-    id:           string;
-    vendorId:     string;
-    date:         string;
-    expectedDate: string;
-    notes:        string;
-}
-
-interface POLineItem {
-    id:          string;
-    accountId:   string;
-    description: string;
-    qty:         number;
-    unit:        string;
-    price:       number;
-}
-
-interface POTaxSettings {
-    enabled:   boolean;
-    inclusive: boolean;
-    rate:      number;
-}
+import { poSchema, zodToFormErrors } from '../../utils/formSchemas';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';
@@ -192,19 +170,9 @@ const POForm = () => {
             return;
         }
 
-        const nextErrors = {};
-        if (!formData.vendorId) nextErrors.vendorId = 'Vendor is required';
-        if (!formData.date) nextErrors.date = 'Date is required';
-
         const validItems = items.filter((line) => line.description.trim() || line.price > 0 || line.qty > 1);
-        if (validItems.length === 0) {
-            nextErrors.items = 'At least one item is required';
-        }
-
-        if (Object.keys(nextErrors).length > 0) {
-            setErrors(nextErrors);
-            return;
-        }
+        const result = poSchema.safeParse({ ...formData, items: validItems });
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         const newId = formData.id || `PO-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
         const finalId = isViewMode ? poId : newId;

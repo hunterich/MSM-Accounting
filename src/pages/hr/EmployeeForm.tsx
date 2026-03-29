@@ -1,35 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-
-interface SalaryLineItem {
-    id:     string;
-    name:   string;
-    amount: number;
-}
-
-interface EmployeeFormData {
-    id:                    string;
-    name:                  string;
-    ktp:                   string;
-    dob:                   string;
-    phone:                 string;
-    email:                 string;
-    address:               string;
-    joinDate:              string;
-    department:            string;
-    position:              string;
-    status:                string;
-    type:                  string;
-    bankName:              string;
-    accountNumber:         string;
-    accountHolder:         string;
-    npwp:                  string;
-    bpjsKesehatan:         string;
-    bpjsKetenagakerjaan:   string;
-    basicSalary:           number;
-    allowances:            SalaryLineItem[];
-    deductions:            SalaryLineItem[];
-}
+import { employeeSchema, zodToFormErrors } from '../../utils/formSchemas';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
@@ -186,17 +157,8 @@ const EmployeeForm = () => {
     };
 
     const handleSave = async () => {
-        const nextErrors = {};
-        if (!formData.name.trim()) nextErrors.name = 'Employee name is required.';
-        if (!formData.department) nextErrors.department = 'Department is required.';
-        if (!formData.position) nextErrors.position = 'Position is required.';
-        if (!formData.joinDate) nextErrors.joinDate = 'Join date is required.';
-        if (toNumber(formData.basicSalary) < 0) nextErrors.basicSalary = 'Basic salary cannot be negative.';
-
-        if (Object.keys(nextErrors).length > 0) {
-            setErrors(nextErrors);
-            return;
-        }
+        const result = employeeSchema.safeParse(formData);
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         const normalized = {
             ...formData,

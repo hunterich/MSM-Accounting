@@ -2,7 +2,19 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { apPayments as seed } from '../data/mockData';
 
-export const useAPPaymentStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface APPaymentStore {
+    apPayments:     E[];
+    isLoading:      boolean;
+    error:          string | null;
+    addPayment:     (payment: E) => Promise<void>;
+    updatePayment:  (id: string, updates: Partial<E>) => Promise<void>;
+    deletePayment:  (id: string) => Promise<void>;
+    getPaymentById: (id: string) => E | undefined;
+}
+
+export const useAPPaymentStore = create<APPaymentStore>()(
     persist(
         (set, get) => ({
             apPayments: seed,

@@ -2,7 +2,19 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { invoiceWorkbenchData as seed } from '../data/invoiceWorkbenchData';
 
-export const useInvoiceWorkbenchStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface InvoiceWorkbenchStore {
+    invoices:       E[];
+    isLoading:      boolean;
+    error:          string | null;
+    addInvoice:     (invoice: E) => Promise<void>;
+    updateInvoice:  (id: string, updates: Partial<E>) => Promise<void>;
+    deleteInvoice:  (id: string) => Promise<void>;
+    getInvoiceById: (id: string) => E | undefined;
+}
+
+export const useInvoiceWorkbenchStore = create<InvoiceWorkbenchStore>()(
     persist(
         (set, get) => ({
             invoices: seed,

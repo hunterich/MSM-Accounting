@@ -2,7 +2,19 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { salesLines as salesLinesSeed, agingInvoices as agingSeed } from '../data/mockData';
 
-export const useReportStore = create(
+type E = { id?: string } & Record<string, unknown>;
+
+interface ReportStore {
+    salesLines:          E[];
+    agingInvoices:       E[];
+    isLoading:           boolean;
+    error:               string | null;
+    addSalesLine:        (line: E) => Promise<void>;
+    updateAgingInvoice:  (invoiceId: string, updates: Partial<E>) => Promise<void>;
+    addAgingInvoice:     (invoice: E) => Promise<void>;
+}
+
+export const useReportStore = create<ReportStore>()(
     persist(
         (set, get) => ({
             salesLines: salesLinesSeed,

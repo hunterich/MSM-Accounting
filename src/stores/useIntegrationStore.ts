@@ -1,6 +1,26 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export interface Shop {
+    id:                 string;
+    platform:           string;
+    name:               string;
+    customer:           string;
+    holdingAccount:     string;
+    status:             string;
+    importStatusFilter: string;
+    itemMappings:       Record<string, string>;
+}
+
+interface IntegrationStore {
+    shops:             Shop[];
+    addShop:           (shop: Shop) => void;
+    updateShop:        (id: string, updates: Partial<Shop>) => void;
+    deleteShop:        (id: string) => void;
+    updateItemMappings:(shopId: string, mappings: Record<string, string>) => void;
+    getShopById:       (id: string) => Shop | undefined;
+}
+
 const initialShops = [
     {
         id: 'SHOP-001',
@@ -24,7 +44,7 @@ const initialShops = [
     }
 ];
 
-export const useIntegrationStore = create(
+export const useIntegrationStore = create<IntegrationStore>()(
     persist(
         (set, get) => ({
             shops: initialShops,

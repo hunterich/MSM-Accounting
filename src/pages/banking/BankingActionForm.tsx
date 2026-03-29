@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { useBankAccounts, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
+import { bankingActionSchema, zodToFormErrors } from '../../utils/formSchemas';
 
 interface SelectFieldProps {
     label?:    string;
@@ -12,30 +13,6 @@ interface SelectFieldProps {
     error?:    string | null;
     disabled?: boolean;
     children:  React.ReactNode;
-}
-
-interface BankingFormData {
-    fromAccountId:            string;
-    toAccountId:              string;
-    paidFromId:               string;
-    expenseAccountId:         string;
-    payee:                    string;
-    depositToId:              string;
-    incomeAccountId:          string;
-    receivedFrom:             string;
-    amount:                   string;
-    date:                     string;
-    reference:                string;
-    description:              string;
-    taxType:                  string;
-    taxRate:                  string;
-    costCenter:               string;
-    notes:                    string;
-    accountNickname:          string;
-    bankName:                 string;
-    last4:                    string;
-    openingBalance:           string;
-    currency:                 string;
 }
 import { useChartOfAccounts } from '../../hooks/useGL';
 import FormPage from '../../components/Layout/FormPage';
@@ -151,50 +128,12 @@ const BankingActionForm = () => {
         setErrors((prev)    => ({ ...prev, [name]: null }));
     };
 
-    const validate = () => {
-        const next = {};
-        if (action === 'account') {
-            if (!formData.accountNickname.trim()) next.accountNickname = 'Account name is required.';
-            if (formData.last4 && formData.last4.replace(/\D/g, '').length > 0 && formData.last4.replace(/\D/g, '').length < 4) {
-                next.last4 = 'Enter at least the last 4 digits.';
-            }
-            if (formData.openingBalance !== '' && (isNaN(Number(formData.openingBalance)) || Number(formData.openingBalance) < 0)) {
-                next.openingBalance = 'Opening balance cannot be negative.';
-            }
-        } else {
-            if (!formData.amount || isNaN(Number(formData.amount)) || Number(formData.amount) <= 0)
-                next.amount = 'Enter a valid amount greater than 0.';
-            if (!formData.date) next.date = 'Date is required.';
-            if (formData.taxType !== 'none') {
-                const rate = Number(formData.taxRate);
-                if (isNaN(rate) || rate <= 0 || rate > 100) {
-                    next.taxRate = 'Tax rate must be between 0 and 100.';
-                }
-            }
-        }
-        if (action === 'transfer') {
-            if (!formData.fromAccountId) next.fromAccountId = 'Select a source account.';
-            if (!formData.toAccountId)   next.toAccountId   = 'Select a destination account.';
-            if (formData.fromAccountId && formData.fromAccountId === formData.toAccountId)
-                next.toAccountId = 'Source and destination must be different accounts.';
-        }
-        if (action === 'expense') {
-            if (!formData.paidFromId) next.paidFromId = 'Select the paying account.';
-            if (!formData.expenseAccountId) next.expenseAccountId = 'Select an expense account.';
-        }
-        if (action === 'income') {
-            if (!formData.depositToId) next.depositToId = 'Select the receiving account.';
-            if (!formData.incomeAccountId) next.incomeAccountId = 'Select a revenue account.';
-        }
-        return next;
-    };
-
     const isSaving = createAccount.isPending || createTransaction.isPending;
     const isPageLoading = chartOfAccountsLoading || accountsLoading;
 
     const handleSave = async () => {
-        const nextErrors = validate();
-        if (Object.keys(nextErrors).length > 0) { setErrors(nextErrors); return; }
+        const result = bankingActionSchema(action).safeParse(formData);
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         try {
             if (action === 'account') {

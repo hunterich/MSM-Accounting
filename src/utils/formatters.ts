@@ -1,4 +1,4 @@
-export const formatIDR = (amount) => {
+export const formatIDR = (amount: number | string | null | undefined): string => {
     const raw = Number(amount || 0);
     const num = Number.isNaN(raw) ? 0 : raw;
     return new Intl.NumberFormat('id-ID', {
@@ -9,7 +9,7 @@ export const formatIDR = (amount) => {
     }).format(num);
 };
 
-export const formatDateID = (dateStr) => {
+export const formatDateID = (dateStr: string | null | undefined): string => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
     if (Number.isNaN(date.getTime())) return dateStr;
@@ -20,7 +20,7 @@ export const formatDateID = (dateStr) => {
     }).format(date);
 };
 
-export const formatNumber = (num) => {
+export const formatNumber = (num: number | string | null | undefined): string => {
     const value = Number(num || 0);
     return new Intl.NumberFormat('id-ID').format(value);
 };

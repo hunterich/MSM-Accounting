@@ -1,7 +1,35 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export const usePurchaseOrderStore = create(
+interface POItem {
+    id:          string;
+    accountId:   string;
+    description: string;
+    qty:         number;
+    unit:        string;
+    price:       number;
+}
+
+interface PO {
+    id:           string;
+    vendorId:     string;
+    date:         string;
+    expectedDate: string;
+    amount:       number;
+    status:       string;
+    notes:        string;
+}
+
+interface PurchaseOrderStore {
+    purchaseOrders:    PO[];
+    poItemTemplates:   Record<string, POItem[]>;
+    addPurchaseOrder:  (po: PO) => void;
+    updatePurchaseOrder:(id: string, updatedData: Partial<PO>) => void;
+    deletePurchaseOrder:(id: string) => void;
+    setPoItemTemplates: (poId: string, items: POItem[]) => void;
+}
+
+export const usePurchaseOrderStore = create<PurchaseOrderStore>()(
     persist(
         (set, get) => ({
             purchaseOrders: [

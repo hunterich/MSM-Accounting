@@ -2,7 +2,21 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { arPayments as seed } from '../data/mockData';
 
-export const usePaymentStore = create(
+type E = { id: string } & Record<string, unknown>;
+
+interface ARPaymentStore {
+    payments:           E[];
+    isLoading:          boolean;
+    error:              string | null;
+    addPayment:         (payment: E) => Promise<void>;
+    updatePayment:      (id: string, updates: Partial<E>) => Promise<void>;
+    deletePayment:      (id: string) => Promise<void>;
+    addPaymentsBatch:   (arr: E[]) => void;
+    updatePaymentsBatch:(arr: E[]) => void;
+    getPaymentById:     (id: string) => E | undefined;
+}
+
+export const usePaymentStore = create<ARPaymentStore>()(
     persist(
         (set, get) => ({
             payments: seed,

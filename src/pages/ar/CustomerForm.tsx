@@ -1,25 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-
-interface CustomerFormData {
-    id:                  string;
-    name:                string;
-    category:            string;
-    email:               string;
-    phone:               string;
-    website:             string;
-    paymentTerms:        string;
-    defaultDiscount:     number;
-    creditLimit:         number;
-    useCategoryDefaults: boolean;
-    address1:            string;
-    city:                string;
-    province:            string;
-    contactPerson:       string;
-    taxable:             boolean;
-    initialBalance:      number;
-    status:              string;
-}
+import { customerSchema, zodToFormErrors } from '../../utils/formSchemas';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
@@ -172,14 +153,8 @@ const CustomerForm = () => {
     const isPageLoading = customersLoading;
 
     const handleSave = async () => {
-        const nextErrors = {};
-        if (!formData.name.trim()) nextErrors.name = 'Customer name is required.';
-        if (!formData.category) nextErrors.category = 'Category is required.';
-
-        if (Object.keys(nextErrors).length > 0) {
-            setErrors(nextErrors);
-            return;
-        }
+        const result = customerSchema.safeParse(formData);
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         try {
             if (isCreateMode) {
