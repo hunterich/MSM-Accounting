@@ -21,6 +21,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import { fromPrismaAccountType, fromPrismaNormalSide } from '../../lib/account-rules';
 import type {
   ListResponse,
   Account, RawAccount,
@@ -40,19 +41,23 @@ export const GL_KEYS = {
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
 function normalizeAccount(raw: RawAccount): Account {
+  const hasPostings = raw.journalLines
+    ? raw.journalLines.length > 0
+    : (raw.hasPostings ?? false);
+
   return {
     id:             raw.id,
     code:           raw.code  || '',
     name:           raw.name  || '',
-    type:           raw.type  || 'Asset',
+    type:           raw.type ? fromPrismaAccountType(raw.type) : 'Asset',
     parentId:       raw.parentId || null,
     isPostable:     raw.isPostable  ?? true,
     isActive:       raw.isActive    ?? true,
     reportGroup:    raw.reportGroup    || '',
     reportSubGroup: raw.reportSubGroup || '',
-    normalSide:     raw.normalSide  || '',
+    normalSide:     raw.normalSide ? fromPrismaNormalSide(raw.normalSide) : '',
+    hasPostings,
     hasChildren: (raw._count?.children ?? 0) > 0,
-    hasPostings: false,
     level: raw.level ?? 0,
     depth: raw.depth ?? 0,
   };

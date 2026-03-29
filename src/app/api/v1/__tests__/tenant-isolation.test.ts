@@ -17,6 +17,7 @@ vi.mock('@/lib/prisma', () => ({
     item:             { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     bill:             { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     account:          { findFirst: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    journalLine:      { count: vi.fn() },
     bankAccount:      { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     bankTransaction:  { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
   },

@@ -11,8 +11,38 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import type { Account, PurchaseOrder } from '../../types';
 
-const buildFormData = (po) => {
+type POFormData = {
+    id: string;
+    vendorId: string;
+    date: string;
+    expectedDate: string;
+    notes: string;
+};
+
+type POTemplateLine = {
+    id?: string;
+    accountId?: string;
+    description?: string;
+    qty?: number;
+    unit?: string;
+    price?: number;
+};
+
+type POItem = {
+    id: string;
+    accountId: string;
+    description: string;
+    qty: number;
+    unit: string;
+    price: number;
+};
+
+type POTemplateMap = Record<string, POTemplateLine[]>;
+type FormErrors = Record<string, string | undefined>;
+
+const buildFormData = (po: PurchaseOrder | null): POFormData => {
     if (!po) {
         return {
             id: '',
@@ -31,7 +61,7 @@ const buildFormData = (po) => {
     };
 };
 
-const buildItems = (poId, expenseAccounts, templates) => {
+const buildItems = (poId: string, expenseAccounts: Account[], templates: POTemplateMap): POItem[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
     const source = templates[poId] || [];
 
@@ -69,7 +99,7 @@ const POForm = () => {
     const purchaseOrders = posData?.data || [];
 
     // Keep Zustand for print templates only
-    const poItemTemplates = usePurchaseOrderStore(s => s.poItemTemplates);
+    const poItemTemplates = usePurchaseOrderStore((s) => s.poItemTemplates) as POTemplateMap;
     const setPoItemTemplates = usePurchaseOrderStore(s => s.setPoItemTemplates);
 
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
@@ -79,16 +109,16 @@ const POForm = () => {
     const createPurchaseOrder = useCreatePurchaseOrder();
     const updatePurchaseOrder = useUpdatePurchaseOrder();
 
-    const selectedPO = useMemo(() => purchaseOrders.find((po) => po.id === poId) || null, [poId, purchaseOrders]);
+    const selectedPO = useMemo<PurchaseOrder | null>(() => purchaseOrders.find((po) => po.id === poId) || null, [poId, purchaseOrders]);
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
     }, [chartOfAccounts]);
 
-    const expenseTargetAccounts = useMemo(() => {
+    const expenseTargetAccounts = useMemo<Account[]>(() => {
         return chartOfAccounts.filter(
             (account) =>
                 account.isPostable &&
@@ -97,9 +127,9 @@ const POForm = () => {
         );
     }, [chartOfAccounts]);
 
-    const [formData, setFormData] = useState(() => buildFormData(selectedPO));
-    const [items, setItems] = useState(() => buildItems(poId, expenseTargetAccounts, poItemTemplates));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<POFormData>(() => buildFormData(selectedPO));
+    const [items, setItems] = useState<POItem[]>(() => buildItems(poId, expenseTargetAccounts, poItemTemplates));
+    const [errors, setErrors] = useState<FormErrors>({});
 
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
     const [taxSettings, setTaxSettings] = useState({
@@ -114,18 +144,18 @@ const POForm = () => {
         setErrors({});
     }, [selectedPO, poId, expenseTargetAccounts, poItemTemplates]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown Account';
     };
 
-    const handleChange = (e) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
-        if (errors[name]) setErrors((prev) => ({ ...prev, [name]: null }));
+        if (errors[name]) setErrors((prev) => ({ ...prev, [name]: undefined }));
     };
 
-    const updateLine = (id, field, value) => {
+    const updateLine = (id: string, field: keyof POItem, value: string | number) => {
         setItems((prev) => prev.map((line) => (line.id === id ? { ...line, [field]: value } : line)));
     };
 
@@ -143,13 +173,13 @@ const POForm = () => {
         ]);
     };
 
-    const removeLine = (id) => {
+    const removeLine = (id: string) => {
         if (items.length > 1) {
             setItems((prev) => prev.filter((line) => line.id !== id));
         }
     };
 
-    const lineTotal = (line) => line.qty * line.price;
+    const lineTotal = (line: POItem) => line.qty * line.price;
     const subtotal = items.reduce((sum, line) => sum + lineTotal(line), 0);
 
     const taxAmount = (() => {
@@ -163,7 +193,7 @@ const POForm = () => {
 
     const totalAmount = taxSettings.enabled && !taxSettings.inclusive ? subtotal + taxAmount : subtotal;
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement> | React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/ap/pos');
@@ -178,12 +208,11 @@ const POForm = () => {
         const finalId = isViewMode ? poId : newId;
 
         const finalPO = {
-            id: finalId,
             vendorId: formData.vendorId,
             date: formData.date,
             expectedDate: formData.expectedDate,
             amount: totalAmount,
-            status: mode === 'edit' ? selectedPO?.status : 'Approved',
+            status: mode === 'edit' ? selectedPO?.status : 'Approved' as const,
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
             notes: formData.notes
         };
@@ -199,7 +228,8 @@ const POForm = () => {
 
             navigate('/ap/pos');
         } catch (err) {
-            window.alert(`Failed to save purchase order: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save purchase order: ${message}`);
         }
     };
 
@@ -209,7 +239,7 @@ const POForm = () => {
     return (
         <FormPage
             title={mode === 'new' ? 'New Purchase Order' : `Purchase Order ${selectedPO?.id || ''}`}
-            backLink="/ap/pos"
+            backTo="/ap/pos"
             isLoading={isPageLoading}
             actions={
                 <div className="flex gap-2">
@@ -314,7 +344,7 @@ const POForm = () => {
                             <tbody>
                                 {items.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" className="text-center p-6 text-neutral-400">
+                                        <td colSpan={7} className="text-center p-6 text-neutral-400">
                                             No items added
                                         </td>
                                     </tr>

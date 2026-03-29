@@ -105,6 +105,8 @@ function normalizeBill(raw: RawBill): Bill {
         totalAmount: Number(raw.totalAmount ?? 0),
         subtotal:   Number(raw.subtotal    ?? 0),
         taxAmount:  Number(raw.taxAmount   ?? 0),
+        apAccountId: raw.apAccountId || '',
+        taxRate: Number(raw.taxRate ?? 0),
         poNumber:   raw.poNumber || '',
         notes:      raw.notes    || '',
         lines: (raw.lines || []).map((l) => ({

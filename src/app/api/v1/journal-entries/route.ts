@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { syncAccountPostingFlags } from '@/lib/account-postings';
 import {
   createJournalEntryInputSchema,
   createJournalEntryResponseSchema,
@@ -245,6 +246,10 @@ export async function POST(request: NextRequest) {
           status: true,
         },
       });
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await syncAccountPostingFlags(tx, payload.organizationId, rawPayload.lines.map((line: { accountId: string }) => line.accountId));
     });
 
     const responsePayload = createJournalEntryResponseSchema.parse({

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
+import type { Account, DebitNote, PurchaseReturn } from '../../types';
 
 interface DebitNoteLine {
     lineKey?:    string;
@@ -41,20 +42,45 @@ import { useDebitNotes, usePurchaseReturns, useCreateDebitNote, useUpdateDebitNo
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
-const BANK_TO_GL_ACCOUNT_MAP = {
+interface DebitNoteLocationState {
+    returnDraft?: PurchaseReturn;
+    debitId?: string;
+    mode?: 'create' | 'edit' | 'view';
+}
+
+interface ReturnTotals {
+    subtotal: number;
+    taxAmount: number;
+    total: number;
+}
+
+interface PostingPreviewLine {
+    side: 'DR' | 'CR';
+    accountId: string;
+    amount: number;
+}
+
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+type AccountFieldKey = 'apAccountId' | 'returnAccountId' | 'taxAccountId' | 'settlementAccountId';
+
+const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
 };
 
-const buildDebitNo = (dateStr, seq = 1) => {
+const buildDebitNo = (dateStr?: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `DBN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const toReturnTotals = (purchaseReturn) => {
+const toReturnTotals = (purchaseReturn?: PurchaseReturn | null): ReturnTotals => {
     if (!purchaseReturn) return { subtotal: 0, taxAmount: 0, total: 0 };
     const subtotal = (purchaseReturn.lines || []).reduce((sum, line) => {
         return sum + Number(line.qtyReturn || 0) * Number(line.price || 0);
@@ -82,12 +108,12 @@ const DebitNoteForm = () => {
     const purchaseReturns = prData?.data ?? [];
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
-    const state = location.state || {};
+    const state = (location.state || {}) as DebitNoteLocationState;
     const mode = state.mode || 'create';
     const isView = mode === 'view';
 
     const [numberingMode, setNumberingMode] = useState('auto');
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<DebitNoteFormData>({
         debitNumber: '',
         debitDate: new Date().toISOString().split('T')[0],
         linkedReturnId: '',
@@ -110,31 +136,31 @@ const DebitNoteForm = () => {
         taxRate: 11
     });
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
-    const apAccountOptions = useMemo(() => {
+    const apAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
-    }, []);
+    }, [chartOfAccounts]);
 
-    const returnAccountOptions = useMemo(() => {
+    const returnAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter(
             (account) =>
                 account.isActive && account.isPostable && (account.type === 'Expense' || account.type === 'Asset')
         );
-    }, []);
+    }, [chartOfAccounts]);
 
-    const taxAccountOptions = useMemo(() => {
+    const taxAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
-    const settlementAccountOptions = useMemo(() => {
+    const settlementAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     useEffect(() => {
         if (state.returnDraft) {
@@ -144,7 +170,7 @@ const DebitNoteForm = () => {
             setFormData((prev) => ({
                 ...prev,
                 debitDate: draft.returnDate || prev.debitDate,
-                linkedReturnId: draft.returnNumber,
+                linkedReturnId: draft.number || draft.id,
                 vendorId: draft.vendorId,
                 vendorName: sourceBill?.vendor || '',
                 sourceBillId: draft.billId,
@@ -196,15 +222,15 @@ const DebitNoteForm = () => {
         setFormData((prev) => (prev.settlementAccountId === mappedAccountId ? prev : { ...prev, settlementAccountId: mappedAccountId }));
     }, [formData.refundBankId, formData.settlementType]);
 
-    const debitNoPreview = useMemo(() => buildDebitNo(formData.debitDate, debitNotes.length + 1), [formData.debitDate]);
+    const debitNoPreview = useMemo(() => buildDebitNo(formData.debitDate, debitNotes.length + 1), [formData.debitDate, debitNotes.length]);
 
-    const openBillsForVendor = useMemo(() => {
+    const openBillsForVendor = useMemo<SelectOption[]>(() => {
         if (!formData.vendorId) return [];
         return bills
             .filter((bill) => bill.vendorId === formData.vendorId)
             .filter((bill) => bill.status !== 'Paid')
             .map((bill) => ({ value: bill.id, label: `${bill.id} • ${formatDateID(bill.date)} • ${formatIDR(bill.amount)}` }));
-    }, [formData.vendorId]);
+    }, [bills, formData.vendorId]);
 
     const totals = useMemo(() => {
         const subtotal = formData.lines.reduce((sum, line) => sum + Number(line.qtyReturn || 0) * Number(line.price || 0), 0);
@@ -218,19 +244,19 @@ const DebitNoteForm = () => {
         return { subtotal, taxAmount, total: subtotal + taxAmount };
     }, [formData.lines, formData.applyTax, formData.taxIncluded, formData.taxRate]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
 
-    const postingPreview = useMemo(() => {
+    const postingPreview = useMemo<PostingPreviewLine[]>(() => {
         const debitAccountId = formData.settlementType === 'Apply to Bill' ? formData.apAccountId : formData.settlementAccountId;
-        const lines = [{ side: 'DR', accountId: debitAccountId, amount: totals.total }];
+        const lines: PostingPreviewLine[] = [{ side: 'DR', accountId: debitAccountId, amount: totals.total }];
 
         lines.push({ side: 'CR', accountId: formData.returnAccountId, amount: totals.subtotal });
         if (formData.applyTax && totals.taxAmount > 0) {
@@ -242,7 +268,7 @@ const DebitNoteForm = () => {
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: AccountFieldKey, options: Account[], disabled = false) => {
         if (isAccountLegacy(formData[key])) {
             return (
                 <div>
@@ -296,10 +322,7 @@ const DebitNoteForm = () => {
             return;
         }
 
-        const debitNumber = numberingMode === 'manual' ? formData.debitNumber : undefined;
-
-        const notePayload = {
-            ...(debitNumber && { id: debitNumber }),
+        const notePayload: Partial<DebitNote> = {
             date: formData.debitDate,
             returnId: formData.linkedReturnId,
             vendorId: formData.vendorId,

@@ -143,6 +143,8 @@ export interface RawBill {
   totalAmount?: number | string | null;
   subtotal?: number | string | null;
   taxAmount?: number | string | null;
+  apAccountId?: string | null;
+  taxRate?: number | string | null;
   poNumber?: string | null;
   notes?: string | null;
   lines?: RawBillLine[] | null;
@@ -337,6 +339,8 @@ export interface Bill {
   totalAmount: number;
   subtotal: number;
   taxAmount: number;
+  apAccountId: string;
+  taxRate: number;
   poNumber: string;
   notes: string;
   lines: BillLine[];
@@ -397,10 +401,12 @@ export interface RawAccount {
   parentId?: string | null;
   isPostable?: boolean | null;
   isActive?: boolean | null;
+  hasPostings?: boolean | null;
   reportGroup?: string | null;
   reportSubGroup?: string | null;
   normalSide?: string | null;
   _count?: RawAccountCount | null;
+  journalLines?: Array<{ id: string }> | null;
   level?: number | null;
   depth?: number | null;
 }

@@ -1,6 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, ChevronDown, Check, Plus } from 'lucide-react';
 
+/**
+ * @typedef {object} SearchableOption
+ * @property {string} value
+ * @property {string} label
+ * @property {string | number} [subLabel]
+ */
+
+/**
+ * @typedef {object} SearchableSelectProps
+ * @property {SearchableOption[]} options
+ * @property {string} value
+ * @property {(value: string) => void} onChange
+ * @property {string} [placeholder]
+ * @property {import('react').ReactNode} [label]
+ * @property {(term: string) => void} [onAddNew]
+ * @property {boolean} [disabled]
+ * @property {string} [className]
+ */
+
+/** @param {SearchableSelectProps} props */
 const SearchableSelect = ({ options, value, onChange, placeholder = "Select...", label, onAddNew, disabled = false, className = '' }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');

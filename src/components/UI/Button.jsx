@@ -13,6 +13,20 @@ const sizeClasses = {
     large: 'h-12 text-lg px-6',
 };
 
+/**
+ * @typedef {object} ButtonProps
+ * @property {import('react').ReactNode} [text]
+ * @property {import('react').ReactNode} [children]
+ * @property {string} [variant]
+ * @property {string} [size]
+ * @property {'button' | 'submit' | 'reset'} [type]
+ * @property {(event: React.MouseEvent<HTMLButtonElement>) => void} [onClick]
+ * @property {boolean} [disabled]
+ * @property {import('react').ReactNode} [icon]
+ * @property {string} [className]
+ */
+
+/** @param {ButtonProps & Record<string, any>} props */
 const Button = ({ text, children, variant = 'primary', size = 'medium', type = 'button', onClick, disabled = false, icon = null, className = '', ...props }) => {
     return (
         <button

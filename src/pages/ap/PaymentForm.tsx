@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+import type { Account, APPayment, BankAccount, Bill, Vendor } from '../../types';
 
 interface BillAdjustment {
     discount: number;
@@ -24,6 +25,38 @@ interface APPaymentData {
     adjustments:      Record<string, BillAdjustment>;
     totalAmount:      number;
 }
+
+interface StoredAPPayment extends APPayment {
+    depositAccountId?: string;
+    apAccountId?: string;
+    discountAccountId?: string;
+    penaltyAccountId?: string;
+}
+
+interface PaymentLocationState {
+    mode?: 'create' | 'edit' | 'view';
+    paymentId?: string;
+}
+
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface PaymentBreakdownRow {
+    billId: string;
+    amount: number;
+    discount: number;
+    penalty: number;
+}
+
+interface PostingPreviewLine {
+    side: 'DR' | 'CR';
+    accountId: string;
+    amount: number;
+}
+
+type AccountFieldKey = 'cashAccountId' | 'apAccountId' | 'discountAccountId' | 'penaltyAccountId';
 import StatusTag from '../../components/UI/StatusTag';
 import { Calendar, CreditCard, FileText, Hash } from 'lucide-react';
 import { useVendors, useBills, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';
@@ -33,13 +66,13 @@ import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useAPPaymentStore } from '../../stores/useAPPaymentStore';
 
-const BANK_TO_GL_ACCOUNT_MAP = {
+const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
 };
 
-const buildPaymentNo = (bankCode, dateStr, seq) => {
+const buildPaymentNo = (bankCode: string, dateStr?: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -62,14 +95,14 @@ const PaymentForm = () => {
     const { data: bankAccountsData = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const bankAccounts = Array.isArray(bankAccountsData) ? bankAccountsData : [];
 
-    const { apPayments } = useAPPaymentStore();
+    const { apPayments } = useAPPaymentStore() as unknown as { apPayments: StoredAPPayment[] };
 
     const createAPPayment = useCreateAPPayment();
     const updateAPPayment = useUpdateAPPayment();
 
     const [mode, setMode] = useState('create');
 
-    const [paymentData, setPaymentData] = useState({
+    const [paymentData, setPaymentData] = useState<APPaymentData>({
         paymentNumber: '',
         vendorId: '',
         date: new Date().toISOString().split('T')[0],
@@ -87,32 +120,32 @@ const PaymentForm = () => {
 
     const [paymentTab, setPaymentTab] = useState('details');
     const [paymentNumberingMode, setPaymentNumberingMode] = useState('auto');
-    const [paymentSeqByBank, setPaymentSeqByBank] = useState({ BCA: 1, MANDIRI: 1, CASH: 1 });
+    const [paymentSeqByBank] = useState<Record<string, number>>({ BCA: 1, MANDIRI: 1, CASH: 1 });
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
     }, [chartOfAccounts]);
 
-    const apAccountOptions = useMemo(() => {
+    const apAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
     }, [chartOfAccounts]);
 
-    const discountAccountOptions = useMemo(() => {
+    const discountAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Revenue');
     }, [chartOfAccounts]);
 
-    const penaltyAccountOptions = useMemo(() => {
+    const penaltyAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
     }, [chartOfAccounts]);
 
-    const cashAccountOptions = useMemo(() => {
+    const cashAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
     }, [chartOfAccounts]);
 
-    const getBankCode = (bankId) => {
+    const getBankCode = (bankId: string) => {
         const bank = bankAccounts.find((item) => item.id === bankId);
         return bank?.code || bank?.bankName || 'BANK';
     };
@@ -123,12 +156,12 @@ const PaymentForm = () => {
         paymentSeqByBank[getBankCode(paymentData.payFrom)] || 1
     );
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -140,7 +173,7 @@ const PaymentForm = () => {
     }, [paymentData.payFrom]);
 
     useEffect(() => {
-        const state = location.state || {};
+        const state = (location.state || {}) as PaymentLocationState;
         if (state.mode) setMode(state.mode);
 
         if (state.paymentId) {
@@ -179,15 +212,15 @@ const PaymentForm = () => {
         setPaymentData((prev) => ({ ...prev, totalAmount: total }));
     }, [paymentData.selectedBills, paymentData.adjustments, bills]);
 
-    const vendorOptions = vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }));
-    const bankOptions = bankAccounts.map((bank) => ({ value: bank.id, label: bank.name }));
-    const methodOptions = [
+    const vendorOptions = vendors.map((vendor): SelectOption => ({ value: vendor.id, label: vendor.name }));
+    const bankOptions = bankAccounts.map((bank): SelectOption => ({ value: bank.id, label: bank.name }));
+    const methodOptions: SelectOption[] = [
         { value: 'Bank Transfer', label: 'Bank Transfer' },
         { value: 'Check', label: 'Check' },
         { value: 'Cash', label: 'Cash' }
     ];
 
-    const vendorBills = useMemo(() => {
+    const vendorBills = useMemo<Bill[]>(() => {
         return bills.filter((bill) => {
             if (!paymentData.vendorId || bill.vendorId !== paymentData.vendorId) return false;
             return bill.status !== 'Paid';
@@ -196,7 +229,7 @@ const PaymentForm = () => {
 
     const paymentBreakdown = useMemo(() => {
         const selected = paymentData.selectedBills
-            .map((billId) => {
+            .map((billId): PaymentBreakdownRow | null => {
                 const bill = bills.find((item) => item.id === billId);
                 if (!bill) return null;
                 const adjustment = paymentData.adjustments[billId] || { discount: 0, penalty: 0 };
@@ -207,7 +240,7 @@ const PaymentForm = () => {
                     penalty: Number(adjustment.penalty || 0)
                 };
             })
-            .filter(Boolean);
+            .filter((row): row is PaymentBreakdownRow => Boolean(row));
 
         const billAmount = selected.reduce((sum, row) => sum + row.amount, 0);
         const discountAmount = selected.reduce((sum, row) => sum + row.discount, 0);
@@ -217,8 +250,8 @@ const PaymentForm = () => {
         return { billAmount, discountAmount, penaltyAmount, cashAmount };
     }, [paymentData.selectedBills, paymentData.adjustments, bills]);
 
-    const postingPreview = useMemo(() => {
-        const lines = [
+    const postingPreview = useMemo<PostingPreviewLine[]>(() => {
+        const lines: PostingPreviewLine[] = [
             { side: 'DR', accountId: paymentData.apAccountId, amount: paymentBreakdown.billAmount },
             { side: 'CR', accountId: paymentData.cashAccountId, amount: paymentBreakdown.cashAmount }
         ];
@@ -242,7 +275,7 @@ const PaymentForm = () => {
         paymentBreakdown.penaltyAmount
     ]);
 
-    const handleVendorChange = (vendorId) => {
+    const handleVendorChange = (vendorId: string) => {
         const vendor = vendors.find((item) => item.id === vendorId);
         setPaymentData((prev) => ({
             ...prev,
@@ -254,7 +287,7 @@ const PaymentForm = () => {
         }));
     };
 
-    const toggleBillSelection = (billId) => {
+    const toggleBillSelection = (billId: string) => {
         setPaymentData((prev) => {
             const selected = prev.selectedBills.includes(billId)
                 ? prev.selectedBills.filter((id) => id !== billId)
@@ -263,7 +296,7 @@ const PaymentForm = () => {
         });
     };
 
-    const handleAdjustmentChange = (billId, field, value) => {
+    const handleAdjustmentChange = (billId: string, field: keyof BillAdjustment, value: string) => {
         const normalized = Math.max(0, Number.parseFloat(value) || 0);
         setPaymentData((prev) => ({
             ...prev,
@@ -280,7 +313,7 @@ const PaymentForm = () => {
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
     const fcSmInline = 'w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: AccountFieldKey, options: Account[], disabled = false) => {
         if (isAccountLegacy(paymentData[key])) {
             return (
                 <div>
@@ -348,7 +381,7 @@ const PaymentForm = () => {
             penaltyAccountId: paymentData.penaltyAccountId,
             billId: paymentData.selectedBills[0] || '',
             amount: paymentData.totalAmount,
-            status: 'Completed',
+            status: 'Completed' as const,
         };
 
         try {
@@ -359,7 +392,8 @@ const PaymentForm = () => {
             }
             navigate('/ap/payments');
         } catch (err) {
-            window.alert(`Failed to save payment: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save payment: ${message}`);
         }
     };
 

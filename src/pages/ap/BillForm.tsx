@@ -9,8 +9,39 @@ import { useBills, useCreateBill, useUpdateBill } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import type { Account, Bill } from '../../types';
 
-const buildFormData = (bill) => {
+type BillFormData = {
+    vendor: string;
+    poNumber: string;
+    issueDate: string;
+    dueDate: string;
+    billNumber: string;
+    apAccountId: string;
+    notes: string;
+};
+
+type BillTemplateLine = {
+    description?: string;
+    accountId?: string;
+    qty?: number | string;
+    unit?: string;
+    price?: number | string;
+};
+
+type BillItem = {
+    id: string;
+    description: string;
+    accountId: string;
+    qty: number;
+    unit: string;
+    price: number;
+};
+
+type BillTemplateMap = Record<string, BillTemplateLine[]>;
+type FormErrors = Record<string, string | undefined>;
+
+const buildFormData = (bill: Bill | null): BillFormData => {
     if (!bill) {
         return {
             vendor: '',
@@ -34,7 +65,7 @@ const buildFormData = (bill) => {
     };
 };
 
-const buildItems = (billId, expenseAccounts, templates) => {
+const buildItems = (billId: string, expenseAccounts: Account[], templates: BillTemplateMap): BillItem[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
     const source = templates[billId] || [];
 
@@ -65,7 +96,7 @@ const BillForm = () => {
     const bills = billsData?.data || [];
 
     // Keep Zustand for print templates only
-    const billItemTemplates = useBillStore(s => s.billItemTemplates);
+    const billItemTemplates = useBillStore((s) => s.billItemTemplates) as BillTemplateMap;
     const setBillItemTemplates = useBillStore(s => s.setBillItemTemplates);
 
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
@@ -73,10 +104,10 @@ const BillForm = () => {
     const createBill = useCreateBill();
     const updateBill = useUpdateBill();
 
-    const selectedBill = useMemo(() => bills.find((bill) => bill.id === billId) || null, [billId, bills]);
+    const selectedBill = useMemo<Bill | null>(() => bills.find((bill) => bill.id === billId) || null, [billId, bills]);
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -97,9 +128,9 @@ const BillForm = () => {
         );
     }, [chartOfAccounts]);
 
-    const [formData, setFormData] = useState(() => buildFormData(selectedBill));
-    const [items, setItems] = useState(() => buildItems(billId, expenseTargetAccounts, billItemTemplates));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<BillFormData>(() => buildFormData(selectedBill));
+    const [items, setItems] = useState<BillItem[]>(() => buildItems(billId, expenseTargetAccounts, billItemTemplates));
+    const [errors, setErrors] = useState<FormErrors>({});
 
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
     const [taxSettings, setTaxSettings] = useState({
@@ -114,15 +145,15 @@ const BillForm = () => {
         setErrors({});
     }, [selectedBill, billId, expenseTargetAccounts, billItemTemplates]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         if (!account) return 'Unknown account';
         return `${account.code} - ${account.name}`;
     };
 
-    const handleChange = (e) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
-        setErrors((prev) => ({ ...prev, [e.target.name]: null }));
+        setErrors((prev) => ({ ...prev, [e.target.name]: undefined }));
     };
 
     const addLine = () => {
@@ -130,21 +161,21 @@ const BillForm = () => {
         const defaultAccountId = expenseTargetAccounts[0]?.id || '';
         setItems((prev) => ([
             ...prev,
-            { id: Date.now(), description: '', accountId: defaultAccountId, qty: 1, unit: 'PCS', price: 0 }
+            { id: String(Date.now()), description: '', accountId: defaultAccountId, qty: 1, unit: 'PCS', price: 0 }
         ]));
     };
 
-    const updateLine = (id, field, value) => {
+    const updateLine = (id: BillItem['id'], field: keyof BillItem, value: string | number) => {
         if (isViewMode) return;
         setItems((prev) => prev.map((line) => (line.id === id ? { ...line, [field]: value } : line)));
     };
 
-    const removeLine = (id) => {
+    const removeLine = (id: BillItem['id']) => {
         if (isViewMode) return;
         setItems((prev) => prev.filter((line) => line.id !== id));
     };
 
-    const lineTotal = (line) => line.qty * line.price;
+    const lineTotal = (line: BillItem) => line.qty * line.price;
     const subtotal = items.reduce((sum, line) => sum + lineTotal(line), 0);
 
     const taxAmount = (() => {
@@ -159,7 +190,7 @@ const BillForm = () => {
     const totalAmount = taxSettings.enabled && !taxSettings.inclusive ? subtotal + taxAmount : subtotal;
 
     const postingPreview = useMemo(() => {
-        const debitByAccount = {};
+        const debitByAccount: Record<string, number> = {};
 
         items.forEach((line) => {
             const lineAmount = lineTotal(line);
@@ -200,7 +231,7 @@ const BillForm = () => {
         }).length;
     }, [items, accountMap]);
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/ap/bills');
@@ -226,13 +257,12 @@ const BillForm = () => {
         const finalBillId = isViewMode ? billId : newBillId;
 
         const finalBill = {
-            id: finalBillId,
             vendor: formData.vendor,
             poNumber: formData.poNumber,
             date: formData.issueDate,
             due: formData.dueDate,
             amount: totalAmount,
-            status: mode === 'edit' ? selectedBill?.status : 'Open',
+            status: mode === 'edit' ? selectedBill?.status : 'Unpaid',
             apAccountId: formData.apAccountId,
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
             notes: formData.notes
@@ -249,7 +279,8 @@ const BillForm = () => {
 
             navigate('/ap/bills');
         } catch (err) {
-            window.alert(`Failed to save bill: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save bill: ${message}`);
         }
     };
 
@@ -388,7 +419,7 @@ const BillForm = () => {
                             <tbody>
                                 {items.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" className="text-center p-6 text-neutral-400">
+                                        <td colSpan={7} className="text-center p-6 text-neutral-400">
                                             No items added
                                         </td>
                                     </tr>

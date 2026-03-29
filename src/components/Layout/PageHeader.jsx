@@ -2,6 +2,19 @@ import React from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
+/**
+ * @typedef {object} PageHeaderProps
+ * @property {import('react').ReactNode} title
+ * @property {import('react').ReactNode} [subtitle]
+ * @property {import('react').ReactNode} [actions]
+ * @property {string} [backTo]
+ * @property {(() => void) | null} [onBack]
+ * @property {string} [backLabel]
+ * @property {string} [className]
+ * @property {boolean} [noBorder]
+ */
+
+/** @param {PageHeaderProps} props */
 const PageHeader = ({
     title,
     subtitle = '',

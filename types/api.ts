@@ -101,6 +101,39 @@ export const createJournalEntryResponseSchema = z.object({
   status: z.enum(['DRAFT', 'POSTED']),
 });
 
+export const accountTypeSchema = z.enum(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']);
+export const normalSideSchema = z.enum(['Debit', 'Credit']);
+
+const accountBaseFields = {
+  code: z.string().trim().min(1, 'Account code is required'),
+  name: z.string().trim().min(1, 'Account name is required'),
+  type: accountTypeSchema,
+  parentId: z.string().trim().min(1).nullable().optional(),
+  isPostable: z.boolean().default(true),
+  isActive: z.boolean().default(true),
+  reportGroup: z.string().trim().min(1, 'Report group is required'),
+  reportSubGroup: z.string().trim().optional(),
+  normalSide: normalSideSchema.optional(),
+};
+
+export const createAccountInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  ...accountBaseFields,
+});
+
+export const updateAccountInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  code: accountBaseFields.code.optional(),
+  name: accountBaseFields.name.optional(),
+  type: accountBaseFields.type.optional(),
+  parentId: accountBaseFields.parentId,
+  isPostable: accountBaseFields.isPostable.optional(),
+  isActive: accountBaseFields.isActive.optional(),
+  reportGroup: accountBaseFields.reportGroup.optional(),
+  reportSubGroup: accountBaseFields.reportSubGroup.optional(),
+  normalSide: accountBaseFields.normalSide,
+});
+
 export const dashboardSummaryQuerySchema = z.object({
   organizationId: z.string().trim().min(1),
 });
@@ -138,5 +171,7 @@ export type CreateInvoiceInput = z.infer<typeof createInvoiceInputSchema>;
 export type CreateInvoiceResponse = z.infer<typeof createInvoiceResponseSchema>;
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntryInputSchema>;
 export type CreateJournalEntryResponse = z.infer<typeof createJournalEntryResponseSchema>;
+export type CreateAccountInput = z.infer<typeof createAccountInputSchema>;
+export type UpdateAccountInput = z.infer<typeof updateAccountInputSchema>;
 export type DashboardSummaryQuery = z.infer<typeof dashboardSummaryQuerySchema>;
 export type DashboardSummaryResponse = z.infer<typeof dashboardSummaryResponseSchema>;

@@ -2,6 +2,20 @@ import React from 'react';
 import PageHeader from './PageHeader';
 import { FormSkeleton, SkeletonBlock } from '../UI/LoadingSkeleton';
 
+/**
+ * @typedef {object} FormPageProps
+ * @property {string} [containerClassName]
+ * @property {import('react').ReactNode} title
+ * @property {import('react').ReactNode} [subtitle]
+ * @property {string} [backTo]
+ * @property {(() => void) | null} [onBack]
+ * @property {string} [backLabel]
+ * @property {import('react').ReactNode} [actions]
+ * @property {boolean} [isLoading]
+ * @property {import('react').ReactNode} [children]
+ */
+
+/** @param {FormPageProps} props */
 const FormPage = ({
     containerClassName = '',
     title,

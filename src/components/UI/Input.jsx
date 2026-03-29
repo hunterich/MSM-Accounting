@@ -1,5 +1,24 @@
 import React from 'react';
 
+/**
+ * @typedef {object} InputProps
+ * @property {import('react').ReactNode} [label]
+ * @property {string} [id]
+ * @property {string} [name]
+ * @property {string} [type]
+ * @property {string} [placeholder]
+ * @property {string | number | readonly string[] | undefined} [value]
+ * @property {boolean} [required]
+ * @property {boolean} [disabled]
+ * @property {string | null | undefined} [error]
+ * @property {(event: import('react').ChangeEvent<HTMLInputElement>) => void} [onChange]
+ * @property {string} [className]
+ * @property {string} [wrapperClassName]
+ * @property {string} [inputClassName]
+ * @property {import('react').CSSProperties} [style]
+ */
+
+/** @param {InputProps} props */
 const Input = ({
     label,
     id,
