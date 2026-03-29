@@ -1,41 +1,51 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Card from '../../components/UI/Card';
-import Table from '../../components/UI/Table';
+import { List, Plus, Search, Tags } from 'lucide-react';
 import Button from '../../components/UI/Button';
+import Card from '../../components/UI/Card';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List } from 'lucide-react';
+import Table from '../../components/UI/Table';
 import { formatIDR } from '../../utils/formatters';
-import { useVendors } from '../../hooks/useAP';
+import { useVendorCategories, useVendors } from '../../hooks/useAP';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 const Vendors = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('ap_vendors');
     const { data: vendorsResult, isLoading } = useVendors();
+    const { data: vendorCategories = [] } = useVendorCategories();
+
     const vendorList = vendorsResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState({ status: '', category: '' });
-    const categories = useMemo(() => Array.from(new Set(vendorList.map((vendor) => vendor.category).filter(Boolean))).sort(), [vendorList]);
+
+    const categoryOptions = useMemo(() => {
+        const names = new Set(vendorCategories.map((category) => category.name));
+        vendorList.forEach((vendor) => {
+            if (vendor.category) names.add(vendor.category);
+        });
+        return Array.from(names).sort((left, right) => left.localeCompare(right));
+    }, [vendorCategories, vendorList]);
 
     const filteredData = useMemo(() => {
-        return vendorList.filter((item) => {
+        return vendorList.filter((vendor) => {
             const matchesSearch =
-                item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.category || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.code || '').toLowerCase().includes(searchTerm.toLowerCase());
-            const matchesStatus = filters.status ? item.status === filters.status : true;
-            const matchesCategory = filters.category ? item.category === filters.category : true;
+                vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                vendor.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                vendor.category.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesStatus = filters.status ? vendor.status === filters.status : true;
+            const matchesCategory = filters.category ? vendor.category === filters.category : true;
             return matchesSearch && matchesStatus && matchesCategory;
         });
-    }, [searchTerm, filters]);
+    }, [filters, searchTerm, vendorList]);
 
     const columns = [
-        { key: 'code', label: 'Vendor #' },
+        { key: 'code', label: 'Vendor #', sortable: true },
         { key: 'name', label: 'Vendor Name', sortable: true },
-        { key: 'category', label: 'Category', sortable: true },
-        { key: 'balance', label: 'Open Balance', align: 'right', render: (val) => formatIDR(val) },
-        { key: 'status', label: 'Status', render: (val) => <StatusTag status={val} /> },
+        { key: 'category', label: 'Category', sortable: true, render: (value) => value || '—' },
+        { key: 'paymentTerms', label: 'Terms', render: (value) => value || '—' },
+        { key: 'balance', label: 'Open Balance', align: 'right', render: (value) => formatIDR(value) },
+        { key: 'status', label: 'Status', render: (value) => <StatusTag status={value} /> },
         {
             key: 'actions',
             label: '',
@@ -44,8 +54,8 @@ const Vendors = () => {
                     <Button text="View" size="small" variant="tertiary" onClick={() => navigate(`/ap/vendors/new?vendorId=${row.id}&mode=view`)} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={() => navigate(`/ap/vendors/edit?vendorId=${row.id}&mode=edit`)} />
                 </div>
-            )
-        }
+            ),
+        },
     ];
 
     return (
@@ -61,6 +71,13 @@ const Vendors = () => {
                     >
                         <List size={16} />
                         Catalog
+                    </button>
+                    <button
+                        className="border border-neutral-300 bg-neutral-0 text-neutral-700 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
+                        onClick={() => navigate('/ap/vendor-categories')}
+                    >
+                        <Tags size={16} />
+                        Vendor Categories
                     </button>
                     <button
                         className={`border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
@@ -91,7 +108,7 @@ const Vendors = () => {
                         onChange={(event) => setFilters((prev) => ({ ...prev, category: event.target.value }))}
                     >
                         <option value="">Filter by Category</option>
-                        {categories.map((category) => (
+                        {categoryOptions.map((category) => (
                             <option key={category} value={category}>{category}</option>
                         ))}
                     </select>

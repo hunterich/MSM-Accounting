@@ -13,7 +13,7 @@ const sizeClasses = {
     large: 'h-12 text-lg px-6',
 };
 
-const Button = ({ text, children, variant = 'primary', size = 'medium', type = 'button', onClick, disabled = false, icon = null, className = '', ...props }) => {
+const Button = ({ text, children = undefined, variant = 'primary', size = 'medium', type = 'button', onClick, disabled = false, icon = null, className = '', ...props }) => {
     return (
         <button
             type={type}

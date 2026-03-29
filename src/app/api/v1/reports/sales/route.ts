@@ -96,7 +96,16 @@ export async function GET(req: NextRequest) {
         row.qty   += Number(line.quantity || 0);
         row.total += Number(line.lineSubtotal || 0);
       }
-      const rows = Array.from(map.values()).sort((a, b) => b.total - a.total);
+      let rows = Array.from(map.values());
+      if (customerSearch) {
+        const q = customerSearch.toLowerCase();
+        rows = rows.filter((row) => row.customerName?.toLowerCase().includes(q));
+      }
+      if (itemSearch) {
+        const q = itemSearch.toLowerCase();
+        rows = rows.filter((row) => row.description?.toLowerCase().includes(q));
+      }
+      rows = rows.sort((a, b) => b.total - a.total);
       return withCors(NextResponse.json({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) }));
     }
 

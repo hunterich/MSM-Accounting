@@ -134,6 +134,30 @@ export const dashboardSummaryResponseSchema = z.object({
   generatedAt: z.string(),
 });
 
+const ACCOUNT_TYPES_ZOD = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'] as const;
+const NORMAL_SIDES_ZOD = ['Debit', 'Credit'] as const;
+
+export const createAccountInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  code: z.string().trim().min(1, 'Account code is required'),
+  name: z.string().trim().min(1, 'Account name is required'),
+  type: z.enum(ACCOUNT_TYPES_ZOD),
+  reportGroup: z.string().trim().min(1, 'Report group is required'),
+  reportSubGroup: z.string().trim().optional().nullable(),
+  parentId: z.string().trim().optional().nullable(),
+  isPostable: z.boolean().default(true),
+  isActive: z.boolean().default(true),
+  normalSide: z.enum(NORMAL_SIDES_ZOD).optional(),
+});
+
+export const updateAccountInputSchema = createAccountInputSchema
+  .omit({ organizationId: true })
+  .partial()
+  .extend({ organizationId: z.string().trim().min(1) });
+
+export type CreateAccountInput = z.infer<typeof createAccountInputSchema>;
+export type UpdateAccountInput = z.infer<typeof updateAccountInputSchema>;
+
 export type CreateInvoiceInput = z.infer<typeof createInvoiceInputSchema>;
 export type CreateInvoiceResponse = z.infer<typeof createInvoiceResponseSchema>;
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntryInputSchema>;

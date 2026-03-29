@@ -389,20 +389,54 @@ async function main() {
   }
 
   // ============================================================
-  // 4. Vendors (unique on organizationId + code)
+  // 4. Vendor Categories + Vendors (unique on organizationId + code)
   // ============================================================
+  const vendorCategoryData = [
+    { code: 'INV', name: 'Inventory Suppliers', defaultPaymentTerms: 'Net 30' },
+    { code: 'SRV', name: 'Service Vendors', defaultPaymentTerms: 'Net 15' },
+    { code: 'OPS', name: 'Operational Suppliers', defaultPaymentTerms: 'Due on Receipt' },
+  ] as const;
+  const vendorCategoriesByCode: Record<string, any> = {};
+  for (const category of vendorCategoryData) {
+    const record = await prisma.vendorCategory.upsert({
+      where: { organizationId_code: { organizationId: org.id, code: category.code } },
+      update: {},
+      create: {
+        organizationId: org.id,
+        code: category.code,
+        name: category.name,
+        defaultPaymentTerms: category.defaultPaymentTerms,
+        defaultApAccountId: accountMap['2-1000'],
+        isActive: true,
+      },
+    });
+    vendorCategoriesByCode[category.code] = record;
+  }
+
   const vendorData = [
-    { code: 'VND-0001', name: 'Supplier Alpha', email: 'ap@alpha.com',  phone: '021-2222-0001' },
-    { code: 'VND-0002', name: 'Supplier Beta',  email: 'ap@beta.com',   phone: '021-2222-0002' },
-    { code: 'VND-0003', name: 'Supplier Gamma', email: 'ap@gamma.com',  phone: '021-2222-0003' },
-    { code: 'VND-0004', name: 'Supplier Delta', email: 'ap@delta.com',  phone: '021-2222-0004' },
-  ];
+    { code: 'VND-0001', name: 'Supplier Alpha', email: 'ap@alpha.com', phone: '021-2222-0001', categoryCode: 'INV' },
+    { code: 'VND-0002', name: 'Supplier Beta', email: 'ap@beta.com', phone: '021-2222-0002', categoryCode: 'SRV' },
+    { code: 'VND-0003', name: 'Supplier Gamma', email: 'ap@gamma.com', phone: '021-2222-0003', categoryCode: 'INV' },
+    { code: 'VND-0004', name: 'Supplier Delta', email: 'ap@delta.com', phone: '021-2222-0004', categoryCode: 'OPS' },
+  ] as const;
   const vendors: any[] = [];
   for (const v of vendorData) {
+    const category = vendorCategoriesByCode[v.categoryCode];
     const vendor = await prisma.vendor.upsert({
       where: { organizationId_code: { organizationId: org.id, code: v.code } },
       update: {},
-      create: { organizationId: org.id, ...v, status: 'ACTIVE' },
+      create: {
+        organizationId: org.id,
+        code: v.code,
+        name: v.name,
+        email: v.email,
+        phone: v.phone,
+        category: category?.name ?? null,
+        categoryId: category?.id ?? null,
+        paymentTerms: category?.defaultPaymentTerms ?? 'Net 30',
+        defaultApAccountId: accountMap['2-1000'],
+        status: 'ACTIVE',
+      },
     });
     vendors.push(vendor);
   }

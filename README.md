@@ -1,6 +1,6 @@
 # MSM Accounting Software
 
-Modern accounting workspace for SMEs: GL, AR, AP, inventory, banking, reporting, and role-based access.
+Modern accounting workspace for SMEs: GL, AR, AP, inventory, banking, reporting, and role-based access, with optional add-on modules for specialized vertical workflows.
 
 ## Stack
 

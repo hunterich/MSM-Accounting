@@ -1,20 +1,40 @@
 import React from 'react';
 
+/**
+ * @param {{
+ *   label?: string;
+ *   id?: string;
+ *   name?: string;
+ *   type?: string;
+ *   placeholder?: string;
+ *   value?: string | number | readonly string[];
+ *   required?: boolean;
+ *   disabled?: boolean;
+ *   error?: string | null;
+ *   onChange?: import('react').ChangeEventHandler<HTMLInputElement>;
+ *   className?: string;
+ *   wrapperClassName?: string;
+ *   inputClassName?: string;
+ *   style?: import('react').CSSProperties;
+ *   helperText?: string;
+ *   [key: string]: any;
+ * }} props
+ */
 const Input = ({
-    label,
-    id,
+    label = undefined,
+    id = undefined,
     name,
     type = 'text',
     placeholder = '',
     value,
     required = false,
     disabled = false,
-    error = null,
+    error = undefined,
     onChange,
     className = '',
-    wrapperClassName,
+    wrapperClassName = undefined,
     inputClassName = '',
-    style
+    style = undefined
 }) => {
     return (
         <div className={wrapperClassName !== undefined ? wrapperClassName : `mb-4 ${className}`}>

@@ -2,6 +2,19 @@ import React from 'react';
 import PageHeader from './PageHeader';
 import { FormSkeleton, SkeletonBlock } from '../UI/LoadingSkeleton';
 
+/**
+ * @param {{
+ *   containerClassName?: string;
+ *   title?: string;
+ *   subtitle?: string;
+ *   backTo?: string;
+ *   onBack?: (() => void) | null;
+ *   backLabel?: string;
+ *   actions?: import('react').ReactNode;
+ *   isLoading?: boolean;
+ *   children?: import('react').ReactNode;
+ * }} props
+ */
 const FormPage = ({
     containerClassName = '',
     title,

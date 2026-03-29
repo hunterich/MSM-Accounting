@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+import type { Account } from '../../types';
 
 interface PurchaseReturnLine {
     lineKey:       string;
@@ -37,14 +38,14 @@ import { useVendors, useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn } from '../../hooks/useReturns';
 
-const buildReturnNo = (dateStr, seq = 1) => {
+const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `PRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const normalizeLine = (line) => ({
+const normalizeLine = (line: Partial<PurchaseReturnLine> & { qty?: number }) => ({
     lineKey: line.lineKey,
     description: line.description,
     qtyPurchased: Number(line.qtyPurchased || line.qty || 0),
@@ -73,7 +74,7 @@ const PurchaseReturnForm = () => {
     const updatePurchaseReturnMutation = useUpdatePurchaseReturn();
 
     const billItemTemplates = useMemo(() => {
-        const map = {};
+        const map: Record<string, { description: string; qty: number; unit: string; price: number }[]> = {};
         bills.forEach(bill => {
             if (bill.lines?.length) map[bill.id] = bill.lines.map(l => ({
                 description: l.description,
@@ -86,7 +87,7 @@ const PurchaseReturnForm = () => {
     }, [bills]);
 
     const [returnNumberingMode, setReturnNumberingMode] = useState('auto');
-    const [returnData, setReturnData] = useState({
+    const [returnData, setReturnData] = useState<PurchaseReturnData>({
         returnNumber: '',
         vendorId: '',
         billId: '',
@@ -104,7 +105,7 @@ const PurchaseReturnForm = () => {
     });
 
     const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -125,9 +126,9 @@ const PurchaseReturnForm = () => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
     }, [chartOfAccounts]);
 
-    const toLineIdentity = (line) => line.lineKey || `${line.description}|${line.unit}|${Number(line.price || 0)}`;
+    const toLineIdentity = (line: PurchaseReturnLine) => line.lineKey || `${line.description}|${line.unit}|${Number(line.price || 0)}`;
 
-    const getAlreadyReturnedQty = (billId, lineIdentity, excludeReturnId = state.returnId) => {
+    const getAlreadyReturnedQty = (billId: string, lineIdentity: string, excludeReturnId?: string) => {
         return purchaseReturns
             .filter((ret) => ret.billId === billId)
             .filter((ret) => !excludeReturnId || ret.id !== excludeReturnId)
@@ -198,7 +199,7 @@ const PurchaseReturnForm = () => {
         return { subtotal, taxAmount, total };
     }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate]);
 
-    const hydrateLinesFromBill = (billId) => {
+    const hydrateLinesFromBill = (billId: string): PurchaseReturnLine[] => {
         const template = billItemTemplates[billId] || [];
         return template.map((line, index) => normalizeLine({
             lineKey: `${billId}-${index + 1}`,
@@ -210,7 +211,7 @@ const PurchaseReturnForm = () => {
         }));
     };
 
-    const handleBillChange = (billId) => {
+    const handleBillChange = (billId: string) => {
         const foundBill = bills.find((item) => item.id === billId);
         const vendor = vendors.find((item) => item.id === foundBill?.vendorId);
         setReturnData((prev) => ({
@@ -222,7 +223,7 @@ const PurchaseReturnForm = () => {
         }));
     };
 
-    const updateLine = (index, field, value) => {
+    const updateLine = (index: number, field: keyof PurchaseReturnLine, value: string | number) => {
         setReturnData((prev) => {
             const nextLines = [...prev.lines];
             const line = { ...nextLines[index] };
@@ -233,19 +234,19 @@ const PurchaseReturnForm = () => {
                 const maxReturnableQty = Math.max(0, Number(line.qtyPurchased || 0) - alreadyReturned);
                 line.qtyReturn = Math.max(0, Math.min(parsed, maxReturnableQty));
             } else {
-                line[field] = value;
+                (line as Record<string, unknown>)[field] = value;
             }
             nextLines[index] = line;
             return { ...prev, lines: nextLines };
         });
     };
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -265,7 +266,7 @@ const PurchaseReturnForm = () => {
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: 'apAccountId' | 'returnAccountId' | 'taxAccountId', options: Account[], disabled = false) => {
         if (isAccountLegacy(returnData[key])) {
             return (
                 <div>
@@ -336,9 +337,11 @@ const PurchaseReturnForm = () => {
             status: 'Pending Debit Note',
         };
         if (state.returnId) {
-            updatePurchaseReturnMutation.mutate({ id: state.returnId, ...returnRecord });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            updatePurchaseReturnMutation.mutate({ id: state.returnId, ...returnRecord } as any);
         } else {
-            createPurchaseReturnMutation.mutate(returnRecord);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            createPurchaseReturnMutation.mutate(returnRecord as any);
         }
 
         navigate('/ap/debits/new', {
