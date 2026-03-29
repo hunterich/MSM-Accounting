@@ -6,17 +6,22 @@ import { logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
 export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
+    const { id } = await context.params;
     const orgId = req.headers.get('x-org-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
     const so = await prisma.salesOrder.findFirst({
-      where: { id: params.id, organizationId: orgId },
+      where: { id, organizationId: orgId },
       include: { items: true },
     });
     if (!so) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
@@ -27,8 +32,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, context: RouteContext) {
   try {
+    const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -36,11 +42,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const body = await req.json();
     const { customerName, customerId, issueDate, expiryDate, number, notes, status, items } = body;
 
-    const existing = await prisma.salesOrder.findFirst({ where: { id: params.id, organizationId: orgId } });
+    const existing = await prisma.salesOrder.findFirst({ where: { id, organizationId: orgId } });
     if (!existing) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
 
     const updated = await prisma.salesOrder.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(customerName !== undefined && { customerName }),
         ...(customerId  !== undefined && { customerId }),
@@ -67,7 +73,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       include: { items: true },
     });
 
-    logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: params.id, action: 'UPDATE' });
+    logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: id, action: 'UPDATE' });
     return withCors(NextResponse.json(updated));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update sales order';
@@ -75,17 +81,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
+    const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
-    const existing = await prisma.salesOrder.findFirst({ where: { id: params.id, organizationId: orgId } });
+    const existing = await prisma.salesOrder.findFirst({ where: { id, organizationId: orgId } });
     if (!existing) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
 
-    await prisma.salesOrder.delete({ where: { id: params.id } });
-    logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: params.id, action: 'DELETE' });
+    await prisma.salesOrder.delete({ where: { id } });
+    logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: id, action: 'DELETE' });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete sales order';

@@ -71,6 +71,7 @@ export const SUBITEM_PERMISSION_MAP = {
     '/ap/payments':           'ap_payments',
     '/ap/debits':             'ap_debits',
     '/ap/vendors':            'ap_vendors',
+    '/ap/vendor-categories':  'ap_vendors',
     '/inventory':              'inv_items',
     '/inventory/items':        'inv_items',
     '/inventory/categories':   'inv_categories',

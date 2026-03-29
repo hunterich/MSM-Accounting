@@ -2,14 +2,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
 
 export const AP_KEYS = {
-    vendors:  ['apVendors'],
-    vendor:   (id) => ['apVendors', id],
-    bills:    ['apBills'],
-    bill:     (id) => ['apBills', id],
+    vendorCategories: ['apVendorCategories'],
+    vendors: ['apVendors'],
+    vendor: (id) => ['apVendors', id],
+    bills: ['apBills'],
+    bill: (id) => ['apBills', id],
     payments: ['apPayments'],
-    payment:  (id) => ['apPayments', id],
-    pos:      ['apPOs'],
-    po:       (id) => ['apPOs', id],
+    payment: (id) => ['apPayments', id],
+    pos: ['apPOs'],
+    po: (id) => ['apPOs', id],
 };
 
 // ── Status maps ───────────────────────────────────────────────────────────────
@@ -46,17 +47,35 @@ const PO_STATUS_UP = {
 
 function normalizeVendor(raw) {
     return {
-        id:       raw.id,
-        code:     raw.code     || '',
-        name:     raw.name     || '',
-        email:    raw.email    || '',
-        phone:    raw.phone    || '',
-        category: raw.category || '',
-        status:   VENDOR_STATUS_DOWN[raw.status] ?? raw.status,
+        id: raw.id,
+        code: raw.code || '',
+        name: raw.name || '',
+        email: raw.email || '',
+        phone: raw.phone || '',
+        categoryId: raw.categoryId || raw.vendorCategory?.id || '',
+        category: raw.vendorCategory?.name || raw.category || '',
+        categoryCode: raw.vendorCategory?.code || '',
+        paymentTerms: raw.paymentTerms || '',
+        npwp: raw.npwp || '',
+        defaultApAccountId: raw.defaultApAccountId || '',
+        status: VENDOR_STATUS_DOWN[raw.status] ?? raw.status,
         // Fields not yet in API
-        balance:  Number(raw.balance ?? 0),
-        billingAddress:  raw.billingAddress  || '',
+        balance: Number(raw.balance ?? 0),
+        billingAddress: raw.billingAddress || '',
         shippingAddress: raw.shippingAddress || '',
+    };
+}
+
+function normalizeVendorCategory(raw) {
+    return {
+        id: raw.id,
+        name: raw.name || '',
+        code: raw.code || '',
+        defaultPaymentTerms: raw.defaultPaymentTerms || '',
+        defaultApAccountId: raw.defaultApAccountId || '',
+        description: raw.description || '',
+        isActive: raw.isActive ?? true,
+        vendorCount: raw._count?.vendors ?? 0,
     };
 }
 
@@ -128,6 +147,51 @@ function normalizePO(raw) {
             lineTotal: Number(l.lineTotal ?? 0),
         })),
     };
+}
+
+// ── Vendor Categories ────────────────────────────────────────────────────────
+
+export function useVendorCategories() {
+    return useQuery({
+        queryKey: AP_KEYS.vendorCategories,
+        queryFn: () => api.get('/api/v1/vendor-categories').then((data) =>
+            Array.isArray(data) ? data.map(normalizeVendorCategory) : []
+        ),
+        staleTime: 30_000,
+    });
+}
+
+export function useCreateVendorCategory() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body) => api.post('/api/v1/vendor-categories', body),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.vendorCategories });
+            qc.invalidateQueries({ queryKey: AP_KEYS.vendors });
+        },
+    });
+}
+
+export function useUpdateVendorCategory() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...body }) => api.put(`/api/v1/vendor-categories/${id}`, body),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.vendorCategories });
+            qc.invalidateQueries({ queryKey: AP_KEYS.vendors });
+        },
+    });
+}
+
+export function useDeleteVendorCategory() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id) => api.delete(`/api/v1/vendor-categories/${id}`),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.vendorCategories });
+            qc.invalidateQueries({ queryKey: AP_KEYS.vendors });
+        },
+    });
 }
 
 // ── Vendors ───────────────────────────────────────────────────────────────────

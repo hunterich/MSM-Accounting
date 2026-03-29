@@ -9,7 +9,6 @@ import {
     Landmark,
     BarChart3,
     Settings,
-    Briefcase,
     Users
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
@@ -56,7 +55,8 @@ const navItems = [
             { label: 'Bills', path: '/ap/bills' },
             { label: 'Payments', path: '/ap/payments' },
             { label: 'Returns & Debits', path: '/ap/debits' },
-            { label: 'Vendors', path: '/ap/vendors' }
+            { label: 'Vendors', path: '/ap/vendors' },
+            { label: 'Vendor Categories', path: '/ap/vendor-categories' }
         ]
     },
     {
@@ -97,14 +97,6 @@ const navItems = [
         icon: BarChart3,
         subItems: [
             { label: 'All Reports', path: '/reports' }
-        ]
-    },
-    {
-        label: 'Company Setup',
-        path: '/company-setup',
-        icon: Briefcase,
-        subItems: [
-            { label: 'Company Info', path: '/company-setup' }
         ]
     },
     {

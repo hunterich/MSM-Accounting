@@ -77,31 +77,27 @@
 - [ ] CSV export for all list views
 - [~] Bulk invoice import from marketplace exports — Shopee 6-step wizard complete (`ImportInvoicesModal.jsx` + `shopeeImport.js` + `useIntegrationStore.js`); Tokopedia / TikTok Shop / Lazada not started
 
+### 1.7 Financial Reporting Foundation
+- [~] Reporting workspace exists with Sales and AR reports, print view, and CSV export
+- [~] GL financial statements in Reports module — Trial Balance, Balance Sheet, and Profit & Loss are the current implementation priority
+- [ ] AP aging and vendor balance reports
+- [ ] Cash / bank movement and reconciliation reports
+- [ ] Inventory stock movement and valuation reports
+
 ---
 
 ## Phase 2 — Business Critical (Revenue Impact)
 
 > Goal: Features required by target market (beauty clinics, pharmacies, e-commerce sellers).
+> Note: POS and pharmacy/cosmetics batch-expiry are now tracked as optional add-on modules so the core accounting roadmap stays focused.
 
-### 2.1 POS (Point of Sale)
-- [ ] Browser-based POS interface
-- [ ] Product search + barcode scanning
-- [ ] Cart with qty adjustment, discount per line
-- [ ] Multiple payment methods (cash, card, QRIS, split payment)
-- [ ] Cash change calculation
-- [ ] Receipt printing (thermal printer support)
-- [ ] POS closing / end-of-day summary
-- [ ] Offline mode with sync (localStorage fallback)
-- [ ] POS Profile per user / warehouse
+### 2.1 POS (Point of Sale) — Moved to Add-On Module
+- [ ] Retail / cashier workspace to be delivered as an optional add-on
+- [ ] Covers barcode sales flow, receipt printing, payment capture, and end-of-day closing
 
-### 2.2 Batch & Expiry Tracking
-- [ ] Batch number field on inventory items
-- [ ] Expiry date per batch
-- [ ] Expiry alerts (30 / 60 / 90 day warnings)
-- [ ] FEFO picking (First Expiry, First Out)
-- [ ] Batch selection on invoice / PO / stock movements
-- [ ] BPOM / product registration number field
-- [ ] Batch-level stock report
+### 2.2 Batch & Expiry Tracking — Moved to Add-On Module
+- [ ] Pharmacy / cosmetics inventory add-on for batch, expiry, FEFO, and compliance fields
+- [ ] Includes batch-level stock visibility, expiry alerts, and controlled picking on stock movements
 
 ### 2.3 Recurring Invoices / Subscriptions
 - [ ] Recurring invoice templates (monthly, quarterly, annual)
@@ -132,9 +128,9 @@
 - [ ] Email templates (customizable)
 
 ### 2.6 Vendor Categories
-- [ ] Vendor category CRUD (like Customer Categories)
-- [ ] Category-specific defaults (payment terms, GL account)
-- [ ] Filter vendors by category
+- [x] Vendor category CRUD (like Customer Categories)
+- [x] Category-specific defaults (payment terms, GL account)
+- [x] Filter vendors by category
 
 ---
 
@@ -266,6 +262,32 @@
 
 ---
 
+## Add-On Modules
+
+> Optional modules that extend MSM for specialized operating models without bloating the core accounting workspace.
+
+### A1. Retail POS Add-On
+- [ ] Browser-based POS interface
+- [ ] Product search + barcode scanning
+- [ ] Cart with qty adjustment, discount per line
+- [ ] Multiple payment methods (cash, card, QRIS, split payment)
+- [ ] Cash change calculation
+- [ ] Receipt printing (thermal printer support)
+- [ ] POS closing / end-of-day summary
+- [ ] Offline mode with sync (localStorage fallback)
+- [ ] POS Profile per user / warehouse
+
+### A2. Pharmacy & Cosmetics Compliance Add-On
+- [ ] Batch number field on inventory items
+- [ ] Expiry date per batch
+- [ ] Expiry alerts (30 / 60 / 90 day warnings)
+- [ ] FEFO picking (First Expiry, First Out)
+- [ ] Batch selection on invoice / PO / stock movements
+- [ ] BPOM / product registration number field
+- [ ] Batch-level stock report
+
+---
+
 ## Phase 5 — Domain-Specific Features
 
 > Goal: Specialized features for MSM's target verticals.
@@ -280,7 +302,7 @@
 - [ ] Membership / loyalty points
 
 ### 5.2 Pharmacy
-- [~] Batch & expiry partially covered in Phase 2.2
+- [~] Batch & expiry now tracked under Add-On Modules (A2)
 - [ ] Drug interaction warnings
 - [ ] Prescription tracking
 - [ ] Controlled substance log
@@ -387,7 +409,7 @@
 | Purchase Orders | Yes | Yes | Medium |
 | Inventory (basic) | Yes | Yes | Medium |
 | Banking | Yes | Yes | Medium |
-| Financial Reports | Yes | Yes | Medium |
+| Financial Reports | Partial | Yes | Medium |
 | Tax (PPN) | Yes | Yes | Low |
 | E-Commerce Integration | Partial | Full | High |
 | Sales Orders | Yes (CRUD + Convert to Invoice + Print) | Yes | Low |

@@ -69,28 +69,30 @@ const APAging = ({ startDate, endDate, isInRange }) => {
     ];
 
     return (
-        <Card title="Accounts Payable Aging" padding={false}>
-            {agingRows.length > 0 ? (
-                <>
-                    <Table columns={agingColumns} data={agingRows} />
-                    <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
-                        <div />
-                        <div className="journal-totals-meta" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                            <div className="text-strong">Current: {formatIDR(agingTotals.current)}</div>
-                            <div className="text-strong">1–30: {formatIDR(agingTotals.d1_30)}</div>
-                            <div className="text-strong">31–60: {formatIDR(agingTotals.d31_60)}</div>
-                            <div className="text-strong">61–90: {formatIDR(agingTotals.d61_90)}</div>
-                            <div className="text-strong">90+: {formatIDR(agingTotals.d90plus)}</div>
-                            <div className="text-strong" style={{ borderLeft: '1px solid var(--color-neutral-300)', paddingLeft: '24px' }}>
-                                Total Outstanding: {formatIDR(agingTotals.balance)}
+        <div className="print-report-module bg-white">
+            <Card title="Accounts Payable Aging" padding={false} className="print:shadow-none print:border-neutral-300">
+                {agingRows.length > 0 ? (
+                    <>
+                        <Table columns={agingColumns} data={agingRows} virtualize={false} />
+                        <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
+                            <div />
+                            <div className="journal-totals-meta" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                                <div className="text-strong">Current: {formatIDR(agingTotals.current)}</div>
+                                <div className="text-strong">1–30: {formatIDR(agingTotals.d1_30)}</div>
+                                <div className="text-strong">31–60: {formatIDR(agingTotals.d31_60)}</div>
+                                <div className="text-strong">61–90: {formatIDR(agingTotals.d61_90)}</div>
+                                <div className="text-strong">90+: {formatIDR(agingTotals.d90plus)}</div>
+                                <div className="text-strong" style={{ borderLeft: '1px solid var(--color-neutral-300)', paddingLeft: '24px' }}>
+                                    Total Outstanding: {formatIDR(agingTotals.balance)}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </>
-            ) : (
-                <div className="module-empty-state">No open bills found.</div>
-            )}
-        </Card>
+                    </>
+                ) : (
+                    <div className="module-empty-state">No open bills found.</div>
+                )}
+            </Card>
+        </div>
     );
 };
 

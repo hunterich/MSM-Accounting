@@ -149,9 +149,11 @@ const CashFlow = ({ startDate, endDate, isInRange }) => {
     ];
 
     return (
-        <Card title="Statement of Cash Flows (Direct Method)" padding={false}>
-            <Table columns={columns} data={cashFlowData} />
-        </Card>
+        <div className="print-report-module bg-white">
+            <Card title="Statement of Cash Flows (Direct Method)" padding={false} className="print:shadow-none print:border-neutral-300">
+                <Table columns={columns} data={cashFlowData} virtualize={false} />
+            </Card>
+        </div>
     );
 };
 

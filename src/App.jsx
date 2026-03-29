@@ -28,6 +28,7 @@ import BillForm from './pages/ap/BillForm'
 import PurchaseOrders from './pages/ap/PurchaseOrders'
 import POForm from './pages/ap/POForm'
 import Vendors from './pages/ap/Vendors'
+import VendorCategories from './pages/ap/VendorCategories'
 import VendorForm from './pages/ap/VendorForm'
 import APPayments from './pages/ap/Payments'
 import APPaymentForm from './pages/ap/PaymentForm'
@@ -118,6 +119,7 @@ function App() {
                     <Route path="ap/debits/new" element={withPermission(<DebitNoteForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/edit" element={withPermission(<DebitNoteForm />, 'ap_debits', 'edit')} />
                     <Route path="ap/vendors" element={withPermission(<Vendors />, 'ap_vendors')} />
+                    <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendors')} />
                     <Route path="ap/vendors/new" element={withPermission(<VendorForm />, 'ap_vendors', 'create')} />
                     <Route path="ap/vendors/edit" element={withPermission(<VendorForm />, 'ap_vendors', 'edit')} />
 

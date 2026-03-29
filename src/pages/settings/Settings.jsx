@@ -81,9 +81,6 @@ const Settings = () => {
             }
             updateCompanyInfo(generalSettings);
             updateTaxSettings(taxData);
-            if (!saveCustomerCreditSettings()) {
-                return;
-            }
         }
 
         if (sectionId === 'customers') {
@@ -259,29 +256,6 @@ const Settings = () => {
                                     </div>
                                 </>
                             )}
-                        </div>
-
-                        <div className="mb-4 pt-6 border-t border-neutral-200 mt-6">
-                            <h3 className="text-lg font-semibold text-neutral-800 mb-2">Customer Credit Settings</h3>
-                            <p className="settings-muted mb-4">Master credit defaults for new customers that use the general setting.</p>
-
-                            <div className="mb-4">
-                                <label className="form-label settings-label-strong">Master Credit Limit (Default)</label>
-                                <Input
-                                    type="number"
-                                    value={creditLimitSettings.defaultLimit}
-                                    onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, defaultLimit: e.target.value })}
-                                />
-                            </div>
-
-                            <div className="mb-4">
-                                <label className="form-label settings-label-strong">Master Credit Terms (Days)</label>
-                                <Input
-                                    type="number"
-                                    value={creditLimitSettings.defaultPaymentTerms}
-                                    onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, defaultPaymentTerms: e.target.value })}
-                                />
-                            </div>
                         </div>
 
                         <div className="settings-save-wrap">

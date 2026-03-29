@@ -6,6 +6,10 @@ import { logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
 export async function OPTIONS() {
   return corsPreflightResponse();
 }
@@ -34,14 +38,15 @@ const nextInvoiceNumber = async (tx: any, organizationId: string): Promise<strin
   return `${INVOICE_PREFIX}-${String(nextSeq).padStart(INVOICE_DIGITS, '0')}`;
 };
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, context: RouteContext) {
   try {
+    const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
     const so = await prisma.salesOrder.findFirst({
-      where: { id: params.id, organizationId: orgId },
+      where: { id, organizationId: orgId },
       include: { items: true },
     });
     if (!so) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
