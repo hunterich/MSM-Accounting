@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package,
   Search, Printer, Download, X, LayoutGrid, BarChart3
@@ -6,8 +6,11 @@ import {
 import { useReactToPrint } from 'react-to-print';
 import { formatIDR, formatDateID } from '../../utils/formatters';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useCustomers } from '../../hooks/useAR';
+import { useItems } from '../../hooks/useInventory';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../api/apiClient';
 
 const TableIcon = () => (
@@ -180,6 +183,19 @@ const pad = (n) => String(n).padStart(2, '0');
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+const REPORT_PRESETS_KEY = 'msm-report-presets';
+
+const loadReportPresets = () => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(REPORT_PRESETS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const defaultCompareAsOfDate = () => fmtDate(new Date(today.getFullYear(), today.getMonth(), 0));
 
 const escapeCsvCell = (value) => {
   if (value === null || value === undefined) return '';
@@ -387,6 +403,20 @@ const buildGlCsv = (report, data) => {
 
 const Reports = () => {
   const company = useSettingsStore((s) => s.companyInfo);
+  const { data: customersData } = useCustomers({ limit: 100 });
+  const { data: itemsData } = useItems({ limit: 100 });
+  const customers = customersData?.data || [];
+  const items = itemsData?.data || [];
+  const customerOptions = customers.map((customer) => ({
+    value: customer.id,
+    label: customer.name,
+    subLabel: customer.code || undefined,
+  }));
+  const itemOptions = items.map((item) => ({
+    value: item.id,
+    label: item.name,
+    subLabel: item.sku || undefined,
+  }));
   const [activeCategory, setActiveCategory] = useState('sales');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -394,10 +424,12 @@ const Reports = () => {
   const [dateFrom, setDateFrom] = useState(fmtDate(firstOfMonth));
   const [dateTo, setDateTo] = useState(fmtDate(today));
   const [asOfDate, setAsOfDate] = useState(fmtDate(today));
-  const [compareAsOfDate, setCompareAsOfDate] = useState(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
+  const [compareAsOfDate, setCompareAsOfDate] = useState(defaultCompareAsOfDate());
   const [filterCustomer, setFilterCustomer] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [topNCustomer, setTopNCustomer] = useState(false);
   const [filterItem, setFilterItem] = useState('');
+  const [selectedItemId, setSelectedItemId] = useState('');
   const [topNItem, setTopNItem] = useState(false);
   const [itemSortBy, setItemSortBy] = useState('total');
   const [overdueStatus, setOverdueStatus] = useState('');
@@ -407,6 +439,32 @@ const Reports = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const printRef = useRef(null);
+  const [reportPresets, setReportPresets] = useState(loadReportPresets);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(REPORT_PRESETS_KEY, JSON.stringify(reportPresets));
+  }, [reportPresets]);
+
+  useEffect(() => {
+    if (!filterCustomer || selectedCustomerId || !customers.length) return;
+    const matchedCustomer = customers.find(
+      (customer) => customer.name.toLowerCase() === filterCustomer.toLowerCase()
+    );
+    if (matchedCustomer) {
+      setSelectedCustomerId(matchedCustomer.id);
+    }
+  }, [customers, filterCustomer, selectedCustomerId]);
+
+  useEffect(() => {
+    if (!filterItem || selectedItemId || !items.length) return;
+    const matchedItem = items.find(
+      (item) => item.name.toLowerCase() === filterItem.toLowerCase()
+    );
+    if (matchedItem) {
+      setSelectedItemId(matchedItem.id);
+    }
+  }, [items, filterItem, selectedItemId]);
 
   const categoryReports = REPORTS_BY_CATEGORY[activeCategory] || [];
   const activeCategoryMeta = CATEGORIES.find((category) => category.id === activeCategory);
@@ -429,6 +487,10 @@ const Reports = () => {
     setError(null);
     setParamModal(null);
     setSearchTerm('');
+    setFilterCustomer('');
+    setSelectedCustomerId('');
+    setFilterItem('');
+    setSelectedItemId('');
   };
 
   const closeReportTab = (reportId) => {
@@ -443,16 +505,62 @@ const Reports = () => {
     });
   };
 
-  const handleCardClick = (report) => {
-    if (!activeReport || activeReport.report.id !== report.id) {
-      setFilterCustomer('');
-      setTopNCustomer(false);
-      setFilterItem('');
-      setTopNItem(false);
-      setItemSortBy('total');
-      setOverdueStatus('');
-    }
+  const syncCustomerFilter = (customerSearch = '') => {
+    const matchedCustomer = customers.find(
+      (customer) => customer.name.toLowerCase() === String(customerSearch).toLowerCase()
+    );
+    setSelectedCustomerId(matchedCustomer?.id || '');
+    setFilterCustomer(customerSearch || '');
+  };
+
+  const syncItemFilter = (itemSearch = '') => {
+    const matchedItem = items.find(
+      (item) => item.name.toLowerCase() === String(itemSearch).toLowerCase()
+    );
+    setSelectedItemId(matchedItem?.id || '');
+    setFilterItem(itemSearch || '');
+  };
+
+  const openParamModal = (report, presetParams = null) => {
+    const params = presetParams || reportPresets[report.id] || {};
+    if (params.dateFrom) setDateFrom(params.dateFrom);
+    if (params.dateTo) setDateTo(params.dateTo);
+    if (params.asOfDate) setAsOfDate(params.asOfDate);
+    if (params.compareAsOfDate) setCompareAsOfDate(params.compareAsOfDate);
+    syncCustomerFilter(params.customerSearch || '');
+    syncItemFilter(params.itemSearch || '');
+    setTopNCustomer(Boolean(params.topN) && report.id === 'by-customer');
+    setTopNItem(Boolean(params.topN) && report.id === 'by-item');
+    setItemSortBy(params.sortBy === 'qty' ? 'qty' : 'total');
+    setOverdueStatus(params.status || '');
     setParamModal(report);
+  };
+
+  const resetModalFilters = () => {
+    if (!paramModal) return;
+
+    setDateFrom(fmtDate(firstOfMonth));
+    setDateTo(fmtDate(today));
+    setAsOfDate(fmtDate(today));
+    setCompareAsOfDate(defaultCompareAsOfDate());
+    setFilterCustomer('');
+    setSelectedCustomerId('');
+    setTopNCustomer(false);
+    setFilterItem('');
+    setSelectedItemId('');
+    setTopNItem(false);
+    setItemSortBy('total');
+    setOverdueStatus('');
+    setReportPresets((prev) => {
+      const next = { ...prev };
+      delete next[paramModal.id];
+      return next;
+    });
+  };
+
+  const handleCardClick = (report) => {
+    const presetParams = activeReport?.report.id === report.id ? activeReport.params : null;
+    openParamModal(report, presetParams);
   };
 
   const buildRequestParams = (report) => {
@@ -466,6 +574,10 @@ const Reports = () => {
         if (filterItem) params.itemSearch = filterItem;
         if (topNItem) params.topN = 30;
         if (itemSortBy === 'qty') params.sortBy = 'qty';
+      }
+      if (report.id === 'by-item-customer') {
+        if (filterCustomer) params.customerSearch = filterCustomer;
+        if (filterItem) params.itemSearch = filterItem;
       }
       return params;
     }
@@ -499,6 +611,10 @@ const Reports = () => {
 
     try {
       const params = buildRequestParams(reportToRun);
+      setReportPresets((prev) => ({
+        ...prev,
+        [reportToRun.id]: params,
+      }));
       const data = await api.get(reportToRun.apiPath, params);
       const reportEntry = {
         report: reportToRun,
@@ -1279,7 +1395,7 @@ const Reports = () => {
                         </span>
                       ))}
                       <button
-                        onClick={() => setParamModal(activeReport.report)}
+                        onClick={() => openParamModal(activeReport.report, activeReport.params)}
                         className="text-xs text-primary-600 hover:text-primary-800 underline ml-1"
                       >
                         Ubah Filter
@@ -1399,16 +1515,18 @@ const Reports = () => {
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Pelanggan</div>
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm text-neutral-600 mb-1">Nama Pelanggan <span className="text-neutral-400">(opsional)</span></label>
-                    <input
-                      type="text"
-                      value={filterCustomer}
-                      onChange={(e) => setFilterCustomer(e.target.value)}
-                      placeholder="Cari nama pelanggan..."
-                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
-                    />
-                  </div>
+                  <SearchableSelect
+                    label="Customer (Optional)"
+                    options={customerOptions}
+                    value={selectedCustomerId}
+                    onChange={(customerId) => {
+                      setSelectedCustomerId(customerId);
+                      const customer = customers.find((entry) => entry.id === customerId);
+                      setFilterCustomer(customer?.name || '');
+                    }}
+                    placeholder="Select customer..."
+                    className="mb-0"
+                  />
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -1426,16 +1544,18 @@ const Reports = () => {
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Barang</div>
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm text-neutral-600 mb-1">Nama Barang <span className="text-neutral-400">(opsional)</span></label>
-                    <input
-                      type="text"
-                      value={filterItem}
-                      onChange={(e) => setFilterItem(e.target.value)}
-                      placeholder="Cari nama barang..."
-                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
-                    />
-                  </div>
+                  <SearchableSelect
+                    label="Barang (Opsional)"
+                    options={itemOptions}
+                    value={selectedItemId}
+                    onChange={(itemId) => {
+                      setSelectedItemId(itemId);
+                      const item = items.find((entry) => entry.id === itemId);
+                      setFilterItem(item?.name || '');
+                    }}
+                    placeholder="Pilih barang..."
+                    className="mb-0"
+                  />
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -1476,20 +1596,54 @@ const Reports = () => {
               </div>
             )}
 
+            {paramModal.id === 'by-item-customer' && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Penjualan Barang</div>
+                <div className="space-y-3">
+                  <SearchableSelect
+                    label="Pelanggan (Opsional)"
+                    options={customerOptions}
+                    value={selectedCustomerId}
+                    onChange={(customerId) => {
+                      setSelectedCustomerId(customerId);
+                      const customer = customers.find((entry) => entry.id === customerId);
+                      setFilterCustomer(customer?.name || '');
+                    }}
+                    placeholder="Pilih pelanggan..."
+                    className="mb-0"
+                  />
+                  <SearchableSelect
+                    label="Barang (Opsional)"
+                    options={itemOptions}
+                    value={selectedItemId}
+                    onChange={(itemId) => {
+                      setSelectedItemId(itemId);
+                      const item = items.find((entry) => entry.id === itemId);
+                      setFilterItem(item?.name || '');
+                    }}
+                    placeholder="Pilih barang..."
+                    className="mb-0"
+                  />
+                </div>
+              </div>
+            )}
+
             {paramModal.category === 'ar' && (
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Pelanggan</div>
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm text-neutral-600 mb-1">Nama Pelanggan <span className="text-neutral-400">(opsional)</span></label>
-                    <input
-                      type="text"
-                      value={filterCustomer}
-                      onChange={(e) => setFilterCustomer(e.target.value)}
-                      placeholder="Cari nama pelanggan..."
-                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
-                    />
-                  </div>
+                  <SearchableSelect
+                    label="Customer (Optional)"
+                    options={customerOptions}
+                    value={selectedCustomerId}
+                    onChange={(customerId) => {
+                      setSelectedCustomerId(customerId);
+                      const customer = customers.find((entry) => entry.id === customerId);
+                      setFilterCustomer(customer?.name || '');
+                    }}
+                    placeholder="Select customer..."
+                    className="mb-0"
+                  />
 
                   {paramModal.id === 'overdue-list' && (
                     <div>
@@ -1510,7 +1664,14 @@ const Reports = () => {
               </div>
             )}
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-between pt-2">
+              <button
+                type="button"
+                onClick={resetModalFilters}
+                className="text-sm text-neutral-500 hover:text-neutral-800 underline"
+              >
+                Reset Filters
+              </button>
               <Button
                 text="Tampilkan"
                 variant="primary"
