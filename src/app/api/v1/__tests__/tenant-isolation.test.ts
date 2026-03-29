@@ -58,7 +58,7 @@ import { GET as bankTxGET }
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeReq(orgId: string, method = 'GET', body?: unknown): NextRequest {
-  const init: RequestInit = { method, headers: { 'x-org-id': orgId, 'x-user-id': 'u1' } };
+  const init = { method, headers: { 'x-org-id': orgId, 'x-user-id': 'u1' } } as any;
   if (body) {
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);

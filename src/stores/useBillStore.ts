@@ -19,8 +19,8 @@ interface BillStore {
 export const useBillStore = create<BillStore>()(
     persist(
         (set, get) => ({
-            bills: seed,
-            billItemTemplates: templatesSeed,
+            bills: seed as unknown as E[],
+            billItemTemplates: templatesSeed as unknown as Record<string, E[]>,
             isLoading: false,
             error: null,
 

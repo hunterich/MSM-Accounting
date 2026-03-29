@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  pageExtensions: ['ts', 'tsx'],
+  pageExtensions: ['page.ts', 'page.tsx', 'route.ts', 'route.tsx'],
   async headers() {
     return [
       {

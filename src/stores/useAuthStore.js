@@ -1,55 +1,5 @@
 import { create } from 'zustand';
 
-interface AuthUser {
-    id:       string;
-    fullName: string;
-    email:    string;
-    [key: string]: unknown;
-}
-
-interface AuthOrg {
-    id:   string;
-    name: string;
-    [key: string]: unknown;
-}
-
-interface RolePermission {
-    moduleKey:  string;
-    canView:    boolean;
-    canCreate:  boolean;
-    canEdit:    boolean;
-    canDelete:  boolean;
-    [key: string]: unknown;
-}
-
-interface AuthStore {
-    user:                AuthUser | null;
-    org:                 AuthOrg | null;
-    roleType:            string | null;
-    invoiceAccessScope:  string;
-    permissions:         RolePermission[];
-    isLoading:           boolean;
-    hasPermission:       (moduleKey: string, action?: PermissionAction) => boolean;
-    checkSession:        () => Promise<void>;
-    login:               (email: string, password: string) => Promise<unknown>;
-    loginWithGoogle:     (credential: string) => Promise<unknown>;
-    logout:              () => Promise<void>;
-}
-
-type PermissionAction = 'view' | 'create' | 'edit' | 'delete';
-
-interface AuthResponseLike {
-  user?: AuthUser | null;
-  org?: AuthOrg | null;
-  roleType?: string | null;
-  permissions?: RolePermission[];
-  role?: {
-    type?: string | null;
-    permissions?: RolePermission[];
-    invoiceAccessScope?: string;
-  };
-}
-
 const API = import.meta.env?.VITE_API_URL || 'http://localhost:3000';
 
 const EMPTY_SESSION = {
@@ -61,19 +11,15 @@ const EMPTY_SESSION = {
   isLoading: false,
 };
 
-const normalizeModuleKey = (moduleKey: string) => String(moduleKey || '').trim().toLowerCase();
+const normalizeModuleKey = (moduleKey) => String(moduleKey || '').trim().toLowerCase();
 
-const getPermissionsFromResponse = (data: AuthResponseLike = {}) => data.role?.permissions || data.permissions || [];
+const getPermissionsFromResponse = (data = {}) => data.role?.permissions || data.permissions || [];
 
-const getRoleTypeFromResponse = (data: AuthResponseLike = {}) => data.role?.type || data.roleType || null;
+const getRoleTypeFromResponse = (data = {}) => data.role?.type || data.roleType || null;
 
-const getInvoiceAccessScopeFromResponse = (data: AuthResponseLike = {}) => data.role?.invoiceAccessScope || 'ALL';
+const getInvoiceAccessScopeFromResponse = (data = {}) => data.role?.invoiceAccessScope || 'ALL';
 
-export const hasModulePermission = (
-  permissions: RolePermission[] | Record<string, Record<PermissionAction, boolean>>,
-  moduleKey: string,
-  action: PermissionAction = 'view'
-) => {
+export const hasModulePermission = (permissions, moduleKey, action = 'view') => {
   const normalizedModuleKey = normalizeModuleKey(moduleKey);
   if (!normalizedModuleKey || !action) return false;
 
@@ -98,7 +44,7 @@ export const hasModulePermission = (
   return false;
 };
 
-export const useAuthStore = create<AuthStore>()((set, get) => ({
+export const useAuthStore = create((set, get) => ({
   user: null,
   org: null,
   roleType: null,

@@ -58,13 +58,22 @@ const templatesSeed = {
     ],
 };
 
-const toNumber = (value) => {
+interface SalesOrderLineLike {
+    id?: string;
+    qty?: number;
+    quantity?: number;
+    price?: number;
+    discount?: number;
+    discountPct?: number;
+}
+
+const toNumber = (value: string | number | null | undefined) => {
     const parsed = Number(value || 0);
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const calculateAmountFromItems = (items = []) => {
-    return items.reduce((sum, line) => {
+const calculateAmountFromItems = (items: SalesOrderLineLike[] = []) => {
+    return items.reduce((sum: number, line: SalesOrderLineLike) => {
         const qty = toNumber(line.qty ?? line.quantity);
         const price = toNumber(line.price);
         const discount = toNumber(line.discount ?? line.discountPct);
@@ -74,8 +83,8 @@ const calculateAmountFromItems = (items = []) => {
     }, 0);
 };
 
-const nextId = (prefix, records) => {
-    const maxNum = records.reduce((max, row) => {
+const nextId = (prefix: string, records: Array<{ id?: string }> = []) => {
+    const maxNum = records.reduce((max: number, row: { id?: string }) => {
         const value = String(row.id || '').replace(`${prefix}-`, '');
         const num = Number(value);
         if (!Number.isFinite(num)) return max;
@@ -184,7 +193,7 @@ export const useSalesOrderStore = create<SalesOrderStore>()(
                 };
 
                 await invoiceStore.addInvoice(invoicePayload);
-                await invoiceStore.setInvoiceItemTemplates(invoiceId, lineItems);
+                await invoiceStore.setInvoiceItemTemplates(invoiceId, lineItems as any);
 
                 set((current) => ({
                     salesOrders: current.salesOrders.map((so) =>

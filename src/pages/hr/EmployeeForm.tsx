@@ -8,18 +8,51 @@ import { formatIDR } from '../../utils/formatters';
 import { useHRStore } from '../../stores/useHRStore';
 import { useCreateEmployee, useUpdateEmployee } from '../../hooks/useHR';
 
-const toNumber = (value) => {
+interface EmployeeLineItem {
+    id: string;
+    name: string;
+    amount: number;
+}
+
+interface EmployeeFormData {
+    id: string;
+    name: string;
+    ktp: string;
+    dob: string;
+    phone: string;
+    email: string;
+    address: string;
+    joinDate: string;
+    department: string;
+    position: string;
+    status: string;
+    type: string;
+    bankName: string;
+    accountNumber: string;
+    accountHolder: string;
+    npwp: string;
+    bpjsKesehatan: string;
+    bpjsKetenagakerjaan: string;
+    basicSalary: number;
+    allowances: EmployeeLineItem[];
+    deductions: EmployeeLineItem[];
+}
+
+type EmployeeBucket = 'allowances' | 'deductions';
+type EmployeeErrors = Record<string, string | null | undefined>;
+
+const toNumber = (value: string | number) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const createLineItem = () => ({
+const createLineItem = (): EmployeeLineItem => ({
     id: `line-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
     name: '',
     amount: 0,
 });
 
-const buildEmployeeState = (employee) => {
+const buildEmployeeState = (employee: any): EmployeeFormData => {
     if (!employee) {
         return {
             id: '',
@@ -66,12 +99,12 @@ const buildEmployeeState = (employee) => {
         bpjsKesehatan: employee.bpjsKesehatan || '',
         bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan || '',
         basicSalary: toNumber(employee.basicSalary),
-        allowances: (employee.allowances || []).map((item, index) => ({
+        allowances: (employee.allowances || []).map((item: any, index: number) => ({
             id: item.id || `allw-${index + 1}`,
             name: item.name || '',
             amount: toNumber(item.amount)
         })),
-        deductions: (employee.deductions || []).map((item, index) => ({
+        deductions: (employee.deductions || []).map((item: any, index: number) => ({
             id: item.id || `ded-${index + 1}`,
             name: item.name || '',
             amount: toNumber(item.amount)
@@ -106,40 +139,42 @@ const EmployeeForm = () => {
         [employeeId, employees]
     );
 
-    const [formData, setFormData] = useState(() => buildEmployeeState(selectedEmployee));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<EmployeeFormData>(() => buildEmployeeState(selectedEmployee));
+    const [errors, setErrors] = useState<EmployeeErrors>({});
 
-    const handleChange = (event) => {
-        const { name, value } = event.target;
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const name = event.target.name as keyof EmployeeFormData;
+        const { value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const handleNumberChange = (event) => {
-        const { name, value } = event.target;
+    const handleNumberChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const name = event.target.name as keyof EmployeeFormData;
+        const { value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: toNumber(value) }));
         setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const updateLineItem = (bucket, id, field, value) => {
+    const updateLineItem = (bucket: EmployeeBucket, id: string, field: keyof EmployeeLineItem, value: string) => {
         setFormData((prev) => ({
             ...prev,
             [bucket]: prev[bucket].map((item) =>
                 item.id === id
-                    ? { ...item, [field]: field === 'amount' ? toNumber(value) : value }
+                    ? ({ ...item, [field]: field === 'amount' ? toNumber(value) : value } as EmployeeLineItem)
                     : item
             )
         }));
     };
 
-    const addLineItem = (bucket) => {
+    const addLineItem = (bucket: EmployeeBucket) => {
         setFormData((prev) => ({
             ...prev,
             [bucket]: [...prev[bucket], createLineItem()]
         }));
     };
 
-    const removeLineItem = (bucket, id) => {
+    const removeLineItem = (bucket: EmployeeBucket, id: string) => {
         setFormData((prev) => ({
             ...prev,
             [bucket]: prev[bucket].filter((item) => item.id !== id)
@@ -188,22 +223,22 @@ const EmployeeForm = () => {
 
         try {
             if (isCreateMode) {
-                await createEmployee.mutateAsync(normalized);
+                await createEmployee.mutateAsync(normalized as any);
             } else if (isEditMode) {
-                await updateEmployee.mutateAsync({ id: normalized.id, ...normalized });
+                await updateEmployee.mutateAsync(normalized as any);
             }
             navigate('/hr/employees');
         } catch (err) {
-            alert(`Failed to save employee: ${err?.message ?? 'Unknown error'}`);
+            alert(`Failed to save employee: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
     const totalAllowances = useMemo(
-        () => formData.allowances.reduce((sum, item) => sum + toNumber(item.amount), 0),
+        () => formData.allowances.reduce((sum: number, item: EmployeeLineItem) => sum + toNumber(item.amount), 0),
         [formData.allowances]
     );
     const totalDeductions = useMemo(
-        () => formData.deductions.reduce((sum, item) => sum + toNumber(item.amount), 0),
+        () => formData.deductions.reduce((sum: number, item: EmployeeLineItem) => sum + toNumber(item.amount), 0),
         [formData.deductions]
     );
     const grossSalary = toNumber(formData.basicSalary) + totalAllowances - totalDeductions;

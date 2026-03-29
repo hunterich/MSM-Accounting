@@ -14,12 +14,38 @@ interface SelectFieldProps {
     disabled?: boolean;
     children:  React.ReactNode;
 }
+
+interface BankingActionFormData {
+    fromAccountId: string;
+    toAccountId: string;
+    paidFromId: string;
+    expenseAccountId: string;
+    payee: string;
+    depositToId: string;
+    incomeAccountId: string;
+    receivedFrom: string;
+    amount: string;
+    date: string;
+    reference: string;
+    description: string;
+    taxType: string;
+    taxRate: string;
+    costCenter: string;
+    notes: string;
+    accountNickname: string;
+    bankName: string;
+    last4: string;
+    openingBalance: string;
+    currency: string;
+}
+
+type BankingActionErrors = Record<string, string | null | undefined>;
 import { useChartOfAccounts } from '../../hooks/useGL';
 import FormPage from '../../components/Layout/FormPage';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-const getActionFromPath = (path) => {
+const getActionFromPath = (path: string) => {
     if (path.includes('transfer')) return 'transfer';
     if (path.includes('expense'))  return 'expense';
     if (path.includes('income'))   return 'income';
@@ -37,7 +63,7 @@ const ACTION_TITLES = {
  * SelectField — wraps label + select in a form-group div so it aligns
  * perfectly with the Input component inside the grid.
  */
-const SelectField = ({ label, name, value, onChange, error, disabled, children }) => (
+const SelectField = ({ label, name, value, onChange, error, disabled, children }: SelectFieldProps) => (
     <div>
         {label && <label className="form-label">{label}</label>}
         <select
@@ -53,7 +79,7 @@ const SelectField = ({ label, name, value, onChange, error, disabled, children }
     </div>
 );
 
-const buildInitialState = (expenseAccounts, incomeAccounts) => ({
+const buildInitialState = (expenseAccounts: Array<{ id?: string }>, incomeAccounts: Array<{ id?: string }>): BankingActionFormData => ({
     // ── Transfer fields
     fromAccountId: '',
     toAccountId:   '',
@@ -105,8 +131,8 @@ const BankingActionForm = () => {
         [chartOfAccounts]
     );
 
-    const [formData, setFormData] = useState(() => buildInitialState(expenseAccounts, incomeAccounts));
-    const [errors, setErrors]     = useState({});
+    const [formData, setFormData] = useState<BankingActionFormData>(() => buildInitialState(expenseAccounts, incomeAccounts));
+    const [errors, setErrors]     = useState<BankingActionErrors>({});
 
     useEffect(() => {
         if (!sourceTransaction) return;
@@ -122,8 +148,9 @@ const BankingActionForm = () => {
         }));
     }, [sourceTransaction?.id, action]);
 
-    const handleChange = (event) => {
-        const { name, value } = event.target;
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const name = event.target.name as keyof BankingActionFormData;
+        const { value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         setErrors((prev)    => ({ ...prev, [name]: null }));
     };
@@ -143,7 +170,10 @@ const BankingActionForm = () => {
             }
             navigate('/banking');
         } catch (err) {
-            setErrors((prev) => ({ ...prev, _api: err.message || 'Save failed. Please try again.' }));
+            setErrors((prev) => ({
+                ...prev,
+                _api: err instanceof Error ? err.message : 'Save failed. Please try again.'
+            }));
         }
     };
 

@@ -3,15 +3,24 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 interface InvoiceLineItem {
     id:          string | number;
-    itemId?:     string;
+    productId?:  string;
+    code:        string;
     description: string;
-    qty:         number;
+    quantity:    number;
     unit:        string;
     price:       number;
     discount?:   number;
 }
 
+interface InvoiceAttachment {
+    id: string | number;
+    name: string;
+    size: string;
+    type: string;
+}
+
 interface InvoiceFormData {
+    id?:             string;
     customerId:      string;
     email:           string;
     billingAddress:  string;
@@ -24,7 +33,7 @@ interface InvoiceFormData {
     discount:        number;
     notes:           string;
     items:           InvoiceLineItem[];
-    attachments:     unknown[];
+    attachments:     InvoiceAttachment[];
     currency:        string;
     invoiceType:     string;
 }
@@ -34,6 +43,31 @@ interface InvoiceTaxSettings {
     inclusive: boolean;
     rate:      number;
 }
+
+interface TableErrorBoundaryProps {
+    children: React.ReactNode;
+}
+
+interface TableErrorBoundaryState {
+    hasError: boolean;
+    errorInfo: Error | null;
+}
+
+interface InvoiceEditorState {
+    openInvoiceId?: string;
+    mode?: string;
+    returnToWorkbench?: boolean;
+    catalogState?: {
+        searchTerm?: string;
+        status?: string;
+        dateFrom?: string;
+        dateTo?: string;
+    };
+}
+
+type CustomerLike = any;
+type InvoiceLike = any;
+type ProductLike = any;
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
@@ -45,12 +79,14 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers, useInvoices, useCreateInvoice, useUpdateInvoice } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
 
-class TableErrorBoundary extends React.Component {
-    constructor(props) {
+class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
+    constructor(props: TableErrorBoundaryProps) {
         super(props);
         this.state = { hasError: false, errorInfo: null };
     }
-    static getDerivedStateFromError(error) { return { hasError: true, errorInfo: error }; }
+    static getDerivedStateFromError(error: Error): TableErrorBoundaryState {
+        return { hasError: true, errorInfo: error };
+    }
     render() {
         if (this.state.hasError) {
             return <div className="p-4 bg-danger-50 text-danger-600 rounded-lg whitespace-pre-wrap font-mono text-sm shadow border border-danger-200">
@@ -64,26 +100,26 @@ class TableErrorBoundary extends React.Component {
 
 const InvoiceForm = () => {
     const navigate = useNavigate();
-    const location = useLocation();
-    const [editingInvoiceId, setEditingInvoiceId] = useState(null);
-    const [activeTab, setActiveTab] = useState('items'); // 'items', 'info', 'attachments'
-    const [numberingMode, setNumberingMode] = useState('auto'); // 'auto' | 'manual'
-    const [selectedCustomerTerms, setSelectedCustomerTerms] = useState(null);
+    const location = useLocation() as { state?: InvoiceEditorState };
+    const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'items' | 'info' | 'attachments'>('items');
+    const [numberingMode, setNumberingMode] = useState<'auto' | 'manual'>('auto');
+    const [selectedCustomerTerms, setSelectedCustomerTerms] = useState<number | null>(null);
 
     // Customer State
     const [masterCreditLimit, setMasterCreditLimit] = useState(5000000); // Mocked from Settings
 
     // Manage customers state dynamically
     const { data: customersData, isLoading: customersLoading } = useCustomers();
-    const customerList = customersData?.data || [];
+    const customerList = (customersData?.data || []) as CustomerLike[];
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
-    const invoices = (invoicesData?.data || []).filter(Boolean);
+    const invoices = ((invoicesData?.data || []).filter(Boolean)) as InvoiceLike[];
     const { data: itemsData, isLoading: itemsLoading } = useItems();
-    const products = itemsData?.data || [];
+    const products = (itemsData?.data || []) as ProductLike[];
     const createInvoice = useCreateInvoice();
     const updateInvoiceMutation = useUpdateInvoice();
 
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<InvoiceFormData>({
         customerId: '',
         email: '',
         billingAddress: '',
@@ -107,15 +143,15 @@ const InvoiceForm = () => {
         enabled: globalTaxSettings.enabled,
         inclusive: globalTaxSettings.inclusiveByDefault,
         rate: globalTaxSettings.defaultRate
-    });
+    } as InvoiceTaxSettings);
 
 
 
     // Item Search State
     const [itemSearchTerm, setItemSearchTerm] = useState('');
     const [showItemResults, setShowItemResults] = useState(false);
-    const itemSearchRef = useRef(null);
-    const fileInputRef = useRef(null);
+    const itemSearchRef = useRef<HTMLDivElement | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Numbering Configuration (from Settings)
     const numberingConfig = {
@@ -136,9 +172,9 @@ const InvoiceForm = () => {
 
     const [nextSequence, setNextSequence] = useState(getMaxSequence() + 1);
 
-    const formatSequence = (num) => String(num).padStart(numberingConfig.seqLength, '0');
+    const formatSequence = (num: number) => String(num).padStart(numberingConfig.seqLength, '0');
 
-    const buildAutoNumber = (dateStr) => {
+    const buildAutoNumber = (dateStr: string) => {
         const date = dateStr ? new Date(dateStr) : new Date();
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -150,7 +186,7 @@ const InvoiceForm = () => {
     useEffect(() => {
         const state = location.state || {};
         if (state.openInvoiceId && state.mode === 'edit' && invoices.length > 0) {
-            const exists = invoices.find(inv => inv.id === state.openInvoiceId);
+            const exists = invoices.find((inv) => inv.id === state.openInvoiceId);
             if (exists) {
                 setEditingInvoiceId(exists.id);
                 setNumberingMode('manual');
@@ -161,7 +197,7 @@ const InvoiceForm = () => {
                     dueDate: exists.dueDate || '',
                     number: exists.number || '',
                     notes: exists.notes || '',
-                    items: exists.items || [],
+                    items: (exists.items || []) as InvoiceLineItem[],
                 }));
                 setActiveTab('items');
             }
@@ -170,8 +206,8 @@ const InvoiceForm = () => {
 
     // Click outside to close item search range
     useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (itemSearchRef.current && !itemSearchRef.current.contains(event.target)) {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (itemSearchRef.current && !itemSearchRef.current.contains(event.target as Node)) {
                 setShowItemResults(false);
             }
         };
@@ -179,9 +215,9 @@ const InvoiceForm = () => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [itemSearchRef]);
 
-    const handleCustomerChange = (val) => {
+    const handleCustomerChange = (val: string) => {
         const custId = val;
-        const customer = customerList.find(c => c.id === custId);
+        const customer = customerList.find((c) => c.id === custId);
 
         if (customer) {
             const issueDate = new Date(formData.issueDate);
@@ -210,7 +246,7 @@ const InvoiceForm = () => {
         }
     };
 
-    const handleChange = (e) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
@@ -220,15 +256,15 @@ const InvoiceForm = () => {
         p.id.toLowerCase().includes(itemSearchTerm.toLowerCase())
     );
 
-    const selectProduct = (product) => {
-        const newItem = {
+    const selectProduct = (product: ProductLike) => {
+        const newItem: InvoiceLineItem = {
             id: Date.now(),
             productId: product.id,
-            code: product.id,
-            description: product.name,
+            code: String(product.code || product.id || ''),
+            description: String(product.name || ''),
             quantity: 1,
             unit: 'PCS',
-            price: product.price,
+            price: Number(product.price || 0),
             discount: 0
         };
 
@@ -242,7 +278,7 @@ const InvoiceForm = () => {
     };
 
     const addCustomItem = () => {
-        const newItem = {
+        const newItem: InvoiceLineItem = {
             id: Date.now(),
             productId: '',
             code: 'CUSTOM',
@@ -262,18 +298,22 @@ const InvoiceForm = () => {
         setShowItemResults(false);
     };
 
-    const removeItem = (id) => {
+    const removeItem = (id: string | number) => {
         setFormData(prev => ({
             ...prev,
             items: prev.items.filter(item => item.id !== id)
         }));
     };
 
-    const handleItemChange = (id, field, value) => {
+    const handleItemChange = (
+        id: string | number,
+        field: keyof InvoiceLineItem,
+        value: string | number
+    ) => {
         setFormData(prev => {
             const newItems = prev.items.map(item => {
                 if (item.id === id) {
-                    return { ...item, [field]: value };
+                    return { ...item, [field]: value } as InvoiceLineItem;
                 }
                 return item;
             });
@@ -281,17 +321,17 @@ const InvoiceForm = () => {
         });
     };
 
-    const calculateItemTotal = (item) => {
+    const calculateItemTotal = (item: InvoiceLineItem) => {
         const sub = item.quantity * item.price;
-        const disc = sub * (item.discount / 100);
+        const disc = sub * ((item.discount || 0) / 100);
         return sub - disc;
     };
 
     const calculateSubtotal = () => formData.items.reduce((acc, item) => acc + calculateItemTotal(item), 0);
 
-    const calculateDiscountAmount = (subtotal) => subtotal * (formData.discount / 100);
+    const calculateDiscountAmount = (subtotal: number) => subtotal * (formData.discount / 100);
 
-    const calculateTaxAmount = (netAmount) => {
+    const calculateTaxAmount = (netAmount: number) => {
         if (!taxSettings.enabled) return 0;
         const rate = taxSettings.rate / 100;
         if (taxSettings.inclusive) {
@@ -332,12 +372,12 @@ const InvoiceForm = () => {
 
         try {
             if (editingInvoiceId) {
-                await updateInvoiceMutation.mutateAsync({ id: editingInvoiceId, ...finalInvoiceData });
+                await updateInvoiceMutation.mutateAsync({ ...finalInvoiceData, id: editingInvoiceId } as any);
             } else {
-                await createInvoice.mutateAsync(finalInvoiceData);
+                await createInvoice.mutateAsync(finalInvoiceData as any);
             }
         } catch (err) {
-            window.alert(`Failed to save invoice: ${err?.message || 'Unknown error'}`);
+            window.alert(`Failed to save invoice: ${err instanceof Error ? err.message : 'Unknown error'}`);
             return;
         }
 
@@ -366,8 +406,8 @@ const InvoiceForm = () => {
     };
 
     // Attachment Logic
-    const handleFileUpload = (e) => {
-        const files = Array.from(e.target.files);
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
         const newAttachments = files.map(file => ({
             id: Date.now() + Math.random(),
             name: file.name,
@@ -380,10 +420,10 @@ const InvoiceForm = () => {
             attachments: [...prev.attachments, ...newAttachments]
         }));
 
-        e.target.value = null;
+        e.target.value = '';
     };
 
-    const removeAttachment = (id) => {
+    const removeAttachment = (id: string | number) => {
         setFormData(prev => ({
             ...prev,
             attachments: prev.attachments.filter(a => a.id !== id)
@@ -397,8 +437,9 @@ const InvoiceForm = () => {
         subLabel: c.id
     }));
 
-    const TabButton = ({ id, label, icon: Icon }) => (
+    const TabButton = ({ id, label, icon: Icon }: { id: 'items' | 'info' | 'attachments'; label: string; icon: React.ComponentType<{ size?: number }> }) => (
         <button
+            type="button"
             className={`inline-flex items-center gap-2 py-2.5 px-3.5 border border-transparent border-b-2 bg-transparent font-semibold text-sm cursor-pointer transition-colors ${activeTab === id ? 'text-primary-700 border-b-primary-600' : 'text-neutral-600 border-b-transparent hover:text-neutral-900'}`}
             onClick={() => setActiveTab(id)}
         >
@@ -437,7 +478,7 @@ const InvoiceForm = () => {
                 <>
                     <Button text="Print" variant="secondary" icon={<Printer size={16} />} onClick={handlePrint} />
                     <div className="w-[1px] h-8 bg-neutral-200 mx-1" />
-                    <Button text="Save Draft" variant="secondary" disabled={isSaving} />
+                    <Button text="Save Draft" variant="secondary" onClick={() => {}} disabled={isSaving} />
                     <Button text={isSaving ? 'Saving...' : 'Save & Approve'} variant="primary" icon={<Save size={16} />} onClick={handleApprove} disabled={isSaving} />
                 </>
             )}
@@ -490,7 +531,7 @@ const InvoiceForm = () => {
                                     <select
                                         className="h-10 px-1.5 rounded-md border border-neutral-300 bg-neutral-0 text-xs focus:border-primary-500 focus:outline-0 w-[58px] shrink-0"
                                         value={numberingMode}
-                                        onChange={(e) => setNumberingMode(e.target.value)}
+                                        onChange={(e) => setNumberingMode(e.target.value as 'auto' | 'manual')}
                                     >
                                         <option value="auto">Auto</option>
                                         <option value="manual">Manual</option>
@@ -589,7 +630,7 @@ const InvoiceForm = () => {
                                     <tbody>
                                         {formData.items.length === 0 ? (
                                             <tr>
-                                                <td colSpan="7" className="text-center p-8 border-b border-neutral-100">
+                                                <td colSpan={7} className="text-center p-8 border-b border-neutral-100">
                                                     <div className="text-neutral-500 font-medium mb-1">No items added</div>
                                                     <div className="text-neutral-400 text-xs">Use the search bar above to add products</div>
                                                 </td>
@@ -714,7 +755,7 @@ const InvoiceForm = () => {
                                     <label className="block mb-2 text-sm font-semibold text-neutral-700">Billing Address</label>
                                     <textarea
                                         className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
-                                        rows="4"
+                                        rows={4}
                                         value={formData.billingAddress}
                                         onChange={handleChange}
                                         name="billingAddress"
@@ -724,7 +765,7 @@ const InvoiceForm = () => {
                                     <label className="block mb-2 text-sm font-semibold text-neutral-700">Shipping Address</label>
                                     <textarea
                                         className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
-                                        rows="4"
+                                        rows={4}
                                         value={formData.shippingAddress}
                                         onChange={handleChange}
                                         name="shippingAddress"
@@ -747,7 +788,7 @@ const InvoiceForm = () => {
                                     <label className="form-label">Internal Notes</label>
                                     <textarea
                                         className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
-                                        rows="1"
+                                        rows={1}
                                         value={formData.notes}
                                         onChange={handleChange}
                                         name="notes"
@@ -802,7 +843,8 @@ const InvoiceForm = () => {
                                 <h3 className="font-semibold text-neutral-700 m-0">Attachments</h3>
                                 <button
                                     className="h-10 px-4 text-sm font-medium bg-neutral-100 text-neutral-700 border border-neutral-300 rounded-md hover:bg-neutral-200 cursor-pointer"
-                                    onClick={() => fileInputRef.current.click()}
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
                                 >
                                     Browse Files...
                                 </button>
@@ -818,7 +860,7 @@ const InvoiceForm = () => {
                             {formData.attachments.length > 0 && (
                                 <div className="mt-6 pt-6 border-t border-neutral-200">
                                     <div className="grid grid-cols-12 gap-4">
-                                        {formData.attachments.map(file => (
+                                        {formData.attachments.map((file) => (
                                             <div key={file.id} className="col-span-6 flex items-center gap-3 p-3 bg-neutral-0 border border-neutral-200 rounded-lg shadow-sm relative pr-10 hover:border-primary-300 transition-colors">
                                                 <FileText size={24} color="var(--color-primary-600)" />
                                                 <div className="flex-1 overflow-hidden">

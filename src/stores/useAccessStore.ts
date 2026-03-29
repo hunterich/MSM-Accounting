@@ -4,6 +4,8 @@ import { persist } from 'zustand/middleware';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type PermAction = 'view' | 'create' | 'edit' | 'delete';
+type ModuleKey = keyof typeof MODULE_KEYS;
+type PermissionMatrix = Record<string, ModulePermission>;
 
 export interface ModulePermission {
     view:   boolean;
@@ -86,7 +88,7 @@ export const MODULE_KEYS = {
  * Maps each sidebar nav item to the permission keys it depends on.
  * A nav item is visible if the user has `view` permission on ANY of these keys.
  */
-export const SIDEBAR_PERMISSION_MAP = {
+export const SIDEBAR_PERMISSION_MAP: Record<string, string[]> = {
     'Dashboard':           ['dashboard'],
     'General Ledger':      ['gl_coa', 'gl_journal'],
     'Accounts Receivable': ['ar_sales_orders', 'ar_invoices', 'ar_payments', 'ar_credits', 'ar_customers'],
@@ -104,7 +106,7 @@ export const SIDEBAR_PERMISSION_MAP = {
  * Maps each sidebar sub-item path to a specific permission key.
  * Used to filter sub-items within a flyout.
  */
-export const SUBITEM_PERMISSION_MAP = {
+export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/':                      'dashboard',
     '/gl':                    'gl_coa',
     '/gl/journals':           'gl_journal',
@@ -139,14 +141,14 @@ export const SUBITEM_PERMISSION_MAP = {
 };
 
 /* ---------- helper: full-access permission object ---------- */
-const allPermissions = () =>
-    Object.keys(MODULE_KEYS).reduce((acc, key) => {
+const allPermissions = (): PermissionMatrix =>
+    Object.keys(MODULE_KEYS).reduce((acc: PermissionMatrix, key) => {
         acc[key] = { view: true, create: true, edit: true, delete: true };
         return acc;
     }, {});
 
-const noPermissions = () =>
-    Object.keys(MODULE_KEYS).reduce((acc, key) => {
+const noPermissions = (): PermissionMatrix =>
+    Object.keys(MODULE_KEYS).reduce((acc: PermissionMatrix, key) => {
         acc[key] = { view: false, create: false, edit: false, delete: false };
         return acc;
     }, {});
@@ -155,19 +157,19 @@ const VIEW_ONLY_PERMISSION = { view: true, create: false, edit: false, delete: f
 const FULL_PERMISSION = { view: true, create: true, edit: true, delete: true };
 const EMPTY_PERMISSION = { view: false, create: false, edit: false, delete: false };
 
-const isFullAccessMatrix = (permissions = {}) => {
-    const rows = Object.values(permissions).filter((perm) => perm && typeof perm === 'object');
+const isFullAccessMatrix = (permissions: PermissionMatrix = {}) => {
+    const rows = Object.values(permissions).filter((perm): perm is ModulePermission => Boolean(perm) && typeof perm === 'object');
     if (rows.length === 0) return false;
     return rows.every((perm) => perm.view === true && perm.create === true && perm.edit === true && perm.delete === true);
 };
 
-const isViewOnlyMatrix = (permissions = {}) => {
-    const rows = Object.values(permissions).filter((perm) => perm && typeof perm === 'object');
+const isViewOnlyMatrix = (permissions: PermissionMatrix = {}) => {
+    const rows = Object.values(permissions).filter((perm): perm is ModulePermission => Boolean(perm) && typeof perm === 'object');
     if (rows.length === 0) return false;
     return rows.every((perm) => perm.view === true && perm.create !== true && perm.edit !== true && perm.delete !== true);
 };
 
-const missingPermissionTemplate = (role, permissions) => {
+const missingPermissionTemplate = (role: Partial<AccessRole> | undefined, permissions: PermissionMatrix) => {
     const name = (role?.name || '').toLowerCase();
     const isAdminLike = role?.id === 'role_admin' || name.includes('admin') || isFullAccessMatrix(permissions);
     if (isAdminLike) return FULL_PERMISSION;
@@ -178,11 +180,11 @@ const missingPermissionTemplate = (role, permissions) => {
     return EMPTY_PERMISSION;
 };
 
-const normalizeRolePermissions = (role) => {
-    const current = role?.permissions || {};
+const normalizeRolePermissions = (role: AccessRole): AccessRole => {
+    const current: PermissionMatrix = role?.permissions || {};
     const fallback = missingPermissionTemplate(role, current);
 
-    const normalized = Object.keys(MODULE_KEYS).reduce((acc, key) => {
+    const normalized = Object.keys(MODULE_KEYS).reduce((acc: PermissionMatrix, key) => {
         const existing = current[key];
         if (existing && typeof existing === 'object') {
             acc[key] = {
@@ -201,7 +203,7 @@ const normalizeRolePermissions = (role) => {
     return { ...role, permissions: normalized };
 };
 
-const normalizeRoles = (roles) => {
+const normalizeRoles = (roles: AccessRole[] | undefined): AccessRole[] => {
     if (!Array.isArray(roles) || roles.length === 0) return defaultRoles;
     return roles.map((role) => normalizeRolePermissions(role));
 };
@@ -250,12 +252,18 @@ const defaultRoles = [
         allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
         startTime: '08:00',
         endTime: '17:00',
-        permissions: Object.keys(MODULE_KEYS).reduce((acc, key) => {
+        permissions: Object.keys(MODULE_KEYS).reduce((acc: PermissionMatrix, key) => {
             acc[key] = { view: true, create: false, edit: false, delete: false };
             return acc;
         }, {}),
     },
 ];
+
+interface PersistedAccessState {
+    roles?: AccessRole[];
+    users?: AccessUser[];
+    currentUserId?: string;
+}
 
 /* ---------- default users ---------- */
 const defaultUsers = [
@@ -305,7 +313,7 @@ export const useAccessStore = create<AccessStore>()(
                 const role = get().getCurrentRole();
                 const keys = SIDEBAR_PERMISSION_MAP[navLabel];
                 if (!keys) return true; // unknown items are visible
-                return keys.some(k => role.permissions[k]?.view === true);
+                return keys.some((k: string) => role.permissions[k]?.view === true);
             },
 
             /**
@@ -363,14 +371,15 @@ export const useAccessStore = create<AccessStore>()(
                     };
                 }
 
-                const users = Array.isArray(persistedState.users) && persistedState.users.length > 0
-                    ? persistedState.users
+                const state = persistedState as PersistedAccessState;
+                const users = Array.isArray(state.users) && state.users.length > 0
+                    ? state.users
                     : defaultUsers;
-                const currentUserId = persistedState.currentUserId || users[0]?.id || 'u1';
+                const currentUserId = state.currentUserId || users[0]?.id || 'u1';
 
                 return {
-                    ...persistedState,
-                    roles: normalizeRoles(persistedState.roles),
+                    ...state,
+                    roles: normalizeRoles(state.roles),
                     users,
                     currentUserId,
                 };

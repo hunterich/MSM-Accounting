@@ -24,6 +24,10 @@ interface ARPaymentData {
     adjustments:       Record<string, InvoiceAdjustment>;
     totalAmount:       number;
 }
+
+type PaymentMode = 'create' | 'view' | 'edit';
+type PaymentTab = 'details' | 'invoices';
+type PaymentAccountField = 'depositAccountId' | 'arAccountId' | 'discountAccountId' | 'penaltyAccountId';
 import StatusTag from '../../components/UI/StatusTag';
 import { Check, FileText, User, Calendar, CreditCard, Hash } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
@@ -32,7 +36,7 @@ import { useCustomers, useInvoices, useARPayments, useCreateARPayment, useUpdate
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
 
-const BANK_TO_GL_ACCOUNT_MAP = {
+const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
@@ -42,21 +46,21 @@ const PaymentForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { data: customersData, isLoading: customersLoading } = useCustomers();
-    const customers = customersData?.data || [];
+    const customers = (customersData?.data || []) as any[];
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
-    const invoices = invoicesData?.data || [];
+    const invoices = (invoicesData?.data || []) as any[];
     const { data: paymentsData, isLoading: paymentsLoading } = useARPayments();
-    const payments = paymentsData?.data || [];
+    const payments = (paymentsData?.data || []) as any[];
     const { data: bankAccountsData, isLoading: bankAccountsLoading } = useBankAccounts();
-    const bankAccounts = bankAccountsData || [];
+    const bankAccounts = (bankAccountsData || []) as any[];
     const { data: coaData, isLoading: chartOfAccountsLoading } = useChartOfAccounts();
-    const chartOfAccounts = coaData || [];
+    const chartOfAccounts = (coaData || []) as any[];
     const createARPayment = useCreateARPayment();
     const updateARPayment = useUpdateARPayment();
-    const [mode, setMode] = useState('create'); // create | view | edit
-    const [paymentTab, setPaymentTab] = useState('details'); // details | invoices
+    const [mode, setMode] = useState<PaymentMode>('create');
+    const [paymentTab, setPaymentTab] = useState<PaymentTab>('details');
 
-    const [paymentData, setPaymentData] = useState({
+    const [paymentData, setPaymentData] = useState<ARPaymentData>({
         paymentNumber: '',
         customerId: '',
         date: new Date().toISOString().split('T')[0],
@@ -72,19 +76,19 @@ const PaymentForm = () => {
         totalAmount: 0
     });
 
-    const [paymentNumberingMode, setPaymentNumberingMode] = useState('auto'); // auto | manual
-    const [paymentSeqByBank, setPaymentSeqByBank] = useState({
+    const [paymentNumberingMode, setPaymentNumberingMode] = useState<'auto' | 'manual'>('auto');
+    const [paymentSeqByBank, setPaymentSeqByBank] = useState<Record<string, number>>({
         BCA: 1,
         MANDIRI: 1,
         CASH: 1
     });
 
-    const getBankCode = (bankId) => {
-        const bank = bankAccounts.find(b => b.id === bankId);
+    const getBankCode = (bankId: string) => {
+        const bank = bankAccounts.find((b) => b.id === bankId);
         return bank?.code || 'BANK';
     };
 
-    const buildPaymentNo = (bankCode, dateStr, seq) => {
+    const buildPaymentNo = (bankCode: string, dateStr: string, seq: number) => {
         const date = dateStr ? new Date(dateStr) : new Date();
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -98,12 +102,12 @@ const PaymentForm = () => {
         paymentSeqByBank[getBankCode(paymentData.depositTo)] || 1
     );
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, any>>(() => {
+        return chartOfAccounts.reduce((map: Record<string, any>, account) => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const arAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
@@ -119,12 +123,12 @@ const PaymentForm = () => {
 
     const depositAccountOptions = arAccountOptions;
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -150,7 +154,7 @@ const PaymentForm = () => {
 
     useEffect(() => {
         const state = location.state || {};
-        if (state.mode) setMode(state.mode);
+        if (state.mode === 'create' || state.mode === 'view' || state.mode === 'edit') setMode(state.mode);
         if (state.paymentId) {
             const found = payments.find((payment) => payment.id === state.paymentId);
             if (found) {
@@ -190,7 +194,7 @@ const PaymentForm = () => {
     const customerInvoices = useMemo(() => {
         return invoices
             .filter(inv => paymentData.customerId ? inv.customerId === paymentData.customerId : false)
-            .filter(inv => inv.status === 'Unpaid');
+            .filter(inv => String(inv.status).toLowerCase() !== 'paid');
     }, [paymentData.customerId]);
 
     const paymentBreakdown = useMemo(() => {
@@ -206,7 +210,7 @@ const PaymentForm = () => {
                 discount,
                 penalty
             };
-        }).filter(Boolean);
+        }).filter((row): row is { invoiceId: string; amount: number; discount: number; penalty: number } => row !== null);
 
         const invoiceAmount = selected.reduce((sum, row) => sum + row.amount, 0);
         const discountAmount = selected.reduce((sum, row) => sum + row.discount, 0);
@@ -262,7 +266,7 @@ const PaymentForm = () => {
         paymentBreakdown.penaltyAmount
     ]);
 
-    const handleCustomerChange = (val) => {
+    const handleCustomerChange = (val: string) => {
         setPaymentData(prev => ({
             ...prev,
             customerId: val,
@@ -272,7 +276,7 @@ const PaymentForm = () => {
         }));
     };
 
-    const toggleInvoiceSelection = (invoiceId) => {
+    const toggleInvoiceSelection = (invoiceId: string) => {
         setPaymentData(prev => {
             const isSelected = prev.selectedInvoices.includes(invoiceId);
             const newSelected = isSelected ? prev.selectedInvoices.filter(id => id !== invoiceId) : [...prev.selectedInvoices, invoiceId];
@@ -280,7 +284,7 @@ const PaymentForm = () => {
         });
     };
 
-    const handleAdjustmentChange = (invoiceId, field, value) => {
+    const handleAdjustmentChange = (invoiceId: string, field: keyof InvoiceAdjustment, value: string) => {
         const normalized = Math.max(0, Number.parseFloat(value) || 0);
         setPaymentData(prev => ({
             ...prev,
@@ -350,20 +354,20 @@ const PaymentForm = () => {
                 : null;
 
             if (existingPayment) {
-                await updateARPayment.mutateAsync({ id: existingPayment._id || existingPayment.id, ...newPayment });
+                await updateARPayment.mutateAsync({ id: existingPayment._id || existingPayment.id, ...newPayment } as any);
             } else {
-                await createARPayment.mutateAsync(newPayment);
+                await createARPayment.mutateAsync(newPayment as any);
             }
             navigate('/ar/payments');
         } catch (err) {
-            window.alert(`Failed to save payment: ${err?.message || 'Unknown error'}`);
+            window.alert(`Failed to save payment: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
     const fcSmInline = 'w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: PaymentAccountField, options: any[], disabled = false) => {
         if (isAccountLegacy(paymentData[key])) {
             return (
                 <div>
@@ -403,7 +407,7 @@ const PaymentForm = () => {
             isLoading={isPageLoading}
             actions={(
                 <>
-                    <Button text="Save Draft" variant="secondary" disabled={isSaving} />
+                    <Button text="Save Draft" variant="secondary" onClick={() => {}} disabled={isSaving} />
                     <Button text={mode === 'view' ? 'Close' : (isSaving ? 'Saving...' : 'Save Payment')} variant="primary" onClick={mode === 'view' ? () => navigate('/ar/payments') : handleSave} disabled={mode !== 'view' && isSaving} />
                 </>
             )}
@@ -420,11 +424,11 @@ const PaymentForm = () => {
             </div>
 
             <div className="invoice-tabs module-tabs module-tabs-spaced">
-                <button className={`invoice-tab ${paymentTab === 'details' ? 'active' : ''}`} onClick={() => setPaymentTab('details')}>
+                <button type="button" className={`invoice-tab ${paymentTab === 'details' ? 'active' : ''}`} onClick={() => setPaymentTab('details')}>
                     <span className="tab-icon"><FileText size={14} /></span>
                     Payment Details
                 </button>
-                <button className={`invoice-tab ${paymentTab === 'invoices' ? 'active' : ''}`} onClick={() => setPaymentTab('invoices')}>
+                <button type="button" className={`invoice-tab ${paymentTab === 'invoices' ? 'active' : ''}`} onClick={() => setPaymentTab('invoices')}>
                     <span className="tab-icon"><Check size={14} /></span>
                     Invoices
                 </button>
@@ -447,7 +451,7 @@ const PaymentForm = () => {
                                 className="mb-0"
                                 options={methodOptions}
                                 value={paymentData.method}
-                                onChange={(value) => setPaymentData({ ...paymentData, method: value })}
+                                onChange={(value: string) => setPaymentData({ ...paymentData, method: value })}
                                 placeholder="Select method..."
                                 disabled={mode === 'view'}
                             />
@@ -455,7 +459,7 @@ const PaymentForm = () => {
                         <div className="col-span-4">
                             <label className="form-label form-label-icon"><Hash size={14} /> Payment #</label>
                             <div className="numbering-row">
-                                <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={paymentNumberingMode} onChange={(e) => setPaymentNumberingMode(e.target.value)} disabled={mode === 'view'}>
+                                <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={paymentNumberingMode} onChange={(e) => setPaymentNumberingMode(e.target.value as 'auto' | 'manual')} disabled={mode === 'view'}>
                                     <option value="auto">Auto</option>
                                     <option value="manual">Manual</option>
                                 </select>
@@ -474,7 +478,7 @@ const PaymentForm = () => {
                                 className="mb-0"
                                 options={bankOptions}
                                 value={paymentData.depositTo}
-                                onChange={(value) => setPaymentData({ ...paymentData, depositTo: value })}
+                                onChange={(value: string) => setPaymentData({ ...paymentData, depositTo: value })}
                                 placeholder="Select deposit account..."
                                 disabled={mode === 'view'}
                             />

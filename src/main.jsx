@@ -7,7 +7,7 @@ import App from './App.jsx'
 import { queryClient } from './lib/queryClient.js'
 import './index.css' // We will migrate styles here momentarily
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+const googleClientId = import.meta.env?.VITE_GOOGLE_CLIENT_ID
 
 const appTree = (
     <QueryClientProvider client={queryClient}>

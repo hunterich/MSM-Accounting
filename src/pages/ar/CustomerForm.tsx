@@ -15,7 +15,29 @@ import { useCustomers, useCreateCustomer, useUpdateCustomer } from '../../hooks/
 // However, to make it work better for the demo, let's try to read from localStorage if we implemented it there?
 // The user didn't ask for localStorage persistence, so I'll stick to the imported mock data + local state pattern.
 
-const buildCustomerState = (customer, masterCreditSettings) => {
+interface CustomerFormData {
+    id: string;
+    name: string;
+    category: string;
+    email: string;
+    phone: string;
+    website: string;
+    paymentTerms: number;
+    defaultDiscount: number;
+    creditLimit: number;
+    useCategoryDefaults: boolean;
+    address1: string;
+    city: string;
+    province: string;
+    contactPerson: string;
+    taxable: boolean;
+    initialBalance: number;
+    status: string;
+}
+
+type CustomerFormErrors = Record<string, string | null | undefined>;
+
+const buildCustomerState = (customer: any, masterCreditSettings: any): CustomerFormData => {
     if (!customer) {
         return {
             id: '',
@@ -71,15 +93,15 @@ const CustomerForm = () => {
     const isCreateMode = mode === 'create';
 
     const { data: customersData, isLoading: customersLoading } = useCustomers();
-    const customers = customersData?.data || [];
-    const categories = useCustomerStore(state => state.customerCategories);
+    const customers = (customersData?.data || []) as any[];
+    const categories = useCustomerStore(state => state.customerCategories) as any[];
     const masterCreditSettings = useSettingsStore((state) => state.customerCreditSettings);
     const createCustomer = useCreateCustomer();
     const updateCustomerMutation = useUpdateCustomer();
 
     const selectedCustomer = useMemo(() => customers.find((c) => c.id === customerId) || null, [customerId, customers]);
-    const [formData, setFormData] = useState(() => buildCustomerState(selectedCustomer, masterCreditSettings));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<CustomerFormData>(() => buildCustomerState(selectedCustomer, masterCreditSettings));
+    const [errors, setErrors] = useState<CustomerFormErrors>({});
 
     useEffect(() => {
         if ((isEditMode || isViewMode) && selectedCustomer) {
@@ -127,8 +149,9 @@ const CustomerForm = () => {
         }
     }, [formData.category, isCreateMode, categories]);
 
-    const handleChange = (event) => {
-        const { name, value, type, checked } = event.target;
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value, type } = event.target;
+        const checked = event.target instanceof HTMLInputElement ? event.target.checked : false;
         if (name === 'useCategoryDefaults') {
             setFormData((prev) => ({
                 ...prev,
@@ -158,13 +181,13 @@ const CustomerForm = () => {
 
         try {
             if (isCreateMode) {
-                await createCustomer.mutateAsync(formData);
+                await createCustomer.mutateAsync(formData as any);
             } else if (isEditMode) {
-                await updateCustomerMutation.mutateAsync({ id: formData.id, ...formData });
+                await updateCustomerMutation.mutateAsync(formData as any);
             }
             navigate('/ar/customers');
         } catch (err) {
-            window.alert(`Failed to save customer: ${err?.message || 'Unknown error'}`);
+            window.alert(`Failed to save customer: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
@@ -214,7 +237,6 @@ const CustomerForm = () => {
                             onChange={handleChange}
                             placeholder="Auto-generated"
                             disabled={isViewMode || isCreateMode} // Usually ID is auto-gen or locked
-                            helperText={isCreateMode ? "Auto-generated based on category" : ""}
                         />
                     </div>
                     <div className="col-span-3">
@@ -227,7 +249,7 @@ const CustomerForm = () => {
                                 onChange={handleChange}
                                 disabled={isViewMode}
                             >
-                                {categories.map(cat => (
+                                {categories.map((cat) => (
                                     <option key={cat.id} value={cat.name}>{cat.name}</option>
                                 ))}
                             </select>
@@ -337,7 +359,6 @@ const CustomerForm = () => {
                             onChange={handleChange}
                             disabled={isViewMode || formData.useCategoryDefaults}
                             placeholder="0"
-                            helperText={!formData.useCategoryDefaults ? 'Using master credit terms from Settings.' : ''}
                         />
                     </div>
                     <div className="col-span-3">
@@ -360,7 +381,6 @@ const CustomerForm = () => {
                             onChange={handleChange}
                             disabled={isViewMode || formData.useCategoryDefaults}
                             placeholder="0"
-                            helperText={!formData.useCategoryDefaults ? 'Using master credit limit from Settings.' : ''}
                         />
                     </div>
 
@@ -373,7 +393,6 @@ const CustomerForm = () => {
                                 value={formData.initialBalance}
                                 onChange={handleChange}
                                 placeholder="0"
-                                helperText="Opening balance for new customer"
                             />
                         </div>
                     )}
@@ -388,7 +407,7 @@ const CustomerForm = () => {
                         <label className="block mb-2 text-sm font-medium text-neutral-700">Address 1 (Street)</label>
                         <textarea
                             className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] py-2"
-                            rows="2"
+                            rows={2}
                             name="address1"
                             value={formData.address1}
                             onChange={handleChange}

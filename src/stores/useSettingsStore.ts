@@ -78,6 +78,14 @@ const DEFAULT_CUSTOMER_CREDIT_SETTINGS = {
     enforceLimit: true,
 };
 
+interface PersistedSettingsState {
+    companyInfo?: Partial<CompanyInfo>;
+    taxSettings?: Partial<TaxSettings>;
+    customerCreditSettings?: Partial<CustomerCreditSettings>;
+    documentNumbering?: Record<string, Partial<DocNumberingConfig>>;
+    dashboardConfig?: Record<string, string[]>;
+}
+
 export const useSettingsStore = create<SettingsStore>()(
     persist(
         (set, get) => ({
@@ -126,22 +134,22 @@ export const useSettingsStore = create<SettingsStore>()(
             name: 'msm-settings',
             version: 5,
             migrate: (persistedState) => ({
-                ...persistedState,
+                ...(persistedState as PersistedSettingsState | undefined),
                 companyInfo: {
                     ...DEFAULT_COMPANY_INFO,
-                    ...(persistedState?.companyInfo || {}),
+                    ...((persistedState as PersistedSettingsState | undefined)?.companyInfo || {}),
                 },
                 taxSettings: {
                     ...DEFAULT_TAX_SETTINGS,
-                    ...(persistedState?.taxSettings || {}),
+                    ...((persistedState as PersistedSettingsState | undefined)?.taxSettings || {}),
                 },
                 customerCreditSettings: {
                     ...DEFAULT_CUSTOMER_CREDIT_SETTINGS,
-                    ...(persistedState?.customerCreditSettings || {}),
+                    ...((persistedState as PersistedSettingsState | undefined)?.customerCreditSettings || {}),
                 },
                 documentNumbering: {
                     ...DEFAULT_DOCUMENT_NUMBERING,
-                    ...(persistedState?.documentNumbering || {}),
+                    ...((persistedState as PersistedSettingsState | undefined)?.documentNumbering || {}),
                 },
             }),
         }

@@ -11,7 +11,7 @@ const Login = () => {
   const location = useLocation();
   const login = useAuthStore((s) => s.login);
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
-  const googleEnabled = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  const googleEnabled = Boolean(import.meta.env?.VITE_GOOGLE_CLIENT_ID);
 
   const [email, setEmail] = useState('admin@demo.com');
   const [password, setPassword] = useState('admin123');

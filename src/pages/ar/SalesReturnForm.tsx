@@ -29,6 +29,23 @@ interface SalesReturnData {
     notes:           string;
     lines:           SalesReturnLine[];
 }
+
+interface SalesReturnLineInput extends Partial<SalesReturnLine> {
+    id?: string;
+    name?: string;
+    qty?: number;
+}
+
+interface InvoiceCandidate {
+    invoiceId: string;
+    customerName: string;
+    date: string;
+    qtySold: number;
+    alreadyReturned: number;
+    remainingQty: number;
+}
+
+type SalesReturnAccountField = 'arAccountId' | 'returnAccountId' | 'taxAccountId';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatIDR, formatDateID } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
@@ -38,26 +55,26 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
 import { useItems } from '../../hooks/useInventory';
 
-const buildReturnNo = (dateStr, seq = 1) => {
+const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `SRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const normalizeLine = (line) => ({
-    itemId: line.id || line.itemId,
-    itemName: line.itemName || line.name,
+const normalizeLine = (line: SalesReturnLineInput): SalesReturnLine => ({
+    itemId: String(line.id || line.itemId || ''),
+    itemName: String(line.itemName || line.name || ''),
     qtySold: Number(line.qty || line.qtySold || 0),
     qtyReturn: Number(line.qtyReturn || 0),
-    unit: line.unit || 'PCS',
+    unit: String(line.unit || 'PCS'),
     price: Number(line.price || 0)
 });
 
 const SalesReturnForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const state = location.state || {};
+    const state = (location.state || {}) as { mode?: string; returnId?: string };
     const mode = state.mode || 'create'; // create | view | edit
     const isView = mode === 'view';
     const { addSalesReturn, updateSalesReturn } = useReturnStore();
@@ -75,24 +92,24 @@ const SalesReturnForm = () => {
     const createSalesReturnMutation = useCreateSalesReturn();
     const updateSalesReturnMutation = useUpdateSalesReturn();
 
-    const invoiceItemTemplates = useMemo(() => {
-        const map = {};
+    const invoiceItemTemplates = useMemo<Record<string, SalesReturnLineInput[]>>(() => {
+        const map: Record<string, SalesReturnLineInput[]> = {};
         invoices.forEach(inv => {
             if (inv.lines?.length) map[inv.id] = inv.lines.map(l => ({
-                id: l.id || l.itemId,
-                itemName: l.description || l.itemName,
-                qty: l.quantity,
-                unit: l.unit || 'PCS',
-                price: l.price
+                id: String(l.id || l.itemId || ''),
+                itemName: String(l.description || l.itemName || ''),
+                qty: Number(l.quantity || 0),
+                unit: String(l.unit || 'PCS'),
+                price: Number(l.price || 0)
             }));
         });
         return map;
     }, [invoices]);
 
-    const [returnNumberingMode, setReturnNumberingMode] = useState('auto');
+    const [returnNumberingMode, setReturnNumberingMode] = useState<'auto' | 'manual'>('auto');
     const [itemLookupOpen, setItemLookupOpen] = useState(false);
     const [lookupItemId, setLookupItemId] = useState('');
-    const [returnData, setReturnData] = useState({
+    const [returnData, setReturnData] = useState<SalesReturnData>({
         returnNumber: '',
         customerId: '',
         invoiceId: '',
@@ -157,8 +174,8 @@ const SalesReturnForm = () => {
         label: `${product.id} • ${product.name}`
     }));
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, any>>(() => {
+        return chartOfAccounts.reduce((map: Record<string, any>, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -176,23 +193,23 @@ const SalesReturnForm = () => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
     }, [chartOfAccounts]);
 
-    const getAlreadyReturnedQty = (invoiceId, itemId, excludeReturnId = state.returnId) => {
+    const getAlreadyReturnedQty = (invoiceId: string, itemId: string, excludeReturnId = state.returnId) => {
         return salesReturns
             .filter((ret) => ret.invoiceId === invoiceId)
             .filter((ret) => !excludeReturnId || ret.id !== excludeReturnId)
             .reduce((sum, ret) => {
-                const line = (ret.lines || []).find((ln) => (ln.itemId || ln.id) === itemId);
+                const line = (ret.lines || []).find((ln: SalesReturnLineInput) => (ln.itemId || ln.id) === itemId);
                 return sum + Number(line?.qtyReturn || 0);
             }, 0);
     };
 
-    const invoiceCandidatesByItem = useMemo(() => {
+    const invoiceCandidatesByItem = useMemo<InvoiceCandidate[]>(() => {
         if (!lookupItemId || !returnData.customerId) return [];
         return invoices
             .filter((inv) => inv.customerId === returnData.customerId)
-            .map((inv) => {
+            .map((inv): InvoiceCandidate | null => {
                 const lines = invoiceItemTemplates[inv.id] || [];
-                const line = lines.find((ln) => (ln.itemId || ln.id) === lookupItemId);
+                const line = lines.find((ln: SalesReturnLineInput) => (ln.itemId || ln.id) === lookupItemId);
                 if (!line) return null;
                 const qtySold = Number(line.qty || line.qtySold || 0);
                 const alreadyReturned = getAlreadyReturnedQty(inv.id, lookupItemId, state.returnId);
@@ -206,9 +223,9 @@ const SalesReturnForm = () => {
                     remainingQty
                 };
             })
-            .filter(Boolean)
+            .filter((cand): cand is InvoiceCandidate => cand !== null)
             .filter((cand) => cand.remainingQty > 0)
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [lookupItemId, returnData.customerId]);
 
     const totals = useMemo(() => {
@@ -235,12 +252,12 @@ const SalesReturnForm = () => {
         };
     }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -286,12 +303,12 @@ const SalesReturnForm = () => {
         chartOfAccountsLoading ||
         productsLoading;
 
-    const hydrateLinesFromInvoice = (invoiceId) => {
+    const hydrateLinesFromInvoice = (invoiceId: string): SalesReturnLine[] => {
         const template = invoiceItemTemplates[invoiceId] || [];
-        return template.map((line) => normalizeLine({ ...line, qtyReturn: 0 }));
+        return template.map((line: SalesReturnLineInput) => normalizeLine({ ...line, qtyReturn: 0 }));
     };
 
-    const handleInvoiceChange = (invoiceId) => {
+    const handleInvoiceChange = (invoiceId: string) => {
         const inv = invoices.find((item) => item.id === invoiceId);
         setReturnData((prev) => ({
             ...prev,
@@ -301,17 +318,17 @@ const SalesReturnForm = () => {
         }));
     };
 
-    const updateLine = (index, field, value) => {
+    const updateLine = (index: number, field: keyof SalesReturnLine, value: string | number) => {
         setReturnData((prev) => {
             const nextLines = [...prev.lines];
-            const line = { ...nextLines[index] };
+            const line: SalesReturnLine = { ...nextLines[index] };
             if (field === 'qtyReturn') {
                 const parsed = Number(value || 0);
                 const alreadyReturned = getAlreadyReturnedQty(prev.invoiceId, line.itemId, state.returnId);
                 const maxReturnableQty = Math.max(0, Number(line.qtySold || 0) - alreadyReturned);
                 line.qtyReturn = Math.max(0, Math.min(parsed, maxReturnableQty));
             } else {
-                line[field] = value;
+                (line as any)[field] = value;
             }
             nextLines[index] = line;
             return { ...prev, lines: nextLines };
@@ -358,9 +375,9 @@ const SalesReturnForm = () => {
             status: 'Pending Credit Note',
         };
         if (state.returnId) {
-            updateSalesReturnMutation.mutate({ id: state.returnId, ...returnRecord });
+            updateSalesReturnMutation.mutate({ id: state.returnId, ...returnRecord } as any);
         } else {
-            createSalesReturnMutation.mutate(returnRecord);
+            createSalesReturnMutation.mutate(returnRecord as any);
         }
 
         navigate('/ar/credits/new', {
@@ -374,7 +391,7 @@ const SalesReturnForm = () => {
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: SalesReturnAccountField, options: any[], disabled = false) => {
         if (isAccountLegacy(returnData[key])) {
             return (
                 <div>
@@ -414,8 +431,8 @@ const SalesReturnForm = () => {
             isLoading={isPageLoading}
             actions={(
                 <>
-                    <Button text="Print" variant="secondary" />
-                    <Button text="Save Draft" variant="secondary" />
+                    <Button text="Print" variant="secondary" onClick={() => {}} />
+                    <Button text="Save Draft" variant="secondary" onClick={() => {}} />
                     <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : handleSaveReturn} />
                 </>
             )}
@@ -433,7 +450,7 @@ const SalesReturnForm = () => {
                 <div className="grid-12 form-grid-tight">
                     <div className="col-span-4">
                         <label className="form-label">Customer *</label>
-                        <SearchableSelect options={customerOptions} value={returnData.customerId} onChange={(value) => setReturnData((prev) => ({ ...prev, customerId: value, invoiceId: '', lines: [] }))} placeholder="Select Customer..." disabled={isView} />
+                        <SearchableSelect options={customerOptions} value={returnData.customerId} onChange={(value: string) => setReturnData((prev) => ({ ...prev, customerId: value, invoiceId: '', lines: [] }))} placeholder="Select Customer..." disabled={isView} />
                     </div>
                     <div className="col-span-4">
                         <div className="source-invoice-head">
@@ -457,7 +474,7 @@ const SalesReturnForm = () => {
                         <label className="form-label">Warehouse *</label>
                         <select className={fcBase} value={returnData.warehouseId} onChange={(e) => setReturnData((prev) => ({ ...prev, warehouseId: e.target.value }))} disabled={isView}>
                             {warehouses.map((wh) => (
-                                <option key={wh.id} value={wh.id}>{`${wh.code} - ${wh.name}`}</option>
+                                <option key={wh.id} value={wh.id}>{`${String(wh.code)} - ${wh.name}`}</option>
                             ))}
                         </select>
                     </div>
@@ -465,7 +482,7 @@ const SalesReturnForm = () => {
                     <div className="col-span-3">
                         <label className="form-label">Return #</label>
                         <div className="numbering-row">
-                            <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={returnNumberingMode} onChange={(e) => setReturnNumberingMode(e.target.value)} disabled={isView}>
+                            <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={returnNumberingMode} onChange={(e) => setReturnNumberingMode(e.target.value as 'auto' | 'manual')} disabled={isView}>
                                 <option value="auto">Auto</option>
                                 <option value="manual">Manual</option>
                             </select>

@@ -27,9 +27,9 @@ interface GLStore {
 export const useGLStore = create<GLStore>()(
     persist(
         (set, get) => ({
-            chartOfAccounts: coaSeed,
+            chartOfAccounts: coaSeed as unknown as E[],
             accountBalancesById: balancesSeed,
-            journalEntries: journalSeed,
+            journalEntries: journalSeed as unknown as E[],
             isLoading: false,
             error: null,
 
