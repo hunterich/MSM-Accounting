@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
+import type { Account } from '../../types';
 
 interface CreditNoteLine {
     itemId?:  string;
@@ -40,14 +41,14 @@ import { useCreditNotes, useSalesReturns, useCreateCreditNote, useUpdateCreditNo
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
-const buildCreditNo = (dateStr, seq = 1) => {
+const buildCreditNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `CRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const toReturnTotals = (ret) => {
+const toReturnTotals = (ret: { lines?: { qtyReturn?: number; price?: number }[]; applyTax?: boolean; taxRate?: number; taxIncluded?: boolean } | null) => {
     if (!ret) return { subtotal: 0, taxAmount: 0, total: 0 };
     const subtotal = (ret.lines || []).reduce((sum, line) => sum + (Number(line.qtyReturn || 0) * Number(line.price || 0)), 0);
     if (!ret.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
@@ -60,7 +61,7 @@ const toReturnTotals = (ret) => {
     return { subtotal, taxAmount, total: subtotal + taxAmount };
 };
 
-const BANK_TO_ACCOUNT_MAP = {
+const BANK_TO_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
@@ -84,7 +85,7 @@ const CreditNoteForm = () => {
     const isView = mode === 'view';
 
     const [numberingMode, setNumberingMode] = useState('auto');
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<CreditNoteFormData>({
         creditNumber: '',
         creditDate: new Date().toISOString().split('T')[0],
         linkedReturnId: '',
@@ -172,11 +173,11 @@ const CreditNoteForm = () => {
     const creditNoPreview = useMemo(() => buildCreditNo(formData.creditDate, creditNotes.length + 1), [formData.creditDate]);
 
     const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const arAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
@@ -216,12 +217,12 @@ const CreditNoteForm = () => {
         return { subtotal, taxAmount, total: subtotal + taxAmount };
     }, [formData.lines, formData.applyTax, formData.taxIncluded, formData.taxRate]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -270,7 +271,7 @@ const CreditNoteForm = () => {
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: 'arAccountId' | 'returnAccountId' | 'taxAccountId' | 'settlementAccountId', options: Account[], disabled = false) => {
         if (isAccountLegacy(formData[key])) {
             return (
                 <div>
@@ -350,9 +351,11 @@ const CreditNoteForm = () => {
         };
 
         if (mode === 'edit' && formData.creditNumber) {
-            updateCreditNoteMutation.mutate({ id: formData.creditNumber, ...notePayload });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            updateCreditNoteMutation.mutate({ id: formData.creditNumber, ...notePayload } as any);
         } else {
-            createCreditNote.mutate(notePayload);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            createCreditNote.mutate(notePayload as any);
         }
         navigate('/ar/credits');
     };

@@ -15,7 +15,30 @@ import { useCustomers, useCreateCustomer, useUpdateCustomer } from '../../hooks/
 // However, to make it work better for the demo, let's try to read from localStorage if we implemented it there?
 // The user didn't ask for localStorage persistence, so I'll stick to the imported mock data + local state pattern.
 
-const buildCustomerState = (customer, masterCreditSettings) => {
+interface CustomerFormState {
+    id: string;
+    name: string;
+    category: string;
+    email: string;
+    phone: string;
+    website: string;
+    paymentTerms: number;
+    defaultDiscount: number;
+    creditLimit: number;
+    useCategoryDefaults: boolean;
+    address1: string;
+    city: string;
+    province: string;
+    contactPerson: string;
+    taxable: boolean;
+    initialBalance: number;
+    status: string;
+}
+
+const buildCustomerState = (
+    customer: { id?: string; name?: string; category?: string; email?: string; phone?: string; website?: string; paymentTerms?: number; defaultDiscount?: number; creditLimit?: number; useCategoryDefaults?: boolean; address1?: string; billingAddress?: string; city?: string; province?: string; contactPerson?: string; taxable?: boolean; balance?: number; initialBalance?: number; status?: string } | null,
+    masterCreditSettings: { defaultPaymentTerms: number; defaultLimit: number },
+): CustomerFormState => {
     if (!customer) {
         return {
             id: '',
@@ -79,7 +102,7 @@ const CustomerForm = () => {
 
     const selectedCustomer = useMemo(() => customers.find((c) => c.id === customerId) || null, [customerId, customers]);
     const [formData, setFormData] = useState(() => buildCustomerState(selectedCustomer, masterCreditSettings));
-    const [errors, setErrors] = useState({});
+    const [errors, setErrors] = useState<Record<string, string | null | undefined>>({});
 
     useEffect(() => {
         if ((isEditMode || isViewMode) && selectedCustomer) {
@@ -94,9 +117,9 @@ const CustomerForm = () => {
             if (cat) {
                 setFormData(prev => ({
                     ...prev,
-                    paymentTerms: cat.defaultPaymentTerms,
-                    defaultDiscount: cat.defaultDiscount,
-                    creditLimit: cat.defaultCreditLimit,
+                    paymentTerms: Number(cat.defaultPaymentTerms) || prev.paymentTerms,
+                    defaultDiscount: Number(cat.defaultDiscount) || prev.defaultDiscount,
+                    creditLimit: Number(cat.defaultCreditLimit) || prev.creditLimit,
                     // If we want to auto-generate ID based on prefix:
                     // id: `${cat.prefix}-${Date.now().toString().slice(-4)}` // Simple auto-gen
                 }));
@@ -111,7 +134,7 @@ const CustomerForm = () => {
     // Initialize default category if none selected
     useEffect(() => {
         if (isCreateMode && !formData.category && categories.length > 0) {
-            setFormData(prev => ({ ...prev, category: categories[0].name }));
+            setFormData(prev => ({ ...prev, category: String(categories[0].name) }));
         }
     }, [isCreateMode, categories, formData.category]);
 
@@ -122,13 +145,14 @@ const CustomerForm = () => {
             if (cat) {
                 // Generate a random ID for demo purposes
                 const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-                setFormData(prev => ({ ...prev, id: `${cat.prefix}-${randomNum}` }));
+                setFormData(prev => ({ ...prev, id: `${String(cat.prefix)}-${randomNum}` }));
             }
         }
     }, [formData.category, isCreateMode, categories]);
 
-    const handleChange = (event) => {
-        const { name, value, type, checked } = event.target;
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value, type } = event.target;
+        const checked = (event.target as HTMLInputElement).checked;
         if (name === 'useCategoryDefaults') {
             setFormData((prev) => ({
                 ...prev,
@@ -158,13 +182,13 @@ const CustomerForm = () => {
 
         try {
             if (isCreateMode) {
-                await createCustomer.mutateAsync(formData);
+                await createCustomer.mutateAsync(formData as any);
             } else if (isEditMode) {
-                await updateCustomerMutation.mutateAsync({ id: formData.id, ...formData });
+                await updateCustomerMutation.mutateAsync(formData as any);
             }
             navigate('/ar/customers');
         } catch (err) {
-            window.alert(`Failed to save customer: ${err?.message || 'Unknown error'}`);
+            window.alert(`Failed to save customer: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
@@ -228,7 +252,7 @@ const CustomerForm = () => {
                                 disabled={isViewMode}
                             >
                                 {categories.map(cat => (
-                                    <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                    <option key={String(cat.id)} value={String(cat.name)}>{String(cat.name)}</option>
                                 ))}
                             </select>
                             {errors.category && <div className="w-full mt-1 text-xs text-danger-500">{errors.category}</div>}
@@ -388,7 +412,7 @@ const CustomerForm = () => {
                         <label className="block mb-2 text-sm font-medium text-neutral-700">Address 1 (Street)</label>
                         <textarea
                             className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] py-2"
-                            rows="2"
+                            rows={2}
                             name="address1"
                             value={formData.address1}
                             onChange={handleChange}

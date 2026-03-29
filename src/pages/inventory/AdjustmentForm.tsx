@@ -8,7 +8,26 @@ import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStock
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
-const buildFormData = (adj) => {
+interface AdjFormData {
+    id: string;
+    date: string;
+    type: string;
+    reason: string;
+    notes: string;
+    status: string;
+}
+
+interface AdjLine {
+    id: string;
+    itemId: string;
+    accountId: string;
+    oldQty: number;
+    newQty: number;
+    qtyDiff: number;
+    unitCost: number;
+}
+
+const buildFormData = (adj: { id?: string; date?: string; type?: string; reason?: string; notes?: string; status?: string } | null): AdjFormData => {
     if (!adj) {
         return {
             id: '',
@@ -29,7 +48,7 @@ const buildFormData = (adj) => {
     };
 };
 
-const buildItems = (adj, expenseAccounts) => {
+const buildItems = (adj: { items?: Partial<AdjLine>[] } | null, expenseAccounts: { id: string }[]): AdjLine[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
 
     if (adj && adj.items && adj.items.length > 0) {
@@ -86,9 +105,9 @@ const AdjustmentForm = () => {
         );
     }, [allAccounts]);
 
-    const [formData, setFormData] = useState(() => buildFormData(selectedAdj));
-    const [items, setItems] = useState(() => buildItems(selectedAdj, expenseTargetAccounts));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<AdjFormData>(() => buildFormData(selectedAdj));
+    const [items, setItems] = useState<AdjLine[]>(() => buildItems(selectedAdj, expenseTargetAccounts));
+    const [errors, setErrors] = useState<Record<string, string | null | undefined>>({});
 
     useEffect(() => {
         setFormData(buildFormData(selectedAdj));
@@ -96,13 +115,13 @@ const AdjustmentForm = () => {
         setErrors({});
     }, [selectedAdj, adjId, expenseTargetAccounts]);
 
-    const handleChange = (e) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         if (errors[name]) setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const handleItemSelect = (lineId, productId) => {
+    const handleItemSelect = (lineId: string, productId: string) => {
         const product = products.find(p => p.id === productId);
         if (product) {
             setItems((prev) => prev.map((line) => {
@@ -110,10 +129,10 @@ const AdjustmentForm = () => {
                     return {
                         ...line,
                         itemId: productId,
-                        oldQty: product.qtyOnHand || 0,
-                        newQty: product.qtyOnHand || 0,
+                        oldQty: product.stock || 0,
+                        newQty: product.stock || 0,
                         qtyDiff: 0,
-                        unitCost: product.unitPrice || 0 // Assuming unitPrice acts as cost for demo
+                        unitCost: product.cost || 0
                     };
                 }
                 return line;
@@ -123,7 +142,7 @@ const AdjustmentForm = () => {
         }
     };
 
-    const updateLine = (id, field, value) => {
+    const updateLine = (id: string, field: keyof AdjLine, value: string | number) => {
         setItems((prev) => prev.map((line) => {
             if (line.id === id) {
                 const updatedLine = { ...line, [field]: value };
@@ -153,13 +172,13 @@ const AdjustmentForm = () => {
         ]);
     };
 
-    const removeLine = (id) => {
+    const removeLine = (id: string) => {
         if (items.length > 1) {
             setItems((prev) => prev.filter((line) => line.id !== id));
         }
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/inventory/adjustments');
@@ -195,14 +214,14 @@ const AdjustmentForm = () => {
             }
             navigate('/inventory/adjustments');
         } catch (err) {
-            alert(`Failed to save adjustment: ${err?.message ?? 'Unknown error'}`);
+            alert(`Failed to save adjustment: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
     return (
         <FormPage
             title={mode === 'new' ? 'New Inventory Adjustment' : `Adjustment ${selectedAdj?.id || ''}`}
-            backLink="/inventory/adjustments"
+            backTo="/inventory/adjustments"
             isLoading={isPageLoading}
             actions={
                 <div className="flex gap-2">
@@ -314,7 +333,7 @@ const AdjustmentForm = () => {
                                 <tbody>
                                     {items.length === 0 ? (
                                         <tr>
-                                            <td colSpan="7" className="text-center p-6 text-neutral-400">
+                                            <td colSpan={7} className="text-center p-6 text-neutral-400">
                                                 No items added
                                             </td>
                                         </tr>

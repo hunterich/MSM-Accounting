@@ -39,7 +39,7 @@ const INVENTORY_ITEM_SEED = [
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-const SelectField = ({ label, name, value, onChange, error, disabled, children }) => (
+const SelectField = ({ label, name, value, onChange, error, disabled, children }: SelectFieldProps) => (
     <div>
         {label && <label className="form-label">{label}</label>}
         <select
@@ -55,7 +55,7 @@ const SelectField = ({ label, name, value, onChange, error, disabled, children }
     </div>
 );
 
-const buildItemState = (item) => {
+const buildItemState = (item: { id?: string; sku?: string; name?: string; categoryId?: string; type?: string; unit?: string; purchaseUnit?: string; purchaseConversionFactor?: number | string | null; sellUnit?: string; sellConversionFactor?: number | string | null; cost?: number | string | null; price?: number | string | null; openingStock?: number | string | null; stock?: number | string | null; reorderPoint?: number | string | null; inventoryAccountId?: string; revenueAccountId?: string; cogsAccountId?: string; description?: string; barcode?: string; weight?: number | string | null; status?: string } | null) => {
     if (!item) {
         return {
             sku:                '',
@@ -137,7 +137,7 @@ const InventoryForm = () => {
     }, [itemId, location.state, storeProducts]);
 
     const [formData, setFormData] = useState(() => buildItemState(selectedItem));
-    const [errors, setErrors]     = useState({});
+    const [errors, setErrors]     = useState<Record<string, string | null | undefined>>({});
 
     useEffect(() => {
         setFormData(buildItemState(selectedItem));
@@ -160,18 +160,18 @@ const InventoryForm = () => {
     }, [formData.cost, formData.price]);
 
     // ── Handlers ──────────────────────────────────────────────────────────
-    const handleChange = (event) => {
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         setErrors((prev)    => ({ ...prev, [name]: null }));
     };
 
-    const handleSkuChange = (e) => {
+    const handleSkuChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFormData((prev) => ({ ...prev, sku: e.target.value, skuManuallyEdited: true }));
         setErrors((prev)   => ({ ...prev, sku: null }));
     };
 
-    const handleCategoryChange = async (e) => {
+    const handleCategoryChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const categoryId = e.target.value;
         setFormData((prev) => ({ ...prev, categoryId }));
         setErrors((prev)   => ({ ...prev, categoryId: null }));
@@ -222,7 +222,7 @@ const InventoryForm = () => {
             }
             navigate('/inventory');
         } catch (err) {
-            alert(`Failed to save item: ${err?.message ?? 'Unknown error'}`);
+            alert(`Failed to save item: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
@@ -448,7 +448,7 @@ const InventoryForm = () => {
                     <div className="col-span-2">
                         <div>
                             <label className="form-label">Gross Margin</label>
-                            <div className={`inventory-margin-badge ${margin && margin.pct > 0 ? 'positive' : 'zero'}`}>
+                            <div className={`inventory-margin-badge ${margin && Number(margin.pct) > 0 ? 'positive' : 'zero'}`}>
                                 {margin ? `${margin.pct}%` : '—'}
                             </div>
                         </div>

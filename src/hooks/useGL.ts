@@ -52,7 +52,7 @@ function normalizeAccount(raw: RawAccount): Account {
     reportSubGroup: raw.reportSubGroup || '',
     normalSide:     raw.normalSide  || '',
     hasChildren: (raw._count?.children ?? 0) > 0,
-    hasPostings: false,
+    hasPostings: raw.hasPostings ?? false,
     level: raw.level ?? 0,
     depth: raw.depth ?? 0,
   };

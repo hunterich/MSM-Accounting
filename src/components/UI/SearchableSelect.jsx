@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, ChevronDown, Check, Plus } from 'lucide-react';
 
-const SearchableSelect = ({ options, value, onChange, placeholder = "Select...", label, onAddNew, disabled = false, className = '' }) => {
+const SearchableSelect = ({ options, value, onChange, placeholder = "Select...", label = undefined, onAddNew = undefined, disabled = false, className = '' }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const wrapperRef = useRef(null);

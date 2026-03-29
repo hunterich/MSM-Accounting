@@ -403,6 +403,7 @@ export interface RawAccount {
   _count?: RawAccountCount | null;
   level?: number | null;
   depth?: number | null;
+  hasPostings?: boolean | null;
 }
 
 export interface Account {

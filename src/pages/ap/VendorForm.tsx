@@ -7,15 +7,33 @@ import Input from '../../components/UI/Input';
 import { useCreateVendor, useUpdateVendor, useVendorCategories, useVendors } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 
-const buildNextVendorCode = (vendors) => {
-    const nextNumber = vendors.reduce((max, vendor) => {
+const buildNextVendorCode = (vendors: { code?: string | null }[]) => {
+    const nextNumber = vendors.reduce((max: number, vendor: { code?: string | null }) => {
         const match = String(vendor.code || '').match(/^VND-(\d+)$/);
         return match ? Math.max(max, Number(match[1])) : max;
     }, 0) + 1;
     return `VND-${String(nextNumber).padStart(4, '0')}`;
 };
 
-const buildVendorState = (vendor, vendorCategories, fallbackAccountId, nextCode) => {
+interface VendorFormState {
+    recordId: string;
+    code: string;
+    name: string;
+    categoryId: string;
+    email: string;
+    phone: string;
+    paymentTerms: string;
+    npwp: string;
+    defaultApAccountId: string;
+    status: string;
+}
+
+const buildVendorState = (
+    vendor: { id?: string; code?: string; name?: string; categoryId?: string; category?: string; email?: string; phone?: string; paymentTerms?: string; npwp?: string; defaultApAccountId?: string; status?: string } | null,
+    vendorCategories: { id: string; name: string; defaultPaymentTerms?: string; defaultApAccountId?: string }[],
+    fallbackAccountId: string,
+    nextCode: string,
+): VendorFormState => {
     if (!vendor) {
         return {
             recordId: '',
@@ -83,7 +101,7 @@ const VendorForm = () => {
     const [formData, setFormData] = useState(() =>
         buildVendorState(selectedVendor, vendorCategories, fallbackAccountId, nextVendorCode)
     );
-    const [errors, setErrors] = useState({});
+    const [errors, setErrors] = useState<Record<string, string | null | undefined>>({});
 
     useEffect(() => {
         if (isCreateMode) {
@@ -101,13 +119,13 @@ const VendorForm = () => {
         }
     }, [fallbackAccountId, isCreateMode, nextVendorCode, selectedVendor, vendorCategories]);
 
-    const handleChange = (event) => {
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = event.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const handleCategoryChange = (event) => {
+    const handleCategoryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const categoryId = event.target.value;
         const selectedCategory = vendorCategories.find((category) => category.id === categoryId);
         setFormData((prev) => ({
@@ -143,7 +161,7 @@ const VendorForm = () => {
             }
             navigate('/ap/vendors');
         } catch (error) {
-            window.alert(`Failed to save vendor: ${error?.message || 'Unknown error'}`);
+            window.alert(`Failed to save vendor: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     };
 
