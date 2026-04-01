@@ -87,7 +87,10 @@ export async function POST(req: NextRequest) {
     };
 
     const errors = validateAccountState(nextAccount, ruleAccounts);
-    if (Object.keys(errors).length > 0) return err(Object.values(errors)[0], 400);
+    if (Object.keys(errors).length > 0) {
+      const firstError = Object.values(errors)[0];
+      return err(firstError ?? 'Invalid account payload', 400);
+    }
 
     const account = await prisma.account.create({
       data: {

@@ -1,17 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import type { InventoryItem, Invoice, InvoiceLine } from '../../types';
 
 interface InvoiceLineItem {
-    id:          string | number;
-    itemId?:     string;
+    id:          string;
+    productId:   string;
+    code:        string;
     description: string;
-    qty:         number;
+    quantity:    number;
     unit:        string;
     price:       number;
-    discount?:   number;
+    discount:    number;
+}
+
+interface AttachmentItem {
+    id:   string;
+    name: string;
+    size: string;
+    type: string;
 }
 
 interface InvoiceFormData {
+    id:              string;
     customerId:      string;
     email:           string;
     billingAddress:  string;
@@ -24,7 +34,7 @@ interface InvoiceFormData {
     discount:        number;
     notes:           string;
     items:           InvoiceLineItem[];
-    attachments:     unknown[];
+    attachments:     AttachmentItem[];
     currency:        string;
     invoiceType:     string;
 }
@@ -34,6 +44,29 @@ interface InvoiceTaxSettings {
     inclusive: boolean;
     rate:      number;
 }
+interface TableErrorBoundaryProps {
+    children: React.ReactNode;
+}
+
+interface TableErrorBoundaryState {
+    hasError:  boolean;
+    errorInfo: Error | null;
+}
+
+interface InvoiceRouteState {
+    mode?:             'create' | 'edit' | 'view';
+    openInvoiceId?:    string;
+    returnToWorkbench?: boolean;
+    catalogState?: {
+        searchTerm?: string;
+        status?:     string;
+        dateFrom?:   string;
+        dateTo?:     string;
+    };
+}
+
+type InvoiceTab = 'items' | 'info' | 'attachments';
+type NumberingMode = 'auto' | 'manual';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
@@ -45,12 +78,23 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers, useInvoices, useCreateInvoice, useUpdateInvoice } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
 
-class TableErrorBoundary extends React.Component {
-    constructor(props) {
+const normalizeInvoiceLineItem = (line: InvoiceLine): InvoiceLineItem => ({
+    id: String(line.id || line.itemId || `${Date.now()}-${Math.random()}`),
+    productId: String(line.itemId || ''),
+    code: line.code || String(line.itemId || line.id || ''),
+    description: line.description || line.itemName || '',
+    quantity: Number(line.quantity || 0),
+    unit: line.unit || 'PCS',
+    price: Number(line.price || 0),
+    discount: Number(line.discount ?? line.discountPct ?? 0)
+});
+
+class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
+    constructor(props: TableErrorBoundaryProps) {
         super(props);
         this.state = { hasError: false, errorInfo: null };
     }
-    static getDerivedStateFromError(error) { return { hasError: true, errorInfo: error }; }
+    static getDerivedStateFromError(error: Error): TableErrorBoundaryState { return { hasError: true, errorInfo: error }; }
     render() {
         if (this.state.hasError) {
             return <div className="p-4 bg-danger-50 text-danger-600 rounded-lg whitespace-pre-wrap font-mono text-sm shadow border border-danger-200">
@@ -65,10 +109,11 @@ class TableErrorBoundary extends React.Component {
 const InvoiceForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const [editingInvoiceId, setEditingInvoiceId] = useState(null);
-    const [activeTab, setActiveTab] = useState('items'); // 'items', 'info', 'attachments'
-    const [numberingMode, setNumberingMode] = useState('auto'); // 'auto' | 'manual'
-    const [selectedCustomerTerms, setSelectedCustomerTerms] = useState(null);
+    const routeState = (location.state as InvoiceRouteState | null) || {};
+    const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<InvoiceTab>('items');
+    const [numberingMode, setNumberingMode] = useState<NumberingMode>('auto');
+    const [selectedCustomerTerms, setSelectedCustomerTerms] = useState<number | null>(null);
 
     // Customer State
     const [masterCreditLimit, setMasterCreditLimit] = useState(5000000); // Mocked from Settings
@@ -77,13 +122,14 @@ const InvoiceForm = () => {
     const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customerList = customersData?.data || [];
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
-    const invoices = (invoicesData?.data || []).filter(Boolean);
+    const invoices: Invoice[] = (invoicesData?.data || []).filter(Boolean);
     const { data: itemsData, isLoading: itemsLoading } = useItems();
-    const products = itemsData?.data || [];
+    const products: InventoryItem[] = itemsData?.data || [];
     const createInvoice = useCreateInvoice();
     const updateInvoiceMutation = useUpdateInvoice();
 
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<InvoiceFormData>({
+        id: '',
         customerId: '',
         email: '',
         billingAddress: '',
@@ -103,7 +149,7 @@ const InvoiceForm = () => {
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
     const docNumbering = useSettingsStore(s => s.documentNumbering?.ar_invoice ?? { prefix: 'INV', resetPeriod: 'monthly', seqLength: 6 });
 
-    const [taxSettings, setTaxSettings] = useState({
+    const [taxSettings, setTaxSettings] = useState<InvoiceTaxSettings>({
         enabled: globalTaxSettings.enabled,
         inclusive: globalTaxSettings.inclusiveByDefault,
         rate: globalTaxSettings.defaultRate
@@ -114,8 +160,8 @@ const InvoiceForm = () => {
     // Item Search State
     const [itemSearchTerm, setItemSearchTerm] = useState('');
     const [showItemResults, setShowItemResults] = useState(false);
-    const itemSearchRef = useRef(null);
-    const fileInputRef = useRef(null);
+    const itemSearchRef = useRef<HTMLDivElement | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Numbering Configuration (from Settings)
     const numberingConfig = {
@@ -136,9 +182,9 @@ const InvoiceForm = () => {
 
     const [nextSequence, setNextSequence] = useState(getMaxSequence() + 1);
 
-    const formatSequence = (num) => String(num).padStart(numberingConfig.seqLength, '0');
+    const formatSequence = (num: number) => String(num).padStart(numberingConfig.seqLength, '0');
 
-    const buildAutoNumber = (dateStr) => {
+    const buildAutoNumber = (dateStr: string) => {
         const date = dateStr ? new Date(dateStr) : new Date();
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -148,58 +194,66 @@ const InvoiceForm = () => {
     const autoNumberPreview = buildAutoNumber(formData.issueDate);
 
     useEffect(() => {
-        const state = location.state || {};
-        if (state.openInvoiceId && state.mode === 'edit' && invoices.length > 0) {
-            const exists = invoices.find(inv => inv.id === state.openInvoiceId);
+        if (routeState.openInvoiceId && routeState.mode === 'edit' && invoices.length > 0) {
+            const exists = invoices.find((inv) => inv.id === routeState.openInvoiceId);
             if (exists) {
                 setEditingInvoiceId(exists.id);
                 setNumberingMode('manual');
-                setFormData(prev => ({
+                setFormData((prev) => ({
                     ...prev,
+                    id: exists.id,
                     customerId: exists.customerId || '',
+                    email: exists.email || '',
+                    billingAddress: exists.billingAddress || '',
+                    shippingAddress: exists.shippingAddress || '',
+                    poNumber: exists.poNumber || '',
                     issueDate: exists.issueDate || prev.issueDate,
                     dueDate: exists.dueDate || '',
+                    shippingDate: exists.shippingDate || prev.shippingDate,
                     number: exists.number || '',
+                    discount: Number(exists.discountPct || 0),
                     notes: exists.notes || '',
-                    items: exists.items || [],
+                    items: (exists.items || exists.lines || []).map(normalizeInvoiceLineItem),
+                    invoiceType: exists.invoiceType || prev.invoiceType,
                 }));
                 setActiveTab('items');
             }
         }
-    }, [location.state, invoices.length]);
+    }, [routeState.openInvoiceId, routeState.mode, invoices]);
 
     // Click outside to close item search range
     useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (itemSearchRef.current && !itemSearchRef.current.contains(event.target)) {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target;
+            if (itemSearchRef.current && target instanceof Node && !itemSearchRef.current.contains(target)) {
                 setShowItemResults(false);
             }
         };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [itemSearchRef]);
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
-    const handleCustomerChange = (val) => {
+    const handleCustomerChange = (val: string) => {
         const custId = val;
-        const customer = customerList.find(c => c.id === custId);
+        const customer = customerList.find((c) => c.id === custId);
 
         if (customer) {
             const issueDate = new Date(formData.issueDate);
             issueDate.setDate(issueDate.getDate() + (customer.paymentTerms || 30));
             const newDueDate = issueDate.toISOString().split('T')[0];
 
-            setFormData(prev => ({
+            setFormData((prev) => ({
                 ...prev,
                 customerId: custId,
-                email: customer.email,
-                billingAddress: customer.billingAddress,
-                shippingAddress: customer.shippingAddress,
-                discount: customer.defaultDiscount,
+                email: customer.email || '',
+                billingAddress: customer.billingAddress || '',
+                shippingAddress: customer.shippingAddress || '',
+                discount: Number(customer.defaultDiscount || 0),
                 dueDate: newDueDate
             }));
-            setSelectedCustomerTerms(customer.paymentTerms ?? null);
+            setSelectedCustomerTerms(Number(customer.paymentTerms ?? 0));
         } else {
-            setFormData(prev => ({ ...prev, customerId: custId, email: '', billingAddress: '', shippingAddress: '' }));
+            setFormData((prev) => ({ ...prev, customerId: custId, email: '', billingAddress: '', shippingAddress: '' }));
             setSelectedCustomerTerms(null);
         }
     };
@@ -210,29 +264,33 @@ const InvoiceForm = () => {
         }
     };
 
-    const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = event.target;
+        setFormData((prev) => ({
+            ...prev,
+            [name]: name === 'discount' ? Number(value) || 0 : value
+        }));
     };
 
     // --- QUICK ADD ITEM LOGIC ---
-    const filteredProducts = products.filter(p =>
-        p.name.toLowerCase().includes(itemSearchTerm.toLowerCase()) ||
-        p.id.toLowerCase().includes(itemSearchTerm.toLowerCase())
+    const filteredProducts = products.filter((product) =>
+        product.name.toLowerCase().includes(itemSearchTerm.toLowerCase()) ||
+        product.id.toLowerCase().includes(itemSearchTerm.toLowerCase())
     );
 
-    const selectProduct = (product) => {
+    const selectProduct = (product: InventoryItem) => {
         const newItem = {
-            id: Date.now(),
+            id: String(Date.now()),
             productId: product.id,
-            code: product.id,
+            code: product.code || product.sku || product.id,
             description: product.name,
             quantity: 1,
-            unit: 'PCS',
+            unit: product.unit || 'PCS',
             price: product.price,
             discount: 0
         };
 
-        setFormData(prev => ({
+        setFormData((prev) => ({
             ...prev,
             items: [...prev.items, newItem]
         }));
@@ -243,7 +301,7 @@ const InvoiceForm = () => {
 
     const addCustomItem = () => {
         const newItem = {
-            id: Date.now(),
+            id: String(Date.now()),
             productId: '',
             code: 'CUSTOM',
             description: itemSearchTerm,
@@ -253,7 +311,7 @@ const InvoiceForm = () => {
             discount: 0
         };
 
-        setFormData(prev => ({
+        setFormData((prev) => ({
             ...prev,
             items: [...prev.items, newItem]
         }));
@@ -262,16 +320,16 @@ const InvoiceForm = () => {
         setShowItemResults(false);
     };
 
-    const removeItem = (id) => {
-        setFormData(prev => ({
+    const removeItem = (id: string) => {
+        setFormData((prev) => ({
             ...prev,
-            items: prev.items.filter(item => item.id !== id)
+            items: prev.items.filter((item) => item.id !== id)
         }));
     };
 
-    const handleItemChange = (id, field, value) => {
-        setFormData(prev => {
-            const newItems = prev.items.map(item => {
+    const handleItemChange = (id: string, field: keyof InvoiceLineItem, value: string | number) => {
+        setFormData((prev) => {
+            const newItems = prev.items.map((item) => {
                 if (item.id === id) {
                     return { ...item, [field]: value };
                 }
@@ -281,7 +339,7 @@ const InvoiceForm = () => {
         });
     };
 
-    const calculateItemTotal = (item) => {
+    const calculateItemTotal = (item: InvoiceLineItem) => {
         const sub = item.quantity * item.price;
         const disc = sub * (item.discount / 100);
         return sub - disc;
@@ -289,9 +347,9 @@ const InvoiceForm = () => {
 
     const calculateSubtotal = () => formData.items.reduce((acc, item) => acc + calculateItemTotal(item), 0);
 
-    const calculateDiscountAmount = (subtotal) => subtotal * (formData.discount / 100);
+    const calculateDiscountAmount = (subtotal: number) => subtotal * (formData.discount / 100);
 
-    const calculateTaxAmount = (netAmount) => {
+    const calculateTaxAmount = (netAmount: number) => {
         if (!taxSettings.enabled) return 0;
         const rate = taxSettings.rate / 100;
         if (taxSettings.inclusive) {
@@ -315,36 +373,38 @@ const InvoiceForm = () => {
         let assignedNo = formData.number;
         if (numberingMode === 'auto') {
             assignedNo = buildAutoNumber(formData.issueDate);
-            setFormData(prev => ({ ...prev, number: assignedNo }));
-            setNextSequence(prev => prev + 1);
+            setFormData((prev) => ({ ...prev, number: assignedNo }));
+            setNextSequence((prev) => prev + 1);
         }
 
-        const customerName = customerList.find(c => c.id === formData.customerId)?.name || 'Unknown Customer';
+        const customerName = customerList.find((c) => c.id === formData.customerId)?.name || 'Unknown Customer';
         const finalInvoiceData = {
             ...formData,
             number: assignedNo,
             customerName,
-            id: editingInvoiceId || (formData.id || `INV-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`),
+            id: editingInvoiceId || formData.id || `INV-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
             status: editingInvoiceId
-                ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
+                ? (invoices.find((inv) => inv.id === editingInvoiceId)?.status || 'Draft')
                 : 'Draft'
         };
 
         try {
             if (editingInvoiceId) {
-                await updateInvoiceMutation.mutateAsync({ id: editingInvoiceId, ...finalInvoiceData });
+                const { id: _finalId, ...invoicePayload } = finalInvoiceData;
+                await updateInvoiceMutation.mutateAsync({ id: editingInvoiceId, ...invoicePayload });
             } else {
                 await createInvoice.mutateAsync(finalInvoiceData);
             }
         } catch (err) {
-            window.alert(`Failed to save invoice: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save invoice: ${message}`);
             return;
         }
 
-        if (location.state?.returnToWorkbench) {
-            const targetInvoiceId = location.state?.openInvoiceId || finalInvoiceData.id;
+        if (routeState.returnToWorkbench) {
+            const targetInvoiceId = routeState.openInvoiceId || finalInvoiceData.id;
             const query = new URLSearchParams();
-            const catalogState = location.state?.catalogState || {};
+            const catalogState = routeState.catalogState || {};
             if (catalogState.searchTerm) query.set('search', catalogState.searchTerm);
             if (catalogState.status) query.set('status', catalogState.status);
             if (catalogState.dateFrom) query.set('from', catalogState.dateFrom);
@@ -366,39 +426,40 @@ const InvoiceForm = () => {
     };
 
     // Attachment Logic
-    const handleFileUpload = (e) => {
-        const files = Array.from(e.target.files);
-        const newAttachments = files.map(file => ({
-            id: Date.now() + Math.random(),
+    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files ?? []);
+        const newAttachments: AttachmentItem[] = files.map((file) => ({
+            id: `${Date.now()}-${file.name}`,
             name: file.name,
             size: (file.size / 1024).toFixed(2) + ' KB',
             type: file.type
         }));
 
-        setFormData(prev => ({
+        setFormData((prev) => ({
             ...prev,
             attachments: [...prev.attachments, ...newAttachments]
         }));
 
-        e.target.value = null;
+        event.target.value = '';
     };
 
-    const removeAttachment = (id) => {
-        setFormData(prev => ({
+    const removeAttachment = (id: string) => {
+        setFormData((prev) => ({
             ...prev,
-            attachments: prev.attachments.filter(a => a.id !== id)
+            attachments: prev.attachments.filter((attachment) => attachment.id !== id)
         }));
     };
 
     // Prepare options for SearchableSelect
-    const customerOptions = customerList.map(c => ({
+    const customerOptions = customerList.map((c) => ({
         value: c.id,
         label: c.name,
         subLabel: c.id
     }));
 
-    const TabButton = ({ id, label, icon: Icon }) => (
+    const TabButton = ({ id, label, icon: Icon }: { id: InvoiceTab; label: string; icon: React.ComponentType<{ size?: number }> }) => (
         <button
+            type="button"
             className={`inline-flex items-center gap-2 py-2.5 px-3.5 border border-transparent border-b-2 bg-transparent font-semibold text-sm cursor-pointer transition-colors ${activeTab === id ? 'text-primary-700 border-b-primary-600' : 'text-neutral-600 border-b-transparent hover:text-neutral-900'}`}
             onClick={() => setActiveTab(id)}
         >
@@ -408,17 +469,17 @@ const InvoiceForm = () => {
     );
 
     const handleBack = () => {
-        if (location.state?.returnToWorkbench) {
+        if (routeState.returnToWorkbench) {
             const query = new URLSearchParams();
-            const catalogState = location.state?.catalogState || {};
+            const catalogState = routeState.catalogState || {};
             if (catalogState.searchTerm) query.set('search', catalogState.searchTerm);
             if (catalogState.status) query.set('status', catalogState.status);
             if (catalogState.dateFrom) query.set('from', catalogState.dateFrom);
             if (catalogState.dateTo) query.set('to', catalogState.dateTo);
-            if (location.state?.openInvoiceId) query.set('invoiceId', location.state.openInvoiceId);
+            if (routeState.openInvoiceId) query.set('invoiceId', routeState.openInvoiceId);
             navigate(`/ar/invoices/workbench?${query.toString()}`, {
                 state: {
-                    invoiceId: location.state?.openInvoiceId || '',
+                    invoiceId: routeState.openInvoiceId || '',
                     catalogState
                 }
             });
@@ -448,12 +509,20 @@ const InvoiceForm = () => {
                         <div className="grid grid-cols-12 gap-3">
                             {/* Customer */}
                             <div className="col-span-4">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="block text-sm font-semibold text-neutral-700">Customer *</label>
+                                    <button
+                                        type="button"
+                                        className="text-xs font-medium text-primary-700 bg-transparent border-0 cursor-pointer hover:text-primary-800"
+                                        onClick={handleAddNewCustomer}
+                                    >
+                                        New customer
+                                    </button>
+                                </div>
                                 <SearchableSelect
-                                    label="Customer *"
                                     options={customerOptions}
                                     value={formData.customerId}
                                     onChange={handleCustomerChange}
-                                    onAddNew={handleAddNewCustomer}
                                     placeholder="Search & Select Customer..."
                                 />
                             </div>
@@ -490,7 +559,7 @@ const InvoiceForm = () => {
                                     <select
                                         className="h-10 px-1.5 rounded-md border border-neutral-300 bg-neutral-0 text-xs focus:border-primary-500 focus:outline-0 w-[58px] shrink-0"
                                         value={numberingMode}
-                                        onChange={(e) => setNumberingMode(e.target.value)}
+                                        onChange={(e) => setNumberingMode(e.target.value as NumberingMode)}
                                     >
                                         <option value="auto">Auto</option>
                                         <option value="manual">Manual</option>
@@ -546,7 +615,7 @@ const InvoiceForm = () => {
                                         {showItemResults && itemSearchTerm && (
                                             <div className="absolute top-full left-0 right-0 bg-neutral-0 border border-neutral-200 rounded-lg shadow-md mt-1 max-h-[300px] overflow-y-auto z-50">
                                                 {filteredProducts.length > 0 ? (
-                                                    filteredProducts.map(p => (
+                                                    filteredProducts.map((p) => (
                                                         <div
                                                             key={p.id}
                                                             onClick={() => selectProduct(p)}
@@ -589,12 +658,12 @@ const InvoiceForm = () => {
                                     <tbody>
                                         {formData.items.length === 0 ? (
                                             <tr>
-                                                <td colSpan="7" className="text-center p-8 border-b border-neutral-100">
+                                                <td colSpan={7} className="text-center p-8 border-b border-neutral-100">
                                                     <div className="text-neutral-500 font-medium mb-1">No items added</div>
                                                     <div className="text-neutral-400 text-xs">Use the search bar above to add products</div>
                                                 </td>
                                             </tr>
-                                        ) : formData.items.map((item, index) => (
+                                        ) : formData.items.map((item) => (
                                             <tr key={item.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
                                                 <td className="p-2 align-top">
                                                     <div className="text-xs font-semibold text-neutral-600 mb-1">{item.code}</div>
@@ -642,6 +711,7 @@ const InvoiceForm = () => {
                                                 </td>
                                                 <td className="p-2 align-top text-center pt-3">
                                                     <button
+                                                        type="button"
                                                         onClick={() => removeItem(item.id)}
                                                         className="text-neutral-400 hover:text-danger-500 bg-transparent border-0 cursor-pointer"
                                                         title="Remove Item"
@@ -677,7 +747,7 @@ const InvoiceForm = () => {
                                                                 type="number"
                                                                 className="w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0"
                                                                 value={formData.discount}
-                                                                onChange={(e) => setFormData({ ...formData, discount: parseFloat(e.target.value) || 0 })}
+                                                                onChange={(e) => setFormData((prev) => ({ ...prev, discount: parseFloat(e.target.value) || 0 }))}
                                                             />
                                                         </div>
                                                     </div>
@@ -714,7 +784,7 @@ const InvoiceForm = () => {
                                     <label className="block mb-2 text-sm font-semibold text-neutral-700">Billing Address</label>
                                     <textarea
                                         className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
-                                        rows="4"
+                                        rows={4}
                                         value={formData.billingAddress}
                                         onChange={handleChange}
                                         name="billingAddress"
@@ -724,7 +794,7 @@ const InvoiceForm = () => {
                                     <label className="block mb-2 text-sm font-semibold text-neutral-700">Shipping Address</label>
                                     <textarea
                                         className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
-                                        rows="4"
+                                        rows={4}
                                         value={formData.shippingAddress}
                                         onChange={handleChange}
                                         name="shippingAddress"
@@ -747,7 +817,7 @@ const InvoiceForm = () => {
                                     <label className="form-label">Internal Notes</label>
                                     <textarea
                                         className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
-                                        rows="1"
+                                        rows={1}
                                         value={formData.notes}
                                         onChange={handleChange}
                                         name="notes"
@@ -764,7 +834,7 @@ const InvoiceForm = () => {
                                         <input
                                             type="checkbox"
                                             checked={taxSettings.enabled}
-                                            onChange={(e) => setTaxSettings(prev => ({ ...prev, enabled: e.target.checked }))}
+                                            onChange={(e) => setTaxSettings((prev) => ({ ...prev, enabled: e.target.checked }))}
                                         />
                                         Apply Tax
                                     </label>
@@ -774,7 +844,7 @@ const InvoiceForm = () => {
                                         <input
                                             type="checkbox"
                                             checked={taxSettings.inclusive}
-                                            onChange={(e) => setTaxSettings(prev => ({ ...prev, inclusive: e.target.checked }))}
+                                            onChange={(e) => setTaxSettings((prev) => ({ ...prev, inclusive: e.target.checked }))}
                                             disabled={!taxSettings.enabled}
                                         />
                                         Total includes tax
@@ -785,7 +855,7 @@ const InvoiceForm = () => {
                                     <Input
                                         type="number"
                                         value={taxSettings.rate}
-                                        onChange={(e) => setTaxSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) || 0 }))}
+                                        onChange={(e) => setTaxSettings((prev) => ({ ...prev, rate: parseFloat(e.target.value) || 0 }))}
                                         disabled={!taxSettings.enabled}
                                         inputClassName="text-sm h-8"
                                     />
@@ -801,8 +871,9 @@ const InvoiceForm = () => {
                                 <Paperclip size={40} color="#bbb" className="text-neutral-400 mb-2" />
                                 <h3 className="font-semibold text-neutral-700 m-0">Attachments</h3>
                                 <button
+                                    type="button"
                                     className="h-10 px-4 text-sm font-medium bg-neutral-100 text-neutral-700 border border-neutral-300 rounded-md hover:bg-neutral-200 cursor-pointer"
-                                    onClick={() => fileInputRef.current.click()}
+                                    onClick={() => fileInputRef.current?.click()}
                                 >
                                     Browse Files...
                                 </button>
@@ -818,14 +889,14 @@ const InvoiceForm = () => {
                             {formData.attachments.length > 0 && (
                                 <div className="mt-6 pt-6 border-t border-neutral-200">
                                     <div className="grid grid-cols-12 gap-4">
-                                        {formData.attachments.map(file => (
+                                        {formData.attachments.map((file) => (
                                             <div key={file.id} className="col-span-6 flex items-center gap-3 p-3 bg-neutral-0 border border-neutral-200 rounded-lg shadow-sm relative pr-10 hover:border-primary-300 transition-colors">
                                                 <FileText size={24} color="var(--color-primary-600)" />
                                                 <div className="flex-1 overflow-hidden">
                                                     <div className="font-semibold text-sm text-neutral-900 whitespace-nowrap overflow-hidden text-ellipsis mb-1">{file.name}</div>
                                                     <div className="text-xs text-neutral-500">{file.size}</div>
                                                 </div>
-                                                <button onClick={() => removeAttachment(file.id)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-0 text-neutral-400 cursor-pointer p-1 hover:text-danger-500 hover:bg-danger-50 rounded">
+                                                <button type="button" onClick={() => removeAttachment(file.id)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-0 text-neutral-400 cursor-pointer p-1 hover:text-danger-500 hover:bg-danger-50 rounded">
                                                     <X size={18} />
                                                 </button>
                                             </div>

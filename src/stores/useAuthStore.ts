@@ -22,6 +22,27 @@ interface RolePermission {
     [key: string]: unknown;
 }
 
+interface PermissionMatrixRow {
+    view?: boolean;
+    create?: boolean;
+    edit?: boolean;
+    delete?: boolean;
+}
+
+interface AuthRole {
+    type?: string | null;
+    invoiceAccessScope?: string | null;
+    permissions?: RolePermission[] | Record<string, PermissionMatrixRow>;
+}
+
+interface AuthResponse {
+    user?: AuthUser | null;
+    org?: AuthOrg | null;
+    role?: AuthRole | null;
+    roleType?: string | null;
+    permissions?: RolePermission[] | Record<string, PermissionMatrixRow>;
+}
+
 interface AuthStore {
     user:                AuthUser | null;
     org:                 AuthOrg | null;
@@ -29,7 +50,7 @@ interface AuthStore {
     invoiceAccessScope:  string;
     permissions:         RolePermission[];
     isLoading:           boolean;
-    hasPermission:       (moduleKey: string, action?: string) => boolean;
+    hasPermission:       (moduleKey: string, action?: 'view' | 'create' | 'edit' | 'delete') => boolean;
     checkSession:        () => Promise<void>;
     login:               (email: string, password: string) => Promise<unknown>;
     loginWithGoogle:     (credential: string) => Promise<unknown>;
@@ -47,15 +68,37 @@ const EMPTY_SESSION = {
   isLoading: false,
 };
 
-const normalizeModuleKey = (moduleKey) => String(moduleKey || '').trim().toLowerCase();
+const normalizeModuleKey = (moduleKey: string) => String(moduleKey || '').trim().toLowerCase();
 
-const getPermissionsFromResponse = (data = {}) => data.role?.permissions || data.permissions || [];
+const getPermissionsFromResponse = (data: AuthResponse = {}): RolePermission[] => {
+  const source = data.role?.permissions || data.permissions || [];
 
-const getRoleTypeFromResponse = (data = {}) => data.role?.type || data.roleType || null;
+  if (Array.isArray(source)) {
+    return source;
+  }
 
-const getInvoiceAccessScopeFromResponse = (data = {}) => data.role?.invoiceAccessScope || 'ALL';
+  if (source && typeof source === 'object') {
+    return Object.entries(source).map(([moduleKey, row]) => ({
+      moduleKey,
+      canView: row?.view === true,
+      canCreate: row?.create === true,
+      canEdit: row?.edit === true,
+      canDelete: row?.delete === true,
+    }));
+  }
 
-export const hasModulePermission = (permissions, moduleKey, action = 'view') => {
+  return [];
+};
+
+const getRoleTypeFromResponse = (data: AuthResponse = {}): string | null => data.role?.type || data.roleType || null;
+
+const getInvoiceAccessScopeFromResponse = (data: AuthResponse = {}): string => data.role?.invoiceAccessScope || 'ALL';
+
+export const hasModulePermission = (
+    permissions: RolePermission[] | Record<string, PermissionMatrixRow> | null | undefined,
+    moduleKey: string,
+    action: 'view' | 'create' | 'edit' | 'delete' = 'view'
+) => {
   const normalizedModuleKey = normalizeModuleKey(moduleKey);
   if (!normalizedModuleKey || !action) return false;
 
@@ -74,7 +117,7 @@ export const hasModulePermission = (permissions, moduleKey, action = 'view') => 
   }
 
   if (permissions && typeof permissions === 'object') {
-    return permissions[normalizedModuleKey]?.[action] === true;
+    return (permissions as Record<string, PermissionMatrixRow>)[normalizedModuleKey]?.[action] === true;
   }
 
   return false;
@@ -99,7 +142,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       });
 
       if (res.ok) {
-        const data = await res.json();
+        const data: AuthResponse = await res.json();
         set({
           user: data.user,
           org: data.org,
@@ -126,11 +169,11 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
+      const err = await res.json().catch((): { error?: string } => ({}));
       throw new Error(err.error ?? 'Login failed');
     }
 
-    const data = await res.json();
+    const data: AuthResponse = await res.json();
 
     set({
       user: data.user,
@@ -153,11 +196,11 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
+      const err = await res.json().catch((): { error?: string } => ({}));
       throw new Error(err.error ?? 'Google login failed');
     }
 
-    const data = await res.json();
+    const data: AuthResponse = await res.json();
 
     set({
       user: data.user,

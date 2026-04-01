@@ -11,8 +11,33 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import type { ChangeEvent, FormEvent } from 'react';
+import type { Account, POStatus, PurchaseOrder } from '../../types';
 
-const buildFormData = (po) => {
+interface POFormData {
+    id: string;
+    vendorId: string;
+    date: string;
+    expectedDate: string;
+    notes: string;
+}
+
+interface POItemLine {
+    id: string;
+    accountId: string;
+    description: string;
+    qty: number;
+    unit: string;
+    price: number;
+}
+
+interface TaxSettingsState {
+    enabled: boolean;
+    inclusive: boolean;
+    rate: number;
+}
+
+const buildFormData = (po: PurchaseOrder | null): POFormData => {
     if (!po) {
         return {
             id: '',
@@ -31,7 +56,11 @@ const buildFormData = (po) => {
     };
 };
 
-const buildItems = (poId, expenseAccounts, templates) => {
+const buildItems = (
+    poId: string,
+    expenseAccounts: Account[],
+    templates: Record<string, POItemLine[]>
+): POItemLine[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
     const source = templates[poId] || [];
 
@@ -81,8 +110,8 @@ const POForm = () => {
 
     const selectedPO = useMemo(() => purchaseOrders.find((po) => po.id === poId) || null, [poId, purchaseOrders]);
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -97,12 +126,12 @@ const POForm = () => {
         );
     }, [chartOfAccounts]);
 
-    const [formData, setFormData] = useState(() => buildFormData(selectedPO));
-    const [items, setItems] = useState(() => buildItems(poId, expenseTargetAccounts, poItemTemplates));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<POFormData>(() => buildFormData(selectedPO));
+    const [items, setItems] = useState<POItemLine[]>(() => buildItems(poId, expenseTargetAccounts, poItemTemplates));
+    const [errors, setErrors] = useState<Record<string, string | null>>({});
 
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
-    const [taxSettings, setTaxSettings] = useState({
+    const [taxSettings, setTaxSettings] = useState<TaxSettingsState>({
         enabled: globalTaxSettings.enabled,
         inclusive: globalTaxSettings.inclusiveByDefault,
         rate: globalTaxSettings.defaultRate
@@ -114,18 +143,18 @@ const POForm = () => {
         setErrors({});
     }, [selectedPO, poId, expenseTargetAccounts, poItemTemplates]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown Account';
     };
 
-    const handleChange = (e) => {
+    const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
         if (errors[name]) setErrors((prev) => ({ ...prev, [name]: null }));
     };
 
-    const updateLine = (id, field, value) => {
+    const updateLine = (id: string, field: keyof Omit<POItemLine, 'id'>, value: string | number) => {
         setItems((prev) => prev.map((line) => (line.id === id ? { ...line, [field]: value } : line)));
     };
 
@@ -143,13 +172,13 @@ const POForm = () => {
         ]);
     };
 
-    const removeLine = (id) => {
+    const removeLine = (id: string) => {
         if (items.length > 1) {
             setItems((prev) => prev.filter((line) => line.id !== id));
         }
     };
 
-    const lineTotal = (line) => line.qty * line.price;
+    const lineTotal = (line: POItemLine) => line.qty * line.price;
     const subtotal = items.reduce((sum, line) => sum + lineTotal(line), 0);
 
     const taxAmount = (() => {
@@ -163,7 +192,7 @@ const POForm = () => {
 
     const totalAmount = taxSettings.enabled && !taxSettings.inclusive ? subtotal + taxAmount : subtotal;
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement> | React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/ap/pos');
@@ -178,12 +207,11 @@ const POForm = () => {
         const finalId = isViewMode ? poId : newId;
 
         const finalPO = {
-            id: finalId,
             vendorId: formData.vendorId,
             date: formData.date,
             expectedDate: formData.expectedDate,
             amount: totalAmount,
-            status: mode === 'edit' ? selectedPO?.status : 'Approved',
+            status: (mode === 'edit' ? selectedPO?.status : 'Approved') as POStatus,
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
             notes: formData.notes
         };
@@ -199,7 +227,8 @@ const POForm = () => {
 
             navigate('/ap/pos');
         } catch (err) {
-            window.alert(`Failed to save purchase order: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save purchase order: ${message}`);
         }
     };
 
@@ -209,7 +238,7 @@ const POForm = () => {
     return (
         <FormPage
             title={mode === 'new' ? 'New Purchase Order' : `Purchase Order ${selectedPO?.id || ''}`}
-            backLink="/ap/pos"
+            backTo="/ap/pos"
             isLoading={isPageLoading}
             actions={
                 <div className="flex gap-2">
@@ -314,7 +343,7 @@ const POForm = () => {
                             <tbody>
                                 {items.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" className="text-center p-6 text-neutral-400">
+                                        <td colSpan={7} className="text-center p-6 text-neutral-400">
                                             No items added
                                         </td>
                                     </tr>

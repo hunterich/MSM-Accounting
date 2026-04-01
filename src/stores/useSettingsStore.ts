@@ -53,9 +53,9 @@ export const DEFAULT_DOCUMENT_NUMBERING = {
     po_order:    { prefix: 'PO',   resetPeriod: 'monthly', seqLength: 6 },
     ar_payment:  { prefix: 'PAY',  resetPeriod: 'never',   seqLength: 6 },
     ap_payment:  { prefix: 'VPAY', resetPeriod: 'never',   seqLength: 6 },
-};
+} satisfies Record<string, DocNumberingConfig>;
 
-const DEFAULT_COMPANY_INFO = {
+const DEFAULT_COMPANY_INFO: CompanyInfo = {
     companyName: 'PT. Internal Accounting',
     address: '',
     phone: '',
@@ -66,17 +66,25 @@ const DEFAULT_COMPANY_INFO = {
     locale: 'id-ID'
 };
 
-const DEFAULT_TAX_SETTINGS = {
+const DEFAULT_TAX_SETTINGS: TaxSettings = {
     enabled: true,
     defaultRate: 11, // PPN 11%
     inclusiveByDefault: false
 };
 
-const DEFAULT_CUSTOMER_CREDIT_SETTINGS = {
+const DEFAULT_CUSTOMER_CREDIT_SETTINGS: CustomerCreditSettings = {
     defaultLimit: 5000,
     defaultPaymentTerms: 0,
     enforceLimit: true,
 };
+
+interface PersistedSettingsState {
+    companyInfo?: Partial<CompanyInfo>;
+    taxSettings?: Partial<TaxSettings>;
+    customerCreditSettings?: Partial<CustomerCreditSettings>;
+    documentNumbering?: Record<string, Partial<DocNumberingConfig>>;
+    dashboardConfig?: Record<string, string[]>;
+}
 
 export const useSettingsStore = create<SettingsStore>()(
     persist(
@@ -125,25 +133,31 @@ export const useSettingsStore = create<SettingsStore>()(
         {
             name: 'msm-settings',
             version: 5,
-            migrate: (persistedState) => ({
-                ...persistedState,
+            migrate: (persistedState: unknown) => {
+                const state = (persistedState && typeof persistedState === 'object'
+                    ? persistedState
+                    : {}) as PersistedSettingsState;
+
+                return {
+                ...state,
                 companyInfo: {
                     ...DEFAULT_COMPANY_INFO,
-                    ...(persistedState?.companyInfo || {}),
+                    ...(state.companyInfo || {}),
                 },
                 taxSettings: {
                     ...DEFAULT_TAX_SETTINGS,
-                    ...(persistedState?.taxSettings || {}),
+                    ...(state.taxSettings || {}),
                 },
                 customerCreditSettings: {
                     ...DEFAULT_CUSTOMER_CREDIT_SETTINGS,
-                    ...(persistedState?.customerCreditSettings || {}),
+                    ...(state.customerCreditSettings || {}),
                 },
                 documentNumbering: {
                     ...DEFAULT_DOCUMENT_NUMBERING,
-                    ...(persistedState?.documentNumbering || {}),
+                    ...(state.documentNumbering || {}),
                 },
-            }),
+                };
+            },
         }
     )
 );

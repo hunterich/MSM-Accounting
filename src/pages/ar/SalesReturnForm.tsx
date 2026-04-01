@@ -1,8 +1,16 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+import StatusTag from '../../components/UI/StatusTag';
+import { formatIDR, formatDateID } from '../../utils/formatters';
+import FormPage from '../../components/Layout/FormPage';
+import { useCustomers, useInvoices } from '../../hooks/useAR';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
+import { useItems } from '../../hooks/useInventory';
+import type { Account, InventoryItem, Invoice, InvoiceLine, SalesReturn as SalesReturnRecord, Warehouse } from '../../types';
 
 interface SalesReturnLine {
     itemId:    string;
@@ -29,38 +37,63 @@ interface SalesReturnData {
     notes:           string;
     lines:           SalesReturnLine[];
 }
-import StatusTag from '../../components/UI/StatusTag';
-import { formatIDR, formatDateID } from '../../utils/formatters';
-import FormPage from '../../components/Layout/FormPage';
-import { useReturnStore } from '../../stores/useReturnStore';
-import { useCustomers, useInvoices } from '../../hooks/useAR';
-import { useChartOfAccounts } from '../../hooks/useGL';
-import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
-import { useItems } from '../../hooks/useInventory';
 
-const buildReturnNo = (dateStr, seq = 1) => {
+interface InvoiceTemplateLine {
+    itemId:   string;
+    itemName: string;
+    qtySold:  number;
+    unit:     string;
+    price:    number;
+}
+
+interface InvoiceCandidate {
+    invoiceId:        string;
+    customerName:     string;
+    date:             string;
+    qtySold:          number;
+    alreadyReturned:  number;
+    remainingQty:     number;
+}
+
+type ReturnMode = 'create' | 'view' | 'edit';
+type ReturnNumberingMode = 'auto' | 'manual';
+type SalesReturnAccountKey = 'arAccountId' | 'returnAccountId' | 'taxAccountId';
+type PostingLine = { side: 'DR' | 'CR'; accountId: string; amount: number };
+type SalesReturnRouteState = { mode?: ReturnMode; returnId?: string };
+
+const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `SRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const normalizeLine = (line) => ({
-    itemId: line.id || line.itemId,
-    itemName: line.itemName || line.name,
-    qtySold: Number(line.qty || line.qtySold || 0),
+const normalizeLine = (
+    line: Partial<SalesReturnLine> & { id?: string; itemId?: string; itemName?: string; qty?: number | string; qtySold?: number | string; qtyReturn?: number | string; unit?: string; price?: number | string }
+): SalesReturnLine => ({
+    itemId: String(line.itemId || line.id || ''),
+    itemName: line.itemName || 'Item',
+    qtySold: Number(line.qtySold || line.qty || 0),
     qtyReturn: Number(line.qtyReturn || 0),
     unit: line.unit || 'PCS',
     price: Number(line.price || 0)
 });
 
+const getInvoiceLineItemId = (line: InvoiceLine) => String(line.itemId || line.id || line.code || '');
+const getInvoiceLineItemName = (line: InvoiceLine) => line.description || line.itemName || line.code || 'Item';
+
+const formatWarehouseLabel = (warehouse: Warehouse) => {
+    const code = typeof warehouse.code === 'string' ? warehouse.code : '';
+    const name = typeof warehouse.name === 'string' ? warehouse.name : '';
+    return [code, name].filter(Boolean).join(' - ') || warehouse.id;
+};
+
 const SalesReturnForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const state = location.state || {};
-    const mode = state.mode || 'create'; // create | view | edit
+    const state = (location.state as SalesReturnRouteState | null) || {};
+    const mode: ReturnMode = state.mode || 'create';
     const isView = mode === 'view';
-    const { addSalesReturn, updateSalesReturn } = useReturnStore();
 
     const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = customersData?.data ?? [];
@@ -75,24 +108,26 @@ const SalesReturnForm = () => {
     const createSalesReturnMutation = useCreateSalesReturn();
     const updateSalesReturnMutation = useUpdateSalesReturn();
 
-    const invoiceItemTemplates = useMemo(() => {
-        const map = {};
-        invoices.forEach(inv => {
-            if (inv.lines?.length) map[inv.id] = inv.lines.map(l => ({
-                id: l.id || l.itemId,
-                itemName: l.description || l.itemName,
-                qty: l.quantity,
-                unit: l.unit || 'PCS',
-                price: l.price
+    const invoiceItemTemplates = useMemo<Record<string, InvoiceTemplateLine[]>>(() => {
+        const map: Record<string, InvoiceTemplateLine[]> = {};
+        invoices.forEach((inv: Invoice) => {
+            const sourceLines = inv.lines?.length ? inv.lines : inv.items || [];
+            if (!sourceLines.length) return;
+            map[inv.id] = sourceLines.map((line) => ({
+                itemId: getInvoiceLineItemId(line),
+                itemName: getInvoiceLineItemName(line),
+                qtySold: Number(line.quantity || 0),
+                unit: line.unit || 'PCS',
+                price: Number(line.price || 0)
             }));
         });
         return map;
     }, [invoices]);
 
-    const [returnNumberingMode, setReturnNumberingMode] = useState('auto');
+    const [returnNumberingMode, setReturnNumberingMode] = useState<ReturnNumberingMode>('auto');
     const [itemLookupOpen, setItemLookupOpen] = useState(false);
     const [lookupItemId, setLookupItemId] = useState('');
-    const [returnData, setReturnData] = useState({
+    const [returnData, setReturnData] = useState<SalesReturnData>({
         returnNumber: '',
         customerId: '',
         invoiceId: '',
@@ -109,56 +144,8 @@ const SalesReturnForm = () => {
         lines: []
     });
 
-    useEffect(() => {
-        if (!state.returnId) return;
-        const found = salesReturns.find((ret) => ret.id === state.returnId);
-        if (!found) return;
-        setReturnNumberingMode('manual');
-        setReturnData({
-            returnNumber: found.id,
-            customerId: found.customerId,
-            invoiceId: found.invoiceId,
-            returnDate: found.returnDate,
-            warehouseId: found.warehouseId,
-            arAccountId: found.arAccountId || 'COA-1210',
-            returnAccountId: found.returnAccountId || 'COA-5300',
-            taxAccountId: found.taxAccountId || 'COA-2200',
-            applyTax: found.applyTax,
-            taxIncluded: found.taxIncluded,
-            taxRate: found.taxRate,
-            reason: found.reason || '',
-            notes: '',
-            lines: (found.lines || []).map(normalizeLine)
-        });
-    }, [state.returnId, salesReturns]);
-
-    useEffect(() => {
-        if (warehouses.length > 0 && !returnData.warehouseId) {
-            setReturnData((prev) => ({ ...prev, warehouseId: prev.warehouseId || warehouses[0].id }));
-        }
-    }, [warehouses]);
-
-    const returnNoPreview = useMemo(() => buildReturnNo(returnData.returnDate, salesReturns.length + 1), [returnData.returnDate]);
-
-    const invoiceOptions = useMemo(() => {
-        const filteredInvoices = invoices.filter((inv) => !returnData.customerId || inv.customerId === returnData.customerId);
-        return filteredInvoices.map((inv) => ({
-            value: inv.id,
-            label: `${inv.id} • ${inv.customerName} • ${formatDateID(inv.date)}`
-        }));
-    }, [returnData.customerId]);
-
-    const customerOptions = customers.map((customer) => ({
-        value: customer.id,
-        label: customer.name
-    }));
-    const itemOptions = products.map((product) => ({
-        value: product.id,
-        label: `${product.id} • ${product.name}`
-    }));
-
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -176,25 +163,79 @@ const SalesReturnForm = () => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
     }, [chartOfAccounts]);
 
-    const getAlreadyReturnedQty = (invoiceId, itemId, excludeReturnId = state.returnId) => {
+    const getAlreadyReturnedQty = (invoiceId: string, itemId: string, excludeReturnId = state.returnId) => {
         return salesReturns
             .filter((ret) => ret.invoiceId === invoiceId)
             .filter((ret) => !excludeReturnId || ret.id !== excludeReturnId)
             .reduce((sum, ret) => {
-                const line = (ret.lines || []).find((ln) => (ln.itemId || ln.id) === itemId);
+                const line = (ret.lines || []).find((entry) => entry.itemId === itemId);
                 return sum + Number(line?.qtyReturn || 0);
             }, 0);
     };
 
-    const invoiceCandidatesByItem = useMemo(() => {
+    useEffect(() => {
+        if (!state.returnId) return;
+        const found = salesReturns.find((ret) => ret.id === state.returnId);
+        if (!found) return;
+        setReturnNumberingMode('manual');
+        setReturnData({
+            returnNumber: found.number || found.id,
+            customerId: found.customerId,
+            invoiceId: found.invoiceId,
+            returnDate: found.returnDate,
+            warehouseId: found.warehouseId,
+            arAccountId: found.arAccountId || 'COA-1210',
+            returnAccountId: found.returnAccountId || 'COA-5300',
+            taxAccountId: found.taxAccountId || 'COA-2200',
+            applyTax: found.applyTax,
+            taxIncluded: found.taxIncluded,
+            taxRate: Number(found.taxRate || 11),
+            reason: found.reason || '',
+            notes: found.notes || '',
+            lines: (found.lines || []).map(normalizeLine)
+        });
+    }, [state.returnId, salesReturns]);
+
+    useEffect(() => {
+        if (warehouses.length > 0 && !returnData.warehouseId) {
+            setReturnData((prev) => ({ ...prev, warehouseId: prev.warehouseId || warehouses[0].id }));
+        }
+    }, [warehouses, returnData.warehouseId]);
+
+    const returnNoPreview = useMemo(() => buildReturnNo(returnData.returnDate, salesReturns.length + 1), [returnData.returnDate, salesReturns.length]);
+
+    const invoiceOptions = useMemo(() => {
+        const filteredInvoices = invoices.filter((inv) => !returnData.customerId || inv.customerId === returnData.customerId);
+        return filteredInvoices.map((inv) => ({
+            value: inv.id,
+            label: `${inv.id} • ${inv.customerName} • ${formatDateID(inv.date)}`
+        }));
+    }, [returnData.customerId, invoices]);
+
+    const customerOptions = useMemo(() => {
+        return customers.map((customer) => ({
+            value: customer.id,
+            label: customer.name
+        }));
+    }, [customers]);
+
+    const itemOptions = useMemo(() => {
+        return products.map((product: InventoryItem) => ({
+            value: product.id,
+            label: `${product.code || product.sku || product.id} • ${product.name}`
+        }));
+    }, [products]);
+
+    const invoiceCandidatesByItem = useMemo<InvoiceCandidate[]>(() => {
         if (!lookupItemId || !returnData.customerId) return [];
+
         return invoices
             .filter((inv) => inv.customerId === returnData.customerId)
             .map((inv) => {
                 const lines = invoiceItemTemplates[inv.id] || [];
-                const line = lines.find((ln) => (ln.itemId || ln.id) === lookupItemId);
+                const line = lines.find((entry) => entry.itemId === lookupItemId);
                 if (!line) return null;
-                const qtySold = Number(line.qty || line.qtySold || 0);
+                const qtySold = Number(line.qtySold || 0);
                 const alreadyReturned = getAlreadyReturnedQty(inv.id, lookupItemId, state.returnId);
                 const remainingQty = Math.max(0, qtySold - alreadyReturned);
                 return {
@@ -206,13 +247,12 @@ const SalesReturnForm = () => {
                     remainingQty
                 };
             })
-            .filter(Boolean)
-            .filter((cand) => cand.remainingQty > 0)
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
-    }, [lookupItemId, returnData.customerId]);
+            .filter((candidate): candidate is InvoiceCandidate => candidate !== null && candidate.remainingQty > 0)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [lookupItemId, returnData.customerId, invoices, invoiceItemTemplates, salesReturns, state.returnId]);
 
     const totals = useMemo(() => {
-        const subtotal = returnData.lines.reduce((sum, line) => sum + (line.qtyReturn * line.price), 0);
+        const subtotal = returnData.lines.reduce((sum, line) => sum + line.qtyReturn * line.price, 0);
         const taxRate = Number(returnData.taxRate || 0) / 100;
         let taxAmount = 0;
         let total = subtotal;
@@ -235,18 +275,18 @@ const SalesReturnForm = () => {
         };
     }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
 
-    const postingPreview = useMemo(() => {
-        const lines = [
+    const postingPreview = useMemo<PostingLine[]>(() => {
+        const lines: PostingLine[] = [
             {
                 side: 'DR',
                 accountId: returnData.returnAccountId,
@@ -278,6 +318,7 @@ const SalesReturnForm = () => {
         totals.taxAmount,
         totals.total
     ]);
+
     const isPageLoading =
         customersLoading ||
         invoicesLoading ||
@@ -286,33 +327,35 @@ const SalesReturnForm = () => {
         chartOfAccountsLoading ||
         productsLoading;
 
-    const hydrateLinesFromInvoice = (invoiceId) => {
+    const hydrateLinesFromInvoice = (invoiceId: string): SalesReturnLine[] => {
         const template = invoiceItemTemplates[invoiceId] || [];
         return template.map((line) => normalizeLine({ ...line, qtyReturn: 0 }));
     };
 
-    const handleInvoiceChange = (invoiceId) => {
-        const inv = invoices.find((item) => item.id === invoiceId);
+    const handleInvoiceChange = (invoiceId: string) => {
+        const invoice = invoices.find((item) => item.id === invoiceId);
         setReturnData((prev) => ({
             ...prev,
             invoiceId,
-            customerId: inv ? inv.customerId : prev.customerId,
+            customerId: invoice?.customerId || prev.customerId,
             lines: hydrateLinesFromInvoice(invoiceId)
         }));
     };
 
-    const updateLine = (index, field, value) => {
+    const updateLine = (index: number, field: keyof SalesReturnLine, value: string | number) => {
         setReturnData((prev) => {
             const nextLines = [...prev.lines];
             const line = { ...nextLines[index] };
+
             if (field === 'qtyReturn') {
                 const parsed = Number(value || 0);
                 const alreadyReturned = getAlreadyReturnedQty(prev.invoiceId, line.itemId, state.returnId);
                 const maxReturnableQty = Math.max(0, Number(line.qtySold || 0) - alreadyReturned);
                 line.qtyReturn = Math.max(0, Math.min(parsed, maxReturnableQty));
             } else {
-                line[field] = value;
+                (line as Record<string, unknown>)[field] = value;
             }
+
             nextLines[index] = line;
             return { ...prev, lines: nextLines };
         });
@@ -338,6 +381,7 @@ const SalesReturnForm = () => {
         const invalidPostingAccounts = postingPreview
             .filter((line) => Number(line.amount || 0) > 0 && isAccountLegacy(line.accountId))
             .map((line) => formatAccountOption(line.accountId));
+
         if (invalidPostingAccounts.length > 0) {
             window.alert(
                 `Cannot save sales return. Posting account is inactive/legacy:\n- ${invalidPostingAccounts.join('\n- ')}`
@@ -346,35 +390,61 @@ const SalesReturnForm = () => {
         }
 
         const returnNumber = returnNumberingMode === 'manual' ? returnData.returnNumber : undefined;
-        const payload = {
+        const mutationLines: SalesReturnRecord['lines'] = selectedLines.map((line) => ({
+            itemId: line.itemId,
+            itemName: line.itemName,
+            qtySold: line.qtySold,
+            qtyReturn: line.qtyReturn,
+            unit: line.unit,
+            price: line.price,
+            lineTotal: line.qtyReturn * line.price
+        }));
+
+        const mutationBody: Partial<SalesReturnRecord> = {
+            ...(returnNumber && { number: returnNumber }),
+            customerId: returnData.customerId,
+            invoiceId: returnData.invoiceId,
+            returnDate: returnData.returnDate,
+            warehouseId: returnData.warehouseId,
+            arAccountId: returnData.arAccountId,
+            returnAccountId: returnData.returnAccountId,
+            taxAccountId: returnData.taxAccountId,
+            applyTax: returnData.applyTax,
+            taxIncluded: returnData.taxIncluded,
+            taxRate: returnData.taxRate,
+            subtotal: totals.subtotal,
+            taxAmount: totals.taxAmount,
+            totalAmount: totals.total,
+            reason: returnData.reason,
+            notes: returnData.notes,
+            status: 'Pending Credit Note',
+            lines: mutationLines
+        };
+
+        const returnDraft = {
             ...returnData,
             ...(returnNumber && { returnNumber }),
             lines: selectedLines
         };
-        // Persist the return via API
-        const returnRecord = {
-            ...(returnNumber && { id: returnNumber }),
-            ...payload,
-            status: 'Pending Credit Note',
-        };
+
         if (state.returnId) {
-            updateSalesReturnMutation.mutate({ id: state.returnId, ...returnRecord });
+            updateSalesReturnMutation.mutate({ id: state.returnId, ...mutationBody });
         } else {
-            createSalesReturnMutation.mutate(returnRecord);
+            createSalesReturnMutation.mutate(mutationBody);
         }
 
         navigate('/ar/credits/new', {
             state: {
                 mode: 'create',
                 source: 'sales-return',
-                returnDraft: payload
+                returnDraft
             }
         });
     };
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: SalesReturnAccountKey, options: Account[], disabled = false) => {
         if (isAccountLegacy(returnData[key])) {
             return (
                 <div>
@@ -433,7 +503,7 @@ const SalesReturnForm = () => {
                 <div className="grid-12 form-grid-tight">
                     <div className="col-span-4">
                         <label className="form-label">Customer *</label>
-                        <SearchableSelect options={customerOptions} value={returnData.customerId} onChange={(value) => setReturnData((prev) => ({ ...prev, customerId: value, invoiceId: '', lines: [] }))} placeholder="Select Customer..." disabled={isView} />
+                        <SearchableSelect options={customerOptions} value={returnData.customerId} onChange={(value: string) => setReturnData((prev) => ({ ...prev, customerId: value, invoiceId: '', lines: [] }))} placeholder="Select Customer..." disabled={isView} />
                     </div>
                     <div className="col-span-4">
                         <div className="source-invoice-head">
@@ -451,13 +521,13 @@ const SalesReturnForm = () => {
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Return Date *</label>
-                        <Input className="mb-0" type="date" value={returnData.returnDate} onChange={(e) => setReturnData((prev) => ({ ...prev, returnDate: e.target.value }))} disabled={isView} />
+                        <Input className="mb-0" type="date" value={returnData.returnDate} onChange={(event) => setReturnData((prev) => ({ ...prev, returnDate: event.target.value }))} disabled={isView} />
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Warehouse *</label>
-                        <select className={fcBase} value={returnData.warehouseId} onChange={(e) => setReturnData((prev) => ({ ...prev, warehouseId: e.target.value }))} disabled={isView}>
-                            {warehouses.map((wh) => (
-                                <option key={wh.id} value={wh.id}>{`${wh.code} - ${wh.name}`}</option>
+                        <select className={fcBase} value={returnData.warehouseId} onChange={(event) => setReturnData((prev) => ({ ...prev, warehouseId: event.target.value }))} disabled={isView}>
+                            {warehouses.map((warehouse) => (
+                                <option key={warehouse.id} value={warehouse.id}>{formatWarehouseLabel(warehouse)}</option>
                             ))}
                         </select>
                     </div>
@@ -465,33 +535,33 @@ const SalesReturnForm = () => {
                     <div className="col-span-3">
                         <label className="form-label">Return #</label>
                         <div className="numbering-row">
-                            <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={returnNumberingMode} onChange={(e) => setReturnNumberingMode(e.target.value)} disabled={isView}>
+                            <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={returnNumberingMode} onChange={(event) => setReturnNumberingMode(event.target.value as ReturnNumberingMode)} disabled={isView}>
                                 <option value="auto">Auto</option>
                                 <option value="manual">Manual</option>
                             </select>
-                            <Input className="mb-0" value={returnData.returnNumber} onChange={(e) => setReturnData((prev) => ({ ...prev, returnNumber: e.target.value }))} disabled={isView || returnNumberingMode === 'auto'} placeholder={returnNoPreview} />
+                            <Input className="mb-0" value={returnData.returnNumber} onChange={(event) => setReturnData((prev) => ({ ...prev, returnNumber: event.target.value }))} disabled={isView || returnNumberingMode === 'auto'} placeholder={returnNoPreview} />
                         </div>
                     </div>
                     <div className="col-span-3">
                         <label className="form-label">Tax</label>
                         <div className="tax-checkbox-row">
                             <label className="checkbox-inline">
-                                <input type="checkbox" checked={returnData.applyTax} onChange={(e) => setReturnData((prev) => ({ ...prev, applyTax: e.target.checked }))} disabled={isView} />
+                                <input type="checkbox" checked={returnData.applyTax} onChange={(event) => setReturnData((prev) => ({ ...prev, applyTax: event.target.checked }))} disabled={isView} />
                                 Apply Tax
                             </label>
                             <label className="checkbox-inline">
-                                <input type="checkbox" checked={returnData.taxIncluded} onChange={(e) => setReturnData((prev) => ({ ...prev, taxIncluded: e.target.checked }))} disabled={isView || !returnData.applyTax} />
+                                <input type="checkbox" checked={returnData.taxIncluded} onChange={(event) => setReturnData((prev) => ({ ...prev, taxIncluded: event.target.checked }))} disabled={isView || !returnData.applyTax} />
                                 Total includes tax
                             </label>
                         </div>
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Tax Rate (%)</label>
-                        <Input className="mb-0" type="number" value={returnData.taxRate} onChange={(e) => setReturnData((prev) => ({ ...prev, taxRate: Number(e.target.value) }))} disabled={isView || !returnData.applyTax} />
+                        <Input className="mb-0" type="number" value={returnData.taxRate} onChange={(event) => setReturnData((prev) => ({ ...prev, taxRate: Number(event.target.value) }))} disabled={isView || !returnData.applyTax} />
                     </div>
                     <div className="col-span-4">
                         <label className="form-label">Reason</label>
-                        <Input className="mb-0" value={returnData.reason} onChange={(e) => setReturnData((prev) => ({ ...prev, reason: e.target.value }))} placeholder="Reason for return" disabled={isView} />
+                        <Input className="mb-0" value={returnData.reason} onChange={(event) => setReturnData((prev) => ({ ...prev, reason: event.target.value }))} placeholder="Reason for return" disabled={isView} />
                     </div>
                     <div className="col-span-4">
                         {renderAccountField('Return Account (DR)', 'returnAccountId', returnAccountOptions)}
@@ -512,7 +582,7 @@ const SalesReturnForm = () => {
                                 <SearchableSelect
                                     options={itemOptions}
                                     value={lookupItemId}
-                                    onChange={setLookupItemId}
+                                    onChange={(value: string) => setLookupItemId(value)}
                                     placeholder="Search item SKU/name..."
                                 />
                             </div>
@@ -542,20 +612,20 @@ const SalesReturnForm = () => {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            invoiceCandidatesByItem.map((cand) => (
-                                                <tr key={cand.invoiceId} className="row-border">
-                                                    <td>{cand.invoiceId}</td>
-                                                    <td>{formatDateID(cand.date)}</td>
-                                                    <td className="text-right">{cand.qtySold}</td>
-                                                    <td className="text-right">{cand.alreadyReturned}</td>
-                                                    <td className="text-right text-strong">{cand.remainingQty}</td>
+                                            invoiceCandidatesByItem.map((candidate) => (
+                                                <tr key={candidate.invoiceId} className="row-border">
+                                                    <td>{candidate.invoiceId}</td>
+                                                    <td>{formatDateID(candidate.date)}</td>
+                                                    <td className="text-right">{candidate.qtySold}</td>
+                                                    <td className="text-right">{candidate.alreadyReturned}</td>
+                                                    <td className="text-right text-strong">{candidate.remainingQty}</td>
                                                     <td className="text-right">
                                                         <Button
                                                             text="Use"
                                                             size="small"
                                                             variant="tertiary"
                                                             onClick={() => {
-                                                                handleInvoiceChange(cand.invoiceId);
+                                                                handleInvoiceChange(candidate.invoiceId);
                                                                 setItemLookupOpen(false);
                                                             }}
                                                         />
@@ -606,7 +676,7 @@ const SalesReturnForm = () => {
                                         min={0}
                                         max={Math.max(0, Number(line.qtySold || 0) - getAlreadyReturnedQty(returnData.invoiceId, line.itemId, state.returnId))}
                                         value={line.qtyReturn}
-                                        onChange={(e) => updateLine(idx, 'qtyReturn', e.target.value)}
+                                        onChange={(event) => updateLine(idx, 'qtyReturn', event.target.value)}
                                         disabled={isView}
                                     />
                                 </td>
@@ -623,7 +693,7 @@ const SalesReturnForm = () => {
                 <div className="grid-12 form-grid-start">
                     <div className="col-span-8">
                         <label className="form-label">Internal Notes</label>
-                        <textarea className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed resize-y" rows={4} value={returnData.notes} onChange={(e) => setReturnData((prev) => ({ ...prev, notes: e.target.value }))} disabled={isView} />
+                        <textarea className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed resize-y" rows={4} value={returnData.notes} onChange={(event) => setReturnData((prev) => ({ ...prev, notes: event.target.value }))} disabled={isView} />
                     </div>
                     <div className="col-span-4 panel-box panel-box-tight">
                         <div className="panel-summary-row">

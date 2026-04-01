@@ -52,33 +52,48 @@ function normalizeCustomer(raw: RawCustomer): Customer {
 }
 
 function normalizeInvoice(raw: RawInvoice): Invoice {
+    const lines = (raw.lines || []).map((l) => ({
+        ...l,
+        id: l.id || undefined,
+        itemId: l.itemId || undefined,
+        code: l.code || undefined,
+        description: l.description || undefined,
+        itemName: l.itemName || l.description || undefined,
+        price:        Number(l.price        ?? 0),
+        quantity:     Number(l.quantity      ?? 0),
+        unit:         l.unit || 'PCS',
+        lineSubtotal: Number(l.lineSubtotal  ?? 0),
+        discountPct:  Number(l.discountPct   ?? 0),
+        discount:     Number(l.discountPct   ?? 0),
+    }));
     return {
         id:           raw.id,
         number:       raw.number    || '',
         customerId:   raw.customerId || '',
         customerName: raw.customer?.name || '',
         customerCode: raw.customer?.code || '',
+        invoiceType:  raw.invoiceType || 'Sales Invoice',
         issueDate:    raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
         date:         raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
         dueDate:      raw.dueDate   ? String(raw.dueDate).slice(0, 10)   : '',
+        shippingDate: raw.shippingDate ? String(raw.shippingDate).slice(0, 10) : '',
         status:       INVOICE_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as InvoiceStatus),
         amount:       Number(raw.totalAmount    ?? 0),
         totalAmount:  Number(raw.totalAmount    ?? 0),
         subtotal:     Number(raw.subtotal       ?? 0),
         taxAmount:    Number(raw.taxAmount      ?? 0),
         discountAmount: Number(raw.discountAmount ?? 0),
+        discountPct:  Number(raw.discountPct ?? 0),
+        email:        raw.email || '',
+        billingAddress: raw.billingAddress || '',
+        shippingAddress: raw.shippingAddress || '',
         notes:        raw.notes     || '',
         poNumber:     raw.poNumber  || '',
         currency:     raw.currency  || 'IDR',
         createdById:  raw.createdById || raw.createdBy?.id || '',
         createdByName: raw.createdBy?.fullName || '',
-        lines: (raw.lines || []).map((l) => ({
-            ...l,
-            price:        Number(l.price        ?? 0),
-            quantity:     Number(l.quantity      ?? 0),
-            lineSubtotal: Number(l.lineSubtotal  ?? 0),
-            discountPct:  Number(l.discountPct   ?? 0),
-        })),
+        lines,
+        items: lines,
     };
 }
 
@@ -96,6 +111,10 @@ function normalizePayment(raw: RawARPayment): ARPayment {
         status:       PAYMENT_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as PaymentStatus),
         invoiceId:    raw.invoiceId  || '',
         bankId:       raw.bankId     || '',
+        depositAccountId: raw.depositAccountId || '',
+        arAccountId: raw.arAccountId || '',
+        discountAccountId: raw.discountAccountId || '',
+        penaltyAccountId: raw.penaltyAccountId || '',
     };
 }
 
@@ -178,9 +197,9 @@ export function useCreateInvoice() {
 export function useUpdateInvoice() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }: Partial<Invoice> & { id: string }) => api.put(`/api/v1/invoices/${id}`, {
+        mutationFn: ({ id, ...updates }: { id: string } & Record<string, unknown>) => api.put(`/api/v1/invoices/${id}`, {
             ...updates,
-            ...(updates.status && { status: INVOICE_STATUS_UP[updates.status] ?? updates.status }),
+            ...(typeof updates.status === 'string' && { status: INVOICE_STATUS_UP[updates.status] ?? updates.status }),
         }),
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AR_KEYS.invoices });
@@ -224,7 +243,7 @@ export function useARPayment(id: string | undefined) {
 export function useCreateARPayment() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (body: Partial<ARPayment>) => api.post('/api/v1/ar-payments', {
+        mutationFn: (body: Partial<ARPayment> & Record<string, unknown>) => api.post('/api/v1/ar-payments', {
             ...body,
             status: PAYMENT_STATUS_UP[body.status ?? ''] ?? body.status ?? 'COMPLETED',
         }),
@@ -235,9 +254,9 @@ export function useCreateARPayment() {
 export function useUpdateARPayment() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }: Partial<ARPayment> & { id: string }) => api.put(`/api/v1/ar-payments/${id}`, {
+        mutationFn: ({ id, ...updates }: { id: string } & Record<string, unknown>) => api.put(`/api/v1/ar-payments/${id}`, {
             ...updates,
-            ...(updates.status && { status: PAYMENT_STATUS_UP[updates.status] ?? updates.status }),
+            ...(typeof updates.status === 'string' && { status: PAYMENT_STATUS_UP[updates.status] ?? updates.status }),
         }),
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AR_KEYS.payments });

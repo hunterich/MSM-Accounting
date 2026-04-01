@@ -80,7 +80,7 @@ export const MODULE_KEYS = {
     reports:       { label: 'Financial Reports',      group: 'Reports' },
     company:       { label: 'Company Setup',          group: 'Company' },
     settings:      { label: 'Application Settings',   group: 'Settings' },
-};
+} as const;
 
 /**
  * Maps each sidebar nav item to the permission keys it depends on.
@@ -98,7 +98,7 @@ export const SIDEBAR_PERMISSION_MAP = {
     'Reports':             ['reports'],
     'Company Setup':       ['company'],
     'Settings':            ['settings'],
-};
+} as const satisfies Record<string, readonly string[]>;
 
 /**
  * Maps each sidebar sub-item path to a specific permission key.
@@ -136,17 +136,17 @@ export const SUBITEM_PERMISSION_MAP = {
     '/reports':               'reports',
     '/company-setup':         'company',
     '/settings':              'settings',
-};
+} as const satisfies Record<string, string>;
 
 /* ---------- helper: full-access permission object ---------- */
-const allPermissions = () =>
-    Object.keys(MODULE_KEYS).reduce((acc, key) => {
+const allPermissions = (): Record<string, ModulePermission> =>
+    Object.keys(MODULE_KEYS).reduce<Record<string, ModulePermission>>((acc, key) => {
         acc[key] = { view: true, create: true, edit: true, delete: true };
         return acc;
     }, {});
 
-const noPermissions = () =>
-    Object.keys(MODULE_KEYS).reduce((acc, key) => {
+const noPermissions = (): Record<string, ModulePermission> =>
+    Object.keys(MODULE_KEYS).reduce<Record<string, ModulePermission>>((acc, key) => {
         acc[key] = { view: false, create: false, edit: false, delete: false };
         return acc;
     }, {});
@@ -155,19 +155,19 @@ const VIEW_ONLY_PERMISSION = { view: true, create: false, edit: false, delete: f
 const FULL_PERMISSION = { view: true, create: true, edit: true, delete: true };
 const EMPTY_PERMISSION = { view: false, create: false, edit: false, delete: false };
 
-const isFullAccessMatrix = (permissions = {}) => {
+const isFullAccessMatrix = (permissions: Record<string, ModulePermission> = {}) => {
     const rows = Object.values(permissions).filter((perm) => perm && typeof perm === 'object');
     if (rows.length === 0) return false;
     return rows.every((perm) => perm.view === true && perm.create === true && perm.edit === true && perm.delete === true);
 };
 
-const isViewOnlyMatrix = (permissions = {}) => {
+const isViewOnlyMatrix = (permissions: Record<string, ModulePermission> = {}) => {
     const rows = Object.values(permissions).filter((perm) => perm && typeof perm === 'object');
     if (rows.length === 0) return false;
     return rows.every((perm) => perm.view === true && perm.create !== true && perm.edit !== true && perm.delete !== true);
 };
 
-const missingPermissionTemplate = (role, permissions) => {
+const missingPermissionTemplate = (role: AccessRole | undefined, permissions: Record<string, ModulePermission>) => {
     const name = (role?.name || '').toLowerCase();
     const isAdminLike = role?.id === 'role_admin' || name.includes('admin') || isFullAccessMatrix(permissions);
     if (isAdminLike) return FULL_PERMISSION;
@@ -178,11 +178,11 @@ const missingPermissionTemplate = (role, permissions) => {
     return EMPTY_PERMISSION;
 };
 
-const normalizeRolePermissions = (role) => {
+const normalizeRolePermissions = (role: AccessRole): AccessRole => {
     const current = role?.permissions || {};
     const fallback = missingPermissionTemplate(role, current);
 
-    const normalized = Object.keys(MODULE_KEYS).reduce((acc, key) => {
+    const normalized = Object.keys(MODULE_KEYS).reduce<Record<string, ModulePermission>>((acc, key) => {
         const existing = current[key];
         if (existing && typeof existing === 'object') {
             acc[key] = {
@@ -201,9 +201,9 @@ const normalizeRolePermissions = (role) => {
     return { ...role, permissions: normalized };
 };
 
-const normalizeRoles = (roles) => {
+const normalizeRoles = (roles: unknown): AccessRole[] => {
     if (!Array.isArray(roles) || roles.length === 0) return defaultRoles;
-    return roles.map((role) => normalizeRolePermissions(role));
+    return roles.map((role) => normalizeRolePermissions(role as AccessRole));
 };
 
 /* ---------- default roles ---------- */
@@ -250,7 +250,7 @@ const defaultRoles = [
         allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
         startTime: '08:00',
         endTime: '17:00',
-        permissions: Object.keys(MODULE_KEYS).reduce((acc, key) => {
+        permissions: Object.keys(MODULE_KEYS).reduce<Record<string, ModulePermission>>((acc, key) => {
             acc[key] = { view: true, create: false, edit: false, delete: false };
             return acc;
         }, {}),
@@ -263,6 +263,12 @@ const defaultUsers = [
     { id: 'u2', name: 'Staff User',  email: 'staff@msm.com', roleId: 'role_staff',  status: 'Active' },
     { id: 'u3', name: 'Viewer User', email: 'viewer@msm.com', roleId: 'role_viewer', status: 'Active' },
 ];
+
+interface PersistedAccessState {
+    roles?: unknown;
+    users?: AccessUser[];
+    currentUserId?: string;
+}
 
 /* ================================================================
    Zustand Store
@@ -303,7 +309,7 @@ export const useAccessStore = create<AccessStore>()(
              */
             canSeeSidebarItem: (navLabel) => {
                 const role = get().getCurrentRole();
-                const keys = SIDEBAR_PERMISSION_MAP[navLabel];
+                const keys = SIDEBAR_PERMISSION_MAP[navLabel as keyof typeof SIDEBAR_PERMISSION_MAP];
                 if (!keys) return true; // unknown items are visible
                 return keys.some(k => role.permissions[k]?.view === true);
             },
@@ -313,7 +319,7 @@ export const useAccessStore = create<AccessStore>()(
              */
             canSeeSubItem: (path) => {
                 const role = get().getCurrentRole();
-                const key = SUBITEM_PERMISSION_MAP[path];
+                const key = SUBITEM_PERMISSION_MAP[path as keyof typeof SUBITEM_PERMISSION_MAP];
                 if (!key) return true; // unknown paths are visible
                 return role.permissions[key]?.view === true;
             },
@@ -354,7 +360,8 @@ export const useAccessStore = create<AccessStore>()(
         {
             name: 'msm-access',
             version: 2,
-            migrate: (persistedState) => {
+            migrate: (persistedState: unknown) => {
+                const state = persistedState as PersistedAccessState | null;
                 if (!persistedState || typeof persistedState !== 'object') {
                     return {
                         roles: defaultRoles,
@@ -363,14 +370,14 @@ export const useAccessStore = create<AccessStore>()(
                     };
                 }
 
-                const users = Array.isArray(persistedState.users) && persistedState.users.length > 0
-                    ? persistedState.users
+                const users = Array.isArray(state?.users) && state.users.length > 0
+                    ? state.users
                     : defaultUsers;
-                const currentUserId = persistedState.currentUserId || users[0]?.id || 'u1';
+                const currentUserId = state?.currentUserId || users[0]?.id || 'u1';
 
                 return {
-                    ...persistedState,
-                    roles: normalizeRoles(persistedState.roles),
+                    ...state,
+                    roles: normalizeRoles(state?.roles),
                     users,
                     currentUserId,
                 };

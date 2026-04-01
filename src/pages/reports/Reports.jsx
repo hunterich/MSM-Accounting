@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 import React, { useEffect, useRef, useState } from 'react';
-=======
-import React, { useRef, useState } from 'react';
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package,
   Search, Printer, Download, X, LayoutGrid, BarChart3
@@ -189,7 +185,6 @@ const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 const REPORT_PRESETS_KEY = 'msm-report-presets';
 
-<<<<<<< HEAD
 const loadReportPresets = () => {
   if (typeof window === 'undefined') return {};
   try {
@@ -201,9 +196,6 @@ const loadReportPresets = () => {
 };
 
 const defaultCompareAsOfDate = () => fmtDate(new Date(today.getFullYear(), today.getMonth(), 0));
-
-=======
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
 const escapeCsvCell = (value) => {
   if (value === null || value === undefined) return '';
   return `"${String(value).replace(/"/g, '""')}"`;
@@ -410,7 +402,6 @@ const buildGlCsv = (report, data) => {
 
 const Reports = () => {
   const company = useSettingsStore((s) => s.companyInfo);
-<<<<<<< HEAD
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: itemsData } = useItems({ limit: 100 });
   const customers = customersData?.data || [];
@@ -425,8 +416,6 @@ const Reports = () => {
     label: item.name,
     subLabel: item.sku || undefined,
   }));
-=======
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
   const [activeCategory, setActiveCategory] = useState('sales');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -434,19 +423,12 @@ const Reports = () => {
   const [dateFrom, setDateFrom] = useState(fmtDate(firstOfMonth));
   const [dateTo, setDateTo] = useState(fmtDate(today));
   const [asOfDate, setAsOfDate] = useState(fmtDate(today));
-<<<<<<< HEAD
   const [compareAsOfDate, setCompareAsOfDate] = useState(defaultCompareAsOfDate());
   const [filterCustomer, setFilterCustomer] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [topNCustomer, setTopNCustomer] = useState(false);
   const [filterItem, setFilterItem] = useState('');
   const [selectedItemId, setSelectedItemId] = useState('');
-=======
-  const [compareAsOfDate, setCompareAsOfDate] = useState(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
-  const [filterCustomer, setFilterCustomer] = useState('');
-  const [topNCustomer, setTopNCustomer] = useState(false);
-  const [filterItem, setFilterItem] = useState('');
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
   const [topNItem, setTopNItem] = useState(false);
   const [itemSortBy, setItemSortBy] = useState('total');
   const [overdueStatus, setOverdueStatus] = useState('');
@@ -456,7 +438,6 @@ const Reports = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const printRef = useRef(null);
-<<<<<<< HEAD
   const [reportPresets, setReportPresets] = useState(loadReportPresets);
 
   useEffect(() => {
@@ -483,10 +464,6 @@ const Reports = () => {
       setSelectedItemId(matchedItem.id);
     }
   }, [items, filterItem, selectedItemId]);
-
-=======
-
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
   const categoryReports = REPORTS_BY_CATEGORY[activeCategory] || [];
   const activeCategoryMeta = CATEGORIES.find((category) => category.id === activeCategory);
   const activeReport = openReports.find((entry) => entry.report.id === activeReportId) || null;
@@ -508,13 +485,10 @@ const Reports = () => {
     setError(null);
     setParamModal(null);
     setSearchTerm('');
-<<<<<<< HEAD
     setFilterCustomer('');
     setSelectedCustomerId('');
     setFilterItem('');
     setSelectedItemId('');
-=======
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
   };
 
   const closeReportTab = (reportId) => {
@@ -529,7 +503,6 @@ const Reports = () => {
     });
   };
 
-<<<<<<< HEAD
   const syncCustomerFilter = (customerSearch = '') => {
     const matchedCustomer = customers.find(
       (customer) => customer.name.toLowerCase() === String(customerSearch).toLowerCase()
@@ -587,21 +560,6 @@ const Reports = () => {
     const presetParams = activeReport?.report.id === report.id ? activeReport.params : null;
     openParamModal(report, presetParams);
   };
-
-=======
-  const handleCardClick = (report) => {
-    if (!activeReport || activeReport.report.id !== report.id) {
-      setFilterCustomer('');
-      setTopNCustomer(false);
-      setFilterItem('');
-      setTopNItem(false);
-      setItemSortBy('total');
-      setOverdueStatus('');
-    }
-    setParamModal(report);
-  };
-
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
   const buildRequestParams = (report) => {
     if (report.category === 'sales') {
       const params = { type: report.id, dateFrom, dateTo };
@@ -614,13 +572,10 @@ const Reports = () => {
         if (topNItem) params.topN = 30;
         if (itemSortBy === 'qty') params.sortBy = 'qty';
       }
-<<<<<<< HEAD
       if (report.id === 'by-item-customer') {
         if (filterCustomer) params.customerSearch = filterCustomer;
         if (filterItem) params.itemSearch = filterItem;
       }
-=======
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
       return params;
     }
 
@@ -653,13 +608,10 @@ const Reports = () => {
 
     try {
       const params = buildRequestParams(reportToRun);
-<<<<<<< HEAD
       setReportPresets((prev) => ({
         ...prev,
         [reportToRun.id]: params,
       }));
-=======
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
       const data = await api.get(reportToRun.apiPath, params);
       const reportEntry = {
         report: reportToRun,
@@ -1560,7 +1512,6 @@ const Reports = () => {
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Pelanggan</div>
                 <div className="space-y-3">
-<<<<<<< HEAD
                   <SearchableSelect
                     label="Customer (Optional)"
                     options={customerOptions}
@@ -1573,18 +1524,6 @@ const Reports = () => {
                     placeholder="Select customer..."
                     className="mb-0"
                   />
-=======
-                  <div>
-                    <label className="block text-sm text-neutral-600 mb-1">Nama Pelanggan <span className="text-neutral-400">(opsional)</span></label>
-                    <input
-                      type="text"
-                      value={filterCustomer}
-                      onChange={(e) => setFilterCustomer(e.target.value)}
-                      placeholder="Cari nama pelanggan..."
-                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
-                    />
-                  </div>
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -1602,7 +1541,6 @@ const Reports = () => {
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Barang</div>
                 <div className="space-y-3">
-<<<<<<< HEAD
                   <SearchableSelect
                     label="Barang (Opsional)"
                     options={itemOptions}
@@ -1615,18 +1553,6 @@ const Reports = () => {
                     placeholder="Pilih barang..."
                     className="mb-0"
                   />
-=======
-                  <div>
-                    <label className="block text-sm text-neutral-600 mb-1">Nama Barang <span className="text-neutral-400">(opsional)</span></label>
-                    <input
-                      type="text"
-                      value={filterItem}
-                      onChange={(e) => setFilterItem(e.target.value)}
-                      placeholder="Cari nama barang..."
-                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
-                    />
-                  </div>
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -1667,7 +1593,6 @@ const Reports = () => {
               </div>
             )}
 
-<<<<<<< HEAD
             {paramModal.id === 'by-item-customer' && (
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Penjualan Barang</div>
@@ -1699,14 +1624,10 @@ const Reports = () => {
                 </div>
               </div>
             )}
-
-=======
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
             {paramModal.category === 'ar' && (
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Pelanggan</div>
                 <div className="space-y-3">
-<<<<<<< HEAD
                   <SearchableSelect
                     label="Customer (Optional)"
                     options={customerOptions}
@@ -1719,18 +1640,6 @@ const Reports = () => {
                     placeholder="Select customer..."
                     className="mb-0"
                   />
-=======
-                  <div>
-                    <label className="block text-sm text-neutral-600 mb-1">Nama Pelanggan <span className="text-neutral-400">(opsional)</span></label>
-                    <input
-                      type="text"
-                      value={filterCustomer}
-                      onChange={(e) => setFilterCustomer(e.target.value)}
-                      placeholder="Cari nama pelanggan..."
-                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
-                    />
-                  </div>
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
 
                   {paramModal.id === 'overdue-list' && (
                     <div>
@@ -1751,7 +1660,6 @@ const Reports = () => {
               </div>
             )}
 
-<<<<<<< HEAD
             <div className="flex justify-between pt-2">
               <button
                 type="button"
@@ -1760,9 +1668,6 @@ const Reports = () => {
               >
                 Reset Filters
               </button>
-=======
-            <div className="flex justify-end pt-2">
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates)
               <Button
                 text="Tampilkan"
                 variant="primary"

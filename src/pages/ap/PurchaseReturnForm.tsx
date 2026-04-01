@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import SearchableSelect from '../../components/UI/SearchableSelect';
-import type { Account } from '../../types';
+import type { Account, Warehouse } from '../../types';
 
 interface PurchaseReturnLine {
     lineKey:       string;
@@ -45,14 +45,20 @@ const buildReturnNo = (dateStr: string, seq = 1) => {
     return `PRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const normalizeLine = (line: Partial<PurchaseReturnLine> & { qty?: number }) => ({
-    lineKey: line.lineKey,
-    description: line.description,
+const normalizeLine = (line: Partial<PurchaseReturnLine> & { qty?: number }) : PurchaseReturnLine => ({
+    lineKey: line.lineKey || '',
+    description: line.description || '',
     qtyPurchased: Number(line.qtyPurchased || line.qty || 0),
     qtyReturn: Number(line.qtyReturn || 0),
     unit: line.unit || 'PCS',
     price: Number(line.price || 0)
 });
+
+const formatWarehouseLabel = (warehouse: Warehouse) => {
+    const code = typeof warehouse.code === 'string' ? warehouse.code : '';
+    const name = typeof warehouse.name === 'string' ? warehouse.name : '';
+    return [code, name].filter(Boolean).join(' - ') || warehouse.id;
+};
 
 const PurchaseReturnForm = () => {
     const navigate = useNavigate();
@@ -75,12 +81,12 @@ const PurchaseReturnForm = () => {
 
     const billItemTemplates = useMemo(() => {
         const map: Record<string, { description: string; qty: number; unit: string; price: number }[]> = {};
-        bills.forEach(bill => {
-            if (bill.lines?.length) map[bill.id] = bill.lines.map(l => ({
-                description: l.description,
-                qty: l.quantity || l.qty,
-                unit: l.unit || 'PCS',
-                price: l.price
+        bills.forEach((bill) => {
+            if (bill.lines?.length) map[bill.id] = bill.lines.map((line) => ({
+                description: typeof line.description === 'string' ? line.description : '',
+                qty: Number(line.quantity || line.qty || 0),
+                unit: typeof line.unit === 'string' ? line.unit : 'PCS',
+                price: Number(line.price || 0)
             }));
         });
         return map;
@@ -390,13 +396,13 @@ const PurchaseReturnForm = () => {
                 <div className="grid-12 form-grid-tight">
                     <div className="col-span-4">
                         <label className="form-label">Vendor *</label>
-                        <SearchableSelect
-                            options={vendorOptions}
-                            value={returnData.vendorId}
-                            onChange={(value) => setReturnData((prev) => ({ ...prev, vendorId: value, billId: '', lines: [] }))}
-                            placeholder="Select Vendor..."
-                            disabled={isView}
-                        />
+                            <SearchableSelect
+                                options={vendorOptions}
+                                value={returnData.vendorId}
+                                onChange={(value: string) => setReturnData((prev) => ({ ...prev, vendorId: value, billId: '', lines: [] }))}
+                                placeholder="Select Vendor..."
+                                disabled={isView}
+                            />
                     </div>
                     <div className="col-span-4">
                         <label className="form-label">Source Bill *</label>
@@ -416,7 +422,7 @@ const PurchaseReturnForm = () => {
                         <label className="form-label">Warehouse *</label>
                         <select className={fcBase} value={returnData.warehouseId} onChange={(event) => setReturnData((prev) => ({ ...prev, warehouseId: event.target.value }))} disabled={isView}>
                             {warehouses.map((warehouse) => (
-                                <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>
+                                <option key={warehouse.id} value={warehouse.id}>{formatWarehouseLabel(warehouse)}</option>
                             ))}
                         </select>
                     </div>

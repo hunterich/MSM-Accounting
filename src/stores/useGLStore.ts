@@ -6,22 +6,23 @@ import {
     journalEntries as journalSeed,
 } from '../data/mockData';
 
-type E = { id: string } & Record<string, unknown>;
+type GLAccountRecord = { id: string } & Record<string, unknown>;
+type GLJournalEntryRecord = { entryNo: string } & Record<string, unknown>;
 
 interface GLStore {
-    chartOfAccounts:    E[];
+    chartOfAccounts:    GLAccountRecord[];
     accountBalancesById:Record<string, number>;
-    journalEntries:     E[];
+    journalEntries:     GLJournalEntryRecord[];
     isLoading:          boolean;
     error:              string | null;
-    addAccount:         (account: E) => Promise<void>;
-    updateAccount:      (id: string, updates: Partial<E>) => Promise<void>;
+    addAccount:         (account: GLAccountRecord) => Promise<void>;
+    updateAccount:      (id: string, updates: Partial<GLAccountRecord>) => Promise<void>;
     deleteAccount:      (id: string) => Promise<void>;
     setAccountBalance:  (accountId: string, balance: number) => Promise<void>;
-    addJournalEntry:    (entry: E) => Promise<void>;
-    updateJournalEntry: (entryNo: string, updates: Partial<E>) => Promise<void>;
+    addJournalEntry:    (entry: GLJournalEntryRecord) => Promise<void>;
+    updateJournalEntry: (entryNo: string, updates: Partial<GLJournalEntryRecord>) => Promise<void>;
     deleteJournalEntry: (entryNo: string) => Promise<void>;
-    getAccountById:     (id: string) => E | undefined;
+    getAccountById:     (id: string) => GLAccountRecord | undefined;
 }
 
 export const useGLStore = create<GLStore>()(

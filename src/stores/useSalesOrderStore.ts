@@ -9,6 +9,9 @@ interface SOItem {
     unit:        string;
     price:       number;
     discount:    number;
+    quantity?:   number;
+    discountPct?: number;
+    [key: string]: unknown;
 }
 
 interface SO {
@@ -39,13 +42,13 @@ interface SalesOrderStore {
     convertToInvoice:  (soId: string) => Promise<string | null>;
 }
 
-const seed = [
+const seed: SO[] = [
     { id: 'SO-1001', customerId: 'CUST-001', customerName: 'Acme Corp',  date: '2026-01-10', expectedDate: '2026-01-25', status: 'Confirmed', currency: 'IDR', amount: 5000000, notes: '', convertedInvoiceId: null },
     { id: 'SO-1002', customerId: 'CUST-002', customerName: 'Globex Inc', date: '2026-01-15', expectedDate: '2026-02-01', status: 'Draft',     currency: 'IDR', amount: 2200000, notes: '', convertedInvoiceId: null },
     { id: 'SO-1003', customerId: 'CUST-001', customerName: 'Acme Corp',  date: '2026-01-20', expectedDate: '2026-02-10', status: 'Delivered', currency: 'IDR', amount: 8750000, notes: 'Priority delivery', convertedInvoiceId: null },
 ];
 
-const templatesSeed = {
+const templatesSeed: Record<string, SOItem[]> = {
     'SO-1001': [
         { id: 'li-1', description: 'Widget A', qty: 10, unit: 'PCS', price: 500000, discount: 0 },
     ],
@@ -58,12 +61,12 @@ const templatesSeed = {
     ],
 };
 
-const toNumber = (value) => {
+const toNumber = (value: unknown) => {
     const parsed = Number(value || 0);
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const calculateAmountFromItems = (items = []) => {
+const calculateAmountFromItems = (items: Array<Partial<SOItem>> = []) => {
     return items.reduce((sum, line) => {
         const qty = toNumber(line.qty ?? line.quantity);
         const price = toNumber(line.price);
@@ -74,7 +77,7 @@ const calculateAmountFromItems = (items = []) => {
     }, 0);
 };
 
-const nextId = (prefix, records) => {
+const nextId = (prefix: string, records: Array<{ id?: string | null }>) => {
     const maxNum = records.reduce((max, row) => {
         const value = String(row.id || '').replace(`${prefix}-`, '');
         const num = Number(value);

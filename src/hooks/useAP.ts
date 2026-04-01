@@ -11,7 +11,6 @@ import type {
 } from '../types';
 
 export const AP_KEYS = {
-<<<<<<< HEAD:src/hooks/useAP.ts
     vendorCategories: ['apVendorCategories'] as const,
     vendors: ['apVendors'] as const,
     vendor: (id: string) => ['apVendors', id] as const,
@@ -21,17 +20,6 @@ export const AP_KEYS = {
     payment: (id: string) => ['apPayments', id] as const,
     pos: ['apPOs'] as const,
     po: (id: string) => ['apPOs', id] as const,
-=======
-    vendorCategories: ['apVendorCategories'],
-    vendors: ['apVendors'],
-    vendor: (id) => ['apVendors', id],
-    bills: ['apBills'],
-    bill: (id) => ['apBills', id],
-    payments: ['apPayments'],
-    payment: (id) => ['apPayments', id],
-    pos: ['apPOs'],
-    po: (id) => ['apPOs', id],
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
 };
 
 // ── Status maps ───────────────────────────────────────────────────────────────
@@ -79,23 +67,14 @@ function normalizeVendor(raw: RawVendor): Vendor {
         paymentTerms: raw.paymentTerms || '',
         npwp: raw.npwp || '',
         defaultApAccountId: raw.defaultApAccountId || '',
-<<<<<<< HEAD:src/hooks/useAP.ts
         status: VENDOR_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as VendorStatus),
-=======
-        status: VENDOR_STATUS_DOWN[raw.status] ?? raw.status,
-        // Fields not yet in API
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
         balance: Number(raw.balance ?? 0),
         billingAddress: raw.billingAddress || '',
         shippingAddress: raw.shippingAddress || '',
     };
 }
 
-<<<<<<< HEAD:src/hooks/useAP.ts
 function normalizeVendorCategory(raw: RawVendorCategory): VendorCategory {
-=======
-function normalizeVendorCategory(raw) {
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
     return {
         id: raw.id,
         name: raw.name || '',
@@ -108,11 +87,7 @@ function normalizeVendorCategory(raw) {
     };
 }
 
-<<<<<<< HEAD:src/hooks/useAP.ts
 function normalizeBill(raw: RawBill): Bill {
-=======
-function normalizeBill(raw) {
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
     return {
         id:         raw.number   || raw.id,
         _id:        raw.id,
@@ -132,6 +107,8 @@ function normalizeBill(raw) {
         taxAmount:  Number(raw.taxAmount   ?? 0),
         poNumber:   raw.poNumber || '',
         notes:      raw.notes    || '',
+        apAccountId: raw.apAccountId || '',
+        taxRate: Number(raw.taxRate ?? 0),
         lines: (raw.lines || []).map((l) => ({
             ...l,
             price:     Number(l.price     ?? 0),
@@ -155,6 +132,10 @@ function normalizeAPPayment(raw: RawAPPayment): APPayment {
         status:     PAYMENT_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as PaymentStatus),
         billId:     raw.billId  || '',
         bankId:     raw.bankId  || '',
+        depositAccountId: raw.depositAccountId || '',
+        apAccountId: raw.apAccountId || '',
+        discountAccountId: raw.discountAccountId || '',
+        penaltyAccountId: raw.penaltyAccountId || '',
     };
 }
 
@@ -181,20 +162,12 @@ function normalizePO(raw: RawPurchaseOrder): PurchaseOrder {
     };
 }
 
-<<<<<<< HEAD:src/hooks/useAP.ts
 // ── Vendor Categories ─────────────────────────────────────────────────────────
-=======
-// ── Vendor Categories ────────────────────────────────────────────────────────
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
 
 export function useVendorCategories() {
     return useQuery({
         queryKey: AP_KEYS.vendorCategories,
-<<<<<<< HEAD:src/hooks/useAP.ts
         queryFn: () => api.get<RawVendorCategory[]>('/api/v1/vendor-categories').then((data) =>
-=======
-        queryFn: () => api.get('/api/v1/vendor-categories').then((data) =>
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
             Array.isArray(data) ? data.map(normalizeVendorCategory) : []
         ),
         staleTime: 30_000,
@@ -204,11 +177,7 @@ export function useVendorCategories() {
 export function useCreateVendorCategory() {
     const qc = useQueryClient();
     return useMutation({
-<<<<<<< HEAD:src/hooks/useAP.ts
         mutationFn: (body: Partial<VendorCategory>) => api.post('/api/v1/vendor-categories', body),
-=======
-        mutationFn: (body) => api.post('/api/v1/vendor-categories', body),
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: AP_KEYS.vendorCategories });
             qc.invalidateQueries({ queryKey: AP_KEYS.vendors });
@@ -219,12 +188,8 @@ export function useCreateVendorCategory() {
 export function useUpdateVendorCategory() {
     const qc = useQueryClient();
     return useMutation({
-<<<<<<< HEAD:src/hooks/useAP.ts
         mutationFn: ({ id, ...body }: Partial<VendorCategory> & { id: string }) =>
             api.put(`/api/v1/vendor-categories/${id}`, body),
-=======
-        mutationFn: ({ id, ...body }) => api.put(`/api/v1/vendor-categories/${id}`, body),
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: AP_KEYS.vendorCategories });
             qc.invalidateQueries({ queryKey: AP_KEYS.vendors });
@@ -235,11 +200,7 @@ export function useUpdateVendorCategory() {
 export function useDeleteVendorCategory() {
     const qc = useQueryClient();
     return useMutation({
-<<<<<<< HEAD:src/hooks/useAP.ts
         mutationFn: (id: string) => api.delete(`/api/v1/vendor-categories/${id}`),
-=======
-        mutationFn: (id) => api.delete(`/api/v1/vendor-categories/${id}`),
->>>>>>> 07b6c56 (feat: reports overhaul, vendor improvements, and schema updates):src/hooks/useAP.js
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: AP_KEYS.vendorCategories });
             qc.invalidateQueries({ queryKey: AP_KEYS.vendors });

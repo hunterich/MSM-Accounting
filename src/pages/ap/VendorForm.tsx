@@ -6,6 +6,7 @@ import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import { useCreateVendor, useUpdateVendor, useVendorCategories, useVendors } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import type { VendorStatus } from '../../types';
 
 const buildNextVendorCode = (vendors: { code?: string | null }[]) => {
     const nextNumber = vendors.reduce((max: number, vendor: { code?: string | null }) => {
@@ -145,12 +146,12 @@ const VendorForm = () => {
             code: formData.code.trim().toUpperCase(),
             name: formData.name.trim(),
             categoryId: formData.categoryId,
-            email: formData.email.trim() || null,
-            phone: formData.phone.trim() || null,
-            paymentTerms: formData.paymentTerms || null,
-            npwp: formData.npwp.trim() || null,
+            email: formData.email.trim() || undefined,
+            phone: formData.phone.trim() || undefined,
+            paymentTerms: formData.paymentTerms || undefined,
+            npwp: formData.npwp.trim() || undefined,
             defaultApAccountId: formData.defaultApAccountId,
-            status: formData.status,
+            status: formData.status as VendorStatus,
         };
 
         try {

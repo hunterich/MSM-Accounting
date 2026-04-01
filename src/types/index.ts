@@ -32,8 +32,14 @@ export interface RawCustomer {
 }
 
 export interface RawInvoiceLine {
+  id?: string | null;
+  itemId?: string | null;
+  code?: string | null;
+  description?: string | null;
+  itemName?: string | null;
   price?: number | string | null;
   quantity?: number | string | null;
+  unit?: string | null;
   lineSubtotal?: number | string | null;
   discountPct?: number | string | null;
   [key: string]: unknown;
@@ -44,13 +50,19 @@ export interface RawInvoice {
   number?: string | null;
   customerId?: string | null;
   customer?: { name?: string; code?: string } | null;
+  invoiceType?: string | null;
   issueDate?: string | null;
   dueDate?: string | null;
+  shippingDate?: string | null;
   status?: string | null;
   totalAmount?: number | string | null;
   subtotal?: number | string | null;
   taxAmount?: number | string | null;
   discountAmount?: number | string | null;
+  discountPct?: number | string | null;
+  email?: string | null;
+  billingAddress?: string | null;
+  shippingAddress?: string | null;
   notes?: string | null;
   poNumber?: string | null;
   currency?: string | null;
@@ -70,6 +82,10 @@ export interface RawARPayment {
   status?: string | null;
   invoiceId?: string | null;
   bankId?: string | null;
+  depositAccountId?: string | null;
+  arAccountId?: string | null;
+  discountAccountId?: string | null;
+  penaltyAccountId?: string | null;
 }
 
 export interface RawSalesOrderItem {
@@ -145,6 +161,8 @@ export interface RawBill {
   taxAmount?: number | string | null;
   poNumber?: string | null;
   notes?: string | null;
+  apAccountId?: string | null;
+  taxRate?: number | string | null;
   lines?: RawBillLine[] | null;
 }
 
@@ -159,6 +177,10 @@ export interface RawAPPayment {
   status?: string | null;
   billId?: string | null;
   bankId?: string | null;
+  depositAccountId?: string | null;
+  apAccountId?: string | null;
+  discountAccountId?: string | null;
+  penaltyAccountId?: string | null;
 }
 
 export interface RawPOLine {
@@ -209,10 +231,17 @@ export interface Customer {
 }
 
 export interface InvoiceLine {
+  id?: string;
+  itemId?: string;
+  code?: string;
+  description?: string;
+  itemName?: string;
   price: number;
   quantity: number;
+  unit?: string;
   lineSubtotal: number;
   discountPct: number;
+  discount?: number;
   [key: string]: unknown;
 }
 
@@ -222,22 +251,29 @@ export interface Invoice {
   customerId: string;
   customerName: string;
   customerCode: string;
+  invoiceType?: string;
   issueDate: string;
   /** Alias for issueDate — kept for date-range filter compatibility. */
   date: string;
   dueDate: string;
+  shippingDate?: string;
   status: InvoiceStatus;
   amount: number;
   totalAmount: number;
   subtotal: number;
   taxAmount: number;
   discountAmount: number;
+  discountPct?: number;
+  email?: string;
+  billingAddress?: string;
+  shippingAddress?: string;
   notes: string;
   poNumber: string;
   currency: string;
   createdById: string;
   createdByName: string;
   lines: InvoiceLine[];
+  items?: InvoiceLine[];
 }
 
 export interface ARPayment {
@@ -255,6 +291,10 @@ export interface ARPayment {
   status: PaymentStatus;
   invoiceId: string;
   bankId: string;
+  depositAccountId?: string;
+  arAccountId?: string;
+  discountAccountId?: string;
+  penaltyAccountId?: string;
 }
 
 export interface SalesOrderItem {
@@ -339,6 +379,8 @@ export interface Bill {
   taxAmount: number;
   poNumber: string;
   notes: string;
+  apAccountId?: string;
+  taxRate?: number;
   lines: BillLine[];
 }
 
@@ -355,6 +397,10 @@ export interface APPayment {
   status: PaymentStatus;
   billId: string;
   bankId: string;
+  depositAccountId?: string;
+  apAccountId?: string;
+  discountAccountId?: string;
+  penaltyAccountId?: string;
 }
 
 export interface POLine {
@@ -622,6 +668,7 @@ export interface RawInventoryItem {
 export interface InventoryItem {
   id: string;
   sku: string;
+  code?: string;
   name: string;
   type: string;
   categoryId: string | null;

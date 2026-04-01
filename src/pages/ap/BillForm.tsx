@@ -9,8 +9,42 @@ import { useBills, useCreateBill, useUpdateBill } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import type { ChangeEvent } from 'react';
+import type { Account, Bill, BillStatus } from '../../types';
 
-const buildFormData = (bill) => {
+interface BillFormData {
+    vendor: string;
+    poNumber: string;
+    issueDate: string;
+    dueDate: string;
+    billNumber: string;
+    apAccountId: string;
+    notes: string;
+}
+
+interface BillLineItem {
+    id: string | number;
+    description: string;
+    accountId: string;
+    qty: number;
+    unit: string;
+    price: number;
+}
+
+interface TaxSettingsState {
+    enabled: boolean;
+    inclusive: boolean;
+    rate: number;
+}
+
+interface PostingPreviewLine {
+    side: 'DR' | 'CR';
+    accountId: string;
+    accountLabel: string;
+    amount: number;
+}
+
+const buildFormData = (bill: Bill | null): BillFormData => {
     if (!bill) {
         return {
             vendor: '',
@@ -34,17 +68,21 @@ const buildFormData = (bill) => {
     };
 };
 
-const buildItems = (billId, expenseAccounts, templates) => {
+const buildItems = (
+    billId: string,
+    expenseAccounts: Account[],
+    templates: Record<string, Record<string, unknown>[]>
+): BillLineItem[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
     const source = templates[billId] || [];
 
     if (source.length > 0) {
         return source.map((line, index) => ({
             id: `${billId || 'new'}-${index}-${Date.now()}`,
-            description: line.description || '',
-            accountId: line.accountId || defaultAccountId,
+            description: String(line.description || ''),
+            accountId: String(line.accountId || defaultAccountId),
             qty: Number(line.qty || 0),
-            unit: line.unit || 'PCS',
+            unit: String(line.unit || 'PCS'),
             price: Number(line.price || 0)
         }));
     }
@@ -75,8 +113,8 @@ const BillForm = () => {
 
     const selectedBill = useMemo(() => bills.find((bill) => bill.id === billId) || null, [billId, bills]);
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -97,12 +135,12 @@ const BillForm = () => {
         );
     }, [chartOfAccounts]);
 
-    const [formData, setFormData] = useState(() => buildFormData(selectedBill));
-    const [items, setItems] = useState(() => buildItems(billId, expenseTargetAccounts, billItemTemplates));
-    const [errors, setErrors] = useState({});
+    const [formData, setFormData] = useState<BillFormData>(() => buildFormData(selectedBill));
+    const [items, setItems] = useState<BillLineItem[]>(() => buildItems(billId, expenseTargetAccounts, billItemTemplates));
+    const [errors, setErrors] = useState<Record<string, string | null>>({});
 
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
-    const [taxSettings, setTaxSettings] = useState({
+    const [taxSettings, setTaxSettings] = useState<TaxSettingsState>({
         enabled: globalTaxSettings.enabled,
         inclusive: globalTaxSettings.inclusiveByDefault,
         rate: globalTaxSettings.defaultRate
@@ -114,13 +152,13 @@ const BillForm = () => {
         setErrors({});
     }, [selectedBill, billId, expenseTargetAccounts, billItemTemplates]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         if (!account) return 'Unknown account';
         return `${account.code} - ${account.name}`;
     };
 
-    const handleChange = (e) => {
+    const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
         setErrors((prev) => ({ ...prev, [e.target.name]: null }));
     };
@@ -134,17 +172,17 @@ const BillForm = () => {
         ]));
     };
 
-    const updateLine = (id, field, value) => {
+    const updateLine = (id: BillLineItem['id'], field: keyof Omit<BillLineItem, 'id'>, value: string | number) => {
         if (isViewMode) return;
         setItems((prev) => prev.map((line) => (line.id === id ? { ...line, [field]: value } : line)));
     };
 
-    const removeLine = (id) => {
+    const removeLine = (id: BillLineItem['id']) => {
         if (isViewMode) return;
         setItems((prev) => prev.filter((line) => line.id !== id));
     };
 
-    const lineTotal = (line) => line.qty * line.price;
+    const lineTotal = (line: BillLineItem) => line.qty * line.price;
     const subtotal = items.reduce((sum, line) => sum + lineTotal(line), 0);
 
     const taxAmount = (() => {
@@ -158,8 +196,8 @@ const BillForm = () => {
 
     const totalAmount = taxSettings.enabled && !taxSettings.inclusive ? subtotal + taxAmount : subtotal;
 
-    const postingPreview = useMemo(() => {
-        const debitByAccount = {};
+    const postingPreview = useMemo<PostingPreviewLine[]>(() => {
+        const debitByAccount: Record<string, number> = {};
 
         items.forEach((line) => {
             const lineAmount = lineTotal(line);
@@ -167,7 +205,7 @@ const BillForm = () => {
             debitByAccount[line.accountId] = (debitByAccount[line.accountId] || 0) + lineAmount;
         });
 
-        const debitLines = Object.entries(debitByAccount).map(([accountId, amount]) => ({
+        const debitLines: PostingPreviewLine[] = Object.entries(debitByAccount).map(([accountId, amount]) => ({
             side: 'DR',
             accountId,
             accountLabel: formatAccountOption(accountId),
@@ -183,7 +221,7 @@ const BillForm = () => {
             });
         }
 
-        const creditLine = {
+        const creditLine: PostingPreviewLine = {
             side: 'CR',
             accountId: formData.apAccountId,
             accountLabel: formatAccountOption(formData.apAccountId),
@@ -200,7 +238,7 @@ const BillForm = () => {
         }).length;
     }, [items, accountMap]);
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/ap/bills');
@@ -226,13 +264,12 @@ const BillForm = () => {
         const finalBillId = isViewMode ? billId : newBillId;
 
         const finalBill = {
-            id: finalBillId,
             vendor: formData.vendor,
             poNumber: formData.poNumber,
             date: formData.issueDate,
             due: formData.dueDate,
             amount: totalAmount,
-            status: mode === 'edit' ? selectedBill?.status : 'Open',
+            status: (mode === 'edit' ? selectedBill?.status : 'Unpaid') as BillStatus,
             apAccountId: formData.apAccountId,
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
             notes: formData.notes
@@ -245,11 +282,12 @@ const BillForm = () => {
                 await createBill.mutateAsync(finalBill);
             }
 
-            setBillItemTemplates(finalBillId, items);
+            setBillItemTemplates(finalBillId, items as unknown as Record<string, unknown>[]);
 
             navigate('/ap/bills');
         } catch (err) {
-            window.alert(`Failed to save bill: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save bill: ${message}`);
         }
     };
 
@@ -388,7 +426,7 @@ const BillForm = () => {
                             <tbody>
                                 {items.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" className="text-center p-6 text-neutral-400">
+                                        <td colSpan={7} className="text-center p-6 text-neutral-400">
                                             No items added
                                         </td>
                                     </tr>

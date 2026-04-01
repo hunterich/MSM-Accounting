@@ -7,14 +7,15 @@ import FormPage from '../../components/Layout/FormPage';
 import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import type { AdjStatus, AdjType } from '../../types';
 
 interface AdjFormData {
     id: string;
     date: string;
-    type: string;
+    type: AdjType;
     reason: string;
     notes: string;
-    status: string;
+    status: AdjStatus;
 }
 
 interface AdjLine {
@@ -27,7 +28,7 @@ interface AdjLine {
     unitCost: number;
 }
 
-const buildFormData = (adj: { id?: string; date?: string; type?: string; reason?: string; notes?: string; status?: string } | null): AdjFormData => {
+const buildFormData = (adj: { id?: string; date?: string; type?: AdjType; reason?: string; notes?: string; status?: AdjStatus } | null): AdjFormData => {
     if (!adj) {
         return {
             id: '',
@@ -48,18 +49,19 @@ const buildFormData = (adj: { id?: string; date?: string; type?: string; reason?
     };
 };
 
-const buildItems = (adj: { items?: Partial<AdjLine>[] } | null, expenseAccounts: { id: string }[]): AdjLine[] => {
+const buildItems = (adj: { items?: Partial<AdjLine>[]; lines?: Partial<AdjLine>[] } | null, expenseAccounts: { id: string }[]): AdjLine[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
+    const sourceLines = adj?.items ?? adj?.lines ?? [];
 
-    if (adj && adj.items && adj.items.length > 0) {
-        return adj.items.map((line, index) => ({
+    if (sourceLines.length > 0) {
+        return sourceLines.map((line, index) => ({
             id: line.id || `line-${index}-${Date.now()}`,
             itemId: line.itemId || '',
             accountId: line.accountId || defaultAccountId,
-            oldQty: line.oldQty || 0,
-            newQty: line.newQty || 0,
-            qtyDiff: line.qtyDiff || 0,
-            unitCost: line.unitCost || 0
+            oldQty: Number(line.oldQty || 0),
+            newQty: Number(line.newQty || 0),
+            qtyDiff: Number(line.qtyDiff || 0),
+            unitCost: Number(line.unitCost || 0)
         }));
     }
 
@@ -192,7 +194,7 @@ const AdjustmentForm = () => {
         const payload = {
             number: formData.id || undefined,
             date:   formData.date,
-            type:   formData.type,
+            type:   formData.type as AdjType,
             reason: formData.reason,
             status: formData.status,
             notes:  formData.notes,
@@ -203,6 +205,7 @@ const AdjustmentForm = () => {
                 newQty:     line.newQty,
                 qtyDiff:    line.qtyDiff,
                 unitCost:   line.unitCost,
+                totalValue: line.qtyDiff * line.unitCost,
             })),
         };
 

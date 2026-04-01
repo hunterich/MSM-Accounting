@@ -31,8 +31,15 @@ import FormPage from '../../components/Layout/FormPage';
 import { useCustomers, useInvoices, useARPayments, useCreateARPayment, useUpdateARPayment } from '../../hooks/useAR';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import type { Account } from '../../types';
 
-const BANK_TO_GL_ACCOUNT_MAP = {
+type PaymentMode = 'create' | 'view' | 'edit';
+type PaymentNumberingMode = 'auto' | 'manual';
+type PostingLine = { side: 'DR' | 'CR'; accountId: string; amount: number };
+type ARPaymentAccountKey = 'depositAccountId' | 'arAccountId' | 'discountAccountId' | 'penaltyAccountId';
+type PaymentRouteState = { mode?: PaymentMode; paymentId?: string };
+
+const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
@@ -53,10 +60,10 @@ const PaymentForm = () => {
     const chartOfAccounts = coaData || [];
     const createARPayment = useCreateARPayment();
     const updateARPayment = useUpdateARPayment();
-    const [mode, setMode] = useState('create'); // create | view | edit
+    const [mode, setMode] = useState<PaymentMode>('create');
     const [paymentTab, setPaymentTab] = useState('details'); // details | invoices
 
-    const [paymentData, setPaymentData] = useState({
+    const [paymentData, setPaymentData] = useState<ARPaymentData>({
         paymentNumber: '',
         customerId: '',
         date: new Date().toISOString().split('T')[0],
@@ -72,19 +79,19 @@ const PaymentForm = () => {
         totalAmount: 0
     });
 
-    const [paymentNumberingMode, setPaymentNumberingMode] = useState('auto'); // auto | manual
-    const [paymentSeqByBank, setPaymentSeqByBank] = useState({
+    const [paymentNumberingMode, setPaymentNumberingMode] = useState<PaymentNumberingMode>('auto');
+    const [paymentSeqByBank] = useState<Record<string, number>>({
         BCA: 1,
         MANDIRI: 1,
         CASH: 1
     });
 
-    const getBankCode = (bankId) => {
-        const bank = bankAccounts.find(b => b.id === bankId);
+    const getBankCode = (bankId: string) => {
+        const bank = bankAccounts.find((item) => item.id === bankId);
         return bank?.code || 'BANK';
     };
 
-    const buildPaymentNo = (bankCode, dateStr, seq) => {
+    const buildPaymentNo = (bankCode: string, dateStr: string, seq: number) => {
         const date = dateStr ? new Date(dateStr) : new Date();
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -98,33 +105,33 @@ const PaymentForm = () => {
         paymentSeqByBank[getBankCode(paymentData.depositTo)] || 1
     );
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const arAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const discountAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
-    }, []);
+    }, [chartOfAccounts]);
 
     const penaltyAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Revenue');
-    }, []);
+    }, [chartOfAccounts]);
 
     const depositAccountOptions = arAccountOptions;
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -132,15 +139,15 @@ const PaymentForm = () => {
     // derive totals
     useEffect(() => {
         let total = 0;
-        paymentData.selectedInvoices.forEach(invId => {
-            const invoice = invoices.find(i => i.id === invId);
+        paymentData.selectedInvoices.forEach((invId) => {
+            const invoice = invoices.find((item) => item.id === invId);
             if (invoice) {
                 const adj = paymentData.adjustments[invId] || { discount: 0, penalty: 0 };
-                total += (invoice.amount - (adj.discount || 0) + (adj.penalty || 0));
+                total += Number(invoice.amount || 0) - Number(adj.discount || 0) + Number(adj.penalty || 0);
             }
         });
-        setPaymentData(prev => ({ ...prev, totalAmount: total }));
-    }, [paymentData.selectedInvoices, paymentData.adjustments]);
+        setPaymentData((prev) => ({ ...prev, totalAmount: total }));
+    }, [paymentData.selectedInvoices, paymentData.adjustments, invoices]);
 
     useEffect(() => {
         const mapped = BANK_TO_GL_ACCOUNT_MAP[paymentData.depositTo];
@@ -149,7 +156,7 @@ const PaymentForm = () => {
     }, [paymentData.depositTo]);
 
     useEffect(() => {
-        const state = location.state || {};
+        const state = (location.state as PaymentRouteState | null) || {};
         if (state.mode) setMode(state.mode);
         if (state.paymentId) {
             const found = payments.find((payment) => payment.id === state.paymentId);
@@ -176,7 +183,7 @@ const PaymentForm = () => {
         } else {
             setPaymentNumberingMode('auto');
         }
-    }, [location.state]);
+    }, [location.state, payments, bankAccounts]);
 
     const customerOptions = customers.map(c => ({ value: c.id, label: c.name }));
     const bankOptions = bankAccounts.map(b => ({ value: b.id, label: b.name }));
@@ -189,9 +196,9 @@ const PaymentForm = () => {
 
     const customerInvoices = useMemo(() => {
         return invoices
-            .filter(inv => paymentData.customerId ? inv.customerId === paymentData.customerId : false)
-            .filter(inv => inv.status === 'Unpaid');
-    }, [paymentData.customerId]);
+            .filter((inv) => (paymentData.customerId ? inv.customerId === paymentData.customerId : false))
+            .filter((inv) => inv.status !== 'Paid');
+    }, [paymentData.customerId, invoices]);
 
     const paymentBreakdown = useMemo(() => {
         const selected = paymentData.selectedInvoices.map((invId) => {
@@ -206,7 +213,7 @@ const PaymentForm = () => {
                 discount,
                 penalty
             };
-        }).filter(Boolean);
+        }).filter((row): row is { invoiceId: string; amount: number; discount: number; penalty: number } => row !== null);
 
         const invoiceAmount = selected.reduce((sum, row) => sum + row.amount, 0);
         const discountAmount = selected.reduce((sum, row) => sum + row.discount, 0);
@@ -218,10 +225,10 @@ const PaymentForm = () => {
             penaltyAmount,
             netCash: invoiceAmount - discountAmount + penaltyAmount
         };
-    }, [paymentData.selectedInvoices, paymentData.adjustments]);
+    }, [paymentData.selectedInvoices, paymentData.adjustments, invoices]);
 
-    const postingPreview = useMemo(() => {
-        const lines = [
+    const postingPreview = useMemo<PostingLine[]>(() => {
+        const lines: PostingLine[] = [
             {
                 side: 'DR',
                 accountId: paymentData.depositAccountId,
@@ -262,8 +269,8 @@ const PaymentForm = () => {
         paymentBreakdown.penaltyAmount
     ]);
 
-    const handleCustomerChange = (val) => {
-        setPaymentData(prev => ({
+    const handleCustomerChange = (val: string) => {
+        setPaymentData((prev) => ({
             ...prev,
             customerId: val,
             selectedInvoices: [],
@@ -272,17 +279,17 @@ const PaymentForm = () => {
         }));
     };
 
-    const toggleInvoiceSelection = (invoiceId) => {
-        setPaymentData(prev => {
+    const toggleInvoiceSelection = (invoiceId: string) => {
+        setPaymentData((prev) => {
             const isSelected = prev.selectedInvoices.includes(invoiceId);
-            const newSelected = isSelected ? prev.selectedInvoices.filter(id => id !== invoiceId) : [...prev.selectedInvoices, invoiceId];
+            const newSelected = isSelected ? prev.selectedInvoices.filter((id) => id !== invoiceId) : [...prev.selectedInvoices, invoiceId];
             return { ...prev, selectedInvoices: newSelected };
         });
     };
 
-    const handleAdjustmentChange = (invoiceId, field, value) => {
+    const handleAdjustmentChange = (invoiceId: string, field: keyof InvoiceAdjustment, value: string) => {
         const normalized = Math.max(0, Number.parseFloat(value) || 0);
-        setPaymentData(prev => ({
+        setPaymentData((prev) => ({
             ...prev,
             adjustments: {
                 ...prev.adjustments,
@@ -340,8 +347,9 @@ const PaymentForm = () => {
             discountAccountId: paymentData.discountAccountId,
             penaltyAccountId: paymentData.penaltyAccountId,
             invoiceId: paymentData.selectedInvoices[0] || '',
+            amount: paymentData.totalAmount,
             totalAmount: paymentData.totalAmount,
-            status: 'Completed',
+            status: 'Completed' as const,
         };
 
         try {
@@ -356,14 +364,15 @@ const PaymentForm = () => {
             }
             navigate('/ar/payments');
         } catch (err) {
-            window.alert(`Failed to save payment: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save payment: ${message}`);
         }
     };
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
     const fcSmInline = 'w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: ARPaymentAccountKey, options: Account[], disabled = false) => {
         if (isAccountLegacy(paymentData[key])) {
             return (
                 <div>
@@ -439,7 +448,7 @@ const PaymentForm = () => {
                         </div>
                         <div className="col-span-2">
                             <label className="form-label form-label-icon"><Calendar size={14} /> Payment Date</label>
-                            <Input className="mb-0" type="date" value={paymentData.date} onChange={(e) => setPaymentData({ ...paymentData, date: e.target.value })} disabled={mode === 'view'} />
+                            <Input className="mb-0" type="date" value={paymentData.date} onChange={(event) => setPaymentData((prev) => ({ ...prev, date: event.target.value }))} disabled={mode === 'view'} />
                         </div>
                         <div className="col-span-2">
                             <label className="form-label">Method</label>
@@ -447,7 +456,7 @@ const PaymentForm = () => {
                                 className="mb-0"
                                 options={methodOptions}
                                 value={paymentData.method}
-                                onChange={(value) => setPaymentData({ ...paymentData, method: value })}
+                                onChange={(value: string) => setPaymentData((prev) => ({ ...prev, method: value }))}
                                 placeholder="Select method..."
                                 disabled={mode === 'view'}
                             />
@@ -455,11 +464,11 @@ const PaymentForm = () => {
                         <div className="col-span-4">
                             <label className="form-label form-label-icon"><Hash size={14} /> Payment #</label>
                             <div className="numbering-row">
-                                <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={paymentNumberingMode} onChange={(e) => setPaymentNumberingMode(e.target.value)} disabled={mode === 'view'}>
+                                <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={paymentNumberingMode} onChange={(event) => setPaymentNumberingMode(event.target.value as PaymentNumberingMode)} disabled={mode === 'view'}>
                                     <option value="auto">Auto</option>
                                     <option value="manual">Manual</option>
                                 </select>
-                                <Input className="mb-0" value={paymentData.paymentNumber} onChange={(e) => setPaymentData({ ...paymentData, paymentNumber: e.target.value })} disabled={mode === 'view' || paymentNumberingMode === 'auto'} placeholder={paymentNumberingMode === 'auto' ? paymentNoPreview : 'Payment #'} />
+                                <Input className="mb-0" value={paymentData.paymentNumber} onChange={(event) => setPaymentData((prev) => ({ ...prev, paymentNumber: event.target.value }))} disabled={mode === 'view' || paymentNumberingMode === 'auto'} placeholder={paymentNumberingMode === 'auto' ? paymentNoPreview : 'Payment #'} />
                             </div>
                             {paymentNumberingMode === 'auto' && (
                                 <div className="numbering-preview">
@@ -474,14 +483,14 @@ const PaymentForm = () => {
                                 className="mb-0"
                                 options={bankOptions}
                                 value={paymentData.depositTo}
-                                onChange={(value) => setPaymentData({ ...paymentData, depositTo: value })}
+                                onChange={(value: string) => setPaymentData((prev) => ({ ...prev, depositTo: value }))}
                                 placeholder="Select deposit account..."
                                 disabled={mode === 'view'}
                             />
                         </div>
                         <div className="col-span-6">
                             <label className="form-label form-label-icon"><FileText size={14} /> Reference / Memo</label>
-                            <Input className="mb-0" placeholder="e.g. Check #1234 or Notes" value={paymentData.reference} onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })} disabled={mode === 'view'} />
+                            <Input className="mb-0" placeholder="e.g. Check #1234 or Notes" value={paymentData.reference} onChange={(event) => setPaymentData((prev) => ({ ...prev, reference: event.target.value }))} disabled={mode === 'view'} />
                         </div>
 
                         <div className="col-span-3">
@@ -549,10 +558,10 @@ const PaymentForm = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {customerInvoices.map(inv => {
+                                        {customerInvoices.map((inv) => {
                                             const isSelected = paymentData.selectedInvoices.includes(inv.id);
                                             const adj = paymentData.adjustments[inv.id] || { discount: 0, penalty: 0 };
-                                            const toPay = inv.amount - (adj.discount || 0) + (adj.penalty || 0);
+                                            const toPay = Number(inv.amount || 0) - Number(adj.discount || 0) + Number(adj.penalty || 0);
                                             return (
                                                 <tr key={inv.id} className={`row-border ${isSelected ? 'row-selected' : ''}`}>
                                                     <td className="text-center">
@@ -563,12 +572,12 @@ const PaymentForm = () => {
                                                     <td className="text-right">{formatIDR(inv.amount)}</td>
                                                     <td className="compact">
                                                         {isSelected && (
-                                                            <input type="number" className={fcSmInline} value={adj.discount || ''} onChange={(e) => handleAdjustmentChange(inv.id, 'discount', e.target.value)} disabled={mode === 'view'} />
+                                                            <input type="number" className={fcSmInline} value={adj.discount || ''} onChange={(event) => handleAdjustmentChange(inv.id, 'discount', event.target.value)} disabled={mode === 'view'} />
                                                         )}
                                                     </td>
                                                     <td className="compact">
                                                         {isSelected && (
-                                                            <input type="number" className={fcSmInline} value={adj.penalty || ''} onChange={(e) => handleAdjustmentChange(inv.id, 'penalty', e.target.value)} disabled={mode === 'view'} />
+                                                            <input type="number" className={fcSmInline} value={adj.penalty || ''} onChange={(event) => handleAdjustmentChange(inv.id, 'penalty', event.target.value)} disabled={mode === 'view'} />
                                                         )}
                                                     </td>
                                                     <td className="text-right text-strong">

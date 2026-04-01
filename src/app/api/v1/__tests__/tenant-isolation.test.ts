@@ -62,7 +62,7 @@ function makeReq(orgId: string, method = 'GET', body?: unknown): NextRequest {
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
-  return new NextRequest('http://localhost/api/v1/test/abc', init);
+  return new NextRequest('http://localhost/api/v1/test/abc', init as ConstructorParameters<typeof NextRequest>[1]);
 }
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) });

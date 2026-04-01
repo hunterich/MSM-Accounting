@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
+import type { Account } from '../../types';
 
 interface DebitNoteLine {
     lineKey?:    string;
@@ -34,6 +35,28 @@ interface DebitNoteFormData {
     taxIncluded:         boolean;
     taxRate:             number;
 }
+type NumberingMode = 'auto' | 'manual';
+type DebitMode = 'create' | 'edit' | 'view';
+type DebitNoteAccountKey = 'settlementAccountId' | 'apAccountId' | 'returnAccountId' | 'taxAccountId';
+type PostingLine = { side: 'DR' | 'CR'; accountId: string; amount: number };
+type DraftPurchaseReturn = {
+    returnDate?: string;
+    returnNumber?: string;
+    vendorId?: string;
+    billId?: string;
+    apAccountId?: string;
+    returnAccountId?: string;
+    taxAccountId?: string;
+    lines?: DebitNoteLine[];
+    applyTax?: boolean;
+    taxIncluded?: boolean;
+    taxRate?: number;
+};
+type DebitNoteRouteState = {
+    mode?: DebitMode;
+    debitId?: string;
+    returnDraft?: DraftPurchaseReturn;
+};
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
@@ -41,22 +64,30 @@ import { useDebitNotes, usePurchaseReturns, useCreateDebitNote, useUpdateDebitNo
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
-const BANK_TO_GL_ACCOUNT_MAP = {
+const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
 };
 
-const buildDebitNo = (dateStr, seq = 1) => {
+const normalizeDebitLine = (line: Partial<DebitNoteLine>) : DebitNoteLine => ({
+    lineKey: typeof line.lineKey === 'string' ? line.lineKey : undefined,
+    description: typeof line.description === 'string' ? line.description : '',
+    qtyReturn: Number(line.qtyReturn || 0),
+    unit: typeof line.unit === 'string' ? line.unit : 'PCS',
+    price: Number(line.price || 0)
+});
+
+const buildDebitNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     return `DBN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const toReturnTotals = (purchaseReturn) => {
+const toReturnTotals = (purchaseReturn?: { lines?: DebitNoteLine[]; applyTax?: boolean; taxRate?: number; taxIncluded?: boolean } | null) => {
     if (!purchaseReturn) return { subtotal: 0, taxAmount: 0, total: 0 };
-    const subtotal = (purchaseReturn.lines || []).reduce((sum, line) => {
+    const subtotal = (purchaseReturn.lines || []).reduce((sum: number, line: DebitNoteLine) => {
         return sum + Number(line.qtyReturn || 0) * Number(line.price || 0);
     }, 0);
     if (!purchaseReturn.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
@@ -82,12 +113,12 @@ const DebitNoteForm = () => {
     const purchaseReturns = prData?.data ?? [];
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
-    const state = location.state || {};
-    const mode = state.mode || 'create';
+    const state = (location.state as DebitNoteRouteState | null) || {};
+    const mode: DebitMode = state.mode || 'create';
     const isView = mode === 'view';
 
-    const [numberingMode, setNumberingMode] = useState('auto');
-    const [formData, setFormData] = useState({
+    const [numberingMode, setNumberingMode] = useState<NumberingMode>('auto');
+    const [formData, setFormData] = useState<DebitNoteFormData>({
         debitNumber: '',
         debitDate: new Date().toISOString().split('T')[0],
         linkedReturnId: '',
@@ -110,31 +141,31 @@ const DebitNoteForm = () => {
         taxRate: 11
     });
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
-    }, []);
+    }, [chartOfAccounts]);
 
     const apAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
-    }, []);
+    }, [chartOfAccounts]);
 
     const returnAccountOptions = useMemo(() => {
         return chartOfAccounts.filter(
             (account) =>
                 account.isActive && account.isPostable && (account.type === 'Expense' || account.type === 'Asset')
         );
-    }, []);
+    }, [chartOfAccounts]);
 
     const taxAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const settlementAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     useEffect(() => {
         if (state.returnDraft) {
@@ -144,19 +175,19 @@ const DebitNoteForm = () => {
             setFormData((prev) => ({
                 ...prev,
                 debitDate: draft.returnDate || prev.debitDate,
-                linkedReturnId: draft.returnNumber,
-                vendorId: draft.vendorId,
+                linkedReturnId: draft.returnNumber || '',
+                vendorId: draft.vendorId || '',
                 vendorName: sourceBill?.vendor || '',
-                sourceBillId: draft.billId,
+                sourceBillId: draft.billId || '',
                 settlementRef: '',
                 apAccountId: draft.apAccountId || prev.apAccountId,
                 returnAccountId: draft.returnAccountId || prev.returnAccountId,
                 taxAccountId: draft.taxAccountId || prev.taxAccountId,
                 amount: toReturnTotals(draft).total,
-                lines: draft.lines || [],
-                applyTax: draft.applyTax,
-                taxIncluded: draft.taxIncluded,
-                taxRate: draft.taxRate
+                lines: (draft.lines || []).map(normalizeDebitLine),
+                applyTax: draft.applyTax ?? true,
+                taxIncluded: draft.taxIncluded ?? false,
+                taxRate: Number(draft.taxRate ?? 11)
             }));
             return;
         }
@@ -181,13 +212,19 @@ const DebitNoteForm = () => {
                 returnAccountId: found.returnAccountId || prev.returnAccountId,
                 taxAccountId: found.taxAccountId || prev.taxAccountId,
                 amount: found.amount,
-                lines: linkedReturn?.lines || [],
+                lines: (linkedReturn?.lines || []).map((line) => normalizeDebitLine({
+                    lineKey: line.lineKey,
+                    description: line.description,
+                    qtyReturn: line.qtyReturn,
+                    unit: line.unit,
+                    price: line.price
+                })),
                 applyTax: found.applyTax,
                 taxIncluded: linkedReturn?.taxIncluded ?? false,
                 taxRate: linkedReturn?.taxRate ?? 11
             }));
         }
-    }, [state.returnDraft, state.debitId]);
+    }, [state.returnDraft, state.debitId, bills, debitNotes, purchaseReturns]);
 
     useEffect(() => {
         if (formData.settlementType !== 'Refund from Vendor') return;
@@ -196,7 +233,7 @@ const DebitNoteForm = () => {
         setFormData((prev) => (prev.settlementAccountId === mappedAccountId ? prev : { ...prev, settlementAccountId: mappedAccountId }));
     }, [formData.refundBankId, formData.settlementType]);
 
-    const debitNoPreview = useMemo(() => buildDebitNo(formData.debitDate, debitNotes.length + 1), [formData.debitDate]);
+    const debitNoPreview = useMemo(() => buildDebitNo(formData.debitDate, debitNotes.length + 1), [formData.debitDate, debitNotes.length]);
 
     const openBillsForVendor = useMemo(() => {
         if (!formData.vendorId) return [];
@@ -204,7 +241,7 @@ const DebitNoteForm = () => {
             .filter((bill) => bill.vendorId === formData.vendorId)
             .filter((bill) => bill.status !== 'Paid')
             .map((bill) => ({ value: bill.id, label: `${bill.id} • ${formatDateID(bill.date)} • ${formatIDR(bill.amount)}` }));
-    }, [formData.vendorId]);
+    }, [formData.vendorId, bills]);
 
     const totals = useMemo(() => {
         const subtotal = formData.lines.reduce((sum, line) => sum + Number(line.qtyReturn || 0) * Number(line.price || 0), 0);
@@ -218,19 +255,19 @@ const DebitNoteForm = () => {
         return { subtotal, taxAmount, total: subtotal + taxAmount };
     }, [formData.lines, formData.applyTax, formData.taxIncluded, formData.taxRate]);
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
 
-    const postingPreview = useMemo(() => {
+    const postingPreview = useMemo<PostingLine[]>(() => {
         const debitAccountId = formData.settlementType === 'Apply to Bill' ? formData.apAccountId : formData.settlementAccountId;
-        const lines = [{ side: 'DR', accountId: debitAccountId, amount: totals.total }];
+        const lines: PostingLine[] = [{ side: 'DR', accountId: debitAccountId, amount: totals.total }];
 
         lines.push({ side: 'CR', accountId: formData.returnAccountId, amount: totals.subtotal });
         if (formData.applyTax && totals.taxAmount > 0) {
@@ -242,7 +279,7 @@ const DebitNoteForm = () => {
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: DebitNoteAccountKey, options: Account[], disabled = false) => {
         if (isAccountLegacy(formData[key])) {
             return (
                 <div>
@@ -313,11 +350,12 @@ const DebitNoteForm = () => {
             taxAccountId: formData.taxAccountId,
             amount: totals.total || formData.amount,
             applyTax: formData.applyTax,
-            status: 'Applied',
+            status: 'Applied' as const,
         };
 
         if (mode === 'edit' && formData.debitNumber) {
-            updateDebitNoteMutation.mutate({ id: formData.debitNumber, ...notePayload });
+            const { id: _noteId, ...updatePayload } = notePayload;
+            updateDebitNoteMutation.mutate({ id: formData.debitNumber, ...updatePayload });
         } else {
             createDebitNote.mutate(notePayload);
         }
@@ -358,7 +396,7 @@ const DebitNoteForm = () => {
                     <div className="col-span-3">
                         <label className="form-label">Debit #</label>
                         <div className="numbering-row">
-                            <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={numberingMode} onChange={(event) => setNumberingMode(event.target.value)} disabled={isView}>
+                            <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={numberingMode} onChange={(event) => setNumberingMode(event.target.value as NumberingMode)} disabled={isView}>
                                 <option value="auto">Auto</option>
                                 <option value="manual">Manual</option>
                             </select>

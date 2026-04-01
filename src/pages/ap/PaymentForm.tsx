@@ -32,14 +32,20 @@ import { useBankAccounts } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useAPPaymentStore } from '../../stores/useAPPaymentStore';
+import type { Account } from '../../types';
 
-const BANK_TO_GL_ACCOUNT_MAP = {
+type PaymentMode = 'create' | 'edit' | 'view';
+type PaymentNumberingMode = 'auto' | 'manual';
+type PostingLine = { side: 'DR' | 'CR'; accountId: string; amount: number };
+type PaymentAccountKey = 'apAccountId' | 'cashAccountId' | 'discountAccountId' | 'penaltyAccountId';
+
+const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
     'BANK-001': 'COA-1120',
     'BANK-002': 'COA-1130',
     'BANK-003': 'COA-1110'
 };
 
-const buildPaymentNo = (bankCode, dateStr, seq) => {
+const buildPaymentNo = (bankCode: string, dateStr: string, seq: number) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -67,9 +73,9 @@ const PaymentForm = () => {
     const createAPPayment = useCreateAPPayment();
     const updateAPPayment = useUpdateAPPayment();
 
-    const [mode, setMode] = useState('create');
+    const [mode, setMode] = useState<PaymentMode>('create');
 
-    const [paymentData, setPaymentData] = useState({
+    const [paymentData, setPaymentData] = useState<APPaymentData>({
         paymentNumber: '',
         vendorId: '',
         date: new Date().toISOString().split('T')[0],
@@ -86,11 +92,11 @@ const PaymentForm = () => {
     });
 
     const [paymentTab, setPaymentTab] = useState('details');
-    const [paymentNumberingMode, setPaymentNumberingMode] = useState('auto');
-    const [paymentSeqByBank, setPaymentSeqByBank] = useState({ BCA: 1, MANDIRI: 1, CASH: 1 });
+    const [paymentNumberingMode, setPaymentNumberingMode] = useState<PaymentNumberingMode>('auto');
+    const [paymentSeqByBank] = useState<Record<string, number>>({ BCA: 1, MANDIRI: 1, CASH: 1 });
 
-    const accountMap = useMemo(() => {
-        return chartOfAccounts.reduce((map, account) => {
+    const accountMap = useMemo<Record<string, Account>>(() => {
+        return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
             map[account.id] = account;
             return map;
         }, {});
@@ -112,7 +118,7 @@ const PaymentForm = () => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
     }, [chartOfAccounts]);
 
-    const getBankCode = (bankId) => {
+    const getBankCode = (bankId: string) => {
         const bank = bankAccounts.find((item) => item.id === bankId);
         return bank?.code || bank?.bankName || 'BANK';
     };
@@ -123,12 +129,12 @@ const PaymentForm = () => {
         paymentSeqByBank[getBankCode(paymentData.payFrom)] || 1
     );
 
-    const formatAccountOption = (accountId) => {
+    const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
         return account ? `${account.code} - ${account.name}` : 'Unknown account';
     };
 
-    const isAccountLegacy = (accountId) => {
+    const isAccountLegacy = (accountId: string) => {
         const account = accountMap[accountId];
         return !account || !account.isActive || !account.isPostable;
     };
@@ -152,7 +158,7 @@ const PaymentForm = () => {
                 vendorId: found.vendorId,
                 date: found.date,
                 method: found.method,
-                payFrom: found.bankId,
+                payFrom: found.bankId || 'BANK-001',
                 cashAccountId: found.depositAccountId || 'COA-1120',
                 apAccountId: found.apAccountId || 'COA-2100',
                 discountAccountId: found.discountAccountId || 'COA-4200',
@@ -160,7 +166,7 @@ const PaymentForm = () => {
                 reference: '',
                 selectedBills: found.billId ? [found.billId] : [],
                 adjustments: {},
-                totalAmount: found.amount
+                totalAmount: found.amount || 0
             });
             return;
         }
@@ -207,7 +213,7 @@ const PaymentForm = () => {
                     penalty: Number(adjustment.penalty || 0)
                 };
             })
-            .filter(Boolean);
+            .filter((row): row is { billId: string; amount: number; discount: number; penalty: number } => row !== null);
 
         const billAmount = selected.reduce((sum, row) => sum + row.amount, 0);
         const discountAmount = selected.reduce((sum, row) => sum + row.discount, 0);
@@ -217,8 +223,8 @@ const PaymentForm = () => {
         return { billAmount, discountAmount, penaltyAmount, cashAmount };
     }, [paymentData.selectedBills, paymentData.adjustments, bills]);
 
-    const postingPreview = useMemo(() => {
-        const lines = [
+    const postingPreview = useMemo<PostingLine[]>(() => {
+        const lines: PostingLine[] = [
             { side: 'DR', accountId: paymentData.apAccountId, amount: paymentBreakdown.billAmount },
             { side: 'CR', accountId: paymentData.cashAccountId, amount: paymentBreakdown.cashAmount }
         ];
@@ -242,7 +248,7 @@ const PaymentForm = () => {
         paymentBreakdown.penaltyAmount
     ]);
 
-    const handleVendorChange = (vendorId) => {
+    const handleVendorChange = (vendorId: string) => {
         const vendor = vendors.find((item) => item.id === vendorId);
         setPaymentData((prev) => ({
             ...prev,
@@ -254,7 +260,7 @@ const PaymentForm = () => {
         }));
     };
 
-    const toggleBillSelection = (billId) => {
+    const toggleBillSelection = (billId: string) => {
         setPaymentData((prev) => {
             const selected = prev.selectedBills.includes(billId)
                 ? prev.selectedBills.filter((id) => id !== billId)
@@ -263,7 +269,7 @@ const PaymentForm = () => {
         });
     };
 
-    const handleAdjustmentChange = (billId, field, value) => {
+    const handleAdjustmentChange = (billId: string, field: keyof BillAdjustment, value: string) => {
         const normalized = Math.max(0, Number.parseFloat(value) || 0);
         setPaymentData((prev) => ({
             ...prev,
@@ -280,7 +286,7 @@ const PaymentForm = () => {
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
     const fcSmInline = 'w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed';
 
-    const renderAccountField = (label, key, options, disabled = false) => {
+    const renderAccountField = (label: string, key: PaymentAccountKey, options: Account[], disabled = false) => {
         if (isAccountLegacy(paymentData[key])) {
             return (
                 <div>
@@ -348,7 +354,7 @@ const PaymentForm = () => {
             penaltyAccountId: paymentData.penaltyAccountId,
             billId: paymentData.selectedBills[0] || '',
             amount: paymentData.totalAmount,
-            status: 'Completed',
+            status: 'Completed' as const,
         };
 
         try {
@@ -359,7 +365,8 @@ const PaymentForm = () => {
             }
             navigate('/ap/payments');
         } catch (err) {
-            window.alert(`Failed to save payment: ${err?.message || 'Unknown error'}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            window.alert(`Failed to save payment: ${message}`);
         }
     };
 
@@ -414,12 +421,12 @@ const PaymentForm = () => {
                         </div>
                         <div className="col-span-2">
                             <label className="form-label">Method</label>
-                            <SearchableSelect className="mb-0" options={methodOptions} value={paymentData.method} onChange={(value) => setPaymentData((prev) => ({ ...prev, method: value }))} placeholder="Select method..." disabled={mode === 'view'} />
+                            <SearchableSelect className="mb-0" options={methodOptions} value={paymentData.method} onChange={(value: string) => setPaymentData((prev) => ({ ...prev, method: value }))} placeholder="Select method..." disabled={mode === 'view'} />
                         </div>
                         <div className="col-span-4">
                             <label className="form-label form-label-icon"><Hash size={14} /> Payment #</label>
                             <div className="numbering-row">
-                                <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={paymentNumberingMode} onChange={(event) => setPaymentNumberingMode(event.target.value)} disabled={mode === 'view'}>
+                                <select className="h-10 px-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed w-[90px] shrink-0" value={paymentNumberingMode} onChange={(event) => setPaymentNumberingMode(event.target.value as PaymentNumberingMode)} disabled={mode === 'view'}>
                                     <option value="auto">Auto</option>
                                     <option value="manual">Manual</option>
                                 </select>
@@ -432,7 +439,7 @@ const PaymentForm = () => {
 
                         <div className="col-span-6">
                             <label className="form-label form-label-icon"><CreditCard size={14} /> Pay From</label>
-                            <SearchableSelect className="mb-0" options={bankOptions} value={paymentData.payFrom} onChange={(value) => setPaymentData((prev) => ({ ...prev, payFrom: value }))} placeholder="Select bank account..." disabled={mode === 'view'} />
+                            <SearchableSelect className="mb-0" options={bankOptions} value={paymentData.payFrom} onChange={(value: string) => setPaymentData((prev) => ({ ...prev, payFrom: value }))} placeholder="Select bank account..." disabled={mode === 'view'} />
                         </div>
                         <div className="col-span-6">
                             <label className="form-label form-label-icon"><FileText size={14} /> Reference / Memo</label>

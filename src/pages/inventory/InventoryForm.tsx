@@ -5,6 +5,7 @@ import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { useItems, useCreateItem, useUpdateItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import type { ItemStockStatus } from '../../types';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -194,13 +195,13 @@ const InventoryForm = () => {
         const payload = {
             sku:                formData.sku.trim(),
             name:               formData.name.trim(),
-            categoryId:         formData.categoryId || null,
+            categoryId:         formData.categoryId || undefined,
             type:               formData.type,
             unit:               formData.unit,
-            purchaseUnit:       formData.purchaseUnit || null,
-            purchaseConversionFactor: formData.purchaseUnit && formData.purchaseConversionFactor ? Number(formData.purchaseConversionFactor) : null,
-            sellUnit:           formData.sellUnit || null,
-            sellConversionFactor: formData.sellUnit && formData.sellConversionFactor ? Number(formData.sellConversionFactor) : null,
+            purchaseUnit:       formData.purchaseUnit || undefined,
+            purchaseConversionFactor: formData.purchaseUnit && formData.purchaseConversionFactor ? Number(formData.purchaseConversionFactor) : undefined,
+            sellUnit:           formData.sellUnit || undefined,
+            sellConversionFactor: formData.sellUnit && formData.sellConversionFactor ? Number(formData.sellConversionFactor) : undefined,
             cost:               Number(formData.cost),
             price:              Number(formData.price),
             openingStock:       Number(formData.openingStock),
@@ -211,7 +212,7 @@ const InventoryForm = () => {
             description:        formData.description,
             barcode:            formData.barcode,
             weight:             formData.weight,
-            status:             formData.status,
+            status:             formData.status as ItemStockStatus,
         };
 
         try {
