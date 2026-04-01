@@ -31,6 +31,7 @@ function normalizeItem(raw: RawInventoryItem): InventoryItem {
     return {
         id:                       raw.id,
         sku:                      raw.sku      || '',
+        code:                     raw.sku      || raw.id,
         name:                     raw.name     || '',
         type:                     raw.type     || '',
         categoryId:               raw.categoryId || null,

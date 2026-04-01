@@ -2,25 +2,26 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { bills as seed, billItemTemplates as templatesSeed } from '../data/mockData';
 
-type E = { id: string } & Record<string, unknown>;
+type BillRecord = { id: string } & Record<string, unknown>;
+type BillLineTemplate = Record<string, unknown>;
 
 interface BillStore {
-    bills:               E[];
-    billItemTemplates:   Record<string, E[]>;
+    bills:               BillRecord[];
+    billItemTemplates:   Record<string, BillLineTemplate[]>;
     isLoading:           boolean;
     error:               string | null;
-    addBill:             (bill: E) => Promise<void>;
-    updateBill:          (id: string, updates: Partial<E>) => Promise<void>;
+    addBill:             (bill: BillRecord) => Promise<void>;
+    updateBill:          (id: string, updates: Partial<BillRecord>) => Promise<void>;
     deleteBill:          (id: string) => Promise<void>;
-    setBillItemTemplates:(billId: string, items: E[]) => Promise<void>;
-    getBillById:         (id: string) => E | undefined;
+    setBillItemTemplates:(billId: string, items: BillLineTemplate[]) => Promise<void>;
+    getBillById:         (id: string) => BillRecord | undefined;
 }
 
 export const useBillStore = create<BillStore>()(
     persist(
         (set, get) => ({
-            bills: seed as unknown as E[],
-            billItemTemplates: templatesSeed as unknown as Record<string, E[]>,
+            bills: seed as unknown as BillRecord[],
+            billItemTemplates: templatesSeed as unknown as Record<string, BillLineTemplate[]>,
             isLoading: false,
             error: null,
 

@@ -132,6 +132,10 @@ function normalizeAPPayment(raw: RawAPPayment): APPayment {
         status:     PAYMENT_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as PaymentStatus),
         billId:     raw.billId  || '',
         bankId:     raw.bankId  || '',
+        depositAccountId: raw.depositAccountId || '',
+        apAccountId: raw.apAccountId || '',
+        discountAccountId: raw.discountAccountId || '',
+        penaltyAccountId: raw.penaltyAccountId || '',
     };
 }
 

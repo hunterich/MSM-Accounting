@@ -1,17 +1,27 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { apPayments as seed } from '../data/mockData';
+import type { APPayment } from '../types';
 
-type E = { id: string } & Record<string, unknown>;
+type APPaymentRecord = Omit<APPayment, '_id' | 'number' | 'totalAmount' | 'status'> & {
+    _id?: string;
+    number?: string;
+    totalAmount?: number;
+    status: APPayment['status'] | string;
+    depositAccountId?: string;
+    apAccountId?: string;
+    discountAccountId?: string;
+    penaltyAccountId?: string;
+};
 
 interface APPaymentStore {
-    apPayments:     E[];
+    apPayments:     APPaymentRecord[];
     isLoading:      boolean;
     error:          string | null;
-    addPayment:     (payment: E) => Promise<void>;
-    updatePayment:  (id: string, updates: Partial<E>) => Promise<void>;
+    addPayment:     (payment: APPaymentRecord) => Promise<void>;
+    updatePayment:  (id: string, updates: Partial<APPaymentRecord>) => Promise<void>;
     deletePayment:  (id: string) => Promise<void>;
-    getPaymentById: (id: string) => E | undefined;
+    getPaymentById: (id: string) => APPaymentRecord | undefined;
 }
 
 export const useAPPaymentStore = create<APPaymentStore>()(

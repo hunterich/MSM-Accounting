@@ -9,6 +9,7 @@ import {
 } from '@/types/api';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit } from '@/lib/api-utils';
+import { syncAccountPostingFlags } from '@/lib/account-postings';
 
 export const runtime = 'nodejs';
 
@@ -222,7 +223,7 @@ export async function POST(request: NextRequest) {
 
       const entryNo = await nextJournalNumber(tx, payload.organizationId);
 
-      return tx.journalEntry.create({
+      const entry = await tx.journalEntry.create({
         data: {
           organizationId: payload.organizationId,
           entryNo,
@@ -246,6 +247,9 @@ export async function POST(request: NextRequest) {
           status: true,
         },
       });
+
+      await syncAccountPostingFlags(tx, payload.organizationId, accountIds);
+      return entry;
     });
 
     await prisma.$transaction(async (tx) => {

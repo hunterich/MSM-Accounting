@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 
     const organization = await prisma.organization.findUnique({
       where: { id: orgId },
-    }) as OrganizationSettingsRecord | null;
+    }) as unknown as OrganizationSettingsRecord | null;
 
     if (!organization) {
       return withCors(NextResponse.json({ error: 'Organization not found' }, { status: 404 }));
@@ -116,7 +116,7 @@ export async function PUT(req: NextRequest) {
     const updated = await prisma.organization.update({
       where: { id: orgId },
       data: updateData,
-    }) as OrganizationSettingsRecord;
+    }) as unknown as OrganizationSettingsRecord;
 
     logAudit({
       orgId,
