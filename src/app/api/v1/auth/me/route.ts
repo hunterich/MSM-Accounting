@@ -50,11 +50,21 @@ export async function GET(req: NextRequest) {
     if (!membership) {
       return withCors(NextResponse.json({ error: 'Membership not found' }, { status: 403 }));
     }
+    const organization = membership.organization as typeof membership.organization & {
+      costingMethod: string | null;
+      costingMethodEffectiveDate: Date | null;
+    };
 
     return withCors(
       NextResponse.json({
         user: { id: user.id, email: user.email, fullName: user.fullName },
-        org: { id: membership.organization.id, name: membership.organization.displayName },
+        org: {
+          id: organization.id,
+          name: organization.displayName,
+          costingMethod: organization.costingMethod,
+          costingMethodEffectiveDate: organization.costingMethodEffectiveDate,
+        },
+        needsInventoryValuationSetup: !organization.costingMethod,
         role: {
           type: membership.role.roleType,
           permissions: membership.role.permissions,

@@ -10,6 +10,8 @@ interface AuthUser {
 interface AuthOrg {
     id:   string;
     name: string;
+    costingMethod?: string | null;
+    costingMethodEffectiveDate?: string | null;
     [key: string]: unknown;
 }
 
@@ -29,6 +31,7 @@ interface AuthStore {
     invoiceAccessScope:  string;
     permissions:         RolePermission[];
     isLoading:           boolean;
+    needsInventoryValuationSetup: boolean;
     hasPermission:       (moduleKey: string, action?: PermissionAction) => boolean;
     checkSession:        () => Promise<void>;
     login:               (email: string, password: string) => Promise<unknown>;
@@ -43,6 +46,7 @@ interface AuthResponseLike {
   org?: AuthOrg | null;
   roleType?: string | null;
   permissions?: RolePermission[];
+  needsInventoryValuationSetup?: boolean;
   role?: {
     type?: string | null;
     permissions?: RolePermission[];
@@ -59,6 +63,7 @@ const EMPTY_SESSION = {
   invoiceAccessScope: 'ALL',
   permissions: [],
   isLoading: false,
+  needsInventoryValuationSetup: false,
 };
 
 const normalizeModuleKey = (moduleKey: string) => String(moduleKey || '').trim().toLowerCase();
@@ -105,6 +110,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   invoiceAccessScope: 'ALL',
   permissions: [],
   isLoading: true,
+  needsInventoryValuationSetup: false,
 
   hasPermission: (moduleKey, action = 'view') =>
     hasModulePermission(get().permissions, moduleKey, action),
@@ -124,6 +130,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
           roleType: getRoleTypeFromResponse(data),
           invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
           permissions: getPermissionsFromResponse(data),
+          needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
           isLoading: false,
         });
         return;
@@ -156,6 +163,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       roleType: getRoleTypeFromResponse(data),
       invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
       permissions: getPermissionsFromResponse(data),
+      needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
       isLoading: false,
     });
 
@@ -183,6 +191,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       roleType: getRoleTypeFromResponse(data),
       invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
       permissions: getPermissionsFromResponse(data),
+      needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
       isLoading: false,
     });
 

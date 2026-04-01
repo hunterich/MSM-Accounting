@@ -9,6 +9,7 @@ const EMPTY_SESSION = {
   invoiceAccessScope: 'ALL',
   permissions: [],
   isLoading: false,
+  needsInventoryValuationSetup: false,
 };
 
 const normalizeModuleKey = (moduleKey) => String(moduleKey || '').trim().toLowerCase();
@@ -51,6 +52,7 @@ export const useAuthStore = create((set, get) => ({
   invoiceAccessScope: 'ALL',
   permissions: [],
   isLoading: true,
+  needsInventoryValuationSetup: false,
 
   hasPermission: (moduleKey, action = 'view') =>
     hasModulePermission(get().permissions, moduleKey, action),
@@ -70,6 +72,7 @@ export const useAuthStore = create((set, get) => ({
           roleType: getRoleTypeFromResponse(data),
           invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
           permissions: getPermissionsFromResponse(data),
+          needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
           isLoading: false,
         });
         return;
@@ -102,6 +105,7 @@ export const useAuthStore = create((set, get) => ({
       roleType: getRoleTypeFromResponse(data),
       invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
       permissions: getPermissionsFromResponse(data),
+      needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
       isLoading: false,
     });
 
@@ -129,6 +133,7 @@ export const useAuthStore = create((set, get) => ({
       roleType: getRoleTypeFromResponse(data),
       invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
       permissions: getPermissionsFromResponse(data),
+      needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
       isLoading: false,
     });
 

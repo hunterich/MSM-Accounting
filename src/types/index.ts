@@ -183,6 +183,20 @@ export interface RawPurchaseOrder {
   lines?: RawPOLine[] | null;
 }
 
+export interface RawOrganizationSettings {
+  id: string;
+  legalName?: string | null;
+  displayName?: string | null;
+  npwp?: string | null;
+  isPkp?: boolean | null;
+  baseCurrency?: string | null;
+  fiscalYearStart?: string | null;
+  costingMethod?: 'FIFO' | 'WEIGHTED_AVERAGE' | null;
+  costingMethodSetAt?: string | null;
+  costingMethodSetById?: string | null;
+  costingMethodEffectiveDate?: string | null;
+}
+
 // ── Normalized frontend types ─────────────────────────────────────────────────
 
 export type CustomerStatus = 'Active' | 'Inactive';
@@ -192,6 +206,22 @@ export type VendorStatus   = 'Active' | 'Inactive';
 export type BillStatus     = 'Draft' | 'Unpaid' | 'Pending' | 'Paid' | 'Overdue' | 'Void';
 export type POStatus       = 'Draft' | 'Approved' | 'Billed' | 'Closed' | 'Cancelled';
 export type SOStatus       = 'draft' | 'confirmed' | 'closed' | 'cancelled';
+export type InventoryCostingMethod = 'FIFO' | 'WEIGHTED_AVERAGE';
+
+export interface OrganizationSettings {
+  id: string;
+  legalName: string;
+  displayName: string;
+  npwp: string;
+  isPkp: boolean;
+  baseCurrency: string;
+  fiscalYearStart: string;
+  costingMethod: InventoryCostingMethod | '';
+  costingMethodSetAt: string;
+  costingMethodSetById: string;
+  costingMethodEffectiveDate: string;
+  needsInventoryValuationSetup: boolean;
+}
 
 export interface Customer {
   id: string;

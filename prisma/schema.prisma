@@ -17,6 +17,10 @@ model Organization {
   timezone               String   @default("Asia/Jakarta")
   locale                 String   @default("id-ID")
   fiscalYearStart        DateTime?
+  costingMethod          InventoryCostingMethod?
+  costingMethodSetAt     DateTime?
+  costingMethodSetById   String?
+  costingMethodEffectiveDate DateTime?
   defaultCreditLimit     Decimal  @default(0) @db.Decimal(18, 2)
   enforceCreditLimit     Boolean  @default(true)
   taxEnabled             Boolean  @default(true)
@@ -496,6 +500,11 @@ enum SoStatus {
   CONFIRMED
   INVOICED
   CANCELLED
+}
+
+enum InventoryCostingMethod {
+  FIFO
+  WEIGHTED_AVERAGE
 }
 
 model SalesOrder {

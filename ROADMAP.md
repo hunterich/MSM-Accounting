@@ -51,16 +51,24 @@
 - [x] Print preview before printing (currently uses browser native print dialog)
 
 ### 1.3 Sales Order Module
+- Reference flow spec: `docs/feature-flow-costing-and-fulfillment.md`
 - [x] Sales Order CRUD (list, create, edit, view) — `SalesOrderWorkbench`, `SOForm`, tabbed detail panel
 - [x] Sales Order → Invoice conversion (one-click) — `convertToInvoice()` in store; button on Confirmed/Delivered SOs
 - [x] Sales Order status workflow (Draft → Confirmed → Delivered → Invoiced → Closed) — status badges + transitions
 - [x] Printable Sales Order layout (A4) — `SalesOrderPrintTemplate.jsx`
 - [ ] Delivery Note generation from Sales Order
 - [ ] Partial fulfillment tracking (qty delivered vs ordered)
+  - Delivery Note updates delivered qty per line and shows remaining/backorder qty
+  - Sales Order status supports partial delivery state before fully delivered/closed
+  - Invoice conversion supports invoicing delivered qty now and remaining qty later
 
 ### 1.4 Inventory Valuation
+- Reference flow spec: `docs/feature-flow-costing-and-fulfillment.md`
 - [ ] FIFO costing method
 - [ ] Weighted Average costing method
+- [ ] First-login / onboarding choice for company costing method (FIFO vs Weighted Average)
+- [ ] Settings option to switch costing method later with confirmation flow
+- [ ] Costing method switch recalculation from effective date with audit trail of the change
 - [ ] Perpetual inventory (auto GL posting on stock movements)
 - [ ] COGS auto-calculation on invoice line items
 - [ ] Stock valuation report

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
@@ -7,6 +8,9 @@ import StatusTag from '../../components/UI/StatusTag';
 import ListPage from '../../components/Layout/ListPage';
 import { formatDateID } from '../../utils/formatters';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useOrganizationSettings, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
+
+const DEFAULT_FISCAL_YEAR_START = '2026-01-01';
 
 const buildPeriods = (fiscalYearStart) => {
     const start = new Date(fiscalYearStart);
@@ -25,7 +29,7 @@ const buildPeriods = (fiscalYearStart) => {
             name: periodName,
             start: periodStart.toISOString().slice(0, 10),
             end: periodEnd.toISOString().slice(0, 10),
-            status
+            status,
         });
     }
 
@@ -33,8 +37,12 @@ const buildPeriods = (fiscalYearStart) => {
 };
 
 const CompanySetup = () => {
+    const [searchParams] = useSearchParams();
+    const onboardingMode = searchParams.get('onboarding') === 'inventory-valuation';
     const companyInfo = useSettingsStore((s) => s.companyInfo);
     const setCompanyInfo = useSettingsStore((s) => s.setCompanyInfo);
+    const { data: orgSettings, isLoading, error } = useOrganizationSettings();
+    const updateOrganizationSettings = useUpdateOrganizationSettings();
 
     const [company, setCompany] = useState({
         legalName: 'MSM Trading Indonesia',
@@ -46,18 +54,37 @@ const CompanySetup = () => {
         logoUrl: companyInfo.logoUrl || '',
         isPkp: 'No',
         baseCurrency: 'IDR',
-        fiscalYearStart: '2026-01-01'
+        fiscalYearStart: DEFAULT_FISCAL_YEAR_START,
+        costingMethod: '',
     });
     const [errors, setErrors] = useState({});
     const [lastSavedAt, setLastSavedAt] = useState('');
+    const [periods, setPeriods] = useState(() => buildPeriods(DEFAULT_FISCAL_YEAR_START));
+    const [didHydrate, setDidHydrate] = useState(false);
 
-    const [periods, setPeriods] = useState(() => buildPeriods('2026-01-01'));
+    useEffect(() => {
+        if (!orgSettings || didHydrate) return;
+
+        const fiscalYearStart = orgSettings.fiscalYearStart || DEFAULT_FISCAL_YEAR_START;
+        setCompany((prev) => ({
+            ...prev,
+            legalName: orgSettings.legalName || prev.legalName,
+            displayName: orgSettings.displayName || prev.displayName,
+            npwp: orgSettings.npwp || prev.npwp,
+            isPkp: orgSettings.isPkp ? 'Yes' : 'No',
+            baseCurrency: orgSettings.baseCurrency || prev.baseCurrency,
+            fiscalYearStart,
+            costingMethod: orgSettings.costingMethod || '',
+        }));
+        setPeriods(buildPeriods(fiscalYearStart));
+        setDidHydrate(true);
+    }, [didHydrate, orgSettings]);
 
     const periodColumns = [
         { key: 'name', label: 'Period' },
         { key: 'start', label: 'Start Date', render: (val) => formatDateID(val) },
         { key: 'end', label: 'End Date', render: (val) => formatDateID(val) },
-        { key: 'status', label: 'Status', render: (val) => <StatusTag status={val} /> }
+        { key: 'status', label: 'Status', render: (val) => <StatusTag status={val} /> },
     ];
 
     const handleChange = (key, value) => {
@@ -69,29 +96,43 @@ const CompanySetup = () => {
         const next = {};
         if (!company.legalName.trim()) next.legalName = 'Legal company name is required.';
         if (!company.displayName.trim()) next.displayName = 'Display name is required.';
-        if (!company.npwp.trim()) next.npwp = 'NPWP is required.';
         if (company.email && !company.email.includes('@')) next.email = 'Email format is invalid.';
         if (!company.fiscalYearStart) next.fiscalYearStart = 'Fiscal year start is required.';
+        if (!company.costingMethod) next.costingMethod = 'Choose a costing method before continuing.';
         return next;
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const nextErrors = validate();
         if (Object.keys(nextErrors).length > 0) {
             setErrors(nextErrors);
             return;
         }
 
-        setCompanyInfo({
-            companyName: company.displayName.trim(),
-            address: company.address.trim(),
-            phone: company.phone.trim(),
-            email: company.email.trim(),
-            npwp: company.npwp.trim(),
-            logoUrl: company.logoUrl.trim(),
-        });
+        try {
+            await updateOrganizationSettings.mutateAsync({
+                legalName: company.legalName.trim(),
+                displayName: company.displayName.trim(),
+                npwp: company.npwp.trim(),
+                isPkp: company.isPkp === 'Yes',
+                baseCurrency: company.baseCurrency,
+                fiscalYearStart: company.fiscalYearStart,
+                costingMethod: company.costingMethod,
+                costingMethodEffectiveDate: orgSettings?.costingMethodEffectiveDate || company.fiscalYearStart,
+            });
 
-        setLastSavedAt(new Date().toISOString());
+            setCompanyInfo({
+                companyName: company.displayName.trim(),
+                address: company.address.trim(),
+                phone: company.phone.trim(),
+                email: company.email.trim(),
+                npwp: company.npwp.trim(),
+                logoUrl: company.logoUrl.trim(),
+            });
+            setLastSavedAt(new Date().toISOString());
+        } catch (saveError) {
+            window.alert(saveError instanceof Error ? saveError.message : 'Failed to save company settings');
+        }
     };
 
     const handleRegeneratePeriods = () => {
@@ -106,9 +147,27 @@ const CompanySetup = () => {
         <ListPage
             containerClassName="company-setup"
             title="Company Setup"
-            subtitle="Configure company profile, fiscal year, and accounting periods."
-            actions={<Button text="Save Changes" variant="primary" onClick={handleSave} />}
+            subtitle="Configure company profile, fiscal year, and inventory valuation method."
+            actions={(
+                <Button
+                    text={updateOrganizationSettings.isPending ? 'Saving...' : 'Save Changes'}
+                    variant="primary"
+                    onClick={handleSave}
+                    disabled={isLoading || updateOrganizationSettings.isPending}
+                />
+            )}
         >
+            {onboardingMode && orgSettings?.needsInventoryValuationSetup ? (
+                <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    Choose your company&apos;s costing method to unlock the rest of the workspace. You can change it later from company settings with a controlled switch flow.
+                </div>
+            ) : null}
+
+            {error ? (
+                <div className="mb-6 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+                    {error instanceof Error ? error.message : 'Failed to load company settings.'}
+                </div>
+            ) : null}
 
             <div className="grid-12 section-grid">
                 <div className="col-span-7">
@@ -221,7 +280,41 @@ const CompanySetup = () => {
                         <div className="mt-spacing-4">
                             <Button text="Regenerate Periods" variant="secondary" size="small" onClick={handleRegeneratePeriods} />
                         </div>
-                        {lastSavedAt ? <div className="text-muted-sm mt-spacing-2">Saved locally at {formatDateID(lastSavedAt.slice(0, 10))}.</div> : null}
+                    </Card>
+
+                    <Card title="Inventory Valuation">
+                        <div className="mb-4">
+                            <label className="form-label">Costing Method</label>
+                            <select
+                                className={`w-full h-10 px-3 rounded-md border bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 ${errors.costingMethod ? 'border-danger-500' : 'border-neutral-300'}`}
+                                value={company.costingMethod}
+                                onChange={(e) => handleChange('costingMethod', e.target.value)}
+                            >
+                                <option value="">Select a costing method</option>
+                                <option value="FIFO">FIFO</option>
+                                <option value="WEIGHTED_AVERAGE">Weighted Average</option>
+                            </select>
+                            {errors.costingMethod ? <div className="w-full mt-1 text-xs text-danger-500">{errors.costingMethod}</div> : null}
+                        </div>
+
+                        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-3 text-sm text-neutral-700">
+                            <p className="font-medium text-neutral-900">How this is used</p>
+                            <p className="mt-2">FIFO uses the oldest stock cost first. Weighted Average keeps one rolling average cost after each receipt.</p>
+                        </div>
+
+                        <div className="mt-4 text-muted-sm">
+                            Effective date: {orgSettings?.costingMethodEffectiveDate ? formatDateID(orgSettings.costingMethodEffectiveDate) : formatDateID(company.fiscalYearStart)}
+                        </div>
+                        {orgSettings?.costingMethodSetAt ? (
+                            <div className="text-muted-sm mt-spacing-2">
+                                Last set on {formatDateID(orgSettings.costingMethodSetAt.slice(0, 10))}.
+                            </div>
+                        ) : null}
+                        {lastSavedAt ? (
+                            <div className="text-muted-sm mt-spacing-2">
+                                Saved at {formatDateID(lastSavedAt.slice(0, 10))}.
+                            </div>
+                        ) : null}
                     </Card>
                 </div>
             </div>
