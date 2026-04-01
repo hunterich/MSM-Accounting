@@ -10,6 +10,7 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import type { Account, Bill } from '../../types';
+import { resolveAccountDefaults } from '../../../lib/account-defaults';
 
 type BillFormData = {
     vendor: string;
@@ -41,7 +42,7 @@ type BillItem = {
 type BillTemplateMap = Record<string, BillTemplateLine[]>;
 type FormErrors = Record<string, string | undefined>;
 
-const buildFormData = (bill: Bill | null): BillFormData => {
+const buildFormData = (bill: Bill | null, defaultApAccountId: string): BillFormData => {
     if (!bill) {
         return {
             vendor: '',
@@ -49,7 +50,7 @@ const buildFormData = (bill: Bill | null): BillFormData => {
             issueDate: '',
             dueDate: '',
             billNumber: '',
-            apAccountId: 'COA-2100',
+            apAccountId: defaultApAccountId,
             notes: ''
         };
     }
@@ -60,7 +61,7 @@ const buildFormData = (bill: Bill | null): BillFormData => {
         issueDate: bill.date || '',
         dueDate: bill.due || '',
         billNumber: bill.id || '',
-        apAccountId: bill.apAccountId || 'COA-2100',
+        apAccountId: bill.apAccountId || defaultApAccountId,
         notes: bill.notes || ''
     };
 };
@@ -128,11 +129,16 @@ const BillForm = () => {
         );
     }, [chartOfAccounts]);
 
-    const [formData, setFormData] = useState<BillFormData>(() => buildFormData(selectedBill));
+    const globalTaxSettings = useSettingsStore(s => s.taxSettings);
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
+    const defaultApAccountId = resolvedAccountDefaults.apControl || apControlAccounts[0]?.id || '';
+    const [formData, setFormData] = useState<BillFormData>(() => buildFormData(selectedBill, defaultApAccountId));
     const [items, setItems] = useState<BillItem[]>(() => buildItems(billId, expenseTargetAccounts, billItemTemplates));
     const [errors, setErrors] = useState<FormErrors>({});
-
-    const globalTaxSettings = useSettingsStore(s => s.taxSettings);
     const [taxSettings, setTaxSettings] = useState({
         enabled: globalTaxSettings.enabled,
         inclusive: globalTaxSettings.inclusiveByDefault,
@@ -140,10 +146,10 @@ const BillForm = () => {
     });
 
     useEffect(() => {
-        setFormData(buildFormData(selectedBill));
+        setFormData(buildFormData(selectedBill, defaultApAccountId));
         setItems(buildItems(billId, expenseTargetAccounts, billItemTemplates));
         setErrors({});
-    }, [selectedBill, billId, expenseTargetAccounts, billItemTemplates]);
+    }, [selectedBill, billId, expenseTargetAccounts, billItemTemplates, defaultApAccountId]);
 
     const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];

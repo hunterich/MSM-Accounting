@@ -7,17 +7,22 @@ import SecurityRolesTab from './SecurityRolesTab';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from './DataMigrationPanel';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { ACCOUNT_DEFAULT_SPECS, DEFAULT_ACCOUNT_DEFAULTS } from '../../../lib/account-defaults';
 
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('customers');
     const storeCompanyInfo = useSettingsStore(s => s.companyInfo);
     const storeTaxSettings = useSettingsStore(s => s.taxSettings);
     const storeCustomerCreditSettings = useSettingsStore(s => s.customerCreditSettings);
+    const storeAccountDefaults = useSettingsStore(s => s.accountDefaults ?? DEFAULT_ACCOUNT_DEFAULTS);
     const updateCompanyInfo = useSettingsStore(s => s.updateCompanyInfo);
     const updateTaxSettings = useSettingsStore(s => s.updateTaxSettings);
     const updateCustomerCreditSettings = useSettingsStore(s => s.updateCustomerCreditSettings);
+    const updateAccountDefaults = useSettingsStore(s => s.updateAccountDefaults);
     const documentNumbering = useSettingsStore(s => s.documentNumbering ?? DEFAULT_DOCUMENT_NUMBERING);
     const updateDocumentNumbering = useSettingsStore(s => s.updateDocumentNumbering);
+    const { data: chartOfAccounts = [] } = useChartOfAccounts();
 
     const [generalSettings, setGeneralSettings] = useState(storeCompanyInfo);
     const [taxData, setTaxData] = useState(storeTaxSettings);
@@ -26,6 +31,7 @@ const Settings = () => {
         defaultPaymentTerms: String(storeCustomerCreditSettings.defaultPaymentTerms),
         enforceLimit: storeCustomerCreditSettings.enforceLimit,
     });
+    const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
     const [securitySettings, setSecuritySettings] = useState({
         require2FA: false,
         allowInvites: true,
@@ -42,6 +48,7 @@ const Settings = () => {
     const menuItems = [
         { id: 'general', label: 'Company Info', icon: Briefcase },
         { id: 'customers', label: 'Customers & Sales', icon: User },
+        { id: 'accounts', label: 'Account Defaults', icon: Briefcase },
         { id: 'numbering', label: 'Document Numbering', icon: Hash },
         { id: 'security', label: 'Security & Roles', icon: Shield },
         { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -87,6 +94,10 @@ const Settings = () => {
             if (!saveCustomerCreditSettings()) {
                 return;
             }
+        }
+
+        if (sectionId === 'accounts') {
+            updateAccountDefaults(accountDefaults);
         }
 
         if (sectionId === 'security') {
@@ -368,6 +379,53 @@ const Settings = () => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'accounts' && (
+                    <Card title="Account Defaults">
+                        <p className="text-sm text-neutral-600 mb-6">
+                            Configure default Chart of Accounts mappings used by AR, AP, inventory, and settlement flows.
+                        </p>
+                        <div className="space-y-4">
+                            {Object.entries(ACCOUNT_DEFAULT_SPECS).map(([key, spec]) => {
+                                const options = chartOfAccounts.filter((account) => (
+                                    account.isActive &&
+                                    account.isPostable &&
+                                    spec.allowedTypes.includes(account.type)
+                                ));
+
+                                return (
+                                    <div key={key} className="grid grid-cols-12 gap-3 items-start pb-4 border-b border-neutral-100 last:border-0 last:pb-0">
+                                        <div className="col-span-4">
+                                            <div className="text-sm font-semibold text-neutral-700">{spec.label}</div>
+                                            <div className="text-xs text-neutral-500 mt-1">{spec.description}</div>
+                                        </div>
+                                        <div className="col-span-8">
+                                            <label className="form-label">Default Account</label>
+                                            <select
+                                                className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                                                value={accountDefaults[key] || ''}
+                                                onChange={(e) => setAccountDefaults((prev) => ({ ...prev, [key]: e.target.value }))}
+                                            >
+                                                <option value="">Auto-detect from COA</option>
+                                                {options.map((account) => (
+                                                    <option key={account.id} value={account.id}>
+                                                        {account.code} - {account.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <div className="text-xs text-neutral-500 mt-1">
+                                                Allowed types: {spec.allowedTypes.join(', ')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('accounts')} />
                         </div>
                     </Card>
                 )}

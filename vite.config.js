@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
     plugins: [react(), tailwindcss()],
     resolve: {
+        extensions: ['.mjs', '.ts', '.tsx', '.js', '.jsx', '.json'],
         alias: {
             '@': path.resolve(__dirname, '.'),
         },

@@ -10,6 +10,7 @@ import { SkeletonBlock } from '../../components/UI/LoadingSkeleton';
 import { useChartOfAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import {
+    ACCOUNT_TYPES,
     buildAccountTree,
     flattenTree,
     validateAccountCreate,
@@ -18,10 +19,8 @@ import {
     rollupBalances,
     getNormalSideByType,
     getDescendantAccountIds
-} from '../../utils/coa';
+} from '../../../lib/account-rules';
 import { formatIDR } from '../../utils/formatters';
-
-const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
 
 const EMPTY_FORM = {
     code: '',
@@ -32,24 +31,6 @@ const EMPTY_FORM = {
     isActive: true,
     reportGroup: '',
     reportSubGroup: ''
-};
-
-const normalizeLevels = (accounts) => {
-    const tree = buildAccountTree(accounts);
-    const normalized = [];
-
-    const walk = (nodes, level) => {
-        nodes.forEach((node) => {
-            const { children, ...rest } = node;
-            normalized.push({ ...rest, level });
-            if (children.length > 0) {
-                walk(children, level + 1);
-            }
-        });
-    };
-
-    walk(tree, 0);
-    return normalized;
 };
 
 const DEPTH_PADDING = {

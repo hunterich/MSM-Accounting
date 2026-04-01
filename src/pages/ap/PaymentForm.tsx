@@ -65,12 +65,8 @@ import { useBankAccounts } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useAPPaymentStore } from '../../stores/useAPPaymentStore';
-
-const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
-    'BANK-001': 'COA-1120',
-    'BANK-002': 'COA-1130',
-    'BANK-003': 'COA-1110'
-};
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 
 const buildPaymentNo = (bankCode: string, dateStr?: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -94,6 +90,7 @@ const PaymentForm = () => {
 
     const { data: bankAccountsData = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const bankAccounts = Array.isArray(bankAccountsData) ? bankAccountsData : [];
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
 
     const { apPayments } = useAPPaymentStore() as unknown as { apPayments: StoredAPPayment[] };
 
@@ -107,11 +104,11 @@ const PaymentForm = () => {
         vendorId: '',
         date: new Date().toISOString().split('T')[0],
         method: 'Bank Transfer',
-        payFrom: bankAccounts[0]?.id || 'BANK-001',
-        cashAccountId: 'COA-1120',
-        apAccountId: 'COA-2100',
-        discountAccountId: 'COA-4200',
-        penaltyAccountId: 'COA-5300',
+        payFrom: '',
+        cashAccountId: '',
+        apAccountId: '',
+        discountAccountId: '',
+        penaltyAccountId: '',
         reference: '',
         selectedBills: [],
         adjustments: {},
@@ -128,6 +125,16 @@ const PaymentForm = () => {
             return map;
         }, {});
     }, [chartOfAccounts]);
+
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
+
+    const resolvedCashAccountId = useMemo(
+        () => resolveBankLinkedAssetAccountId(bankAccounts, chartOfAccounts, accountDefaultsConfig, paymentData.payFrom),
+        [bankAccounts, chartOfAccounts, accountDefaultsConfig, paymentData.payFrom]
+    );
 
     const apAccountOptions = useMemo<Account[]>(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
@@ -167,10 +174,43 @@ const PaymentForm = () => {
     };
 
     useEffect(() => {
-        const mapped = BANK_TO_GL_ACCOUNT_MAP[paymentData.payFrom];
-        if (!mapped) return;
-        setPaymentData((prev) => (prev.cashAccountId === mapped ? prev : { ...prev, cashAccountId: mapped }));
-    }, [paymentData.payFrom]);
+        if (!paymentData.payFrom && bankAccounts[0]?.id) {
+            setPaymentData((prev) => ({ ...prev, payFrom: prev.payFrom || bankAccounts[0].id }));
+        }
+    }, [bankAccounts, paymentData.payFrom]);
+
+    useEffect(() => {
+        setPaymentData((prev) => {
+            let changed = false;
+            const next = { ...prev };
+
+            if (!next.cashAccountId && resolvedCashAccountId) {
+                next.cashAccountId = resolvedCashAccountId;
+                changed = true;
+            }
+            if (!next.apAccountId && resolvedAccountDefaults.apControl) {
+                next.apAccountId = resolvedAccountDefaults.apControl;
+                changed = true;
+            }
+            if (!next.discountAccountId && resolvedAccountDefaults.apDiscount) {
+                next.discountAccountId = resolvedAccountDefaults.apDiscount;
+                changed = true;
+            }
+            if (!next.penaltyAccountId && resolvedAccountDefaults.apPenalty) {
+                next.penaltyAccountId = resolvedAccountDefaults.apPenalty;
+                changed = true;
+            }
+
+            return changed ? next : prev;
+        });
+    }, [resolvedCashAccountId, resolvedAccountDefaults]);
+
+    useEffect(() => {
+        const state = (location.state || {}) as PaymentLocationState;
+        const isExistingPayment = Boolean(state.paymentId);
+        if (isExistingPayment || !resolvedCashAccountId) return;
+        setPaymentData((prev) => (prev.cashAccountId === resolvedCashAccountId ? prev : { ...prev, cashAccountId: resolvedCashAccountId }));
+    }, [location.state, resolvedCashAccountId]);
 
     useEffect(() => {
         const state = (location.state || {}) as PaymentLocationState;
@@ -186,10 +226,13 @@ const PaymentForm = () => {
                 date: found.date,
                 method: found.method,
                 payFrom: found.bankId,
-                cashAccountId: found.depositAccountId || 'COA-1120',
-                apAccountId: found.apAccountId || 'COA-2100',
-                discountAccountId: found.discountAccountId || 'COA-4200',
-                penaltyAccountId: found.penaltyAccountId || 'COA-5300',
+                cashAccountId:
+                    found.depositAccountId ||
+                    resolveBankLinkedAssetAccountId(bankAccounts, chartOfAccounts, accountDefaultsConfig, found.bankId) ||
+                    resolvedAccountDefaults.bankAsset,
+                apAccountId: found.apAccountId || resolvedAccountDefaults.apControl,
+                discountAccountId: found.discountAccountId || resolvedAccountDefaults.apDiscount,
+                penaltyAccountId: found.penaltyAccountId || resolvedAccountDefaults.apPenalty,
                 reference: '',
                 selectedBills: found.billId ? [found.billId] : [],
                 adjustments: {},
@@ -199,7 +242,7 @@ const PaymentForm = () => {
         }
 
         setPaymentNumberingMode('auto');
-    }, [location.state]);
+    }, [location.state, apPayments, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
 
     useEffect(() => {
         let total = 0;

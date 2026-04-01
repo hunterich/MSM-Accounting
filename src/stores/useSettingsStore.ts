@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_WIDGET_IDS } from '../config/dashboardWidgets';
+import {
+    DEFAULT_ACCOUNT_DEFAULTS,
+    type AccountDefaultsConfig,
+} from '../../lib/account-defaults';
 
 interface DocNumberingConfig {
     prefix:      string;
@@ -35,12 +39,14 @@ interface SettingsStore {
     companyInfo:              CompanyInfo;
     taxSettings:              TaxSettings;
     customerCreditSettings:   CustomerCreditSettings;
+    accountDefaults:          AccountDefaultsConfig;
     documentNumbering:        Record<string, DocNumberingConfig>;
     dashboardConfig:          Record<string, string[]>;
     setCompanyInfo:           (fields: Partial<CompanyInfo>) => void;
     updateCompanyInfo:        (updates: Partial<CompanyInfo>) => void;
     updateTaxSettings:        (updates: Partial<TaxSettings>) => void;
     updateCustomerCreditSettings:(updates: Partial<CustomerCreditSettings>) => void;
+    updateAccountDefaults:    (updates: Partial<AccountDefaultsConfig>) => void;
     updateDocumentNumbering:  (docType: string, updates: Partial<DocNumberingConfig>) => void;
     getDashboardWidgets:      (userId: string) => string[];
     setDashboardWidgets:      (userId: string, widgetIds: string[]) => void;
@@ -82,6 +88,7 @@ interface PersistedSettingsState {
     companyInfo?: Partial<CompanyInfo>;
     taxSettings?: Partial<TaxSettings>;
     customerCreditSettings?: Partial<CustomerCreditSettings>;
+    accountDefaults?: Partial<AccountDefaultsConfig>;
     documentNumbering?: Record<string, Partial<DocNumberingConfig>>;
     dashboardConfig?: Record<string, string[]>;
 }
@@ -92,6 +99,7 @@ export const useSettingsStore = create<SettingsStore>()(
             companyInfo: DEFAULT_COMPANY_INFO,
             taxSettings: DEFAULT_TAX_SETTINGS,
             customerCreditSettings: DEFAULT_CUSTOMER_CREDIT_SETTINGS,
+            accountDefaults: DEFAULT_ACCOUNT_DEFAULTS,
             documentNumbering: DEFAULT_DOCUMENT_NUMBERING,
             dashboardConfig: {}, // Record<userId, widgetId[]>
 
@@ -115,6 +123,11 @@ export const useSettingsStore = create<SettingsStore>()(
                     customerCreditSettings: { ...state.customerCreditSettings, ...updates }
                 }));
             },
+            updateAccountDefaults: (updates) => {
+                set((state) => ({
+                    accountDefaults: { ...state.accountDefaults, ...updates }
+                }));
+            },
             updateDocumentNumbering: (docType, updates) => set(state => ({
                 documentNumbering: {
                     ...state.documentNumbering,
@@ -132,7 +145,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: 'msm-settings',
-            version: 5,
+            version: 6,
             migrate: (persistedState) => ({
                 ...(persistedState as PersistedSettingsState | undefined),
                 companyInfo: {
@@ -146,6 +159,10 @@ export const useSettingsStore = create<SettingsStore>()(
                 customerCreditSettings: {
                     ...DEFAULT_CUSTOMER_CREDIT_SETTINGS,
                     ...((persistedState as PersistedSettingsState | undefined)?.customerCreditSettings || {}),
+                },
+                accountDefaults: {
+                    ...DEFAULT_ACCOUNT_DEFAULTS,
+                    ...((persistedState as PersistedSettingsState | undefined)?.accountDefaults || {}),
                 },
                 documentNumbering: {
                     ...DEFAULT_DOCUMENT_NUMBERING,

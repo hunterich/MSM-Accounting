@@ -35,12 +35,8 @@ import FormPage from '../../components/Layout/FormPage';
 import { useCustomers, useInvoices, useARPayments, useCreateARPayment, useUpdateARPayment } from '../../hooks/useAR';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
-
-const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
-    'BANK-001': 'COA-1120',
-    'BANK-002': 'COA-1130',
-    'BANK-003': 'COA-1110'
-};
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 
 const PaymentForm = () => {
     const navigate = useNavigate();
@@ -55,6 +51,7 @@ const PaymentForm = () => {
     const bankAccounts = (bankAccountsData || []) as any[];
     const { data: coaData, isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const chartOfAccounts = (coaData || []) as any[];
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const createARPayment = useCreateARPayment();
     const updateARPayment = useUpdateARPayment();
     const [mode, setMode] = useState<PaymentMode>('create');
@@ -65,11 +62,11 @@ const PaymentForm = () => {
         customerId: '',
         date: new Date().toISOString().split('T')[0],
         method: 'Bank Transfer',
-        depositTo: 'BANK-001',
-        depositAccountId: 'COA-1120',
-        arAccountId: 'COA-1210',
-        discountAccountId: 'COA-5300',
-        penaltyAccountId: 'COA-4200',
+        depositTo: '',
+        depositAccountId: '',
+        arAccountId: '',
+        discountAccountId: '',
+        penaltyAccountId: '',
         reference: '',
         selectedInvoices: [],
         adjustments: {},
@@ -109,17 +106,27 @@ const PaymentForm = () => {
         }, {});
     }, [chartOfAccounts]);
 
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
+
+    const resolvedDepositAccountId = useMemo(
+        () => resolveBankLinkedAssetAccountId(bankAccounts, chartOfAccounts, accountDefaultsConfig, paymentData.depositTo),
+        [bankAccounts, chartOfAccounts, accountDefaultsConfig, paymentData.depositTo]
+    );
+
     const arAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const discountAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
-    }, []);
+    }, [chartOfAccounts]);
 
     const penaltyAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Revenue');
-    }, []);
+    }, [chartOfAccounts]);
 
     const depositAccountOptions = arAccountOptions;
 
@@ -135,6 +142,38 @@ const PaymentForm = () => {
 
     // derive totals
     useEffect(() => {
+        if (!paymentData.depositTo && bankAccounts[0]?.id) {
+            setPaymentData((prev) => ({ ...prev, depositTo: prev.depositTo || bankAccounts[0].id }));
+        }
+    }, [bankAccounts, paymentData.depositTo]);
+
+    useEffect(() => {
+        setPaymentData((prev) => {
+            let changed = false;
+            const next = { ...prev };
+
+            if (!next.depositAccountId && resolvedDepositAccountId) {
+                next.depositAccountId = resolvedDepositAccountId;
+                changed = true;
+            }
+            if (!next.arAccountId && resolvedAccountDefaults.arControl) {
+                next.arAccountId = resolvedAccountDefaults.arControl;
+                changed = true;
+            }
+            if (!next.discountAccountId && resolvedAccountDefaults.arDiscount) {
+                next.discountAccountId = resolvedAccountDefaults.arDiscount;
+                changed = true;
+            }
+            if (!next.penaltyAccountId && resolvedAccountDefaults.arPenalty) {
+                next.penaltyAccountId = resolvedAccountDefaults.arPenalty;
+                changed = true;
+            }
+
+            return changed ? next : prev;
+        });
+    }, [resolvedDepositAccountId, resolvedAccountDefaults]);
+
+    useEffect(() => {
         let total = 0;
         paymentData.selectedInvoices.forEach(invId => {
             const invoice = invoices.find(i => i.id === invId);
@@ -144,13 +183,14 @@ const PaymentForm = () => {
             }
         });
         setPaymentData(prev => ({ ...prev, totalAmount: total }));
-    }, [paymentData.selectedInvoices, paymentData.adjustments]);
+    }, [paymentData.selectedInvoices, paymentData.adjustments, invoices]);
 
     useEffect(() => {
-        const mapped = BANK_TO_GL_ACCOUNT_MAP[paymentData.depositTo];
-        if (!mapped) return;
-        setPaymentData((prev) => (prev.depositAccountId === mapped ? prev : { ...prev, depositAccountId: mapped }));
-    }, [paymentData.depositTo]);
+        const state = location.state || {};
+        const isExistingPayment = Boolean(state.paymentId);
+        if (isExistingPayment || !resolvedDepositAccountId) return;
+        setPaymentData((prev) => (prev.depositAccountId === resolvedDepositAccountId ? prev : { ...prev, depositAccountId: resolvedDepositAccountId }));
+    }, [location.state, resolvedDepositAccountId]);
 
     useEffect(() => {
         const state = location.state || {};
@@ -159,18 +199,21 @@ const PaymentForm = () => {
             const found = payments.find((payment) => payment.id === state.paymentId);
             if (found) {
                 const bankMatch = bankAccounts.find((bank) => bank.id === found.bankId) || bankAccounts[0];
-                const mappedDeposit = found.depositAccountId || BANK_TO_GL_ACCOUNT_MAP[bankMatch?.id] || 'COA-1120';
+                const mappedDeposit =
+                    found.depositAccountId ||
+                    resolveBankLinkedAssetAccountId(bankAccounts, chartOfAccounts, accountDefaultsConfig, bankMatch?.id) ||
+                    resolvedAccountDefaults.bankAsset;
                 setPaymentNumberingMode('manual');
                 setPaymentData({
                     paymentNumber: found.id,
                     customerId: found.customerId,
                     date: found.date,
                     method: found.method,
-                    depositTo: bankMatch?.id || 'BANK-001',
+                    depositTo: bankMatch?.id || bankAccounts[0]?.id || '',
                     depositAccountId: mappedDeposit,
-                    arAccountId: found.arAccountId || 'COA-1210',
-                    discountAccountId: found.discountAccountId || 'COA-5300',
-                    penaltyAccountId: found.penaltyAccountId || 'COA-4200',
+                    arAccountId: found.arAccountId || resolvedAccountDefaults.arControl,
+                    discountAccountId: found.discountAccountId || resolvedAccountDefaults.arDiscount,
+                    penaltyAccountId: found.penaltyAccountId || resolvedAccountDefaults.arPenalty,
                     reference: '',
                     selectedInvoices: found.invoiceId ? [found.invoiceId] : [],
                     adjustments: {},
@@ -180,7 +223,7 @@ const PaymentForm = () => {
         } else {
             setPaymentNumberingMode('auto');
         }
-    }, [location.state]);
+    }, [location.state, payments, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
 
     const customerOptions = customers.map(c => ({ value: c.id, label: c.name }));
     const bankOptions = bankAccounts.map(b => ({ value: b.id, label: b.name }));
@@ -195,7 +238,7 @@ const PaymentForm = () => {
         return invoices
             .filter(inv => paymentData.customerId ? inv.customerId === paymentData.customerId : false)
             .filter(inv => String(inv.status).toLowerCase() !== 'paid');
-    }, [paymentData.customerId]);
+    }, [paymentData.customerId, invoices]);
 
     const paymentBreakdown = useMemo(() => {
         const selected = paymentData.selectedInvoices.map((invId) => {
@@ -222,7 +265,7 @@ const PaymentForm = () => {
             penaltyAmount,
             netCash: invoiceAmount - discountAmount + penaltyAmount
         };
-    }, [paymentData.selectedInvoices, paymentData.adjustments]);
+    }, [paymentData.selectedInvoices, paymentData.adjustments, invoices]);
 
     const postingPreview = useMemo(() => {
         const lines = [

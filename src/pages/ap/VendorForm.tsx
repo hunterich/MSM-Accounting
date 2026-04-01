@@ -6,6 +6,8 @@ import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import { useCreateVendor, useUpdateVendor, useVendorCategories, useVendors } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults } from '../../../lib/account-defaults';
 
 interface VendorLike {
     id?: string;
@@ -105,6 +107,7 @@ const VendorForm = () => {
     const { data: vendorsData, isLoading: vendorsLoading } = useVendors();
     const { data: vendorCategories = [], isLoading: vendorCategoriesLoading } = useVendorCategories();
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
 
     const vendors = vendorsData?.data || [];
     const selectedVendor = useMemo(() => vendors.find((vendor) => vendor.id === vendorId) || null, [vendorId, vendors]);
@@ -115,7 +118,11 @@ const VendorForm = () => {
         ),
         [chartOfAccounts]
     );
-    const fallbackAccountId = apAccountOptions[0]?.id || '';
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
+    const fallbackAccountId = resolvedAccountDefaults.apControl || apAccountOptions[0]?.id || '';
     const nextVendorCode = useMemo(() => buildNextVendorCode(vendors), [vendors]);
 
     const createVendor = useCreateVendor();

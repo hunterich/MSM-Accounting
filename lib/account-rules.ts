@@ -40,6 +40,15 @@ export interface AccountRuleShape {
   hasPostings: boolean;
 }
 
+export type AccountTreeNode<T extends AccountRuleShape = AccountRuleShape> = T & {
+  children: Array<AccountTreeNode<T>>;
+};
+
+export type FlattenedAccountNode<T extends AccountRuleShape = AccountRuleShape> = AccountTreeNode<T> & {
+  depth: number;
+  hasChildren: boolean;
+};
+
 const NORMAL_SIDE_BY_TYPE: Record<AccountTypeValue, NormalSideValue> = {
   Asset: 'Debit',
   Liability: 'Credit',
@@ -47,6 +56,9 @@ const NORMAL_SIDE_BY_TYPE: Record<AccountTypeValue, NormalSideValue> = {
   Revenue: 'Credit',
   Expense: 'Debit',
 };
+
+const codeSort = <T extends Pick<AccountRuleShape, 'code'>>(a: T, b: T) =>
+  a.code.localeCompare(b.code, undefined, { numeric: true });
 
 export function getNormalSideByType(type: AccountTypeValue): NormalSideValue {
   return NORMAL_SIDE_BY_TYPE[type];
@@ -88,6 +100,60 @@ export function getDescendantAccountIds(accountId: string, accounts: AccountRule
   }
 
   return descendants;
+}
+
+export function buildAccountTree<T extends AccountRuleShape>(accounts: T[]): Array<AccountTreeNode<T>> {
+  const byId = new Map<string, AccountTreeNode<T>>();
+
+  accounts.forEach((account) => {
+    byId.set(account.id, { ...account, children: [] });
+  });
+
+  const roots: Array<AccountTreeNode<T>> = [];
+
+  byId.forEach((node) => {
+    if (!node.parentId) {
+      roots.push(node);
+      return;
+    }
+
+    const parent = byId.get(node.parentId);
+    if (!parent) {
+      roots.push(node);
+      return;
+    }
+
+    parent.children.push(node);
+  });
+
+  const sortTree = (nodes: Array<AccountTreeNode<T>>) => {
+    nodes.sort(codeSort);
+    nodes.forEach((node) => sortTree(node.children));
+  };
+
+  sortTree(roots);
+  return roots;
+}
+
+export function flattenTree<T extends AccountRuleShape>(tree: Array<AccountTreeNode<T>>): Array<FlattenedAccountNode<T>> {
+  const flat: Array<FlattenedAccountNode<T>> = [];
+
+  const walk = (nodes: Array<AccountTreeNode<T>>, depth = 0) => {
+    nodes.forEach((node) => {
+      flat.push({
+        ...node,
+        depth,
+        hasChildren: node.children.length > 0,
+      });
+
+      if (node.children.length > 0) {
+        walk(node.children, depth + 1);
+      }
+    });
+  };
+
+  walk(tree);
+  return flat;
 }
 
 function isCircularParent(accountId: string, nextParentId: string | null, accounts: AccountRuleShape[]) {
@@ -159,4 +225,77 @@ export function validateAccountState(
   }
 
   return errors;
+}
+
+export function validateAccountCreate(
+  next: Omit<AccountRuleShape, 'id' | 'level' | 'hasPostings'>,
+  accounts: AccountRuleShape[],
+) {
+  const errors = validateAccountState(next, accounts);
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors,
+  };
+}
+
+export function validateAccountUpdate(
+  current: AccountRuleShape,
+  next: Omit<AccountRuleShape, 'level' | 'hasPostings'> & { level?: number; hasPostings?: boolean },
+  accounts: AccountRuleShape[],
+) {
+  const errors = validateAccountState(next, accounts, current);
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors,
+  };
+}
+
+export function canArchiveAccount(account: AccountRuleShape, accounts: AccountRuleShape[]) {
+  const descendants = getDescendantAccountIds(account.id, accounts)
+    .map((id) => accounts.find((candidate) => candidate.id === id))
+    .filter((candidate): candidate is AccountRuleShape => Boolean(candidate));
+
+  const hasUsedDescendants = descendants.some((child) => child.hasPostings);
+  const hasChildren = descendants.length > 0;
+  const isUsed = account.hasPostings || hasUsedDescendants;
+
+  return {
+    canDelete: !isUsed,
+    canArchive: true,
+    hasChildren,
+    hasUsedDescendants,
+    reason: isUsed
+      ? 'Account already has postings (or used descendants). Archive instead of delete.'
+      : null,
+    deleteScopeIds: [account.id, ...descendants.map((child) => child.id)],
+  };
+}
+
+export function rollupBalances(accounts: AccountRuleShape[], balancesByAccountId: Record<string, number>) {
+  const childrenByParent = accounts.reduce<Record<string, string[]>>((map, account) => {
+    const key = account.parentId || 'root';
+    if (!map[key]) map[key] = [];
+    map[key].push(account.id);
+    return map;
+  }, {});
+
+  const totalsById: Record<string, number> = {};
+  const ownBalanceById: Record<string, number> = {};
+
+  const calculate = (accountId: string): number => {
+    const ownBalance = Number(balancesByAccountId[accountId] || 0);
+    ownBalanceById[accountId] = ownBalance;
+    const children = childrenByParent[accountId] || [];
+    const childTotal = children.reduce((sum, childId) => sum + calculate(childId), 0);
+    const total = ownBalance + childTotal;
+    totalsById[accountId] = total;
+    return total;
+  };
+
+  (childrenByParent.root || []).forEach((rootId) => calculate(rootId));
+
+  return {
+    totalsById,
+    ownBalanceById,
+  };
 }

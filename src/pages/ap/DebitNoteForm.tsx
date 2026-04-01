@@ -41,6 +41,8 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { useDebitNotes, usePurchaseReturns, useCreateDebitNote, useUpdateDebitNote } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 
 interface DebitNoteLocationState {
     returnDraft?: PurchaseReturn;
@@ -66,12 +68,6 @@ interface SelectOption {
 }
 
 type AccountFieldKey = 'apAccountId' | 'returnAccountId' | 'taxAccountId' | 'settlementAccountId';
-
-const BANK_TO_GL_ACCOUNT_MAP: Record<string, string> = {
-    'BANK-001': 'COA-1120',
-    'BANK-002': 'COA-1130',
-    'BANK-003': 'COA-1110'
-};
 
 const buildDebitNo = (dateStr?: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -106,11 +102,16 @@ const DebitNoteForm = () => {
     const debitNotes = dnData?.data ?? [];
     const { data: prData, isLoading: purchaseReturnsLoading } = usePurchaseReturns();
     const purchaseReturns = prData?.data ?? [];
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
     const state = (location.state || {}) as DebitNoteLocationState;
     const mode = state.mode || 'create';
     const isView = mode === 'view';
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
 
     const [numberingMode, setNumberingMode] = useState('auto');
     const [formData, setFormData] = useState<DebitNoteFormData>({
@@ -122,12 +123,12 @@ const DebitNoteForm = () => {
         sourceBillId: '',
         settlementType: 'Apply to Bill',
         settlementRef: '',
-        refundBankId: bankAccounts[0]?.id || '',
+        refundBankId: '',
         refundMethod: 'Bank Transfer',
-        settlementAccountId: 'COA-1120',
-        apAccountId: 'COA-2100',
-        returnAccountId: 'COA-5300',
-        taxAccountId: 'COA-1210',
+        settlementAccountId: '',
+        apAccountId: '',
+        returnAccountId: '',
+        taxAccountId: '',
         note: '',
         amount: 0,
         lines: [],
@@ -175,9 +176,9 @@ const DebitNoteForm = () => {
                 vendorName: sourceBill?.vendor || '',
                 sourceBillId: draft.billId,
                 settlementRef: '',
-                apAccountId: draft.apAccountId || prev.apAccountId,
-                returnAccountId: draft.returnAccountId || prev.returnAccountId,
-                taxAccountId: draft.taxAccountId || prev.taxAccountId,
+                apAccountId: draft.apAccountId || prev.apAccountId || resolvedAccountDefaults.apControl,
+                returnAccountId: draft.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.apReturn,
+                taxAccountId: draft.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.apTax,
                 amount: toReturnTotals(draft).total,
                 lines: draft.lines || [],
                 applyTax: draft.applyTax,
@@ -202,10 +203,10 @@ const DebitNoteForm = () => {
                 sourceBillId: found.sourceBillId,
                 settlementType: found.settlementType,
                 settlementRef: found.settlementRef || '',
-                settlementAccountId: found.settlementAccountId || prev.settlementAccountId,
-                apAccountId: found.apAccountId || prev.apAccountId,
-                returnAccountId: found.returnAccountId || prev.returnAccountId,
-                taxAccountId: found.taxAccountId || prev.taxAccountId,
+                settlementAccountId: found.settlementAccountId || prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
+                apAccountId: found.apAccountId || prev.apAccountId || resolvedAccountDefaults.apControl,
+                returnAccountId: found.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.apReturn,
+                taxAccountId: found.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.apTax,
                 amount: found.amount,
                 lines: linkedReturn?.lines || [],
                 applyTax: found.applyTax,
@@ -213,14 +214,48 @@ const DebitNoteForm = () => {
                 taxRate: linkedReturn?.taxRate ?? 11
             }));
         }
-    }, [state.returnDraft, state.debitId]);
+    }, [state.returnDraft, state.debitId, resolvedAccountDefaults]);
 
     useEffect(() => {
+        if (state.debitId) return;
         if (formData.settlementType !== 'Refund from Vendor') return;
-        const mappedAccountId = BANK_TO_GL_ACCOUNT_MAP[formData.refundBankId];
+        const mappedAccountId = resolveBankLinkedAssetAccountId(bankAccounts, chartOfAccounts, accountDefaultsConfig, formData.refundBankId);
         if (!mappedAccountId) return;
         setFormData((prev) => (prev.settlementAccountId === mappedAccountId ? prev : { ...prev, settlementAccountId: mappedAccountId }));
-    }, [formData.refundBankId, formData.settlementType]);
+    }, [state.debitId, formData.refundBankId, formData.settlementType, bankAccounts, chartOfAccounts, accountDefaultsConfig]);
+
+    useEffect(() => {
+        if (!formData.refundBankId && bankAccounts[0]?.id) {
+            setFormData((prev) => ({ ...prev, refundBankId: prev.refundBankId || bankAccounts[0].id }));
+        }
+    }, [bankAccounts, formData.refundBankId]);
+
+    useEffect(() => {
+        if (state.debitId) return;
+        setFormData((prev) => {
+            let changed = false;
+            const next = { ...prev };
+
+            if (!next.settlementAccountId && resolvedAccountDefaults.bankAsset) {
+                next.settlementAccountId = resolvedAccountDefaults.bankAsset;
+                changed = true;
+            }
+            if (!next.apAccountId && resolvedAccountDefaults.apControl) {
+                next.apAccountId = resolvedAccountDefaults.apControl;
+                changed = true;
+            }
+            if (!next.returnAccountId && resolvedAccountDefaults.apReturn) {
+                next.returnAccountId = resolvedAccountDefaults.apReturn;
+                changed = true;
+            }
+            if (!next.taxAccountId && resolvedAccountDefaults.apTax) {
+                next.taxAccountId = resolvedAccountDefaults.apTax;
+                changed = true;
+            }
+
+            return changed ? next : prev;
+        });
+    }, [state.debitId, resolvedAccountDefaults]);
 
     const debitNoPreview = useMemo(() => buildDebitNo(formData.debitDate, debitNotes.length + 1), [formData.debitDate, debitNotes.length]);
 

@@ -41,7 +41,8 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { useCreditNotes, useSalesReturns, useCreateCreditNote, useUpdateCreditNote } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
-
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 const buildCreditNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
@@ -62,12 +63,6 @@ const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
     return { subtotal, taxAmount, total: subtotal + taxAmount };
 };
 
-const BANK_TO_ACCOUNT_MAP: Record<string, string> = {
-    'BANK-001': 'COA-1120',
-    'BANK-002': 'COA-1130',
-    'BANK-003': 'COA-1110'
-};
-
 const CreditNoteForm = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -79,11 +74,16 @@ const CreditNoteForm = () => {
     const creditNotes = cnData?.data ?? [];
     const { data: srData, isLoading: salesReturnsLoading } = useSalesReturns();
     const salesReturns = srData?.data ?? [];
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const createCreditNote = useCreateCreditNote();
     const updateCreditNoteMutation = useUpdateCreditNote();
     const state = (location.state || {}) as { mode?: string; returnDraft?: any; creditId?: string };
     const mode = state.mode || 'create'; // create | view | edit
     const isView = mode === 'view';
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
 
     const [numberingMode, setNumberingMode] = useState('auto');
     const [formData, setFormData] = useState<CreditNoteFormData>({
@@ -94,12 +94,12 @@ const CreditNoteForm = () => {
         sourceInvoiceId: '',
         settlementType: 'Apply to Invoice',
         settlementRef: '',
-        refundBankId: bankAccounts[0]?.id || '',
+        refundBankId: '',
         refundMethod: 'Bank Transfer',
-        arAccountId: 'COA-1210',
-        returnAccountId: 'COA-5300',
-        taxAccountId: 'COA-2200',
-        settlementAccountId: 'COA-1120',
+        arAccountId: '',
+        returnAccountId: '',
+        taxAccountId: '',
+        settlementAccountId: '',
         note: '',
         amount: 0,
         lines: [],
@@ -119,10 +119,10 @@ const CreditNoteForm = () => {
                 linkedReturnId: draft.returnNumber,
                 customerName: customerInvoice?.customerName || '',
                 sourceInvoiceId: draft.invoiceId,
-                arAccountId: draft.arAccountId || prev.arAccountId,
-                returnAccountId: draft.returnAccountId || prev.returnAccountId,
-                taxAccountId: draft.taxAccountId || prev.taxAccountId,
-                settlementAccountId: draft.arAccountId || prev.settlementAccountId,
+                arAccountId: draft.arAccountId || prev.arAccountId || resolvedAccountDefaults.arControl,
+                returnAccountId: draft.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.arReturn,
+                taxAccountId: draft.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
+                settlementAccountId: draft.arAccountId || prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
                 amount: toReturnTotals(draft).total,
                 lines: (draft.lines || []) as CreditNoteLine[],
                 applyTax: draft.applyTax,
@@ -148,10 +148,10 @@ const CreditNoteForm = () => {
                 settlementRef: found.settlementRef || '',
                 refundBankId: found.refundBankId || prev.refundBankId,
                 refundMethod: found.refundMethod || prev.refundMethod,
-                arAccountId: found.arAccountId || prev.arAccountId,
-                returnAccountId: found.returnAccountId || prev.returnAccountId,
-                taxAccountId: found.taxAccountId || prev.taxAccountId,
-                settlementAccountId: found.settlementAccountId || prev.settlementAccountId,
+                arAccountId: found.arAccountId || prev.arAccountId || resolvedAccountDefaults.arControl,
+                returnAccountId: found.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.arReturn,
+                taxAccountId: found.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
+                settlementAccountId: found.settlementAccountId || prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
                 amount: found.amount,
                 lines: (linkedReturn?.lines || []) as CreditNoteLine[],
                 applyTax: found.applyTax,
@@ -159,17 +159,49 @@ const CreditNoteForm = () => {
                 taxRate: linkedReturn?.taxRate ?? 11
             }));
         }
-    }, [state.returnDraft, state.creditId]);
+    }, [state.returnDraft, state.creditId, invoices, creditNotes, salesReturns, resolvedAccountDefaults]);
 
     useEffect(() => {
+        if (state.creditId) return;
         if (formData.settlementType !== 'Refund') return;
-        const mappedAccountId = BANK_TO_ACCOUNT_MAP[formData.refundBankId];
+        const mappedAccountId = resolveBankLinkedAssetAccountId(bankAccounts, chartOfAccounts, accountDefaultsConfig, formData.refundBankId);
         if (!mappedAccountId) return;
         setFormData((prev) => {
             if (prev.settlementAccountId === mappedAccountId) return prev;
             return { ...prev, settlementAccountId: mappedAccountId };
         });
-    }, [formData.refundBankId, formData.settlementType]);
+    }, [state.creditId, formData.refundBankId, formData.settlementType, bankAccounts, chartOfAccounts, accountDefaultsConfig]);
+
+    useEffect(() => {
+        if (!formData.refundBankId && bankAccounts[0]?.id) {
+            setFormData((prev) => ({ ...prev, refundBankId: prev.refundBankId || bankAccounts[0].id }));
+        }
+    }, [bankAccounts, formData.refundBankId]);
+
+    useEffect(() => {
+        if (state.creditId) return;
+        setFormData((prev) => {
+            let changed = false;
+            const next = { ...prev };
+            if (!next.arAccountId && resolvedAccountDefaults.arControl) {
+                next.arAccountId = resolvedAccountDefaults.arControl;
+                changed = true;
+            }
+            if (!next.returnAccountId && resolvedAccountDefaults.arReturn) {
+                next.returnAccountId = resolvedAccountDefaults.arReturn;
+                changed = true;
+            }
+            if (!next.taxAccountId && resolvedAccountDefaults.arTax) {
+                next.taxAccountId = resolvedAccountDefaults.arTax;
+                changed = true;
+            }
+            if (!next.settlementAccountId && resolvedAccountDefaults.bankAsset) {
+                next.settlementAccountId = resolvedAccountDefaults.bankAsset;
+                changed = true;
+            }
+            return changed ? next : prev;
+        });
+    }, [state.creditId, resolvedAccountDefaults]);
 
     const creditNoPreview = useMemo(() => buildCreditNo(formData.creditDate, creditNotes.length + 1), [formData.creditDate]);
 
@@ -182,19 +214,19 @@ const CreditNoteForm = () => {
 
     const arAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const returnAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
-    }, []);
+    }, [chartOfAccounts]);
 
     const taxAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
-    }, []);
+    }, [chartOfAccounts]);
 
     const settlementAccountOptions = useMemo(() => {
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, []);
+    }, [chartOfAccounts]);
 
     const openInvoicesForCustomer = useMemo(() => {
         if (!formData.sourceInvoiceId) return [];
@@ -204,7 +236,7 @@ const CreditNoteForm = () => {
             .filter((inv) => inv.customerId === source.customerId)
             .filter((inv) => inv.status !== 'Paid')
             .map((inv) => ({ value: inv.id, label: `${inv.id} • ${formatDateID(inv.date)} • ${formatIDR(inv.amount)}` }));
-    }, [formData.sourceInvoiceId]);
+    }, [formData.sourceInvoiceId, invoices]);
 
     const totals = useMemo(() => {
         const subtotal = formData.lines.reduce((sum, line) => sum + Number(line.qtyReturn || 0) * Number(line.price || 0), 0);

@@ -5,6 +5,8 @@ import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { useItems, useCreateItem, useUpdateItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults } from '../../../lib/account-defaults';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -52,10 +54,6 @@ const ITEM_TYPES = ['Product', 'Service', 'Raw Material', 'Consumable', 'Fixed A
 
 const UNITS = ['PCS', 'BOX', 'KG', 'GRAM', 'LITER', 'METER', 'HOUR', 'DAY', 'SET', 'UNIT', 'CARTON', 'DOZEN', 'STRIP', 'TABLET', 'SACHET', 'BOTTLE', 'PACK'];
 
-const DEFAULT_INVENTORY_ACCOUNT = 'COA-1310';
-const DEFAULT_REVENUE_ACCOUNT   = 'COA-4100';
-const DEFAULT_COGS_ACCOUNT      = 'COA-5100';
-
 const INVENTORY_ITEM_SEED = [
     { id: 'SKU-001', name: 'MacBook Pro 16"', category: 'Hardware', stock: 15, cost: 22000000, price: 25000000, status: 'In Stock' },
     { id: 'SKU-002', name: 'Dell XPS 13', category: 'Hardware', stock: 4, cost: 9000000, price: 12000000, status: 'Low Stock' },
@@ -81,7 +79,10 @@ const SelectField = ({ label, name, value, onChange, error, disabled, children }
     </div>
 );
 
-const buildItemState = (item: any): InventoryFormData => {
+const buildItemState = (
+    item: any,
+    defaults: { inventoryAsset: string; salesRevenue: string; cogsExpense: string }
+): InventoryFormData => {
     if (!item) {
         return {
             sku:                '',
@@ -98,9 +99,9 @@ const buildItemState = (item: any): InventoryFormData => {
             price:              '',
             openingStock:       '0',
             reorderPoint:       '5',
-            inventoryAccountId: DEFAULT_INVENTORY_ACCOUNT,
-            revenueAccountId:   DEFAULT_REVENUE_ACCOUNT,
-            cogsAccountId:      DEFAULT_COGS_ACCOUNT,
+            inventoryAccountId: defaults.inventoryAsset,
+            revenueAccountId:   defaults.salesRevenue,
+            cogsAccountId:      defaults.cogsExpense,
             description:        '',
             barcode:            '',
             weight:             '',
@@ -122,9 +123,9 @@ const buildItemState = (item: any): InventoryFormData => {
         price:              item.price != null ? String(item.price) : '',
         openingStock:       item.openingStock != null ? String(item.openingStock) : item.stock != null ? String(item.stock) : '0',
         reorderPoint:       item.reorderPoint != null ? String(item.reorderPoint) : '5',
-        inventoryAccountId: item.inventoryAccountId || DEFAULT_INVENTORY_ACCOUNT,
-        revenueAccountId:   item.revenueAccountId   || DEFAULT_REVENUE_ACCOUNT,
-        cogsAccountId:      item.cogsAccountId      || DEFAULT_COGS_ACCOUNT,
+        inventoryAccountId: item.inventoryAccountId || defaults.inventoryAsset,
+        revenueAccountId:   item.revenueAccountId   || defaults.salesRevenue,
+        cogsAccountId:      item.cogsAccountId      || defaults.cogsExpense,
         description:        item.description || '',
         barcode:            item.barcode     || '',
         weight:             item.weight      || '',
@@ -142,6 +143,7 @@ const InventoryForm = () => {
     const createItem   = useCreateItem();
     const updateItem   = useUpdateItem();
     const nextSkuMut   = useNextItemSku();
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const { data: itemsData, isLoading: itemsLoading } = useItems();
     const { data: itemCategories = [], isLoading: categoriesLoading } = useItemCategories();
     const storeProducts = itemsData?.data ?? [];
@@ -162,19 +164,54 @@ const InventoryForm = () => {
             || null;
     }, [itemId, location.state, storeProducts]);
 
-    const [formData, setFormData] = useState<InventoryFormData>(() => buildItemState(selectedItem));
+    const { data: allAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(allAccounts, accountDefaultsConfig),
+        [allAccounts, accountDefaultsConfig]
+    );
+    const [formData, setFormData] = useState<InventoryFormData>(() => buildItemState(selectedItem, {
+        inventoryAsset: '',
+        salesRevenue: '',
+        cogsExpense: '',
+    }));
     const [errors, setErrors]     = useState<InventoryFormErrors>({});
 
     useEffect(() => {
-        setFormData(buildItemState(selectedItem));
+        setFormData(buildItemState(selectedItem, {
+            inventoryAsset: resolvedAccountDefaults.inventoryAsset,
+            salesRevenue: resolvedAccountDefaults.salesRevenue,
+            cogsExpense: resolvedAccountDefaults.cogsExpense,
+        }));
         setErrors({});
-    }, [itemId, mode, selectedItem]);
+    }, [itemId, mode, selectedItem, resolvedAccountDefaults]);
 
     // ── Account lists ─────────────────────────────────────────────────────
-    const { data: allAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const inventoryAccounts = useMemo(() => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Asset'), [allAccounts]);
     const revenueAccounts   = useMemo(() => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Revenue'), [allAccounts]);
     const cogsAccounts      = useMemo(() => allAccounts.filter((a) => a.isActive && a.isPostable && a.type === 'Expense'), [allAccounts]);
+
+    useEffect(() => {
+        if (selectedItem) return;
+        setFormData((prev) => {
+            let changed = false;
+            const next = { ...prev };
+
+            if (!next.inventoryAccountId && resolvedAccountDefaults.inventoryAsset) {
+                next.inventoryAccountId = resolvedAccountDefaults.inventoryAsset;
+                changed = true;
+            }
+            if (!next.revenueAccountId && resolvedAccountDefaults.salesRevenue) {
+                next.revenueAccountId = resolvedAccountDefaults.salesRevenue;
+                changed = true;
+            }
+            if (!next.cogsAccountId && resolvedAccountDefaults.cogsExpense) {
+                next.cogsAccountId = resolvedAccountDefaults.cogsExpense;
+                changed = true;
+            }
+
+            return changed ? next : prev;
+        });
+    }, [selectedItem, resolvedAccountDefaults]);
 
     // Computed margin
     const margin = useMemo(() => {

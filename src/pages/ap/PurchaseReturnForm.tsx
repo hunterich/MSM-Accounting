@@ -41,6 +41,8 @@ import { useReturnStore } from '../../stores/useReturnStore';
 import { useVendors, useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn } from '../../hooks/useReturns';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults } from '../../../lib/account-defaults';
 
 const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -74,8 +76,13 @@ const PurchaseReturnForm = () => {
     const purchaseReturns = prData?.data ?? [];
     const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const createPurchaseReturnMutation = useCreatePurchaseReturn();
     const updatePurchaseReturnMutation = useUpdatePurchaseReturn();
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
 
     const billItemTemplates = useMemo<Record<string, PurchaseReturnLineInput[]>>(() => {
         const map: Record<string, PurchaseReturnLineInput[]> = {};
@@ -97,9 +104,9 @@ const PurchaseReturnForm = () => {
         billId: '',
         returnDate: new Date().toISOString().split('T')[0],
         warehouseId: '',
-        apAccountId: 'COA-2100',
-        returnAccountId: 'COA-5300',
-        taxAccountId: 'COA-1210',
+        apAccountId: '',
+        returnAccountId: '',
+        taxAccountId: '',
         applyTax: true,
         taxIncluded: false,
         taxRate: 11,
@@ -154,9 +161,9 @@ const PurchaseReturnForm = () => {
             billId: found.billId,
             returnDate: found.returnDate,
             warehouseId: found.warehouseId,
-            apAccountId: found.apAccountId || 'COA-2100',
-            returnAccountId: found.returnAccountId || 'COA-5300',
-            taxAccountId: found.taxAccountId || 'COA-1210',
+            apAccountId: found.apAccountId || resolvedAccountDefaults.apControl,
+            returnAccountId: found.returnAccountId || resolvedAccountDefaults.apReturn,
+            taxAccountId: found.taxAccountId || resolvedAccountDefaults.apTax,
             applyTax: found.applyTax,
             taxIncluded: found.taxIncluded,
             taxRate: found.taxRate,
@@ -164,13 +171,36 @@ const PurchaseReturnForm = () => {
             notes: found.notes || '',
             lines: (found.lines || []).map(normalizeLine)
         });
-    }, [state.returnId, purchaseReturns]);
+    }, [state.returnId, purchaseReturns, resolvedAccountDefaults]);
 
     useEffect(() => {
         if (warehouses.length > 0 && !returnData.warehouseId) {
             setReturnData((prev) => ({ ...prev, warehouseId: prev.warehouseId || warehouses[0].id }));
         }
     }, [warehouses]);
+
+    useEffect(() => {
+        if (state.returnId) return;
+        setReturnData((prev) => {
+            let changed = false;
+            const next = { ...prev };
+
+            if (!next.apAccountId && resolvedAccountDefaults.apControl) {
+                next.apAccountId = resolvedAccountDefaults.apControl;
+                changed = true;
+            }
+            if (!next.returnAccountId && resolvedAccountDefaults.apReturn) {
+                next.returnAccountId = resolvedAccountDefaults.apReturn;
+                changed = true;
+            }
+            if (!next.taxAccountId && resolvedAccountDefaults.apTax) {
+                next.taxAccountId = resolvedAccountDefaults.apTax;
+                changed = true;
+            }
+
+            return changed ? next : prev;
+        });
+    }, [state.returnId, resolvedAccountDefaults]);
 
     const returnNoPreview = useMemo(() => buildReturnNo(returnData.returnDate, purchaseReturns.length + 1), [returnData.returnDate]);
 
@@ -182,7 +212,7 @@ const PurchaseReturnForm = () => {
             value: bill.id,
             label: `${bill.id} • ${bill.vendor} • ${formatDateID(bill.date)}`
         }));
-    }, [returnData.vendorId]);
+    }, [returnData.vendorId, bills]);
 
     const totals = useMemo(() => {
         const subtotal = returnData.lines.reduce((sum, line) => sum + line.qtyReturn * line.price, 0);

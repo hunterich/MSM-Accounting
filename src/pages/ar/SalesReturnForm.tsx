@@ -54,6 +54,8 @@ import { useCustomers, useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
 import { useItems } from '../../hooks/useInventory';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { resolveAccountDefaults } from '../../../lib/account-defaults';
 
 const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -89,8 +91,13 @@ const SalesReturnForm = () => {
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const { data: productsData, isLoading: productsLoading } = useItems();
     const products = productsData?.data ?? [];
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const createSalesReturnMutation = useCreateSalesReturn();
     const updateSalesReturnMutation = useUpdateSalesReturn();
+    const resolvedAccountDefaults = useMemo(
+        () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
+        [chartOfAccounts, accountDefaultsConfig]
+    );
 
     const invoiceItemTemplates = useMemo<Record<string, SalesReturnLineInput[]>>(() => {
         const map: Record<string, SalesReturnLineInput[]> = {};
@@ -115,9 +122,9 @@ const SalesReturnForm = () => {
         invoiceId: '',
         returnDate: new Date().toISOString().split('T')[0],
         warehouseId: '',
-        arAccountId: 'COA-1210',
-        returnAccountId: 'COA-5300',
-        taxAccountId: 'COA-2200',
+        arAccountId: '',
+        returnAccountId: '',
+        taxAccountId: '',
         applyTax: true,
         taxIncluded: false,
         taxRate: 11,
@@ -137,9 +144,9 @@ const SalesReturnForm = () => {
             invoiceId: found.invoiceId,
             returnDate: found.returnDate,
             warehouseId: found.warehouseId,
-            arAccountId: found.arAccountId || 'COA-1210',
-            returnAccountId: found.returnAccountId || 'COA-5300',
-            taxAccountId: found.taxAccountId || 'COA-2200',
+            arAccountId: found.arAccountId || resolvedAccountDefaults.arControl,
+            returnAccountId: found.returnAccountId || resolvedAccountDefaults.arReturn,
+            taxAccountId: found.taxAccountId || resolvedAccountDefaults.arTax,
             applyTax: found.applyTax,
             taxIncluded: found.taxIncluded,
             taxRate: found.taxRate,
@@ -147,13 +154,36 @@ const SalesReturnForm = () => {
             notes: '',
             lines: (found.lines || []).map(normalizeLine)
         });
-    }, [state.returnId, salesReturns]);
+    }, [state.returnId, salesReturns, resolvedAccountDefaults]);
 
     useEffect(() => {
         if (warehouses.length > 0 && !returnData.warehouseId) {
             setReturnData((prev) => ({ ...prev, warehouseId: prev.warehouseId || warehouses[0].id }));
         }
     }, [warehouses]);
+
+    useEffect(() => {
+        if (state.returnId) return;
+        setReturnData((prev) => {
+            let changed = false;
+            const next = { ...prev };
+
+            if (!next.arAccountId && resolvedAccountDefaults.arControl) {
+                next.arAccountId = resolvedAccountDefaults.arControl;
+                changed = true;
+            }
+            if (!next.returnAccountId && resolvedAccountDefaults.arReturn) {
+                next.returnAccountId = resolvedAccountDefaults.arReturn;
+                changed = true;
+            }
+            if (!next.taxAccountId && resolvedAccountDefaults.arTax) {
+                next.taxAccountId = resolvedAccountDefaults.arTax;
+                changed = true;
+            }
+
+            return changed ? next : prev;
+        });
+    }, [state.returnId, resolvedAccountDefaults]);
 
     const returnNoPreview = useMemo(() => buildReturnNo(returnData.returnDate, salesReturns.length + 1), [returnData.returnDate]);
 
@@ -163,7 +193,7 @@ const SalesReturnForm = () => {
             value: inv.id,
             label: `${inv.id} • ${inv.customerName} • ${formatDateID(inv.date)}`
         }));
-    }, [returnData.customerId]);
+    }, [returnData.customerId, invoices]);
 
     const customerOptions = customers.map((customer) => ({
         value: customer.id,
@@ -226,7 +256,7 @@ const SalesReturnForm = () => {
             .filter((cand): cand is InvoiceCandidate => cand !== null)
             .filter((cand) => cand.remainingQty > 0)
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [lookupItemId, returnData.customerId]);
+    }, [lookupItemId, returnData.customerId, invoices, invoiceItemTemplates, salesReturns, state.returnId]);
 
     const totals = useMemo(() => {
         const subtotal = returnData.lines.reduce((sum, line) => sum + (line.qtyReturn * line.price), 0);
