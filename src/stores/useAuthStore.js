@@ -57,6 +57,12 @@ export const useAuthStore = create((set, get) => ({
   hasPermission: (moduleKey, action = 'view') =>
     hasModulePermission(get().permissions, moduleKey, action),
 
+  updateOrganizationContext: (nextOrg, needsInventoryValuationSetup = false) =>
+    set((state) => ({
+      org: state.org ? { ...state.org, ...nextOrg } : nextOrg,
+      needsInventoryValuationSetup,
+    })),
+
   checkSession: async () => {
     set({ isLoading: true });
     try {

@@ -33,6 +33,7 @@ interface AuthStore {
     isLoading:           boolean;
     needsInventoryValuationSetup: boolean;
     hasPermission:       (moduleKey: string, action?: PermissionAction) => boolean;
+    updateOrganizationContext: (nextOrg: Partial<AuthOrg>, needsInventoryValuationSetup?: boolean) => void;
     checkSession:        () => Promise<void>;
     login:               (email: string, password: string) => Promise<unknown>;
     loginWithGoogle:     (credential: string) => Promise<unknown>;
@@ -114,6 +115,12 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
   hasPermission: (moduleKey, action = 'view') =>
     hasModulePermission(get().permissions, moduleKey, action),
+
+  updateOrganizationContext: (nextOrg, needsInventoryValuationSetup = false) =>
+    set((state) => ({
+      org: state.org ? { ...state.org, ...nextOrg } : (nextOrg as AuthOrg),
+      needsInventoryValuationSetup,
+    })),
 
   checkSession: async () => {
     set({ isLoading: true });

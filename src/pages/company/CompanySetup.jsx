@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
@@ -8,6 +8,7 @@ import StatusTag from '../../components/UI/StatusTag';
 import ListPage from '../../components/Layout/ListPage';
 import { formatDateID } from '../../utils/formatters';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 import { useOrganizationSettings, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
 
 const DEFAULT_FISCAL_YEAR_START = '2026-01-01';
@@ -37,10 +38,13 @@ const buildPeriods = (fiscalYearStart) => {
 };
 
 const CompanySetup = () => {
+    const navigate = useNavigate();
+    const location = useLocation();
     const [searchParams] = useSearchParams();
     const onboardingMode = searchParams.get('onboarding') === 'inventory-valuation';
     const companyInfo = useSettingsStore((s) => s.companyInfo);
     const setCompanyInfo = useSettingsStore((s) => s.setCompanyInfo);
+    const updateOrganizationContext = useAuthStore((s) => s.updateOrganizationContext);
     const { data: orgSettings, isLoading, error } = useOrganizationSettings();
     const updateOrganizationSettings = useUpdateOrganizationSettings();
 
@@ -110,7 +114,7 @@ const CompanySetup = () => {
         }
 
         try {
-            await updateOrganizationSettings.mutateAsync({
+            const updatedSettings = await updateOrganizationSettings.mutateAsync({
                 legalName: company.legalName.trim(),
                 displayName: company.displayName.trim(),
                 npwp: company.npwp.trim(),
@@ -121,6 +125,17 @@ const CompanySetup = () => {
                 costingMethodEffectiveDate: orgSettings?.costingMethodEffectiveDate || company.fiscalYearStart,
             });
 
+            updateOrganizationContext(
+                {
+                    name: updatedSettings.displayName || company.displayName.trim(),
+                    costingMethod: updatedSettings.costingMethod || company.costingMethod,
+                    costingMethodEffectiveDate: updatedSettings.costingMethodEffectiveDate
+                        ? String(updatedSettings.costingMethodEffectiveDate).slice(0, 10)
+                        : (orgSettings?.costingMethodEffectiveDate || company.fiscalYearStart),
+                },
+                updatedSettings.needsInventoryValuationSetup === true,
+            );
+
             setCompanyInfo({
                 companyName: company.displayName.trim(),
                 address: company.address.trim(),
@@ -130,6 +145,13 @@ const CompanySetup = () => {
                 logoUrl: company.logoUrl.trim(),
             });
             setLastSavedAt(new Date().toISOString());
+
+            if (onboardingMode && company.costingMethod) {
+                const nextPath = location.state?.from?.pathname && location.state.from.pathname !== '/company-setup'
+                    ? location.state.from.pathname
+                    : '/';
+                navigate(nextPath, { replace: true });
+            }
         } catch (saveError) {
             window.alert(saveError instanceof Error ? saveError.message : 'Failed to save company settings');
         }
@@ -263,37 +285,37 @@ const CompanySetup = () => {
                     </Card>
                 </div>
 
-                <div className="col-span-5">
-                    <Card title="Fiscal Settings">
-                        <div className="mb-4">
-                            <label className="form-label">Fiscal Year Start</label>
-                            <Input
-                                type="date"
-                                value={company.fiscalYearStart}
-                                onChange={(e) => handleChange('fiscalYearStart', e.target.value)}
-                                error={errors.fiscalYearStart}
-                            />
-                        </div>
-                        <div className="text-muted-sm">
-                            Periods will be generated monthly. Closed periods are locked to prevent changes.
-                        </div>
-                        <div className="mt-spacing-4">
-                            <Button text="Regenerate Periods" variant="secondary" size="small" onClick={handleRegeneratePeriods} />
-                        </div>
-                    </Card>
-
+                <div className="col-span-5 space-y-4">
                     <Card title="Inventory Valuation">
                         <div className="mb-4">
                             <label className="form-label">Costing Method</label>
-                            <select
-                                className={`w-full h-10 px-3 rounded-md border bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 ${errors.costingMethod ? 'border-danger-500' : 'border-neutral-300'}`}
-                                value={company.costingMethod}
-                                onChange={(e) => handleChange('costingMethod', e.target.value)}
-                            >
-                                <option value="">Select a costing method</option>
-                                <option value="FIFO">FIFO</option>
-                                <option value="WEIGHTED_AVERAGE">Weighted Average</option>
-                            </select>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleChange('costingMethod', 'FIFO')}
+                                    aria-pressed={company.costingMethod === 'FIFO'}
+                                    className={`rounded-xl border px-4 py-4 text-left transition focus:outline-0 focus:ring-2 focus:ring-primary-200 ${company.costingMethod === 'FIFO' ? 'border-primary-500 bg-primary-50 shadow-sm' : 'border-neutral-200 bg-neutral-0 hover:border-primary-300 hover:bg-primary-50/40'} ${errors.costingMethod ? 'border-danger-300' : ''}`}
+                                >
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-semibold text-neutral-900">FIFO</span>
+                                        <span className={`inline-flex h-4 w-4 rounded-full border-2 ${company.costingMethod === 'FIFO' ? 'border-primary-600 bg-primary-600 shadow-[inset_0_0_0_2px_white]' : 'border-neutral-300 bg-neutral-0'}`} />
+                                    </div>
+                                    <p className="mt-2 text-sm text-neutral-600">Uses the oldest stock cost first for every inventory issue.</p>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => handleChange('costingMethod', 'WEIGHTED_AVERAGE')}
+                                    aria-pressed={company.costingMethod === 'WEIGHTED_AVERAGE'}
+                                    className={`rounded-xl border px-4 py-4 text-left transition focus:outline-0 focus:ring-2 focus:ring-primary-200 ${company.costingMethod === 'WEIGHTED_AVERAGE' ? 'border-primary-500 bg-primary-50 shadow-sm' : 'border-neutral-200 bg-neutral-0 hover:border-primary-300 hover:bg-primary-50/40'} ${errors.costingMethod ? 'border-danger-300' : ''}`}
+                                >
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-semibold text-neutral-900">Weighted Average</span>
+                                        <span className={`inline-flex h-4 w-4 rounded-full border-2 ${company.costingMethod === 'WEIGHTED_AVERAGE' ? 'border-primary-600 bg-primary-600 shadow-[inset_0_0_0_2px_white]' : 'border-neutral-300 bg-neutral-0'}`} />
+                                    </div>
+                                    <p className="mt-2 text-sm text-neutral-600">Keeps one rolling average cost after each stock receipt.</p>
+                                </button>
+                            </div>
                             {errors.costingMethod ? <div className="w-full mt-1 text-xs text-danger-500">{errors.costingMethod}</div> : null}
                         </div>
 
@@ -316,12 +338,32 @@ const CompanySetup = () => {
                             </div>
                         ) : null}
                     </Card>
+
+                    <Card title="Fiscal Settings">
+                        <div className="mb-4">
+                            <label className="form-label">Fiscal Year Start</label>
+                            <Input
+                                type="date"
+                                value={company.fiscalYearStart}
+                                onChange={(e) => handleChange('fiscalYearStart', e.target.value)}
+                                error={errors.fiscalYearStart}
+                            />
+                        </div>
+                        <div className="text-muted-sm">
+                            Periods will be generated monthly. Closed periods are locked to prevent changes.
+                        </div>
+                        <div className="mt-spacing-4">
+                            <Button text="Regenerate Periods" variant="secondary" size="small" onClick={handleRegeneratePeriods} />
+                        </div>
+                    </Card>
                 </div>
             </div>
 
-            <Card title="Accounting Periods" padding={false}>
-                <Table columns={periodColumns} data={periods} />
-            </Card>
+            {!onboardingMode || !orgSettings?.needsInventoryValuationSetup ? (
+                <Card title="Accounting Periods" padding={false}>
+                    <Table columns={periodColumns} data={periods} />
+                </Card>
+            ) : null}
         </ListPage>
     );
 };
