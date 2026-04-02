@@ -7,6 +7,8 @@ import SearchableSelect from '../../../components/UI/SearchableSelect';
 import { formatIDR } from '../../../utils/formatters';
 import { useCustomerStore } from '../../../stores/useCustomerStore';
 import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
+import { useCustomers } from '../../../hooks/useAR';
+import { useItems } from '../../../hooks/useInventory';
 
 const todayString = () => new Date().toISOString().slice(0, 10);
 
@@ -22,14 +24,46 @@ const emptyForm = {
     deliveryNotes: '',
 };
 
+const textFields = new Set(['productId', 'code', 'description', 'unit']);
+
 const newLine = () => ({
     id: `li-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+    productId: '',
+    code: '',
     description: '',
     qty: 1,
     unit: 'PCS',
     price: 0,
     discount: 0,
 });
+
+const mergeById = (...groups) => {
+    const byId = new Map();
+    groups.flat().filter(Boolean).forEach((item) => {
+        if (!item?.id) return;
+        byId.set(item.id, { ...(byId.get(item.id) || {}), ...item });
+    });
+    return Array.from(byId.values());
+};
+
+const normalizedValue = (value) => String(value || '').trim().toLowerCase();
+
+const buildShippingAddress = (customer) => {
+    const directAddress = [customer?.shippingAddress, customer?.billingAddress]
+        .map((value) => String(value || '').trim())
+        .find(Boolean);
+
+    if (directAddress) return directAddress;
+
+    return [
+        customer?.address1,
+        customer?.city,
+        customer?.province,
+    ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .join(', ');
+};
 
 const calculateLineTotal = (line) => {
     const qty = Number(line.qty || 0);
@@ -60,7 +94,9 @@ const SOForm = ({ mode = 'create' }) => {
     const [searchParams] = useSearchParams();
     const soId = searchParams.get('soId') || '';
 
-    const customers = useCustomerStore((s) => s.customers) || [];
+    const seedCustomers = useCustomerStore((s) => s.customers) || [];
+    const { data: customersResult } = useCustomers({ limit: 100 });
+    const { data: itemsResult } = useItems({ limit: 100 });
 
     const salesOrders = useSalesOrderStore((s) => s.salesOrders);
     const soItemTemplates = useSalesOrderStore((s) => s.soItemTemplates);
@@ -82,6 +118,16 @@ const SOForm = ({ mode = 'create' }) => {
         }));
     });
     const [errors, setErrors] = useState({});
+    const [activeLineId, setActiveLineId] = useState('');
+
+    const customers = useMemo(
+        () => mergeById(seedCustomers, customersResult?.data || []),
+        [seedCustomers, customersResult?.data]
+    );
+    const inventoryItems = useMemo(
+        () => itemsResult?.data || [],
+        [itemsResult?.data]
+    );
 
     useEffect(() => {
         setFormData(buildInitialForm(selectedSalesOrder));
@@ -97,13 +143,47 @@ const SOForm = ({ mode = 'create' }) => {
         }
 
         setErrors({});
+        setActiveLineId('');
     }, [selectedSalesOrder, soItemTemplates]);
+
+    useEffect(() => {
+        if (!formData.customerId || formData.shippingAddress?.trim()) return;
+
+        const customer = customers.find((item) => item.id === formData.customerId);
+        const nextAddress = buildShippingAddress(customer);
+        if (!nextAddress) return;
+
+        setFormData((prev) => (
+            prev.customerId === formData.customerId && !prev.shippingAddress?.trim()
+                ? { ...prev, shippingAddress: nextAddress }
+                : prev
+        ));
+    }, [customers, formData.customerId, formData.shippingAddress]);
 
     const customerOptions = useMemo(() => customers.map((customer) => ({
         value: customer.id,
         label: customer.name,
         subLabel: customer.email || customer.phone || customer.id,
     })), [customers]);
+
+    const activeLine = useMemo(
+        () => lineItems.find((line) => line.id === activeLineId) || null,
+        [activeLineId, lineItems]
+    );
+
+    const matchingInventoryItems = useMemo(() => {
+        const term = normalizedValue(activeLine?.description);
+        if (!term) return [];
+
+        return inventoryItems
+            .filter((item) => (
+                normalizedValue(item.name).includes(term)
+                || normalizedValue(item.code).includes(term)
+                || normalizedValue(item.sku).includes(term)
+                || normalizedValue(item.description).includes(term)
+            ))
+            .slice(0, 8);
+    }, [activeLine?.description, inventoryItems]);
 
     const totalAmount = useMemo(
         () => lineItems.reduce((sum, line) => sum + calculateLineTotal(line), 0),
@@ -112,10 +192,12 @@ const SOForm = ({ mode = 'create' }) => {
 
     const handleCustomerChange = (customerId) => {
         const customer = customers.find((item) => item.id === customerId);
+        const nextShippingAddress = buildShippingAddress(customer);
         setFormData((prev) => ({
             ...prev,
             customerId,
             customerName: customer?.name || '',
+            shippingAddress: nextShippingAddress,
         }));
         setErrors((prev) => ({ ...prev, customerId: null }));
     };
@@ -130,10 +212,47 @@ const SOForm = ({ mode = 'create' }) => {
             line.id === lineId
                 ? {
                     ...line,
-                    [key]: key === 'description' || key === 'unit' ? value : Number(value || 0),
+                    [key]: textFields.has(key) ? value : Number(value || 0),
                 }
                 : line
         )));
+    };
+
+    const applyInventoryItemToLine = (lineId, item) => {
+        setLineItems((prev) => prev.map((line) => (
+            line.id === lineId
+                ? {
+                    ...line,
+                    productId: item.id || '',
+                    code: item.code || item.sku || '',
+                    description: String(item.name || item.description || line.description || ''),
+                    unit: item.sellUnit || item.unit || line.unit || 'PCS',
+                    price: Number(item.price || 0),
+                }
+                : line
+        )));
+        setActiveLineId('');
+    };
+
+    const handleDescriptionBlur = (lineId, descriptionValue) => {
+        window.setTimeout(() => {
+            const exactMatch = inventoryItems.find((item) => {
+                const lookup = normalizedValue(descriptionValue);
+                return lookup && (
+                    normalizedValue(item.name) === lookup
+                    || normalizedValue(item.code) === lookup
+                    || normalizedValue(item.sku) === lookup
+                    || normalizedValue(item.description) === lookup
+                );
+            });
+
+            if (exactMatch) {
+                applyInventoryItemToLine(lineId, exactMatch);
+                return;
+            }
+
+            setActiveLineId((prev) => (prev === lineId ? '' : prev));
+        }, 120);
     };
 
     const handleAddLine = () => {
@@ -177,6 +296,8 @@ const SOForm = ({ mode = 'create' }) => {
             .filter((line) => line.description.trim())
             .map((line) => ({
                 id: line.id,
+                productId: line.productId || undefined,
+                code: line.code || undefined,
                 description: line.description.trim(),
                 qty: Number(line.qty || 0),
                 unit: line.unit || 'PCS',
@@ -342,13 +463,39 @@ const SOForm = ({ mode = 'create' }) => {
                                 <tbody>
                                     {lineItems.map((line) => (
                                         <tr key={line.id}>
-                                            <td className="p-2 border-b border-neutral-200">
+                                            <td className="p-2 border-b border-neutral-200 relative">
                                                 <input
                                                     type="text"
                                                     className="block w-full px-2 py-1 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
                                                     value={line.description}
-                                                    onChange={(event) => handleLineChange(line.id, 'description', event.target.value)}
+                                                    placeholder="Type item name or code"
+                                                    onChange={(event) => {
+                                                        handleLineChange(line.id, 'description', event.target.value);
+                                                        setActiveLineId(line.id);
+                                                    }}
+                                                    onFocus={() => setActiveLineId(line.id)}
+                                                    onBlur={(event) => handleDescriptionBlur(line.id, event.target.value)}
                                                 />
+                                                {activeLineId === line.id && line.description.trim() && matchingInventoryItems.length > 0 ? (
+                                                    <div className="absolute left-2 right-2 top-full mt-1 bg-neutral-0 border border-neutral-200 rounded-md shadow-lg z-20 max-h-56 overflow-y-auto">
+                                                        {matchingInventoryItems.map((item) => (
+                                                            <button
+                                                                key={item.id}
+                                                                type="button"
+                                                                className="w-full px-3 py-2 text-left border-0 border-b border-neutral-100 bg-neutral-0 hover:bg-neutral-50 last:border-b-0"
+                                                                onMouseDown={(event) => {
+                                                                    event.preventDefault();
+                                                                    applyInventoryItemToLine(line.id, item);
+                                                                }}
+                                                            >
+                                                                <div className="font-medium text-neutral-900">{item.name || item.description || item.code}</div>
+                                                                <div className="text-xs text-neutral-500">
+                                                                    {[item.code || item.sku, item.unit].filter(Boolean).join(' • ')}
+                                                                </div>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
                                             </td>
                                             <td className="p-2 border-b border-neutral-200 text-right">
                                                 <input

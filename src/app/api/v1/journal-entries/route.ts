@@ -9,7 +9,6 @@ import {
 } from '@/types/api';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit } from '@/lib/api-utils';
-import { syncAccountPostingFlags } from '@/lib/account-postings';
 
 export const runtime = 'nodejs';
 
