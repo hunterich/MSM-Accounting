@@ -36,12 +36,13 @@
   "include": [
     "app/**/*.ts",
     "app/**/*.tsx",
-    "src/**/*.ts",
-    "src/**/*.tsx",
     "lib/**/*.ts",
     "next-env.d.ts",
     "prisma/seed.ts",
-    "types/**/*.ts"
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "types/**/*.ts",
+    ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

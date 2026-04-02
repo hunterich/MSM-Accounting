@@ -40,7 +40,7 @@ const ENTITY_LABELS: Record<string, string> = {
 function normalizeAuditLog(raw: RawAuditLog): AuditLog {
   return {
     id:          raw.id,
-    actorName:   raw.actor?.name || raw.actor?.email || 'System',
+    actorName:   raw.actor?.fullName || raw.actor?.name || raw.actor?.email || 'System',
     actorEmail:  raw.actor?.email || '',
     entityType:  raw.entityType  ?? '',
     entityLabel: ENTITY_LABELS[raw.entityType ?? ''] || raw.entityType || '',

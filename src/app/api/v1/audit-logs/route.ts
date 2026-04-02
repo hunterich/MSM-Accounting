@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          actor: { select: { id: true, name: true, email: true } },
+          actor: { select: { id: true, fullName: true, email: true } },
         },
       }),
       prisma.auditLog.count({ where }),

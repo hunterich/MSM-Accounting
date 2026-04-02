@@ -1100,7 +1100,7 @@ export interface CustomerCategory {
 
 export interface RawAuditLog {
   id: string;
-  actor?: { name?: string; email?: string } | null;
+  actor?: { fullName?: string; name?: string; email?: string } | null;
   entityType?: string | null;
   entityId?: string | null;
   action?: string | null;
