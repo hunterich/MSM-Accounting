@@ -5,19 +5,20 @@ import Table from '../../UI/Table';
 import SearchableSelect from '../../UI/SearchableSelect';
 import StatusTag from '../../UI/StatusTag';
 import { Upload, CheckCircle, AlertTriangle, ArrowLeft, ArrowRight, Loader } from 'lucide-react';
-import { useIntegrationStore } from '../../../stores/useIntegrationStore';
+import { useEcommerceConnections, useUpdateEcommerceConnection } from '../../../hooks/useIntegrations';
 import { useInvoiceStore } from '../../../stores/useInvoiceStore';
 import { usePaymentStore } from '../../../stores/usePaymentStore';
 import { useInventoryStore } from '../../../stores/useInventoryStore';
 import { useCustomerStore } from '../../../stores/useCustomerStore';
-import { parseShopeeExcel, transformOrdersToInvoices, buildProductKey } from '../../../utils/shopeeImport';
+import { parseShopeeExcel, transformOrdersToInvoices } from '../../../utils/shopeeImport';
 import { formatIDR } from '../../../utils/formatters';
 
 const STEPS = ['upload', 'preview', 'mapping', 'configure', 'importing', 'done'];
 
 const ImportInvoicesModal = ({ isOpen, onClose }) => {
-    const shops = useIntegrationStore((s) => s.shops);
-    const updateItemMappings = useIntegrationStore((s) => s.updateItemMappings);
+    const { data: connectionsData } = useEcommerceConnections();
+    const shops = connectionsData?.data ?? [];
+    const updateConnection = useUpdateEcommerceConnection();
 
     const invoices = useInvoiceStore((s) => s.invoices);
     const addInvoicesBatch = useInvoiceStore((s) => s.addInvoicesBatch);
@@ -180,7 +181,10 @@ const ImportInvoicesModal = ({ isOpen, onClose }) => {
             // Phase 1: Save item mappings
             setImportPhase('Saving item mappings...');
             await new Promise(r => setTimeout(r, 50));
-            updateItemMappings(shopId, localMappings);
+            await updateConnection.mutateAsync({
+                id: shopId,
+                itemMappings: localMappings,
+            });
 
             // Phase 2: Insert new invoices
             if (result.newInvoices.length > 0) {
@@ -254,7 +258,7 @@ const ImportInvoicesModal = ({ isOpen, onClose }) => {
                                 accept=".xlsx,.xls"
                                 className="hidden"
                                 onChange={handleFileSelect}
-                                disabled={parsing}
+                                disabled={parsing || updateConnection.isPending}
                             />
                             <span className="inline-flex items-center gap-1 px-4 py-2 bg-primary-500 text-white text-sm rounded-md cursor-pointer hover:bg-primary-600">
                                 {parsing ? <><Loader size={14} className="animate-spin" /> Parsing...</> : 'Select File'}

@@ -1089,6 +1089,8 @@ model EcommerceConnection {
   customerId       String?
   holdingAccountId String?
   status           ConnectionStatus @default(ACTIVE)
+  importStatusFilter String         @default("Selesai")
+  itemMappings     Json?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 

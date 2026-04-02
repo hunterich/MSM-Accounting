@@ -217,6 +217,19 @@ export interface RawOrganizationSettings {
   costingMethodEffectiveDate?: string | null;
 }
 
+export interface RawEcommerceConnection {
+  id: string;
+  platform?: string | null;
+  shopName?: string | null;
+  customerId?: string | null;
+  customer?: { id?: string; name?: string } | null;
+  holdingAccountId?: string | null;
+  holdingAccount?: { id?: string; name?: string } | null;
+  status?: string | null;
+  importStatusFilter?: string | null;
+  itemMappings?: Record<string, string> | null;
+}
+
 // ── Normalized frontend types ─────────────────────────────────────────────────
 
 export type CustomerStatus = 'Active' | 'Inactive';
@@ -227,6 +240,9 @@ export type BillStatus     = 'Draft' | 'Unpaid' | 'Pending' | 'Paid' | 'Overdue'
 export type POStatus       = 'Draft' | 'Approved' | 'Billed' | 'Closed' | 'Cancelled';
 export type SOStatus       = 'draft' | 'confirmed' | 'closed' | 'cancelled';
 export type InventoryCostingMethod = 'FIFO' | 'WEIGHTED_AVERAGE';
+export type EcommercePlatform = 'Shopee' | 'TikTok' | 'Tokopedia' | 'Lazada' | 'Other';
+export type ConnectionStatus = 'Active' | 'Syncing' | 'Inactive';
+export type ImportStatusFilter = 'Selesai' | 'All';
 
 export interface OrganizationSettings {
   id: string;
@@ -241,6 +257,21 @@ export interface OrganizationSettings {
   costingMethodSetById: string;
   costingMethodEffectiveDate: string;
   needsInventoryValuationSetup: boolean;
+}
+
+export interface EcommerceConnection {
+  id: string;
+  platform: EcommercePlatform;
+  name: string;
+  customerId: string;
+  customer: string;
+  customerName: string;
+  holdingAccountId: string;
+  holdingAccount: string;
+  holdingAccountName: string;
+  status: ConnectionStatus;
+  importStatusFilter: ImportStatusFilter;
+  itemMappings: Record<string, string>;
 }
 
 export interface Customer {

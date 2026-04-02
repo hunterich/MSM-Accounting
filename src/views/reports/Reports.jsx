@@ -38,7 +38,7 @@ const ReportCard = ({ report, onClick }) => (
   </button>
 );
 
-const CATEGORIES = [
+const ALL_CATEGORIES = [
   { id: 'sales', label: 'Penjualan', icon: ShoppingCart },
   { id: 'gl', label: 'Buku Besar', icon: BookOpen },
   { id: 'banking', label: 'Kas & Bank', icon: Landmark },
@@ -178,6 +178,13 @@ const REPORTS_BY_CATEGORY = {
   gl: GL_REPORTS,
   ar: AR_REPORTS,
 };
+
+const IMPLEMENTED_CATEGORIES = ALL_CATEGORIES.filter((category) => {
+  const reports = REPORTS_BY_CATEGORY[category.id];
+  return Array.isArray(reports) && reports.length > 0;
+});
+
+const DEFAULT_CATEGORY = IMPLEMENTED_CATEGORIES[0]?.id ?? '';
 
 const pad = (n) => String(n).padStart(2, '0');
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -417,7 +424,7 @@ const Reports = () => {
     label: item.name,
     subLabel: item.sku || undefined,
   }));
-  const [activeCategory, setActiveCategory] = useState('sales');
+  const [activeCategory, setActiveCategory] = useState(DEFAULT_CATEGORY);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [paramModal, setParamModal] = useState(null);
@@ -466,8 +473,14 @@ const Reports = () => {
     }
   }, [items, filterItem, selectedItemId]);
 
+  useEffect(() => {
+    if (!IMPLEMENTED_CATEGORIES.some((category) => category.id === activeCategory)) {
+      setActiveCategory(DEFAULT_CATEGORY);
+    }
+  }, [activeCategory]);
+
   const categoryReports = REPORTS_BY_CATEGORY[activeCategory] || [];
-  const activeCategoryMeta = CATEGORIES.find((category) => category.id === activeCategory);
+  const activeCategoryMeta = IMPLEMENTED_CATEGORIES.find((category) => category.id === activeCategory);
   const activeReport = openReports.find((entry) => entry.report.id === activeReportId) || null;
   const filteredReports = categoryReports.filter((report) =>
     report.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -1257,7 +1270,7 @@ const Reports = () => {
   return (
     <div className="flex h-full min-h-0" style={{ height: 'calc(100vh - 56px)' }}>
       <div className="w-[200px] shrink-0 border-r border-neutral-200 bg-neutral-50 p-3 flex flex-col gap-1 overflow-y-auto">
-        {CATEGORIES.map((cat) => {
+        {IMPLEMENTED_CATEGORIES.map((cat) => {
           const Icon = cat.icon;
           return (
             <button

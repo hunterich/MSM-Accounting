@@ -9,7 +9,12 @@ import SearchableSelect from '../../components/UI/SearchableSelect';
 import { Plus, Settings, Trash2, AlertCircle } from 'lucide-react';
 import { useCustomers } from '../../hooks/useAR';
 import { useBankAccounts } from '../../hooks/useBanking';
-import { useIntegrationStore } from '../../stores/useIntegrationStore';
+import {
+    useCreateEcommerceConnection,
+    useDeleteEcommerceConnection,
+    useEcommerceConnections,
+    useUpdateEcommerceConnection,
+} from '../../hooks/useIntegrations';
 import ListPage from '../../components/Layout/ListPage';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
@@ -18,11 +23,11 @@ const Integrations = () => {
     const { data: customersData } = useCustomers();
     const customers = customersData?.data ?? [];
     const { data: bankAccounts = [] } = useBankAccounts();
-
-    const shops = useIntegrationStore((s) => s.shops);
-    const addShop = useIntegrationStore((s) => s.addShop);
-    const updateShop = useIntegrationStore((s) => s.updateShop);
-    const deleteShop = useIntegrationStore((s) => s.deleteShop);
+    const { data: connectionsData, isLoading, error } = useEcommerceConnections();
+    const shops = connectionsData?.data ?? [];
+    const createConnection = useCreateEcommerceConnection();
+    const updateConnection = useUpdateEcommerceConnection();
+    const deleteConnection = useDeleteEcommerceConnection();
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [settingsShopId, setSettingsShopId] = useState(null);
@@ -38,13 +43,6 @@ const Integrations = () => {
     const customerOptions = customers.map(c => ({ value: c.id, label: c.name }));
     const bankOptions = bankAccounts.map(b => ({ value: b.id, label: b.name }));
 
-    // Add "Platform Wallets" if not in mockData (simulating user creation)
-    const allBankOptions = [
-        ...bankOptions,
-        { value: 'BANK-005', label: 'Asset: Shopee Wallet' },
-        { value: 'BANK-006', label: 'Asset: TikTok Balance' }
-    ].filter((option, index, list) => list.findIndex((candidate) => candidate.value === option.value) === index);
-
     const platformOptions = [
         { value: 'Shopee', label: 'Shopee Indonesia' },
         { value: 'TikTok', label: 'TikTok Shop' },
@@ -58,7 +56,7 @@ const Integrations = () => {
         setNewShop({ platform: 'Shopee', name: '', customerId: '', holdingAccountId: '' });
     };
 
-    const handleSaveShop = () => {
+    const handleSaveShop = async () => {
         const nextErrors = {};
         const trimmedName = newShop.name.trim();
         if (!trimmedName) nextErrors.name = 'Shop name is required.';
@@ -76,28 +74,42 @@ const Integrations = () => {
             return;
         }
 
-        const shop = {
-            id: `SHOP-${Date.now()}`,
-            platform: newShop.platform,
-            name: trimmedName,
-            customer: newShop.customerId,
-            holdingAccount: newShop.holdingAccountId,
-            status: 'Active'
-        };
-        addShop(shop);
-        resetModal();
+        try {
+            await createConnection.mutateAsync({
+                platform: newShop.platform,
+                name: trimmedName,
+                customerId: newShop.customerId,
+                holdingAccountId: newShop.holdingAccountId,
+                status: 'Active',
+            });
+            resetModal();
+        } catch (saveError) {
+            setFormErrors((prev) => ({
+                ...prev,
+                name: saveError instanceof Error ? saveError.message : 'Failed to save shop connection.',
+            }));
+        }
     };
 
-    const handleDeleteShop = (id) => {
-        deleteShop(id);
+    const handleDeleteShop = async (id) => {
+        try {
+            await deleteConnection.mutateAsync(id);
+        } catch (deleteError) {
+            window.alert(deleteError instanceof Error ? deleteError.message : 'Failed to delete shop connection.');
+        }
     };
 
     // Settings modal
     const settingsShop = settingsShopId ? shops.find(s => s.id === settingsShopId) : null;
 
-    const handleSaveSettings = (filter) => {
+    const handleSaveSettings = async (filter) => {
         if (settingsShopId) {
-            updateShop(settingsShopId, { importStatusFilter: filter });
+            try {
+                await updateConnection.mutateAsync({ id: settingsShopId, importStatusFilter: filter });
+            } catch (saveError) {
+                window.alert(saveError instanceof Error ? saveError.message : 'Failed to save integration settings.');
+                return;
+            }
         }
         setSettingsShopId(null);
     };
@@ -117,7 +129,7 @@ const Integrations = () => {
             key: 'holdingAccount',
             label: 'Settlement Account',
             render: (val) => {
-                const acc = allBankOptions.find(b => b.value === val);
+                const acc = bankOptions.find(b => b.value === val);
                 return acc ? acc.label : val;
             }
         },
@@ -152,13 +164,22 @@ const Integrations = () => {
                                 When you import transactions from a shop, sales will be recorded against the <strong>Mapped Customer</strong>.
                                 Funds held by the platform (before payout to your bank) will be tracked in the <strong>Settlement Account</strong>.
                             </p>
+                            <p className="integrations-helper-text">
+                                Settlement accounts now come from your real banking records, so create the wallet or clearing account in Banking first if you do not see it here.
+                            </p>
                         </div>
                     </div>
                 </div>
             </div>
 
+            {error ? (
+                <div className="mb-4 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+                    {error instanceof Error ? error.message : 'Failed to load integrations.'}
+                </div>
+            ) : null}
+
             <Card padding={false}>
-                <Table columns={columns} data={shops} />
+                <Table columns={columns} data={shops} isLoading={isLoading} />
             </Card>
 
             {/* Add New Shop Modal */}
@@ -224,19 +245,29 @@ const Integrations = () => {
                             }}
                         >
                             <option value="">Select Account...</option>
-                            {allBankOptions.map(opt => (
+                            {bankOptions.map(opt => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                         </select>
                         {formErrors.holdingAccountId ? <div className="form-feedback invalid-feedback">{formErrors.holdingAccountId}</div> : null}
                         <span className="integrations-field-hint">Where funds are held before withdrawal to bank.</span>
+                        {bankOptions.length === 0 ? (
+                            <span className="integrations-field-hint block mt-2 text-warning-700">
+                                No bank accounts found yet. Add the settlement account in Banking before creating a shop connection.
+                            </span>
+                        ) : null}
                     </div>
 
                 </div>
 
                 <div className="integrations-modal-actions">
                     <Button text="Cancel" variant="tertiary" onClick={resetModal} />
-                    <Button text="Save Connection" variant="primary" disabled={!canCreate} onClick={handleSaveShop} />
+                    <Button
+                        text={createConnection.isPending ? 'Saving...' : 'Save Connection'}
+                        variant="primary"
+                        disabled={!canCreate || createConnection.isPending}
+                        onClick={handleSaveShop}
+                    />
                 </div>
             </Modal>
 
@@ -261,7 +292,7 @@ const Integrations = () => {
                                         name="importStatusFilter"
                                         value="Selesai"
                                         checked={settingsShop.importStatusFilter === 'Selesai'}
-                                        disabled={!canEdit}
+                                        disabled={!canEdit || updateConnection.isPending}
                                         onChange={() => handleSaveSettings('Selesai')}
                                     />
                                     <span className="text-sm">Selesai (Completed only)</span>
@@ -272,7 +303,7 @@ const Integrations = () => {
                                         name="importStatusFilter"
                                         value="All"
                                         checked={settingsShop.importStatusFilter === 'All'}
-                                        disabled={!canEdit}
+                                        disabled={!canEdit || updateConnection.isPending}
                                         onChange={() => handleSaveSettings('All')}
                                     />
                                     <span className="text-sm">Semua Status (All statuses)</span>
