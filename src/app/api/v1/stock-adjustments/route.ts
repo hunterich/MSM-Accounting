@@ -2,7 +2,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse, nextNumber, logAudit } from '@/lib/api-utils';
+import { ApiError, err, ok, listResponse, nextNumber, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { stockAdjustmentInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -35,50 +36,71 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
+  if (!orgId) return err('Unauthenticated', 401);
   const body = await req.json();
-  const { lines, date, type, reason, notes, warehouseId } = body;
-
-  const result = await prisma.$transaction(async (tx) => {
-    const number = await nextNumber(tx, 'StockAdjustment', 'number', 'ADJ');
-    const adj = await tx.stockAdjustment.create({
-      data: {
-        organizationId: orgId,
-        number,
-        date: new Date(date),
-        type: type ?? 'QUANTITY',
-        reason,
-        notes,
-        warehouseId: warehouseId ?? null,
-        status: 'DRAFT',
-      },
-    });
-
-    if (lines && lines.length > 0) {
-      await tx.stockAdjustmentLine.createMany({
-        data: lines.map((l: any, idx: number) => ({
-          stockAdjustmentId: adj.id,
-          lineNo: l.lineNo ?? idx + 1,
-          itemId: l.itemId,
-          accountId: l.accountId ?? null,
-          oldQty: l.oldQty ?? 0,
-          newQty: l.newQty ?? 0,
-          qtyDiff: l.qtyDiff ?? ((l.newQty ?? 0) - (l.oldQty ?? 0)),
-          unitCost: l.unitCost ?? 0,
-          totalValue: l.totalValue ?? 0,
-        })),
-      });
-    }
-
-    return tx.stockAdjustment.findUnique({
-      where: { id: adj.id },
-      include: {
-        lines: {
-          include: { item: { select: { id: true, name: true, sku: true } } },
-        },
-      },
-    });
+  const parsed = stockAdjustmentInputSchema.safeParse({
+    ...body,
+    organizationId: orgId,
   });
+  if (!parsed.success) {
+    return err(parsed.error.issues[0]?.message || 'Invalid stock adjustment payload', 400);
+  }
+  const { lines, date, type, reason, notes, warehouseId, status } = parsed.data;
 
-  logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'StockAdjustment', entityId: result!.id, action: 'CREATE', payload: { number: result!.number } });
-  return ok(result, 201);
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      if (warehouseId) {
+        await validateForeignKey(tx.warehouse, { id: warehouseId, organizationId: orgId }, 'Warehouse not found in organization');
+      }
+      for (const line of lines) {
+        await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId, isActive: true }, 'Item not found in organization');
+      }
+
+      const number = await nextNumber(tx, 'StockAdjustment', 'number', 'ADJ');
+      const adj = await tx.stockAdjustment.create({
+        data: {
+          organizationId: orgId,
+          number,
+          date: new Date(date),
+          type,
+          reason,
+          notes: notes ?? null,
+          warehouseId: warehouseId ?? null,
+          status,
+        },
+      });
+
+      if (lines.length > 0) {
+        await tx.stockAdjustmentLine.createMany({
+          data: lines.map((l, idx: number) => ({
+            stockAdjustmentId: adj.id,
+            lineNo: l.lineNo ?? idx + 1,
+            itemId: l.itemId,
+            accountId: l.accountId ?? null,
+            oldQty: l.oldQty,
+            newQty: l.newQty,
+            qtyDiff: l.qtyDiff ?? (Number(l.newQty) - Number(l.oldQty)),
+            unitCost: l.unitCost,
+            totalValue: l.totalValue ?? ((Number(l.newQty) - Number(l.oldQty)) * Number(l.unitCost)),
+          })),
+        });
+      }
+
+      return tx.stockAdjustment.findUnique({
+        where: { id: adj.id },
+        include: {
+          lines: {
+            include: { item: { select: { id: true, name: true, sku: true } } },
+          },
+        },
+      });
+    });
+
+    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'StockAdjustment', entityId: result!.id, action: 'CREATE', payload: { number: result!.number } });
+    return ok(result, 201);
+  } catch (error) {
+    if (error instanceof ApiError) return err(error.message, error.status);
+    const message = error instanceof Error ? error.message : 'Failed to create stock adjustment';
+    return err(message, 500);
+  }
 }

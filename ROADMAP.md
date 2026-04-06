@@ -101,8 +101,11 @@
 - [x] Warehouse CRUD
 - [~] Soft delete for master data
   - Customers, vendors, employees, and items now deactivate instead of hard deleting
-  - Remaining modules still use hard delete and need follow-up
+  - Bank accounts, item categories, and vendor categories now also deactivate instead of hard deleting
+  - Remaining document modules still use hard delete and need follow-up
 - [x] Credit limit enforcement on invoice and sales-order creation
+- [x] Validation + org-scoped FK checks for bills, purchase orders, AR payments, and AP payments
+- [x] Validation + org-scoped FK checks for sales orders, stock adjustments, and bank transactions
 - [~] Centralized route error-handling utility exists
   - Adopted for new routes and selected list endpoints
   - Remaining legacy routes still need migration

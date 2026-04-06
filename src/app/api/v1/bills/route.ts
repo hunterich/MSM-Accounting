@@ -6,7 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { nextNumber, logAudit } from '@/lib/api-utils';
+import { ApiError, nextNumber, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { billInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -49,11 +50,24 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const orgId = req.headers.get('x-org-id');
+    if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     const body = await req.json();
-    const { lines, ...header } = body;
+    const parsed = billInputSchema.safeParse({
+      ...body,
+      organizationId: orgId,
+    });
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid bill payload', issues: parsed.error.issues }, { status: 400 }));
+    }
+
+    const { lines, ...header } = parsed.data;
     const number = await nextNumber(prisma, 'Bill', 'number', 'BILL');
 
     const bill = await prisma.$transaction(async (tx) => {
+      await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
+      if (header.poId) {
+        await validateForeignKey(tx.purchaseOrder, { id: header.poId, organizationId: orgId }, 'Purchase order not found in organization');
+      }
       const created = await tx.bill.create({
         data: { ...header, organizationId: orgId, number },
       });
@@ -75,6 +89,9 @@ export async function POST(req: NextRequest) {
     logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Bill', entityId: bill!.id, action: 'CREATE', payload: { number } });
     return withCors(NextResponse.json(bill, { status: 201 }));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed to create bill';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

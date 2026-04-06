@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search');
+    const isActive = searchParams.get('isActive');
 
-    const where: any = { organizationId: orgId };
+    const where: any = { organizationId: orgId, isActive: isActive ? isActive === 'true' : true };
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },

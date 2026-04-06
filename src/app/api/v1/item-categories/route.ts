@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const page  = Math.max(1, Number(searchParams.get('page')  ?? 1));
   const limit = Math.min(200, Number(searchParams.get('limit') ?? 200));
-  const where = { organizationId: orgId };
+  const isActive = searchParams.get('isActive');
+  const where = { organizationId: orgId, isActive: isActive ? isActive === 'true' : true };
   const [data, total] = await Promise.all([
     prisma.itemCategory.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { name: 'asc' } }),
     prisma.itemCategory.count({ where }),

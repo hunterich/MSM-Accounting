@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit } from '@/lib/api-utils';
+import { ApiError, ok, err, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { updateStockAdjustmentInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -28,36 +29,65 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const body = await req.json();
-  const { lines, ...header } = body;
-  const existing = await prisma.stockAdjustment.findFirst({ where: { id, organizationId: orgId } });
-  if (!existing) return err('Not found', 404);
-  if (existing.status !== 'DRAFT') return err('Only DRAFT adjustments can be edited', 400);
-  const updated = await prisma.$transaction(async (tx) => {
-    await tx.stockAdjustment.update({
-      where: { id, organizationId: orgId },
-      data: { ...header, updatedAt: new Date() },
-    });
-    if (lines) {
-      await tx.stockAdjustmentLine.deleteMany({ where: { stockAdjustmentId: id } });
-      await tx.stockAdjustmentLine.createMany({
-        data: lines.map((l: { lineNo?: number; [key: string]: unknown }, idx: number) => ({
-          ...l,
-          stockAdjustmentId: id,
-          lineNo: l.lineNo ?? idx + 1,
-        })),
-      });
-    }
-    return tx.stockAdjustment.findFirst({
-      where: { id, organizationId: orgId },
-      include: {
-        lines: {
-          include: { item: { select: { id: true, name: true, sku: true } } },
+  const parsed = updateStockAdjustmentInputSchema.safeParse(body);
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid stock adjustment payload', 400);
+  const { lines, ...header } = parsed.data;
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.stockAdjustment.findFirst({ where: { id, organizationId: orgId } });
+      if (!existing) return null;
+      if (existing.status !== 'DRAFT') {
+        throw new ApiError('Only DRAFT adjustments can be edited', 400);
+      }
+      if (header.warehouseId) {
+        await validateForeignKey(tx.warehouse, { id: header.warehouseId, organizationId: orgId }, 'Warehouse not found in organization');
+      }
+      if (lines) {
+        for (const line of lines) {
+          await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId, isActive: true }, 'Item not found in organization');
+        }
+      }
+      await tx.stockAdjustment.update({
+        where: { id, organizationId: orgId },
+        data: {
+          ...header,
+          ...(header.date !== undefined && { date: new Date(header.date) }),
+          updatedAt: new Date(),
         },
-      },
+      });
+      if (lines) {
+        await tx.stockAdjustmentLine.deleteMany({ where: { stockAdjustmentId: id } });
+        await tx.stockAdjustmentLine.createMany({
+          data: lines.map((l, idx: number) => ({
+            stockAdjustmentId: id,
+            lineNo: l.lineNo ?? idx + 1,
+            itemId: l.itemId,
+            accountId: l.accountId ?? null,
+            oldQty: l.oldQty,
+            newQty: l.newQty,
+            qtyDiff: l.qtyDiff ?? (Number(l.newQty) - Number(l.oldQty)),
+            unitCost: l.unitCost,
+            totalValue: l.totalValue ?? ((Number(l.newQty) - Number(l.oldQty)) * Number(l.unitCost)),
+          })),
+        });
+      }
+      return tx.stockAdjustment.findFirst({
+        where: { id, organizationId: orgId },
+        include: {
+          lines: {
+            include: { item: { select: { id: true, name: true, sku: true } } },
+          },
+        },
+      });
     });
-  });
-  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'StockAdjustment', entityId: id, action: 'UPDATE', payload: body });
-  return ok(updated);
+    if (!updated) return err('Not found', 404);
+    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'StockAdjustment', entityId: id, action: 'UPDATE', payload: body });
+    return ok(updated);
+  } catch (error) {
+    if (error instanceof ApiError) return err(error.message, error.status);
+    const message = error instanceof Error ? error.message : 'Failed to update stock adjustment';
+    return err(message, 500);
+  }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

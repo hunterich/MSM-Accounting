@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { updateApPaymentInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -30,14 +31,49 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const orgId = req.headers.get('x-org-id')!;
   try {
     const body = await req.json();
-    const { number, ...data } = body; // number is immutable
-    const payment = await prisma.aPPayment.update({
-      where: { id, organizationId: orgId },
-      data: { ...data, updatedAt: new Date() },
+    const parsed = updateApPaymentInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid AP payment payload', issues: parsed.error.issues }, { status: 400 }));
+    }
+    const { allocations, ...data } = parsed.data;
+    const payment = await prisma.$transaction(async (tx) => {
+      const existing = await tx.aPPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true } });
+      if (!existing) return null;
+      if (data.vendorId) {
+        await validateForeignKey(tx.vendor, { id: data.vendorId, organizationId: orgId, status: 'ACTIVE' }, 'Vendor not found in organization');
+      }
+      if (allocations) {
+        for (const allocation of allocations) {
+          await validateForeignKey(tx.bill, { id: allocation.billId, organizationId: orgId }, 'Bill not found in organization');
+        }
+      }
+      await tx.aPPayment.update({
+        where: { id, organizationId: orgId },
+        data: { ...data, updatedAt: new Date() },
+      });
+      if (allocations) {
+        await tx.aPPaymentAllocation.deleteMany({ where: { paymentId: id } });
+        if (allocations.length > 0) {
+          await tx.aPPaymentAllocation.createMany({
+            data: allocations.map((allocation) => ({
+              ...allocation,
+              paymentId: id,
+            })),
+          });
+        }
+      }
+      return tx.aPPayment.findFirst({
+        where: { id, organizationId: orgId },
+        include: { vendor: true, allocations: true },
+      });
     });
+    if (!payment) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'APPayment', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(payment));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { updatePurchaseOrderInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -30,9 +31,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const orgId = req.headers.get('x-org-id')!;
   try {
     const body = await req.json();
-    const { lines, number, ...header } = body; // number is immutable
+    const parsed = updatePurchaseOrderInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid purchase order payload', issues: parsed.error.issues }, { status: 400 }));
+    }
+    const { lines, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId }, select: { id: true } });
+      if (!existing) return null;
+      if (header.vendorId) {
+        await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
+      }
       await tx.purchaseOrder.update({
         where: { id, organizationId: orgId },
         data: { ...header, updatedAt: new Date() },
@@ -40,10 +50,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       if (lines) {
         await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId: id } });
         await tx.purchaseOrderLine.createMany({
-          data: lines.map((l: { lineNo?: number; [key: string]: unknown }, idx: number) => ({
-            ...l,
+          data: lines.map((l, idx: number) => ({
             purchaseOrderId: id,
+            itemId: l.itemId || null,
+            accountId: l.accountId || null,
             lineNo: l.lineNo ?? idx + 1,
+            description: l.description,
+            quantity: l.quantity,
+            unit: l.unit,
+            price: l.price,
+            lineTotal: l.lineTotal ?? (Number(l.quantity) * Number(l.price)),
           })),
         });
       }
@@ -52,9 +68,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         include: { vendor: true, lines: true },
       });
     });
+    if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'PurchaseOrder', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(updated));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { logAudit, softDelete } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -86,7 +86,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         where: { organizationId: orgId, categoryId: id },
         data: { categoryId: null, category: null },
       });
-      await tx.vendorCategory.deleteMany({ where: { id, organizationId: orgId } });
+      await tx.vendorCategory.updateMany({
+        where: { id, organizationId: orgId, isActive: true },
+        data: { isActive: false, updatedAt: new Date() },
+      });
       return existing;
     });
 

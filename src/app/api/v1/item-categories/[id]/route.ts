@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit } from '@/lib/api-utils';
+import { ok, err, logAudit, softDelete } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -48,7 +48,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     if (!existing) return null;
     // Detach items from this category before deleting
     await tx.item.updateMany({ where: { categoryId: id, organizationId: orgId }, data: { categoryId: null } });
-    await tx.itemCategory.deleteMany({ where: { id, organizationId: orgId } });
+    await tx.itemCategory.updateMany({
+      where: { id, organizationId: orgId, isActive: true },
+      data: { isActive: false, updatedAt: new Date() },
+    });
     return existing;
   });
   if (!deleted) return err('Not found', 404);

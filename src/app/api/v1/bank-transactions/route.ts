@@ -2,7 +2,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse, logAudit } from '@/lib/api-utils';
+import { ApiError, err, ok, listResponse, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { bankTransactionInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -35,25 +36,40 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
+  if (!orgId) return err('Unauthenticated', 401);
   const body = await req.json();
-  const { bankAccountId, type, amount } = body;
-
-  const result = await prisma.$transaction(async (tx) => {
-    const txn = await tx.bankTransaction.create({
-      data: { ...body, organizationId: orgId },
-      include: { bankAccount: { select: { id: true, name: true } } },
-    });
-    // Update bank account balance: INCOME/CREDIT increases balance, EXPENSE/DEBIT decreases
-    const delta = type === 'INCOME' ? amount : type === 'TRANSFER' ? 0 : -amount;
-    if (delta !== 0) {
-      await tx.bankAccount.update({
-        where: { id: bankAccountId },
-        data: { currentBalance: { increment: delta } },
-      });
-    }
-    return txn;
+  const parsed = bankTransactionInputSchema.safeParse({
+    ...body,
+    organizationId: orgId,
   });
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid bank transaction payload', 400);
+  const { bankAccountId, type, amount, date, ...rest } = parsed.data;
 
-  logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'BankTransaction', entityId: result.id, action: 'CREATE', payload: { bankAccountId, type, amount } });
-  return ok(result, 201);
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await validateForeignKey(tx.bankAccount, { id: bankAccountId, organizationId: orgId, isActive: true }, 'Bank account not found in organization');
+      if (rest.toBankAccountId) {
+        await validateForeignKey(tx.bankAccount, { id: rest.toBankAccountId, organizationId: orgId, isActive: true }, 'Destination bank account not found in organization');
+      }
+      const txn = await tx.bankTransaction.create({
+        data: { ...rest, bankAccountId, type, amount, date: new Date(date), organizationId: orgId },
+        include: { bankAccount: { select: { id: true, name: true } } },
+      });
+      const delta = type === 'INCOME' ? amount : type === 'TRANSFER' ? 0 : -amount;
+      if (delta !== 0) {
+        await tx.bankAccount.update({
+          where: { id: bankAccountId },
+          data: { currentBalance: { increment: delta } },
+        });
+      }
+      return txn;
+    });
+
+    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'BankTransaction', entityId: result.id, action: 'CREATE', payload: { bankAccountId, type, amount } });
+    return ok(result, 201);
+  } catch (error) {
+    if (error instanceof ApiError) return err(error.message, error.status);
+    const message = error instanceof Error ? error.message : 'Failed to create bank transaction';
+    return err(message, 500);
+  }
 }

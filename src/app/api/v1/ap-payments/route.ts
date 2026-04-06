@@ -5,7 +5,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { nextNumber, logAudit } from '@/lib/api-utils';
+import { ApiError, nextNumber, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { apPaymentInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -45,15 +46,44 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const orgId = req.headers.get('x-org-id');
+    if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     const body = await req.json();
+    const parsed = apPaymentInputSchema.safeParse({
+      ...body,
+      organizationId: orgId,
+    });
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid AP payment payload', issues: parsed.error.issues }, { status: 400 }));
+    }
+    const { allocations, ...payload } = parsed.data;
     const number = await nextNumber(prisma, 'APPayment', 'number', 'APP');
-    const payment = await prisma.aPPayment.create({
-      data: { ...body, organizationId: orgId, number },
-      include: { vendor: { select: { id: true, name: true, code: true } } },
+    const payment = await prisma.$transaction(async (tx) => {
+      await validateForeignKey(tx.vendor, { id: payload.vendorId, organizationId: orgId, status: 'ACTIVE' }, 'Vendor not found in organization');
+      if (allocations?.length) {
+        for (const allocation of allocations) {
+          await validateForeignKey(tx.bill, { id: allocation.billId, organizationId: orgId }, 'Bill not found in organization');
+        }
+      }
+      return tx.aPPayment.create({
+        data: {
+          ...payload,
+          organizationId: orgId,
+          number,
+          allocations: allocations?.length
+            ? {
+                create: allocations,
+              }
+            : undefined,
+        },
+        include: { vendor: { select: { id: true, name: true, code: true } }, allocations: true },
+      });
     });
     logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'APPayment', entityId: payment.id, action: 'CREATE', payload: { number } });
     return withCors(NextResponse.json(payment, { status: 201 }));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed to create AP payment';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

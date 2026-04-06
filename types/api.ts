@@ -177,6 +177,192 @@ export const warehouseInputSchema = z.object({
   name: z.string().trim().min(1, 'Warehouse name is required'),
 });
 
+const documentLineSchema = z.object({
+  lineNo: z.number().int().positive().optional(),
+  itemId: z.string().trim().optional(),
+  accountId: z.string().trim().optional(),
+  description: z.string().trim().min(1, 'Description is required'),
+  quantity: positiveDecimal.default(0),
+  unit: z.string().trim().min(1).default('PCS'),
+  price: positiveDecimal.default(0),
+  lineTotal: positiveDecimal.optional(),
+});
+
+export const billInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  vendorId: z.string().trim().min(1, 'Vendor is required'),
+  poId: z.string().trim().optional(),
+  issueDate: isoDateString,
+  dueDate: isoDateString.optional(),
+  status: z.enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID']).default('DRAFT'),
+  apAccountId: z.string().trim().optional(),
+  taxRate: positiveDecimal.max(100).default(0),
+  subtotal: positiveDecimal.default(0),
+  taxAmount: positiveDecimal.default(0),
+  totalAmount: positiveDecimal.default(0),
+  notes: z.string().trim().optional(),
+  lines: z.array(documentLineSchema).default([]),
+});
+
+export const updateBillInputSchema = z.object({
+  vendorId: z.string().trim().min(1).optional(),
+  poId: z.string().trim().optional(),
+  issueDate: isoDateString.optional(),
+  dueDate: isoDateString.optional(),
+  status: z.enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID']).optional(),
+  apAccountId: z.string().trim().optional(),
+  taxRate: positiveDecimal.max(100).optional(),
+  subtotal: positiveDecimal.optional(),
+  taxAmount: positiveDecimal.optional(),
+  totalAmount: positiveDecimal.optional(),
+  notes: z.string().trim().optional(),
+  lines: z.array(documentLineSchema).optional(),
+});
+
+export const purchaseOrderInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  vendorId: z.string().trim().min(1, 'Vendor is required'),
+  date: isoDateString,
+  expectedDate: isoDateString.optional(),
+  status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).default('DRAFT'),
+  taxRate: positiveDecimal.max(100).default(0),
+  subtotal: positiveDecimal.default(0),
+  taxAmount: positiveDecimal.default(0),
+  totalAmount: positiveDecimal.default(0),
+  notes: z.string().trim().optional(),
+  lines: z.array(documentLineSchema).default([]),
+});
+
+export const updatePurchaseOrderInputSchema = z.object({
+  vendorId: z.string().trim().min(1).optional(),
+  date: isoDateString.optional(),
+  expectedDate: isoDateString.optional(),
+  status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).optional(),
+  taxRate: positiveDecimal.max(100).optional(),
+  subtotal: positiveDecimal.optional(),
+  taxAmount: positiveDecimal.optional(),
+  totalAmount: positiveDecimal.optional(),
+  notes: z.string().trim().optional(),
+  lines: z.array(documentLineSchema).optional(),
+});
+
+const paymentAllocationBaseSchema = z.object({
+  amountApplied: positiveDecimal.default(0),
+  discountAmount: positiveDecimal.default(0),
+  penaltyAmount: positiveDecimal.default(0),
+});
+
+export const arPaymentAllocationInputSchema = paymentAllocationBaseSchema.extend({
+  invoiceId: z.string().trim().min(1, 'Invoice is required'),
+});
+
+export const apPaymentAllocationInputSchema = paymentAllocationBaseSchema.extend({
+  billId: z.string().trim().min(1, 'Bill is required'),
+});
+
+const paymentBaseSchema = z.object({
+  date: isoDateString,
+  method: z.enum(['BANK_TRANSFER', 'CHECK', 'CREDIT_CARD', 'CASH', 'OTHER']).default('BANK_TRANSFER'),
+  bankAccountId: z.string().trim().optional(),
+  depositAccountId: z.string().trim().optional(),
+  arAccountId: z.string().trim().optional(),
+  apAccountId: z.string().trim().optional(),
+  discountAccountId: z.string().trim().optional(),
+  penaltyAccountId: z.string().trim().optional(),
+  reference: z.string().trim().optional(),
+  status: z.enum(['DRAFT', 'PROCESSING', 'COMPLETED', 'VOID']).default('DRAFT'),
+  totalAmount: positiveDecimal,
+});
+
+export const arPaymentInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  customerId: z.string().trim().min(1, 'Customer is required'),
+  ...paymentBaseSchema.shape,
+  allocations: z.array(arPaymentAllocationInputSchema).optional(),
+});
+
+export const updateArPaymentInputSchema = arPaymentInputSchema.omit({ organizationId: true }).partial();
+
+export const apPaymentInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  vendorId: z.string().trim().min(1, 'Vendor is required'),
+  ...paymentBaseSchema.shape,
+  allocations: z.array(apPaymentAllocationInputSchema).optional(),
+});
+
+export const updateApPaymentInputSchema = apPaymentInputSchema.omit({ organizationId: true }).partial();
+
+export const salesOrderItemInputSchema = z.object({
+  productId: z.string().trim().optional(),
+  code: z.string().trim().optional(),
+  description: z.string().trim().min(1, 'Description is required'),
+  quantity: positiveDecimal.default(1),
+  unit: z.string().trim().min(1).default('PCS'),
+  price: positiveDecimal.default(0),
+  discount: positiveDecimal.max(100).default(0),
+});
+
+export const salesOrderInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  customerId: z.string().trim().optional(),
+  customerName: z.string().trim().min(1, 'Customer name is required'),
+  issueDate: isoDateString.optional(),
+  expiryDate: isoDateString.optional(),
+  number: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+  status: z.enum(['DRAFT', 'CONFIRMED', 'INVOICED', 'CANCELLED']).default('DRAFT'),
+  items: z.array(salesOrderItemInputSchema).default([]),
+});
+
+export const updateSalesOrderInputSchema = salesOrderInputSchema.omit({ organizationId: true }).partial();
+
+export const stockAdjustmentLineInputSchema = z.object({
+  lineNo: z.number().int().positive().optional(),
+  itemId: z.string().trim().min(1, 'Item is required'),
+  accountId: z.string().trim().optional(),
+  oldQty: decimalNumber.default(0),
+  newQty: decimalNumber.default(0),
+  qtyDiff: decimalNumber.optional(),
+  unitCost: positiveDecimal.default(0),
+  totalValue: decimalNumber.optional(),
+});
+
+export const stockAdjustmentInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  date: isoDateString,
+  type: z.enum(['QUANTITY', 'VALUE']).default('QUANTITY'),
+  reason: z.string().trim().min(1, 'Reason is required'),
+  notes: z.string().trim().optional(),
+  warehouseId: z.string().trim().optional(),
+  status: z.enum(['DRAFT', 'APPROVED']).default('DRAFT'),
+  lines: z.array(stockAdjustmentLineInputSchema).default([]),
+});
+
+export const updateStockAdjustmentInputSchema = stockAdjustmentInputSchema.omit({ organizationId: true }).partial();
+
+export const bankTransactionInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  number: z.string().trim().optional(),
+  bankAccountId: z.string().trim().min(1, 'Bank account is required'),
+  date: isoDateString,
+  description: z.string().trim().min(1, 'Description is required'),
+  amount: positiveDecimal,
+  type: z.enum(['TRANSFER', 'EXPENSE', 'INCOME']),
+  status: z.enum(['MATCHED', 'UNMATCHED']).default('UNMATCHED'),
+  reference: z.string().trim().optional(),
+  costCenter: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+  taxType: z.enum(['NONE', 'PPN', 'GST', 'WITHHOLDING']).default('NONE'),
+  taxRate: positiveDecimal.max(100).default(0),
+  toBankAccountId: z.string().trim().optional(),
+  payee: z.string().trim().optional(),
+  receivedFrom: z.string().trim().optional(),
+  expenseAccountId: z.string().trim().optional(),
+  incomeAccountId: z.string().trim().optional(),
+});
+
+export const updateBankTransactionInputSchema = bankTransactionInputSchema.omit({ organizationId: true }).partial();
+
 export const agingBucketSchema = z.object({
   current: decimalNumber,
   d1To30: decimalNumber,
@@ -219,3 +405,17 @@ export type PositionInput = z.infer<typeof positionInputSchema>;
 export type AccountingPeriodInput = z.infer<typeof accountingPeriodInputSchema>;
 export type AccountingPeriodCloseInput = z.infer<typeof accountingPeriodCloseInputSchema>;
 export type WarehouseInput = z.infer<typeof warehouseInputSchema>;
+export type BillInput = z.infer<typeof billInputSchema>;
+export type UpdateBillInput = z.infer<typeof updateBillInputSchema>;
+export type PurchaseOrderInput = z.infer<typeof purchaseOrderInputSchema>;
+export type UpdatePurchaseOrderInput = z.infer<typeof updatePurchaseOrderInputSchema>;
+export type ArPaymentInput = z.infer<typeof arPaymentInputSchema>;
+export type UpdateArPaymentInput = z.infer<typeof updateArPaymentInputSchema>;
+export type ApPaymentInput = z.infer<typeof apPaymentInputSchema>;
+export type UpdateApPaymentInput = z.infer<typeof updateApPaymentInputSchema>;
+export type SalesOrderInput = z.infer<typeof salesOrderInputSchema>;
+export type UpdateSalesOrderInput = z.infer<typeof updateSalesOrderInputSchema>;
+export type StockAdjustmentInput = z.infer<typeof stockAdjustmentInputSchema>;
+export type UpdateStockAdjustmentInput = z.infer<typeof updateStockAdjustmentInputSchema>;
+export type BankTransactionInput = z.infer<typeof bankTransactionInputSchema>;
+export type UpdateBankTransactionInput = z.infer<typeof updateBankTransactionInputSchema>;

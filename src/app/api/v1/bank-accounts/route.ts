@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse, logAudit } from '@/lib/api-utils';
+import { err, ok, listResponse, logAudit } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -12,8 +12,11 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
+  if (!orgId) return err('Unauthenticated', 401);
+  const { searchParams } = new URL(req.url);
+  const isActive = searchParams.get('isActive');
   const data = await prisma.bankAccount.findMany({
-    where: { organizationId: orgId },
+    where: { organizationId: orgId, isActive: isActive ? isActive === 'true' : true },
     orderBy: { name: 'asc' },
     include: { _count: { select: { transactions: true } } },
   });

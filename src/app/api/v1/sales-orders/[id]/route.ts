@@ -2,7 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { calculateSalesOrderTotal, CreditLimitError, enforceCustomerCreditLimit } from '@/lib/credit-limit';
+import { updateSalesOrderInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -40,11 +42,29 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
     const body = await req.json();
-    const { customerName, customerId, issueDate, expiryDate, number, notes, status, items } = body;
+    const parsed = updateSalesOrderInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid sales order payload', issues: parsed.error.issues }, { status: 400 }));
+    }
+    const { customerName, customerId, issueDate, expiryDate, number, notes, status, items } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.salesOrder.findFirst({ where: { id, organizationId: orgId } });
       if (!existing) return null;
+      const resolvedCustomerId = customerId === undefined ? existing.customerId : (customerId || null);
+      const resolvedCustomerName = customerName ?? existing.customerName;
+
+      if (resolvedCustomerId) {
+        await validateForeignKey(tx.customer, { id: resolvedCustomerId, organizationId: orgId, status: 'ACTIVE' }, 'Customer not found in organization');
+        if (items) {
+          await enforceCustomerCreditLimit(tx, {
+            organizationId: orgId,
+            customerId: resolvedCustomerId,
+            customerName: resolvedCustomerName,
+            documentAmount: calculateSalesOrderTotal(items),
+          });
+        }
+      }
 
       return tx.salesOrder.update({
         where: { id },
@@ -80,6 +100,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(updated));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
+    if (error instanceof CreditLimitError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed to update sales order';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

@@ -2,8 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { calculateSalesOrderTotal, CreditLimitError, enforceCustomerCreditLimit } from '@/lib/credit-limit';
+import { salesOrderInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -49,11 +50,18 @@ export async function POST(req: NextRequest) {
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
     const body = await req.json();
-    const { customerName, customerId, issueDate, expiryDate, number, notes, items = [] } = body;
-    if (!customerName) return withCors(NextResponse.json({ error: 'customerName required' }, { status: 400 }));
+    const parsed = salesOrderInputSchema.safeParse({
+      ...body,
+      organizationId: orgId,
+    });
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid sales order payload', issues: parsed.error.issues }, { status: 400 }));
+    }
+    const { customerName, customerId, issueDate, expiryDate, number, notes, status, items } = parsed.data;
 
     const so = await prisma.$transaction(async (tx) => {
       if (customerId) {
+        await validateForeignKey(tx.customer, { id: customerId, organizationId: orgId, status: 'ACTIVE' }, 'Customer not found in organization');
         await enforceCustomerCreditLimit(tx, {
           organizationId: orgId,
           customerId,
@@ -71,7 +79,7 @@ export async function POST(req: NextRequest) {
           expiryDate: expiryDate ? new Date(expiryDate) : null,
           number:     number     || null,
           notes:      notes      || null,
-          status:     'DRAFT',
+          status,
           items: {
             create: items.map((item: any) => ({
               productId:   item.productId   || null,
@@ -91,6 +99,9 @@ export async function POST(req: NextRequest) {
     logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: so.id, action: 'CREATE' });
     return withCors(NextResponse.json(so, { status: 201 }));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     if (error instanceof CreditLimitError) {
       return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
     }

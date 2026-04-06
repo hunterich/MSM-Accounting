@@ -106,6 +106,25 @@ export async function softDelete(
   return result.count > 0;
 }
 
+export async function validateForeignKey(
+  delegate: {
+    findFirst: (args: { where: Record<string, unknown>; select: { id: true } }) => Promise<{ id: string } | null>;
+  },
+  where: Record<string, unknown>,
+  message: string,
+) {
+  const record = await delegate.findFirst({
+    where,
+    select: { id: true },
+  });
+
+  if (!record) {
+    throw new ApiError(message, 404);
+  }
+
+  return record;
+}
+
 // Whitelist of allowed (tableName, field) pairs for nextNumber().
 // All values are hardcoded in source — never derived from user input.
 const ALLOWED_NUMBER_TARGETS = new Map<string, string>([

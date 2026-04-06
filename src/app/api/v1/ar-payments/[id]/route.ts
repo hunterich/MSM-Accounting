@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { updateArPaymentInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -30,15 +31,49 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const orgId = req.headers.get('x-org-id')!;
   try {
     const body = await req.json();
-    // number is immutable — remove it from the update
-    const { number, ...data } = body;
-    const payment = await prisma.aRPayment.update({
-      where: { id, organizationId: orgId },
-      data: { ...data, updatedAt: new Date() },
+    const parsed = updateArPaymentInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid AR payment payload', issues: parsed.error.issues }, { status: 400 }));
+    }
+    const { allocations, ...data } = parsed.data;
+    const payment = await prisma.$transaction(async (tx) => {
+      const existing = await tx.aRPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true } });
+      if (!existing) return null;
+      if (data.customerId) {
+        await validateForeignKey(tx.customer, { id: data.customerId, organizationId: orgId, status: 'ACTIVE' }, 'Customer not found in organization');
+      }
+      if (allocations) {
+        for (const allocation of allocations) {
+          await validateForeignKey(tx.salesInvoice, { id: allocation.invoiceId, organizationId: orgId }, 'Invoice not found in organization');
+        }
+      }
+      await tx.aRPayment.update({
+        where: { id, organizationId: orgId },
+        data: { ...data, updatedAt: new Date() },
+      });
+      if (allocations) {
+        await tx.aRPaymentAllocation.deleteMany({ where: { paymentId: id } });
+        if (allocations.length > 0) {
+          await tx.aRPaymentAllocation.createMany({
+            data: allocations.map((allocation) => ({
+              ...allocation,
+              paymentId: id,
+            })),
+          });
+        }
+      }
+      return tx.aRPayment.findFirst({
+        where: { id, organizationId: orgId },
+        include: { customer: true, allocations: true },
+      });
     });
+    if (!payment) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ARPayment', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(payment));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
