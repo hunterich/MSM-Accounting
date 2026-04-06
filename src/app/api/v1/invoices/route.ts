@@ -8,6 +8,7 @@ import {
   createInvoiceResponseSchema,
 } from '@/types/api';
 import { logAudit } from '@/lib/api-utils';
+import { CreditLimitError, enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 
 export const runtime = 'nodejs';
@@ -96,12 +97,15 @@ const parseIsoDate = (value: string): Date => {
   return date;
 };
 
+// FNV-1a 32-bit hash — significantly better distribution than the naive * 31 approach,
+// reducing advisory lock collisions across organizations.
 const hashLockKey = (input: string): number => {
-  let hash = 0;
+  let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
   }
-  return Math.abs(hash) || 1;
+  return hash || 1;
 };
 
 const getCurrentInvoiceSequence = async (
@@ -200,10 +204,10 @@ export async function POST(request: NextRequest) {
     const orgId = request.headers.get('x-org-id');
     const userId = request.headers.get('x-user-id');
     if (!orgId) {
-      return withCors(NextResponse.json({ message: 'Unauthenticated' }, { status: 401 }));
+      return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     }
     if (!userId) {
-      return withCors(NextResponse.json({ message: 'Unauthenticated' }, { status: 401 }));
+      return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     }
 
     await getInvoiceAccessContext(orgId, userId);
@@ -211,7 +215,7 @@ export async function POST(request: NextRequest) {
     const rawPayload = await request.json();
     if (rawPayload?.organizationId && rawPayload.organizationId !== orgId) {
       return withCors(
-        NextResponse.json({ message: 'organizationId does not match current session' }, { status: 403 }),
+        NextResponse.json({ error: 'organizationId does not match current session' }, { status: 403 }),
       );
     }
 
@@ -223,7 +227,7 @@ export async function POST(request: NextRequest) {
     if (!parsedPayload.success) {
       return withCors(NextResponse.json(
         {
-          message: 'Invalid invoice payload',
+          error: 'Invalid invoice payload',
           issues: parsedPayload.error.issues,
         },
         { status: 400 },
@@ -247,24 +251,19 @@ export async function POST(request: NextRequest) {
         throw new ApiError('Organization not found', 404);
       }
 
-      const customer = await tx.customer.findFirst({
-        where: {
-          id: payload.customerId,
-          organizationId: payload.organizationId,
-        },
-        select: { id: true },
-      });
-
-      if (!customer) {
-        throw new ApiError('Customer not found in organization', 404);
-      }
-
-      const number = await nextInvoiceNumber(tx, payload.organizationId);
       const totals = calculateInvoiceTotals(payload, {
         taxEnabled: organization.taxEnabled,
         taxDefaultRate: organization.taxDefaultRate,
         taxInclusiveByDefault: organization.taxInclusiveByDefault,
       });
+
+      await enforceCustomerCreditLimit(tx, {
+        organizationId: payload.organizationId,
+        customerId: payload.customerId,
+        documentAmount: totals.totalAmount,
+      });
+
+      const number = await nextInvoiceNumber(tx, payload.organizationId);
 
       return tx.salesInvoice.create({
         data: {
@@ -321,23 +320,27 @@ export async function POST(request: NextRequest) {
     return withCors(NextResponse.json(responsePayload, { status: 201 }));
   } catch (error) {
     if (error instanceof AccessError) {
-      return withCors(NextResponse.json({ message: error.message }, { status: error.status }));
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
+
+    if (error instanceof CreditLimitError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
     }
 
     if (error instanceof ApiError) {
-      return withCors(NextResponse.json({ message: error.message }, { status: error.status }));
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
     }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
         return withCors(NextResponse.json(
-          { message: 'Invoice number collision detected. Please retry.' },
+          { error: 'Invoice number collision detected. Please retry.' },
           { status: 409 },
         ));
       }
     }
 
     const message = error instanceof Error ? error.message : 'Failed to create invoice';
-    return withCors(NextResponse.json({ message }, { status: 500 }));
+    return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
 }

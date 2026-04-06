@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
+import { calculateSalesOrderTotal, CreditLimitError, enforceCustomerCreditLimit } from '@/lib/credit-limit';
 
 export const runtime = 'nodejs';
 
@@ -51,34 +52,49 @@ export async function POST(req: NextRequest) {
     const { customerName, customerId, issueDate, expiryDate, number, notes, items = [] } = body;
     if (!customerName) return withCors(NextResponse.json({ error: 'customerName required' }, { status: 400 }));
 
-    const so = await prisma.salesOrder.create({
-      data: {
-        organizationId: orgId,
-        customerName,
-        customerId: customerId || null,
-        issueDate:  issueDate  ? new Date(issueDate)  : new Date(),
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
-        number:     number     || null,
-        notes:      notes      || null,
-        status:     'DRAFT',
-        items: {
-          create: items.map((item: any) => ({
-            productId:   item.productId   || null,
-            code:        item.code        || null,
-            description: item.description || '',
-            quantity:    item.quantity    ?? 1,
-            unit:        item.unit        || 'PCS',
-            price:       item.price       ?? 0,
-            discount:    item.discount    ?? 0,
-          })),
+    const so = await prisma.$transaction(async (tx) => {
+      if (customerId) {
+        await enforceCustomerCreditLimit(tx, {
+          organizationId: orgId,
+          customerId,
+          customerName,
+          documentAmount: calculateSalesOrderTotal(items),
+        });
+      }
+
+      return tx.salesOrder.create({
+        data: {
+          organizationId: orgId,
+          customerName,
+          customerId: customerId || null,
+          issueDate:  issueDate  ? new Date(issueDate)  : new Date(),
+          expiryDate: expiryDate ? new Date(expiryDate) : null,
+          number:     number     || null,
+          notes:      notes      || null,
+          status:     'DRAFT',
+          items: {
+            create: items.map((item: any) => ({
+              productId:   item.productId   || null,
+              code:        item.code        || null,
+              description: item.description || '',
+              quantity:    item.quantity    ?? 1,
+              unit:        item.unit        || 'PCS',
+              price:       item.price       ?? 0,
+              discount:    item.discount    ?? 0,
+            })),
+          },
         },
-      },
-      include: { items: true },
+        include: { items: true },
+      });
     });
 
     logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: so.id, action: 'CREATE' });
     return withCors(NextResponse.json(so, { status: 201 }));
   } catch (error) {
+    if (error instanceof CreditLimitError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
+
     const message = error instanceof Error ? error.message : 'Failed to create sales order';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

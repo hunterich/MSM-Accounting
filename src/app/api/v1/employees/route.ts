@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse, nextNumber, logAudit } from '@/lib/api-utils';
+import { err, ok, listResponse, nextNumber, logAudit, parsePaginationParams } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -12,11 +12,11 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
-  const { searchParams } = new URL(req.url);
-  const page = Math.max(1, Number(searchParams.get('page') ?? 1));
-  const limit = Math.min(100, Number(searchParams.get('limit') ?? 50));
+  if (!orgId) return err('Unauthenticated', 401);
+  const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const search = searchParams.get('search');
-  const where: any = { organizationId: orgId };
+  const status = searchParams.get('status');
+  const where: any = { organizationId: orgId, status: status || 'ACTIVE' };
   if (search) where.OR = [
     { name: { contains: search, mode: 'insensitive' } },
     { employeeNo: { contains: search, mode: 'insensitive' } },

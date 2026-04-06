@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit } from '@/lib/api-utils';
+import { ok, err, logAudit, listResponse, parsePaginationParams, withHandler } from '@/lib/api-utils';
 import { createAccountInputSchema } from '@/types/api';
 import {
   fromPrismaAccountType,
@@ -36,10 +36,10 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
-  const { searchParams } = new URL(req.url);
+  const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const type = searchParams.get('type');
   const search = searchParams.get('search');
   const where: any = { organizationId: orgId };
@@ -48,20 +48,25 @@ export async function GET(req: NextRequest) {
     { name: { contains: search, mode: 'insensitive' } },
     { code: { contains: search, mode: 'insensitive' } },
   ];
-  const data = await prisma.account.findMany({
-    where,
-    orderBy: { code: 'asc' },
-    include: {
-      _count: { select: { children: true } },
-      journalLines: {
-        where: { entry: { status: 'POSTED' } },
-        select: { id: true },
-        take: 1,
+  const [data, total] = await Promise.all([
+    prisma.account.findMany({
+      where,
+      skip: (page - 1) * limit,
+      take: limit,
+      orderBy: { code: 'asc' },
+      include: {
+        _count: { select: { children: true } },
+        journalLines: {
+          where: { entry: { status: 'POSTED' } },
+          select: { id: true },
+          take: 1,
+        },
       },
-    },
-  });
-  return ok(data);
-}
+    }),
+    prisma.account.count({ where }),
+  ]);
+  return listResponse(data, total, page, limit);
+});
 
 export async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');

@@ -138,6 +138,45 @@ export const dashboardSummaryQuerySchema = z.object({
   organizationId: z.string().trim().min(1),
 });
 
+export const departmentInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  name: z.string().trim().min(1, 'Department name is required'),
+});
+
+export const positionInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  name: z.string().trim().min(1, 'Position name is required'),
+});
+
+export const accountingPeriodInputSchema = z
+  .object({
+    organizationId: z.string().trim().min(1),
+    name: z.string().trim().min(1, 'Period name is required'),
+    startDate: isoDateString,
+    endDate: isoDateString,
+    status: z.enum(['OPEN', 'CLOSED']).default('OPEN'),
+    isLocked: z.boolean().default(false),
+  })
+  .superRefine((value, ctx) => {
+    if (value.endDate < value.startDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'endDate must be on or after startDate',
+        path: ['endDate'],
+      });
+    }
+  });
+
+export const accountingPeriodCloseInputSchema = z.object({
+  lock: z.boolean().default(true),
+});
+
+export const warehouseInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  code: z.string().trim().min(1, 'Warehouse code is required'),
+  name: z.string().trim().min(1, 'Warehouse name is required'),
+});
+
 export const agingBucketSchema = z.object({
   current: decimalNumber,
   d1To30: decimalNumber,
@@ -175,3 +214,8 @@ export type CreateAccountInput = z.infer<typeof createAccountInputSchema>;
 export type UpdateAccountInput = z.infer<typeof updateAccountInputSchema>;
 export type DashboardSummaryQuery = z.infer<typeof dashboardSummaryQuerySchema>;
 export type DashboardSummaryResponse = z.infer<typeof dashboardSummaryResponseSchema>;
+export type DepartmentInput = z.infer<typeof departmentInputSchema>;
+export type PositionInput = z.infer<typeof positionInputSchema>;
+export type AccountingPeriodInput = z.infer<typeof accountingPeriodInputSchema>;
+export type AccountingPeriodCloseInput = z.infer<typeof accountingPeriodCloseInputSchema>;
+export type WarehouseInput = z.infer<typeof warehouseInputSchema>;

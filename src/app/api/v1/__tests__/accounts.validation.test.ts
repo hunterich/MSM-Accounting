@@ -27,6 +27,17 @@ vi.mock('@/lib/api-utils', () => ({
   ok: (data: unknown, status = 200) => Response.json(data, { status }),
   err: (msg: string, status: number) => Response.json({ error: msg }, { status }),
   logAudit: vi.fn(),
+  listResponse: (data: unknown, total: number, page: number, limit: number) =>
+    Response.json({ data, total, page, limit }),
+  parsePaginationParams: (req: NextRequest, defaults: { page?: number; limit?: number; maxLimit?: number } = {}) => {
+    const { searchParams } = new URL(req.url);
+    return {
+      searchParams,
+      page: defaults.page ?? 1,
+      limit: defaults.limit ?? 20,
+    };
+  },
+  withHandler: (handler: (req: NextRequest, ctx: unknown) => Promise<Response>) => handler,
 }));
 
 import { prisma } from '@/lib/prisma';

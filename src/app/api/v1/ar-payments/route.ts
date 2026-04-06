@@ -45,7 +45,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const orgId = req.headers.get('x-org-id');
+    if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+
     const body = await req.json();
+    const { customerId, date, method, totalAmount } = body;
+    if (!customerId) return withCors(NextResponse.json({ error: 'customerId is required' }, { status: 400 }));
+    if (!date)       return withCors(NextResponse.json({ error: 'date is required' }, { status: 400 }));
+    if (!method)     return withCors(NextResponse.json({ error: 'method is required' }, { status: 400 }));
+    if (totalAmount === undefined || totalAmount === null) {
+      return withCors(NextResponse.json({ error: 'totalAmount is required' }, { status: 400 }));
+    }
+
     const number = await nextNumber(prisma, 'ARPayment', 'number', 'ARP');
     const payment = await prisma.aRPayment.create({
       data: { ...body, organizationId: orgId, number },

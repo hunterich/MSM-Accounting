@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit } from '@/lib/api-utils';
+import { ok, err, logAudit, softDelete } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +39,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
-  await prisma.employee.delete({ where: { id, organizationId: orgId } });
+  const deleted = await softDelete(
+    prisma.employee,
+    { id, organizationId: orgId, status: { not: 'INACTIVE' } },
+    { status: 'INACTIVE', updatedAt: new Date() },
+  );
+  if (!deleted) return err('Not found', 404);
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Employee', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
 }

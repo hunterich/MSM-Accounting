@@ -120,7 +120,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     }
 
-    await prisma.salesInvoice.delete({ where: { id } });
+    await prisma.salesInvoice.deleteMany({ where: { id, organizationId: orgId } });
     logAudit({ orgId: orgId!, actorId: _req.headers.get('x-user-id'), entityType: 'SalesInvoice', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {

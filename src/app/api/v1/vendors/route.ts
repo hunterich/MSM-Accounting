@@ -1,10 +1,10 @@
 // @ts-nocheck
 // Vendor model: code (required), name, category, email, phone, status (PartnerStatus)
 // Unique: @@unique([organizationId, code])
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { corsPreflightResponse } from '@/lib/cors';
+import { err, listResponse, logAudit, ok, parsePaginationParams, withHandler } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -55,64 +55,56 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
-  try {
-    const orgId = req.headers.get('x-org-id');
-    const { searchParams } = new URL(req.url);
-    const page   = Math.max(1, Number(searchParams.get('page')  ?? 1));
-    const limit  = Math.min(100, Number(searchParams.get('limit') ?? 50));
-    const search = searchParams.get('search');
-    const status = searchParams.get('status'); // ACTIVE | INACTIVE
-    const categoryId = searchParams.get('categoryId');
+export const GET = withHandler(async function GET(req: NextRequest) {
+  const orgId = req.headers.get('x-org-id');
+  if (!orgId) return err('Unauthenticated', 401);
 
-    const where: any = { organizationId: orgId };
-    if (status) where.status = status;
-    if (categoryId) where.categoryId = categoryId;
-    if (search) where.OR = [
-      { name:  { contains: search, mode: 'insensitive' } },
-      { code:  { contains: search, mode: 'insensitive' } },
-      { email: { contains: search, mode: 'insensitive' } },
-      { category: { contains: search, mode: 'insensitive' } },
-      { vendorCategory: { name: { contains: search, mode: 'insensitive' } } },
-    ];
+  const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
+  const search = searchParams.get('search');
+  const status = searchParams.get('status'); // ACTIVE | INACTIVE
+  const categoryId = searchParams.get('categoryId');
 
-    const [data, total] = await Promise.all([
-      prisma.vendor.findMany({
-        where, skip: (page - 1) * limit, take: limit,
-        orderBy: { name: 'asc' },
-        include: {
-          vendorCategory: {
-            select: { id: true, name: true, code: true, defaultPaymentTerms: true, defaultApAccountId: true },
-          },
-        },
-      }),
-      prisma.vendor.count({ where }),
-    ]);
+  const where: any = { organizationId: orgId };
+  where.status = status || 'ACTIVE';
+  if (categoryId) where.categoryId = categoryId;
+  if (search) where.OR = [
+    { name:  { contains: search, mode: 'insensitive' } },
+    { code:  { contains: search, mode: 'insensitive' } },
+    { email: { contains: search, mode: 'insensitive' } },
+    { category: { contains: search, mode: 'insensitive' } },
+    { vendorCategory: { name: { contains: search, mode: 'insensitive' } } },
+  ];
 
-    return withCors(NextResponse.json({ data, total, page, limit }));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to list vendors';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
-  }
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const orgId = req.headers.get('x-org-id');
-    const body = await req.json();
-    const payload = await buildVendorPayload(orgId, body);
-    const vendor = await prisma.vendor.create({
-      data: { ...payload, organizationId: orgId },
+  const [data, total] = await Promise.all([
+    prisma.vendor.findMany({
+      where, skip: (page - 1) * limit, take: limit,
+      orderBy: { name: 'asc' },
       include: {
         vendorCategory: {
           select: { id: true, name: true, code: true, defaultPaymentTerms: true, defaultApAccountId: true },
         },
       },
-    });
-    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Vendor', entityId: vendor.id, action: 'CREATE', payload });
-    return withCors(NextResponse.json(vendor, { status: 201 }));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create vendor';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
-  }
-}
+    }),
+    prisma.vendor.count({ where }),
+  ]);
+
+  return listResponse(data, total, page, limit);
+});
+
+export const POST = withHandler(async function POST(req: NextRequest) {
+  const orgId = req.headers.get('x-org-id');
+  if (!orgId) return err('Unauthenticated', 401);
+
+  const body = await req.json();
+  const payload = await buildVendorPayload(orgId, body);
+  const vendor = await prisma.vendor.create({
+    data: { ...payload, organizationId: orgId },
+    include: {
+      vendorCategory: {
+        select: { id: true, name: true, code: true, defaultPaymentTerms: true, defaultApAccountId: true },
+      },
+    },
+  });
+  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Vendor', entityId: vendor.id, action: 'CREATE', payload });
+  return ok(vendor, 201);
+});

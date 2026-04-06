@@ -17,12 +17,15 @@ export async function OPTIONS() {
 const INVOICE_PREFIX = 'INV';
 const INVOICE_DIGITS = 6;
 
+// FNV-1a 32-bit hash — significantly better distribution than the naive * 31 approach,
+// reducing advisory lock collisions across organizations.
 const hashLockKey = (input: string): number => {
-  let hash = 0;
+  let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
   }
-  return Math.abs(hash) || 1;
+  return hash || 1;
 };
 
 const nextInvoiceNumber = async (tx: any, organizationId: string): Promise<string> => {
@@ -43,7 +46,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
-    if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+    if (!orgId || !userId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
     const so = await prisma.salesOrder.findFirst({
       where: { id, organizationId: orgId },
@@ -60,7 +63,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       const invoice = await tx.salesInvoice.create({
         data: {
           organizationId: orgId,
-          createdById:    userId || null,
+          createdById:    userId,
           number,
           customerId:     so.customerId!,
           invoiceType:    'Sales Invoice',

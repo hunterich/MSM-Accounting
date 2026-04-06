@@ -43,12 +43,15 @@ const parseIsoDate = (value: string): Date => {
   return date;
 };
 
+// FNV-1a 32-bit hash — significantly better distribution than the naive * 31 approach,
+// reducing advisory lock collisions across organizations.
 const hashLockKey = (input: string): number => {
-  let hash = 0;
+  let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
   }
-  return Math.abs(hash) || 1;
+  return hash || 1;
 };
 
 const getCurrentJournalSequence = async (
@@ -102,7 +105,7 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) {
-    return NextResponse.json({ message: 'Unauthenticated' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
   }
 
   const { searchParams } = new URL(req.url);
@@ -132,13 +135,13 @@ export async function POST(request: NextRequest) {
   try {
     const orgId = request.headers.get('x-org-id');
     if (!orgId) {
-      return NextResponse.json({ message: 'Unauthenticated' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
     }
 
     const rawPayload = await request.json();
     if (rawPayload?.organizationId && rawPayload.organizationId !== orgId) {
       return NextResponse.json(
-        { message: 'organizationId does not match current session' },
+        { error: 'organizationId does not match current session' },
         { status: 403 },
       );
     }
@@ -251,10 +254,6 @@ export async function POST(request: NextRequest) {
       return entry;
     });
 
-    await prisma.$transaction(async (tx) => {
-      await syncAccountPostingFlags(tx, payload.organizationId, rawPayload.lines.map((line: { accountId: string }) => line.accountId));
-    });
-
     const responsePayload = createJournalEntryResponseSchema.parse({
       id: createdEntry.id,
       entryNo: createdEntry.entryNo,
@@ -267,19 +266,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(responsePayload, { status: 201 });
   } catch (error) {
     if (error instanceof ApiError) {
-      return NextResponse.json({ message: error.message }, { status: error.status });
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
         return NextResponse.json(
-          { message: 'Journal number collision detected. Please retry.' },
+          { error: 'Journal number collision detected. Please retry.' },
           { status: 409 },
         );
       }
     }
 
-    const message = error instanceof Error ? error.message : 'Failed to create journal entry';
-    return NextResponse.json({ message }, { status: 500 });
+    const error_ = error instanceof Error ? error.message : 'Failed to create journal entry';
+    return NextResponse.json({ error: error_ }, { status: 500 });
   }
 }

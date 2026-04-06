@@ -18,12 +18,15 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId  = req.headers.get('x-org-id')!;
-  const existing = await prisma.itemCategory.findFirst({ where: { id, organizationId: orgId } });
-  if (!existing) return err('Not found', 404);
-  const updated = await prisma.itemCategory.update({
-    where: { id },
-    data:  { skuSequence: { increment: 1 } },
+  const updated = await prisma.$transaction(async (tx) => {
+    const existing = await tx.itemCategory.findFirst({ where: { id, organizationId: orgId } });
+    if (!existing) return null;
+    return tx.itemCategory.update({
+      where: { id },
+      data:  { skuSequence: { increment: 1 } },
+    });
   });
+  if (!updated) return err('Not found', 404);
   const seq = String(updated.skuSequence).padStart(4, '0');
   return ok({ sku: `${updated.code}-${seq}` });
 }

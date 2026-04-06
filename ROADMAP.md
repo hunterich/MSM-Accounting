@@ -30,6 +30,8 @@
 - [x] User authentication (email/password login + JWT sessions + Next.js middleware protecting `/api/v1/*`; httpOnly cookie `msm_token`; seed script creates org + admin user)
 - [x] Google OAuth sign-in (Google Identity credential flow on frontend + backend ID token verification via `google-auth-library`; access restricted to provisioned users in DB)
 - [x] Complete API routes — all CRUD handlers for invoices, customers, AR payments, bills, vendors, purchase orders, AP payments, accounts/COA, journal entries, items, stock adjustments, bank accounts, bank transactions, employees; `lib/api-utils.ts` with `ok/err/listResponse/nextNumber` helpers; React Query v5 installed + `QueryClientProvider` wrapping app; seed expanded with 15 COA accounts, 5 customers, 4 vendors, 3 employees, 5 items, 4 invoices, 3 bills, 2 POs, 2 AR payments, 3 journal entries, 5 bank transactions, 1 stock adjustment
+  - Added missing CRUD for Accounting Periods, Departments, Positions, and Warehouses
+  - Added reusable API helpers for pagination, centralized handler wrapping, and soft delete
 - [x] Connect frontend stores to backend API (React Query; replace 18 Zustand mock stores)
   - All 6 modules wired: Banking ✓ GL ✓ AR ✓ AP ✓ Inventory ✓ HR ✓
   - Hook files: `useBanking.js`, `useGL.js`, `useAR.js`, `useAP.js`, `useInventory.js`, `useHR.js`
@@ -92,6 +94,19 @@
 - [ ] Cash / bank movement and reconciliation reports
 - [ ] Inventory stock movement and valuation reports
 
+### 1.8 Operational Controls & API Hardening
+- [x] Pagination on high-risk list endpoints (accounts, items, customers, vendors, employees)
+- [x] Accounting period CRUD + close/lock action
+- [x] Department and Position CRUD
+- [x] Warehouse CRUD
+- [~] Soft delete for master data
+  - Customers, vendors, employees, and items now deactivate instead of hard deleting
+  - Remaining modules still use hard delete and need follow-up
+- [x] Credit limit enforcement on invoice and sales-order creation
+- [~] Centralized route error-handling utility exists
+  - Adopted for new routes and selected list endpoints
+  - Remaining legacy routes still need migration
+
 ---
 
 ## Phase 2 — Business Critical (Revenue Impact)
@@ -139,6 +154,12 @@
 - [x] Vendor category CRUD (like Customer Categories)
 - [x] Category-specific defaults (payment terms, GL account)
 - [x] Filter vendors by category
+
+### 2.7 Accounting Governance
+- [x] Credit limit enforcement using outstanding AR balance + new document amount
+- [ ] Approval workflow for invoices / purchase orders
+- [ ] Payment reconciliation against bank transactions
+- [ ] Accounting period close checklist and reopen flow
 
 ---
 

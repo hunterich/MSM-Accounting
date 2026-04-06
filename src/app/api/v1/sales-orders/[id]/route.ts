@@ -42,38 +42,42 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const body = await req.json();
     const { customerName, customerId, issueDate, expiryDate, number, notes, status, items } = body;
 
-    const existing = await prisma.salesOrder.findFirst({ where: { id, organizationId: orgId } });
-    if (!existing) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.salesOrder.findFirst({ where: { id, organizationId: orgId } });
+      if (!existing) return null;
 
-    const updated = await prisma.salesOrder.update({
-      where: { id },
-      data: {
-        ...(customerName !== undefined && { customerName }),
-        ...(customerId  !== undefined && { customerId }),
-        ...(issueDate   !== undefined && { issueDate:  new Date(issueDate) }),
-        ...(expiryDate  !== undefined && { expiryDate: expiryDate ? new Date(expiryDate) : null }),
-        ...(number      !== undefined && { number }),
-        ...(notes       !== undefined && { notes }),
-        ...(status      !== undefined && { status: status.toUpperCase() }),
-        ...(items       !== undefined && {
-          items: {
-            deleteMany: {},
-            create: items.map((item: any) => ({
-              productId:   item.productId   || null,
-              code:        item.code        || null,
-              description: item.description || '',
-              quantity:    item.quantity    ?? 1,
-              unit:        item.unit        || 'PCS',
-              price:       item.price       ?? 0,
-              discount:    item.discount    ?? 0,
-            })),
-          },
-        }),
-      },
-      include: { items: true },
+      return tx.salesOrder.update({
+        where: { id },
+        data: {
+          ...(customerName !== undefined && { customerName }),
+          ...(customerId  !== undefined && { customerId }),
+          ...(issueDate   !== undefined && { issueDate:  new Date(issueDate) }),
+          ...(expiryDate  !== undefined && { expiryDate: expiryDate ? new Date(expiryDate) : null }),
+          ...(number      !== undefined && { number }),
+          ...(notes       !== undefined && { notes }),
+          ...(status      !== undefined && { status: status.toUpperCase() }),
+          ...(items       !== undefined && {
+            items: {
+              deleteMany: {},
+              create: items.map((item: any) => ({
+                productId:   item.productId   || null,
+                code:        item.code        || null,
+                description: item.description || '',
+                quantity:    item.quantity    ?? 1,
+                unit:        item.unit        || 'PCS',
+                price:       item.price       ?? 0,
+                discount:    item.discount    ?? 0,
+              })),
+            },
+          }),
+        },
+        include: { items: true },
+      });
     });
 
-    logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: id, action: 'UPDATE' });
+    if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
+
+    logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(updated));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update sales order';
@@ -88,10 +92,8 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const userId = req.headers.get('x-user-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
-    const existing = await prisma.salesOrder.findFirst({ where: { id, organizationId: orgId } });
-    if (!existing) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
-
-    await prisma.salesOrder.delete({ where: { id } });
+    const result = await prisma.salesOrder.deleteMany({ where: { id, organizationId: orgId } });
+    if (result.count === 0) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: id, action: 'DELETE' });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {

@@ -209,7 +209,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return withCors(NextResponse.json({ error: 'Integration not found.' }, { status: 404 }));
     }
 
-    await prisma.ecommerceConnection.delete({ where: { id } });
+    await prisma.ecommerceConnection.deleteMany({ where: { id, organizationId: orgId } });
 
     logAudit({
       orgId,

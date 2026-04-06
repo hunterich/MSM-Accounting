@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { logAudit, softDelete } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -43,7 +43,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
-    await prisma.customer.delete({ where: { id, organizationId: orgId } });
+    const deleted = await softDelete(
+      prisma.customer,
+      { id, organizationId: orgId, status: { not: 'INACTIVE' } },
+      { status: 'INACTIVE', updatedAt: new Date() },
+    );
+    if (!deleted) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Customer', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {

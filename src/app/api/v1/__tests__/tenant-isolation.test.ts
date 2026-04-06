@@ -12,9 +12,9 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    customer:         { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    vendor:           { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    item:             { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    customer:         { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
+    vendor:           { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
+    item:             { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
     bill:             { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     account:          { findFirst: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
     journalLine:      { count: vi.fn() },
@@ -34,6 +34,8 @@ vi.mock('@/lib/api-utils', () => ({
   ok:       (data: unknown, status = 200) => Response.json(data, { status }),
   err:      (msg: string, status: number) => Response.json({ error: msg }, { status }),
   logAudit: vi.fn(),
+  softDelete: (delegate: { updateMany: (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ count: number }> }, where: Record<string, unknown>, data: Record<string, unknown>) =>
+    delegate.updateMany({ where, data }).then((result) => result.count > 0),
 }));
 
 // ── Route handler imports (after mocks) ─────────────────────────────────────
@@ -155,11 +157,14 @@ describe('PUT and DELETE scope mutations by orgId', () => {
   });
 
   it('customer DELETE uses orgId in where clause', async () => {
-    vi.mocked(prisma.customer.delete).mockResolvedValue({} as never);
+    vi.mocked(prisma.customer.updateMany).mockResolvedValue({ count: 1 } as never);
     const req = makeReq('org-a', 'DELETE');
     await customerDELETE(req, params('c1'));
-    expect(prisma.customer.delete).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a' }) })
+    expect(prisma.customer.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ organizationId: 'org-a' }),
+        data: expect.objectContaining({ status: 'INACTIVE' }),
+      })
     );
   });
 
