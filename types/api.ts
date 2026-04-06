@@ -363,6 +363,53 @@ export const bankTransactionInputSchema = z.object({
 
 export const updateBankTransactionInputSchema = bankTransactionInputSchema.omit({ organizationId: true }).partial();
 
+export const employeeCompensationItemInputSchema = z.object({
+  id: z.string().trim().optional(),
+  name: z.string().trim().min(1, 'Compensation item name is required'),
+  amount: positiveDecimal.default(0),
+});
+
+export const employeeInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  name: z.string().trim().min(1, 'Employee name is required'),
+  ktp: z.string().trim().optional(),
+  dob: isoDateString.optional(),
+  phone: z.string().trim().optional(),
+  email: z.string().trim().email().optional(),
+  address: z.string().trim().optional(),
+  joinDate: isoDateString,
+  departmentId: z.string().trim().optional(),
+  positionId: z.string().trim().optional(),
+  department: z.string().trim().optional(),
+  position: z.string().trim().optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE'),
+  type: z.enum(['FULL_TIME', 'CONTRACT']).default('FULL_TIME'),
+  bankName: z.string().trim().optional(),
+  accountNumber: z.string().trim().optional(),
+  accountHolder: z.string().trim().optional(),
+  npwp: z.string().trim().optional(),
+  bpjsKesehatan: z.string().trim().optional(),
+  bpjsKetenagakerjaan: z.string().trim().optional(),
+  basicSalary: positiveDecimal.default(0),
+  allowances: z.array(employeeCompensationItemInputSchema).default([]),
+  deductions: z.array(employeeCompensationItemInputSchema).default([]),
+});
+
+export const updateEmployeeInputSchema = employeeInputSchema.omit({ organizationId: true }).partial();
+
+export const integrationInputSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  platform: z.enum(['SHOPEE', 'TIKTOK', 'TOKOPEDIA', 'LAZADA', 'OTHER']),
+  shopName: z.string().trim().min(1, 'Shop name is required'),
+  customerId: z.string().trim().nullable().optional(),
+  holdingAccountId: z.string().trim().nullable().optional(),
+  status: z.enum(['ACTIVE', 'SYNCING', 'INACTIVE']).default('ACTIVE'),
+  importStatusFilter: z.enum(['Selesai', 'All']).default('Selesai'),
+  itemMappings: z.record(z.string().trim(), z.string().trim()).default({}),
+});
+
+export const updateIntegrationInputSchema = integrationInputSchema.omit({ organizationId: true }).partial();
+
 export const agingBucketSchema = z.object({
   current: decimalNumber,
   d1To30: decimalNumber,
@@ -419,3 +466,7 @@ export type StockAdjustmentInput = z.infer<typeof stockAdjustmentInputSchema>;
 export type UpdateStockAdjustmentInput = z.infer<typeof updateStockAdjustmentInputSchema>;
 export type BankTransactionInput = z.infer<typeof bankTransactionInputSchema>;
 export type UpdateBankTransactionInput = z.infer<typeof updateBankTransactionInputSchema>;
+export type EmployeeInput = z.infer<typeof employeeInputSchema>;
+export type UpdateEmployeeInput = z.infer<typeof updateEmployeeInputSchema>;
+export type IntegrationInput = z.infer<typeof integrationInputSchema>;
+export type UpdateIntegrationInput = z.infer<typeof updateIntegrationInputSchema>;

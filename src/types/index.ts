@@ -833,6 +833,9 @@ export interface RawEmployee {
   basicSalary?: number | string | null;
   joinDate?: string | null;
   address?: string | null;
+  allowances?: Array<{ id?: string | null; name?: string | null; amount?: number | string | null }> | null;
+  deductions?: Array<{ id?: string | null; name?: string | null; amount?: number | string | null }> | null;
+  compensationItems?: Array<{ id?: string | null; type?: string | null; name?: string | null; amount?: number | string | null }> | null;
 }
 
 export interface Employee {
@@ -849,6 +852,8 @@ export interface Employee {
   basicSalary: number;
   joinDate: string;
   address: string;
+  allowances?: Array<{ id: string; name: string; amount: number }>;
+  deductions?: Array<{ id: string; name: string; amount: number }>;
 }
 
 // ── Returns ───────────────────────────────────────────────────────────────────

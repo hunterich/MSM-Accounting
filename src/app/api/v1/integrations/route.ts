@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { listResponse, logAudit } from '@/lib/api-utils';
+import { ApiError, listResponse, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { integrationInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
 const VALID_PLATFORMS = new Set(['SHOPEE', 'TIKTOK', 'TOKOPEDIA', 'LAZADA', 'OTHER']);
 const VALID_STATUSES = new Set(['ACTIVE', 'SYNCING', 'INACTIVE']);
-const VALID_IMPORT_FILTERS = new Set(['Selesai', 'All']);
 
 const toMappings = (value: unknown): Record<string, string> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -21,24 +21,14 @@ const toMappings = (value: unknown): Record<string, string> => {
   }, {});
 };
 
-async function validateForeignKeys(orgId: string, customerId?: string | null, holdingAccountId?: string | null) {
+async function validateConnectionForeignKeys(orgId: string, customerId?: string | null, holdingAccountId?: string | null) {
   if (customerId) {
-    const customer = await prisma.customer.findFirst({
-      where: { id: customerId, organizationId: orgId },
-      select: { id: true },
-    });
-    if (!customer) return 'Selected customer was not found.';
+    await validateForeignKey(prisma.customer, { id: customerId, organizationId: orgId, status: 'ACTIVE' }, 'Selected customer was not found.');
   }
 
   if (holdingAccountId) {
-    const bankAccount = await prisma.bankAccount.findFirst({
-      where: { id: holdingAccountId, organizationId: orgId },
-      select: { id: true },
-    });
-    if (!bankAccount) return 'Selected settlement account was not found.';
+    await validateForeignKey(prisma.bankAccount, { id: holdingAccountId, organizationId: orgId, isActive: true }, 'Selected settlement account was not found.');
   }
-
-  return null;
 }
 
 export async function OPTIONS() {
@@ -106,65 +96,54 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const shopName = String(body.shopName ?? '').trim();
-    const platform = String(body.platform ?? '').trim().toUpperCase();
-    const status = String(body.status ?? 'ACTIVE').trim().toUpperCase();
-    const importStatusFilter = body.importStatusFilter === 'All' ? 'All' : 'Selesai';
-    const customerId = typeof body.customerId === 'string' && body.customerId.trim() ? body.customerId.trim() : null;
-    const holdingAccountId = typeof body.holdingAccountId === 'string' && body.holdingAccountId.trim() ? body.holdingAccountId.trim() : null;
-    const itemMappings = toMappings(body.itemMappings);
-
-    if (!shopName) {
-      return withCors(NextResponse.json({ error: 'Shop name is required.' }, { status: 400 }));
+    const parsed = integrationInputSchema.safeParse({
+      ...body,
+      organizationId: orgId,
+      platform: String(body.platform ?? '').trim().toUpperCase(),
+      status: String(body.status ?? 'ACTIVE').trim().toUpperCase(),
+      customerId: typeof body.customerId === 'string' && body.customerId.trim() ? body.customerId.trim() : null,
+      holdingAccountId: typeof body.holdingAccountId === 'string' && body.holdingAccountId.trim() ? body.holdingAccountId.trim() : null,
+      itemMappings: toMappings(body.itemMappings),
+    });
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid integration payload', issues: parsed.error.issues }, { status: 400 }));
     }
+    const { shopName, platform, status, importStatusFilter, customerId, holdingAccountId, itemMappings } = parsed.data;
 
-    if (!VALID_PLATFORMS.has(platform)) {
-      return withCors(NextResponse.json({ error: 'Invalid platform.' }, { status: 400 }));
-    }
+    await validateConnectionForeignKeys(orgId, customerId, holdingAccountId);
 
-    if (!VALID_STATUSES.has(status)) {
-      return withCors(NextResponse.json({ error: 'Invalid connection status.' }, { status: 400 }));
-    }
+    const connection = await prisma.$transaction(async (tx) => {
+      const existing = await tx.ecommerceConnection.findFirst({
+        where: {
+          organizationId: orgId,
+          platform: platform as any,
+          shopName: { equals: shopName, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
 
-    if (!VALID_IMPORT_FILTERS.has(importStatusFilter)) {
-      return withCors(NextResponse.json({ error: 'Invalid import status filter.' }, { status: 400 }));
-    }
+      if (existing) {
+        throw new ApiError('This shop already exists for the selected platform.', 409);
+      }
 
-    const foreignKeyError = await validateForeignKeys(orgId, customerId, holdingAccountId);
-    if (foreignKeyError) {
-      return withCors(NextResponse.json({ error: foreignKeyError }, { status: 400 }));
-    }
-
-    const existing = await prisma.ecommerceConnection.findFirst({
-      where: {
+      const data: Prisma.EcommerceConnectionUncheckedCreateInput = {
         organizationId: orgId,
         platform: platform as any,
-        shopName: { equals: shopName, mode: 'insensitive' },
-      },
-      select: { id: true },
-    });
+        shopName,
+        customerId,
+        holdingAccountId,
+        status: status as any,
+        importStatusFilter,
+        itemMappings,
+      };
 
-    if (existing) {
-      return withCors(NextResponse.json({ error: 'This shop already exists for the selected platform.' }, { status: 409 }));
-    }
-
-    const data: Prisma.EcommerceConnectionUncheckedCreateInput = {
-      organizationId: orgId,
-      platform: platform as any,
-      shopName,
-      customerId,
-      holdingAccountId,
-      status: status as any,
-      importStatusFilter,
-      itemMappings,
-    };
-
-    const connection = await prisma.ecommerceConnection.create({
-      data,
-      include: {
-        customer: { select: { id: true, name: true } },
-        holdingAccount: { select: { id: true, name: true } },
-      },
+      return tx.ecommerceConnection.create({
+        data,
+        include: {
+          customer: { select: { id: true, name: true } },
+          holdingAccount: { select: { id: true, name: true } },
+        },
+      });
     });
 
     logAudit({
@@ -184,6 +163,9 @@ export async function POST(req: NextRequest) {
 
     return withCors(NextResponse.json(connection, { status: 201 }));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed to create integration';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

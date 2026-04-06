@@ -95,7 +95,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
-  await prisma.bankTransaction.delete({ where: { id, organizationId: orgId } });
+  const deleted = await prisma.$transaction(async (tx) => {
+    const existing = await tx.bankTransaction.findFirst({
+      where: { id, organizationId: orgId },
+      select: { id: true, bankAccountId: true, type: true, amount: true },
+    });
+    if (!existing) return null;
+
+    const delta = existing.type === 'INCOME'
+      ? -Number(existing.amount)
+      : existing.type === 'TRANSFER'
+        ? 0
+        : Number(existing.amount);
+
+    if (delta !== 0) {
+      await tx.bankAccount.update({
+        where: { id: existing.bankAccountId },
+        data: { currentBalance: { increment: delta } },
+      });
+    }
+
+    await tx.bankTransaction.delete({ where: { id, organizationId: orgId } });
+    return existing;
+  });
+  if (!deleted) return err('Not found', 404);
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankTransaction', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
 }

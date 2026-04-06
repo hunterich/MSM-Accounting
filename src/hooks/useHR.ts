@@ -21,6 +21,23 @@ const EMP_STATUS_UP: Record<string, string> = {
 function normalizeEmployee(raw: RawEmployee): Employee {
     const dept = raw.department;
     const pos  = raw.position;
+    const compensationItems = raw.compensationItems || [];
+    const allowances = (raw.allowances && raw.allowances.length > 0
+        ? raw.allowances
+        : compensationItems.filter((item) => item.type === 'ALLOWANCE')
+    ).map((item, index) => ({
+        id: String(item.id || `allowance-${index + 1}`),
+        name: String(item.name || ''),
+        amount: Number(item.amount ?? 0),
+    }));
+    const deductions = (raw.deductions && raw.deductions.length > 0
+        ? raw.deductions
+        : compensationItems.filter((item) => item.type === 'DEDUCTION')
+    ).map((item, index) => ({
+        id: String(item.id || `deduction-${index + 1}`),
+        name: String(item.name || ''),
+        amount: Number(item.amount ?? 0),
+    }));
     return {
         id:           raw.id,
         employeeNo:   raw.employeeNo || '',
@@ -35,6 +52,8 @@ function normalizeEmployee(raw: RawEmployee): Employee {
         basicSalary:  Number(raw.basicSalary ?? 0),
         joinDate:     raw.joinDate ? String(raw.joinDate).slice(0, 10) : '',
         address:      raw.address || '',
+        allowances,
+        deductions,
     };
 }
 
