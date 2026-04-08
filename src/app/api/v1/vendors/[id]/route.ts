@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit, softDelete } from '@/lib/api-utils';
+import { ApiError, logAudit, softDelete, validateForeignKey } from '@/lib/api-utils';
+import { updateVendorInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -22,11 +23,12 @@ async function buildVendorPayload(orgId: string, body: any) {
       payload.categoryId = null;
       payload.category = null;
     } else {
+      await validateForeignKey(prisma.vendorCategory, { id: body.categoryId, organizationId: orgId, isActive: true }, 'Vendor category not found in organization');
       const category = await prisma.vendorCategory.findFirst({
         where: { id: body.categoryId, organizationId: orgId },
       });
       if (!category) {
-        throw new Error('Vendor category not found');
+        throw new ApiError('Vendor category not found in organization', 404);
       }
       payload.categoryId = category.id;
       payload.category = category.name;
@@ -73,7 +75,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const orgId = req.headers.get('x-org-id')!;
   try {
     const body = await req.json();
-    const payload = await buildVendorPayload(orgId, body);
+    const parsed = updateVendorInputSchema.safeParse({
+      ...body,
+      status: typeof body.status === 'string' ? String(body.status).trim().toUpperCase() : body.status,
+    });
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid vendor payload' }, { status: 400 }));
+    }
+    if (parsed.data.defaultApAccountId) {
+      await validateForeignKey(prisma.account, { id: parsed.data.defaultApAccountId, organizationId: orgId, isActive: true }, 'A/P account not found in organization');
+    }
+    const payload = await buildVendorPayload(orgId, parsed.data);
+    if (Object.keys(payload).length === 0) {
+      return withCors(NextResponse.json({ error: 'No changes provided' }, { status: 400 }));
+    }
     const vendor = await prisma.vendor.update({
       where: { id, organizationId: orgId },
       data: { ...payload, updatedAt: new Date() },
@@ -86,6 +101,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Vendor', entityId: id, action: 'UPDATE', payload });
     return withCors(NextResponse.json(vendor));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

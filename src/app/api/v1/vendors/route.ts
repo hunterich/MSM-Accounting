@@ -4,7 +4,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, ok, parsePaginationParams, withHandler } from '@/lib/api-utils';
+import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { createVendorInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -29,11 +30,12 @@ async function buildVendorPayload(orgId: string | null, body: any) {
       payload.categoryId = null;
       payload.category = null;
     } else {
+      await validateForeignKey(prisma.vendorCategory, { id: body.categoryId, organizationId: orgId, isActive: true }, 'Vendor category not found in organization');
       const category = await prisma.vendorCategory.findFirst({
         where: { id: body.categoryId, organizationId: orgId },
       });
       if (!category) {
-        throw new Error('Vendor category not found');
+        throw new ApiError('Vendor category not found in organization', 404);
       }
       payload.categoryId = category.id;
       payload.category = category.name;
@@ -96,7 +98,17 @@ export const POST = withHandler(async function POST(req: NextRequest) {
   if (!orgId) return err('Unauthenticated', 401);
 
   const body = await req.json();
-  const payload = await buildVendorPayload(orgId, body);
+  const parsed = createVendorInputSchema.safeParse({
+    ...body,
+    status: typeof body.status === 'string' ? String(body.status).trim().toUpperCase() : body.status,
+  });
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid vendor payload', 400);
+
+  await validateForeignKey(prisma.account, { id: parsed.data.defaultApAccountId, organizationId: orgId, isActive: true }, 'A/P account not found in organization');
+  const payload = await buildVendorPayload(orgId, {
+    ...parsed.data,
+    status: parsed.data.status ?? 'ACTIVE',
+  });
   const vendor = await prisma.vendor.create({
     data: { ...payload, organizationId: orgId },
     include: {

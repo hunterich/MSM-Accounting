@@ -13,7 +13,8 @@ export async function OPTIONS() {
 function serializeEmployee(employee: any) {
   if (!employee) return employee;
 
-  const compensationItems = Array.isArray(employee.compensationItems) ? employee.compensationItems : [];
+  const compensationItems: Array<{ id?: string; type?: string; name?: string; amount?: number }> =
+    Array.isArray(employee.compensationItems) ? employee.compensationItems : [];
   const allowances = compensationItems
     .filter((item) => item.type === 'ALLOWANCE')
     .map((item) => ({ id: item.id, name: item.name, amount: item.amount }));

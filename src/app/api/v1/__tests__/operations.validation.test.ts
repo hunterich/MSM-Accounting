@@ -33,6 +33,7 @@ vi.mock('@/lib/prisma', () => {
     },
     bankTransaction: {
       create: vi.fn(),
+      delete: vi.fn(),
       findFirst: vi.fn(),
       update: vi.fn(),
     },
@@ -93,6 +94,7 @@ vi.mock('@/lib/credit-limit', () => ({
 import { prisma } from '@/lib/prisma';
 import { POST as createSalesOrder } from '../sales-orders/route';
 import { POST as createStockAdjustment } from '../stock-adjustments/route';
+import { DELETE as deleteBankTransaction } from '../bank-transactions/[id]/route';
 import { PUT as updateBankTransaction } from '../bank-transactions/[id]/route';
 
 function makeReq(path: string, orgId: string, method = 'GET', body?: unknown) {
@@ -189,6 +191,31 @@ describe('operational route validation', () => {
     expect(prisma.bankAccount.update).toHaveBeenNthCalledWith(2, {
       where: { id: 'bank-2' },
       data: { currentBalance: { increment: 100 } },
+    });
+  });
+
+  it('reverses the bank balance effect when deleting an expense transaction', async () => {
+    vi.mocked(prisma.bankTransaction.findFirst).mockResolvedValue({
+      id: 'txn-1',
+      bankAccountId: 'bank-1',
+      type: 'EXPENSE',
+      amount: 100,
+    } as never);
+    vi.mocked(prisma.bankTransaction.delete).mockResolvedValue({ id: 'txn-1' } as never);
+    vi.mocked(prisma.bankAccount.update).mockResolvedValue({ id: 'bank-1' } as never);
+
+    const res = await deleteBankTransaction(
+      makeReq('/api/v1/bank-transactions/txn-1', 'org-a', 'DELETE'),
+      params('txn-1'),
+    );
+
+    expect(res.status).toBe(200);
+    expect(prisma.bankAccount.update).toHaveBeenCalledWith({
+      where: { id: 'bank-1' },
+      data: { currentBalance: { increment: 100 } },
+    });
+    expect(prisma.bankTransaction.delete).toHaveBeenCalledWith({
+      where: { id: 'txn-1', organizationId: 'org-a' },
     });
   });
 });

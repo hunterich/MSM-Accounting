@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
+import { customerCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -35,9 +36,22 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const orgId = req.headers.get('x-org-id');
+    if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     const body = await req.json();
+    const parsed = customerCategoryInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid customer category payload' }, { status: 400 }));
+    }
     const category = await prisma.customerCategory.create({
-      data: { ...body, organizationId: orgId },
+      data: {
+        organizationId: orgId,
+        name: parsed.data.name,
+        prefix: parsed.data.prefix.trim().toUpperCase(),
+        defaultCreditLimit: parsed.data.defaultCreditLimit,
+        defaultPaymentTerms: parsed.data.defaultPaymentTerms,
+        defaultDiscount: parsed.data.defaultDiscount,
+        description: parsed.data.description?.trim() || null,
+      },
     });
     logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'CustomerCategory', entityId: category.id, action: 'CREATE', payload: { name: category.name } });
     return withCors(NextResponse.json(category, { status: 201 }));

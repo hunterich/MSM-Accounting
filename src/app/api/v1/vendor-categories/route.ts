@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { vendorCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -43,15 +44,22 @@ export async function POST(req: NextRequest) {
     const orgId = req.headers.get('x-org-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     const body = await req.json();
+    const parsed = vendorCategoryInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid vendor category payload' }, { status: 400 }));
+    }
+    if (parsed.data.defaultApAccountId) {
+      await validateForeignKey(prisma.account, { id: parsed.data.defaultApAccountId, organizationId: orgId, isActive: true }, 'A/P account not found in organization');
+    }
     const category = await prisma.vendorCategory.create({
       data: {
         organizationId: orgId,
-        name: body.name,
-        code: String(body.code || '').toUpperCase(),
-        defaultPaymentTerms: body.defaultPaymentTerms || null,
-        defaultApAccountId: body.defaultApAccountId || null,
-        description: body.description || null,
-        isActive: body.isActive !== false,
+        name: parsed.data.name,
+        code: parsed.data.code.trim().toUpperCase(),
+        defaultPaymentTerms: parsed.data.defaultPaymentTerms?.trim() || null,
+        defaultApAccountId: parsed.data.defaultApAccountId || null,
+        description: parsed.data.description?.trim() || null,
+        isActive: parsed.data.isActive,
       },
     });
     logAudit({
@@ -64,6 +72,9 @@ export async function POST(req: NextRequest) {
     });
     return withCors(NextResponse.json(category, { status: 201 }));
   } catch (error) {
+    if (error instanceof ApiError) {
+      return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
     const message = error instanceof Error ? error.message : 'Failed to create vendor category';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

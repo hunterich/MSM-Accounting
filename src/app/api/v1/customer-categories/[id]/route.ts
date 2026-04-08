@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
+import { updateCustomerCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -27,11 +28,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const orgId = req.headers.get('x-org-id')!;
   try {
     const body = await req.json();
+    const parsed = updateCustomerCategoryInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid customer category payload' }, { status: 400 }));
+    }
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
+    if (parsed.data.prefix !== undefined) updateData.prefix = parsed.data.prefix.trim().toUpperCase();
+    if (parsed.data.defaultCreditLimit !== undefined) updateData.defaultCreditLimit = parsed.data.defaultCreditLimit;
+    if (parsed.data.defaultPaymentTerms !== undefined) updateData.defaultPaymentTerms = parsed.data.defaultPaymentTerms;
+    if (parsed.data.defaultDiscount !== undefined) updateData.defaultDiscount = parsed.data.defaultDiscount;
+    if (parsed.data.description !== undefined) updateData.description = parsed.data.description?.trim() || null;
+    if (Object.keys(updateData).length === 1) {
+      return withCors(NextResponse.json({ error: 'No changes provided' }, { status: 400 }));
+    }
     const cat = await prisma.customerCategory.update({
       where: { id, organizationId: orgId },
-      data: { ...body, updatedAt: new Date() },
+      data: updateData,
     });
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'CustomerCategory', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'CustomerCategory', entityId: id, action: 'UPDATE', payload: updateData });
     return withCors(NextResponse.json(cat));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

@@ -177,6 +177,180 @@ export const warehouseInputSchema = z.object({
   name: z.string().trim().min(1, 'Warehouse name is required'),
 });
 
+const optionalNullableString = z.union([z.string(), z.null()]).optional();
+
+const optionalEmailString = z
+  .union([z.string().trim().email('Invalid email address'), z.literal(''), z.null()])
+  .optional();
+
+export const updateCustomerInputSchema = z.object({
+  id: optionalNullableString,
+  code: optionalNullableString,
+  name: z.string().trim().min(1, 'Customer name is required').optional(),
+  email: optionalEmailString,
+  phone: optionalNullableString,
+  website: optionalNullableString,
+  contactPerson: optionalNullableString,
+  billingAddress: optionalNullableString,
+  shippingAddress: optionalNullableString,
+  address1: optionalNullableString,
+  city: optionalNullableString,
+  province: optionalNullableString,
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  taxable: z.boolean().optional(),
+  paymentTerms: z.coerce.number().int().min(0, 'Payment terms must be non-negative').optional(),
+  paymentTermsDays: z.coerce.number().int().min(0, 'Payment terms must be non-negative').optional(),
+  defaultDiscount: positiveDecimal.max(100).optional(),
+  creditLimit: positiveDecimal.optional(),
+  openingBalance: positiveDecimal.optional(),
+  initialBalance: positiveDecimal.optional(),
+  useCategoryDefaults: z.boolean().optional(),
+  categoryId: optionalNullableString,
+  category: optionalNullableString,
+});
+
+export const createCustomerInputSchema = updateCustomerInputSchema.extend({
+  name: z.string().trim().min(1, 'Customer name is required'),
+}).superRefine((value, ctx) => {
+  if (!value.code?.trim() && !value.id?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['code'],
+      message: 'Customer code is required',
+    });
+  }
+});
+
+export const updateVendorInputSchema = z.object({
+  code: optionalNullableString,
+  name: z.string().trim().min(1, 'Vendor name is required').optional(),
+  email: optionalEmailString,
+  phone: optionalNullableString,
+  paymentTerms: optionalNullableString,
+  npwp: optionalNullableString,
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  defaultApAccountId: optionalNullableString,
+  categoryId: optionalNullableString,
+  category: optionalNullableString,
+});
+
+export const createVendorInputSchema = updateVendorInputSchema.extend({
+  code: z.string().trim().min(1, 'Vendor code is required'),
+  name: z.string().trim().min(1, 'Vendor name is required'),
+  defaultApAccountId: z.string().trim().min(1, 'Default A/P account is required'),
+});
+
+export const customerCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required'),
+  prefix: z.string().trim().min(1, 'Prefix is required').max(12, 'Prefix is too long'),
+  defaultCreditLimit: positiveDecimal.default(0),
+  defaultPaymentTerms: z.coerce.number().int().min(0, 'Default payment terms must be non-negative').default(0),
+  defaultDiscount: positiveDecimal.max(100).default(0),
+  description: optionalNullableString,
+});
+
+export const updateCustomerCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required').optional(),
+  prefix: z.string().trim().min(1, 'Prefix is required').max(12, 'Prefix is too long').optional(),
+  defaultCreditLimit: positiveDecimal.optional(),
+  defaultPaymentTerms: z.coerce.number().int().min(0, 'Default payment terms must be non-negative').optional(),
+  defaultDiscount: positiveDecimal.max(100).optional(),
+  description: optionalNullableString,
+});
+
+export const vendorCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required'),
+  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long'),
+  defaultPaymentTerms: optionalNullableString,
+  defaultApAccountId: optionalNullableString,
+  description: optionalNullableString,
+  isActive: z.boolean().default(true),
+});
+
+export const updateVendorCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required').optional(),
+  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long').optional(),
+  defaultPaymentTerms: optionalNullableString,
+  defaultApAccountId: optionalNullableString,
+  description: optionalNullableString,
+  isActive: z.boolean().optional(),
+});
+
+export const itemCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required'),
+  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long'),
+  description: optionalNullableString,
+  isActive: z.boolean().default(true),
+});
+
+export const updateItemCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required').optional(),
+  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long').optional(),
+  description: optionalNullableString,
+  isActive: z.boolean().optional(),
+});
+
+export const updateItemInputSchema = z.object({
+  sku: z.string().trim().min(1, 'SKU is required').optional(),
+  name: z.string().trim().min(1, 'Item name is required').optional(),
+  categoryId: optionalNullableString,
+  type: z.enum(['PRODUCT', 'SERVICE', 'RAW_MATERIAL', 'CONSUMABLE', 'FIXED_ASSET']).optional(),
+  unit: z.string().trim().min(1, 'Unit is required').optional(),
+  purchaseUnit: optionalNullableString,
+  purchaseConversionFactor: positiveDecimal.optional().nullable(),
+  sellUnit: optionalNullableString,
+  sellConversionFactor: positiveDecimal.optional().nullable(),
+  barcode: optionalNullableString,
+  description: optionalNullableString,
+  weight: positiveDecimal.optional().nullable(),
+  cost: positiveDecimal.optional(),
+  costPrice: positiveDecimal.optional(),
+  price: positiveDecimal.optional(),
+  sellingPrice: positiveDecimal.optional(),
+  openingStock: positiveDecimal.optional(),
+  reorderPoint: positiveDecimal.optional(),
+  inventoryAccountId: optionalNullableString,
+  revenueAccountId: optionalNullableString,
+  cogsAccountId: optionalNullableString,
+  isActive: z.boolean().optional(),
+});
+
+export const createItemInputSchema = updateItemInputSchema.extend({
+  sku: z.string().trim().min(1, 'SKU is required'),
+  name: z.string().trim().min(1, 'Item name is required'),
+  unit: z.string().trim().min(1, 'Unit is required').default('PCS'),
+  type: z.enum(['PRODUCT', 'SERVICE', 'RAW_MATERIAL', 'CONSUMABLE', 'FIXED_ASSET']).default('PRODUCT'),
+  openingStock: positiveDecimal.default(0),
+  reorderPoint: positiveDecimal.default(0),
+  cost: positiveDecimal.optional(),
+  costPrice: positiveDecimal.optional(),
+  price: positiveDecimal.optional(),
+  sellingPrice: positiveDecimal.optional(),
+  isActive: z.boolean().default(true),
+});
+
+export const updateOrganizationSettingsInputSchema = z.object({
+  legalName: z.string().trim().min(1, 'Legal company name is required').optional(),
+  displayName: z.string().trim().min(1, 'Display name is required').optional(),
+  npwp: optionalNullableString,
+  isPkp: z.boolean().optional(),
+  baseCurrency: z.string().trim().min(1, 'Base currency is required').optional(),
+  timezone: z.string().trim().min(1, 'Timezone is required').optional(),
+  locale: z.string().trim().min(1, 'Locale is required').optional(),
+  fiscalYearStart: isoDateString.nullable().optional(),
+  costingMethod: z.enum(['FIFO', 'WEIGHTED_AVERAGE']).nullable().optional(),
+  costingMethodEffectiveDate: isoDateString.nullable().optional(),
+  defaultCreditLimit: positiveDecimal.optional(),
+  enforceCreditLimit: z.boolean().optional(),
+  taxEnabled: z.boolean().optional(),
+  taxDefaultRate: positiveDecimal.max(100).optional(),
+  taxInclusiveByDefault: z.boolean().optional(),
+  financeEmail: optionalEmailString,
+  invoiceReminders: z.boolean().optional(),
+  paymentAlerts: z.boolean().optional(),
+  dailySummary: z.boolean().optional(),
+});
+
 const documentLineSchema = z.object({
   lineNo: z.number().int().positive().optional(),
   itemId: z.string().trim().optional(),

@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, listResponse, logAudit } from '@/lib/api-utils';
+import { err, ok, listResponse, logAudit } from '@/lib/api-utils';
+import { itemCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -26,12 +27,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id')!;
   const body  = await req.json();
+  const parsed = itemCategoryInputSchema.safeParse(body);
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid item category payload', 400);
   const category = await prisma.itemCategory.create({
     data: {
-      name:        body.name,
-      code:        (body.code as string).toUpperCase(),
-      description: body.description ?? null,
-      isActive:    body.isActive !== false,
+      name:        parsed.data.name,
+      code:        parsed.data.code.trim().toUpperCase(),
+      description: parsed.data.description?.trim() || null,
+      isActive:    parsed.data.isActive,
       organizationId: orgId,
     },
   });
