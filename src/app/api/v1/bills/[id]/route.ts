@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const bill = await prisma.bill.findFirst({
       where: { id, organizationId: orgId },
-      include: { vendor: true, lines: true },
+      include: { vendor: true, lines: true, attachments: true },
     });
     if (!bill) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     return withCors(NextResponse.json(bill));
@@ -68,7 +68,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
       return tx.bill.findFirst({
         where: { id, organizationId: orgId },
-        include: { vendor: true, lines: true },
+        include: { vendor: true, lines: true, attachments: true },
       });
     });
     if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));

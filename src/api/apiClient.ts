@@ -21,9 +21,10 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { headers: extraHeaders, ...rest } = options;
+  const isFormData = typeof FormData !== 'undefined' && rest.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    headers: getHeaders(extraHeaders as Record<string, string>),
+    headers: isFormData ? (extraHeaders as Record<string, string>) : getHeaders(extraHeaders as Record<string, string>),
     ...rest,
   });
 
@@ -50,6 +51,7 @@ function buildUrl(path: string, params?: Record<string, unknown>): string {
 export const api = {
   get:    <T>(path: string, params?: Record<string, unknown>)  => apiFetch<T>(buildUrl(path, params)),
   post:   <T>(path: string, body?: unknown)                    => apiFetch<T>(path, { method: 'POST',   body: JSON.stringify(body) }),
+  postForm: <T>(path: string, body: FormData)                  => apiFetch<T>(path, { method: 'POST', body }),
   put:    <T>(path: string, body?: unknown)                    => apiFetch<T>(path, { method: 'PUT',    body: JSON.stringify(body) }),
   delete: <T = void>(path: string)                             => apiFetch<T>(path, { method: 'DELETE' }),
 };

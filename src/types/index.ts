@@ -142,10 +142,24 @@ export interface RawVendorCategory {
 }
 
 export interface RawBillLine {
+  id?: string | null;
+  itemId?: string | null;
+  accountId?: string | null;
+  description?: string | null;
+  unit?: string | null;
   price?: number | string | null;
   quantity?: number | string | null;
   lineTotal?: number | string | null;
   [key: string]: unknown;
+}
+
+export interface RawBillAttachment {
+  id: string;
+  fileName?: string | null;
+  fileSizeKb?: number | string | null;
+  mimeType?: string | null;
+  storageKey?: string | null;
+  uploadedAt?: string | null;
 }
 
 export interface RawBill {
@@ -164,6 +178,7 @@ export interface RawBill {
   poNumber?: string | null;
   notes?: string | null;
   lines?: RawBillLine[] | null;
+  attachments?: RawBillAttachment[] | null;
 }
 
 export interface RawAPPayment {
@@ -228,6 +243,64 @@ export interface RawEcommerceConnection {
   status?: string | null;
   importStatusFilter?: string | null;
   itemMappings?: Record<string, string> | null;
+}
+
+export interface RawBillImportSuggestion {
+  id: string;
+  label?: string | null;
+  confidence?: number | string | null;
+  reason?: string | null;
+}
+
+export interface RawBillImportLine {
+  lineNo?: number | null;
+  rawText?: string | null;
+  supplierLabel?: string | null;
+  supplierSku?: string | null;
+  description?: string | null;
+  quantity?: number | string | null;
+  unit?: string | null;
+  price?: number | string | null;
+  lineTotal?: number | string | null;
+  itemId?: string | null;
+  accountId?: string | null;
+  itemSuggestion?: RawBillImportSuggestion | null;
+  reviewStatus?: 'matched' | 'needs_review' | null;
+}
+
+export interface RawBillImportReviewData {
+  vendorId?: string | null;
+  vendorSuggestion?: RawBillImportSuggestion | null;
+  issueDate?: string | null;
+  dueDate?: string | null;
+  taxRate?: number | string | null;
+  taxAmount?: number | string | null;
+  subtotal?: number | string | null;
+  totalAmount?: number | string | null;
+  notes?: string | null;
+  lines?: RawBillImportLine[] | null;
+  needsReviewCount?: number | null;
+  readyToImport?: boolean | null;
+}
+
+export interface RawBillImportSession {
+  id: string;
+  sourceFileName?: string | null;
+  sourceMimeType?: string | null;
+  sourceFileSizeKb?: number | string | null;
+  sourceStorageKey?: string | null;
+  sourceText?: string | null;
+  extractionStatus?: string | null;
+  reviewStatus?: string | null;
+  vendorId?: string | null;
+  vendorConfidence?: number | string | null;
+  vendorMatchReason?: string | null;
+  extractedData?: Record<string, unknown> | null;
+  normalizedData?: RawBillImportReviewData | null;
+  vendor?: { id?: string; name?: string; code?: string } | null;
+  createdBill?: { id?: string; number?: string; status?: string } | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 // ── Normalized frontend types ─────────────────────────────────────────────────
@@ -412,10 +485,24 @@ export interface VendorCategory {
 }
 
 export interface BillLine {
+  id?: string;
+  itemId?: string;
+  accountId?: string;
+  description?: string;
+  unit?: string;
   price: number;
   quantity: number;
   lineTotal: number;
   [key: string]: unknown;
+}
+
+export interface BillAttachment {
+  id: string;
+  fileName: string;
+  fileSizeKb: number;
+  mimeType: string;
+  storageKey: string;
+  uploadedAt: string;
 }
 
 export interface Bill {
@@ -443,6 +530,65 @@ export interface Bill {
   poNumber: string;
   notes: string;
   lines: BillLine[];
+  attachments?: BillAttachment[];
+}
+
+export interface BillImportSuggestion {
+  id: string;
+  label: string;
+  confidence: number;
+  reason: string;
+}
+
+export interface BillImportLine {
+  lineNo: number;
+  rawText: string;
+  supplierLabel: string;
+  supplierSku: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  price: number;
+  lineTotal: number;
+  itemId: string;
+  accountId: string;
+  itemSuggestion: BillImportSuggestion | null;
+  reviewStatus: 'matched' | 'needs_review';
+}
+
+export interface BillImportReviewData {
+  vendorId: string;
+  vendorSuggestion: BillImportSuggestion | null;
+  issueDate: string;
+  dueDate: string;
+  taxRate: number;
+  taxAmount: number;
+  subtotal: number;
+  totalAmount: number;
+  notes: string;
+  lines: BillImportLine[];
+  needsReviewCount: number;
+  readyToImport: boolean;
+}
+
+export interface BillImportSession {
+  id: string;
+  sourceFileName: string;
+  sourceMimeType: string;
+  sourceFileSizeKb: number;
+  sourceStorageKey: string;
+  sourceText: string;
+  extractionStatus: string;
+  reviewStatus: string;
+  vendorId: string;
+  vendorConfidence: number;
+  vendorMatchReason: string;
+  extractedData: Record<string, unknown> | null;
+  normalizedData: BillImportReviewData | null;
+  vendor: { id: string; name: string; code: string | undefined } | null;
+  createdBill: { id: string; number: string; status: string } | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface APPayment {

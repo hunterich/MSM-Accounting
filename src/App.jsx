@@ -25,6 +25,7 @@ import SOForm from './components/ar/salesorders/SOForm'
 
 import Bills from './views/ap/Bills'
 import BillForm from './views/ap/BillForm'
+import BillImport from './views/ap/BillImport'
 import PurchaseOrders from './views/ap/PurchaseOrders'
 import POForm from './views/ap/POForm'
 import Vendors from './views/ap/Vendors'
@@ -109,6 +110,7 @@ function App() {
                     <Route path="ap/pos/new" element={withPermission(<POForm />, 'ap_pos', 'create')} />
                     <Route path="ap/pos/edit" element={withPermission(<POForm />, 'ap_pos', 'edit')} />
                     <Route path="ap/bills" element={withPermission(<Bills />, 'ap_bills')} />
+                    <Route path="ap/bills/import" element={withPermission(<BillImport />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/new" element={withPermission(<BillForm />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/edit" element={withPermission(<BillForm />, 'ap_bills', 'edit')} />
                     <Route path="ap/payments" element={withPermission(<APPayments />, 'ap_payments')} />

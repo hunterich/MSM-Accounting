@@ -7,7 +7,7 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import BillPrintTemplate from '../../components/print/BillPrintTemplate';
-import { Plus, Search, List, Download } from 'lucide-react';
+import { Plus, Search, List, Download, FileUp } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useBills } from '../../hooks/useAP';
 import { useBillStore } from '../../stores/useBillStore';
@@ -123,6 +123,14 @@ const Bills = () => {
                         <Plus size={16} />
                         New Bill
                     </button>
+                    <Button
+                        text="Import PDF"
+                        size="small"
+                        variant="secondary"
+                        icon={<FileUp size={16} />}
+                        onClick={() => navigate('/ap/bills/import')}
+                        disabled={!canCreate}
+                    />
                     <Button
                         text="Export CSV"
                         size="small"

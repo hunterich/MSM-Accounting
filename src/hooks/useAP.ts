@@ -111,9 +111,22 @@ function normalizeBill(raw: RawBill): Bill {
         notes:      raw.notes    || '',
         lines: (raw.lines || []).map((l) => ({
             ...l,
+            id: l.id || undefined,
+            itemId: typeof l.itemId === 'string' ? l.itemId : undefined,
+            accountId: typeof l.accountId === 'string' ? l.accountId : undefined,
+            description: typeof l.description === 'string' ? l.description : '',
+            unit: typeof l.unit === 'string' ? l.unit : 'PCS',
             price:     Number(l.price     ?? 0),
             quantity:  Number(l.quantity  ?? 0),
             lineTotal: Number(l.lineTotal ?? 0),
+        })),
+        attachments: (raw.attachments || []).map((attachment) => ({
+            id: attachment.id,
+            fileName: attachment.fileName || '',
+            fileSizeKb: Number(attachment.fileSizeKb ?? 0),
+            mimeType: attachment.mimeType || '',
+            storageKey: attachment.storageKey || '',
+            uploadedAt: attachment.uploadedAt ? String(attachment.uploadedAt) : '',
         })),
     };
 }

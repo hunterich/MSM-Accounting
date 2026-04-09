@@ -393,6 +393,54 @@ export const updateBillInputSchema = z.object({
   lines: z.array(documentLineSchema).optional(),
 });
 
+const nullableLooseString = z.union([z.string().trim(), z.literal(''), z.null()]).optional();
+
+export const billImportSuggestionSchema = z.object({
+  id: z.string().trim().min(1),
+  label: z.string().trim().min(1),
+  confidence: z.coerce.number().min(0).max(1),
+  reason: z.string().trim().min(1),
+});
+
+export const billImportLineSchema = z.object({
+  lineNo: z.coerce.number().int().positive().default(1),
+  rawText: z.string().default(''),
+  supplierLabel: z.string().default(''),
+  supplierSku: nullableLooseString,
+  description: z.string().default(''),
+  quantity: positiveDecimal.default(1),
+  unit: z.string().trim().min(1).default('PCS'),
+  price: positiveDecimal.default(0),
+  lineTotal: positiveDecimal.default(0),
+  itemId: nullableLooseString,
+  accountId: nullableLooseString,
+  itemSuggestion: billImportSuggestionSchema.nullable().optional(),
+  reviewStatus: z.enum(['matched', 'needs_review']).default('needs_review'),
+});
+
+export const billImportReviewDataSchema = z.object({
+  vendorId: nullableLooseString,
+  vendorSuggestion: billImportSuggestionSchema.nullable().optional(),
+  issueDate: z.union([isoDateString, z.literal('')]).default(''),
+  dueDate: z.union([isoDateString, z.literal('')]).default(''),
+  taxRate: positiveDecimal.default(0),
+  taxAmount: positiveDecimal.default(0),
+  subtotal: positiveDecimal.default(0),
+  totalAmount: positiveDecimal.default(0),
+  notes: z.string().default(''),
+  lines: z.array(billImportLineSchema).default([]),
+  needsReviewCount: z.coerce.number().int().min(0).default(0),
+  readyToImport: z.boolean().default(false),
+});
+
+export const updateBillImportSessionInputSchema = z.object({
+  reviewData: billImportReviewDataSchema,
+});
+
+export const finalizeBillImportInputSchema = z.object({
+  reviewData: billImportReviewDataSchema.optional(),
+});
+
 export const purchaseOrderInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   vendorId: z.string().trim().min(1, 'Vendor is required'),
@@ -628,6 +676,11 @@ export type AccountingPeriodCloseInput = z.infer<typeof accountingPeriodCloseInp
 export type WarehouseInput = z.infer<typeof warehouseInputSchema>;
 export type BillInput = z.infer<typeof billInputSchema>;
 export type UpdateBillInput = z.infer<typeof updateBillInputSchema>;
+export type BillImportSuggestion = z.infer<typeof billImportSuggestionSchema>;
+export type BillImportLine = z.infer<typeof billImportLineSchema>;
+export type BillImportReviewData = z.infer<typeof billImportReviewDataSchema>;
+export type UpdateBillImportSessionInput = z.infer<typeof updateBillImportSessionInputSchema>;
+export type FinalizeBillImportInput = z.infer<typeof finalizeBillImportInputSchema>;
 export type PurchaseOrderInput = z.infer<typeof purchaseOrderInputSchema>;
 export type UpdatePurchaseOrderInput = z.infer<typeof updatePurchaseOrderInputSchema>;
 export type ArPaymentInput = z.infer<typeof arPaymentInputSchema>;

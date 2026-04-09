@@ -6,8 +6,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { ApiError, nextNumber, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { ApiError, logAudit } from '@/lib/api-utils';
 import { billInputSchema } from '@/types/api';
+import { createBillRecord } from '@/lib/bills';
 
 export const runtime = 'nodejs';
 
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
       prisma.bill.findMany({
         where, skip: (page - 1) * limit, take: limit,
         orderBy: { issueDate: 'desc' },
-        include: { vendor: { select: { id: true, name: true, code: true } }, lines: true },
+        include: { vendor: { select: { id: true, name: true, code: true } }, lines: true, attachments: true },
       }),
       prisma.bill.count({ where }),
     ]);
@@ -60,33 +61,16 @@ export async function POST(req: NextRequest) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid bill payload', issues: parsed.error.issues }, { status: 400 }));
     }
 
-    const { lines, ...header } = parsed.data;
-    const number = await nextNumber(prisma, 'Bill', 'number', 'BILL');
+    const bill = await prisma.$transaction((tx) => createBillRecord(tx, orgId, parsed.data));
 
-    const bill = await prisma.$transaction(async (tx) => {
-      await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
-      if (header.poId) {
-        await validateForeignKey(tx.purchaseOrder, { id: header.poId, organizationId: orgId }, 'Purchase order not found in organization');
-      }
-      const created = await tx.bill.create({
-        data: { ...header, organizationId: orgId, number },
-      });
-      if (lines && lines.length > 0) {
-        await tx.billLine.createMany({
-          data: lines.map((l: any, idx: number) => ({
-            ...l,
-            billId: created.id,
-            lineNo: l.lineNo ?? idx + 1,
-          })),
-        });
-      }
-      return tx.bill.findUnique({
-        where: { id: created.id },
-        include: { vendor: true, lines: true },
-      });
+    logAudit({
+      orgId: orgId!,
+      actorId: req.headers.get('x-user-id'),
+      entityType: 'Bill',
+      entityId: bill!.id,
+      action: 'CREATE',
+      payload: { number: bill!.number },
     });
-
-    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Bill', entityId: bill!.id, action: 'CREATE', payload: { number } });
     return withCors(NextResponse.json(bill, { status: 201 }));
   } catch (error) {
     if (error instanceof ApiError) {
