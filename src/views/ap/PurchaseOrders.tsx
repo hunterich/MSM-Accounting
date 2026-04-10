@@ -1,0 +1,195 @@
+import React, { useMemo, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Card from '../../components/UI/Card';
+import Table, { TableColumn } from '../../components/UI/Table';
+import Button from '../../components/UI/Button';
+import StatusTag from '../../components/UI/StatusTag';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import PurchaseOrderPrintTemplate from '../../components/print/PurchaseOrderPrintTemplate';
+import { Plus, Search, List } from 'lucide-react';
+import { formatDateID, formatIDR } from '../../utils/formatters';
+import { usePurchaseOrders } from '../../hooks/useAP';
+import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
+
+interface POFilters {
+    status: string;
+}
+
+interface DateRange {
+    from: string;
+    to: string;
+}
+
+const PurchaseOrders = () => {
+    const navigate = useNavigate();
+    const { canCreate, canEdit } = useModulePermissions('ap_pos');
+    const { data: posResult, isLoading } = usePurchaseOrders();
+    const purchaseOrders = posResult?.data ?? [];
+    // poItemTemplates stays in local store (for print until API supports line fetch)
+    const poItemTemplates = usePurchaseOrderStore((s) => s.poItemTemplates);
+    const company = useSettingsStore((s) => s.companyInfo);
+
+    const [searchTerm, setSearchTerm] = useState<string>('');
+    const [filters, setFilters] = useState<POFilters>({ status: '' });
+    const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+
+    const [printPoId, setPrintPoId] = useState<string>('');
+    const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
+
+    const filteredData = useMemo(() => {
+        return purchaseOrders.filter((item) => {
+            const keyword = searchTerm.toLowerCase();
+            const matchesSearch =
+                (item.id || '').toLowerCase().includes(keyword) ||
+                (item.vendorName || '').toLowerCase().includes(keyword);
+            const matchesStatus = filters.status ? item.status === filters.status : true;
+
+            let matchesDate = true;
+            if (dateRange.from) matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
+            if (dateRange.to)   matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
+
+            return matchesSearch && matchesStatus && matchesDate;
+        });
+    }, [purchaseOrders, searchTerm, filters.status, dateRange.from, dateRange.to]);
+
+    const activePrintPo = filteredData.find((po) => po.id === printPoId)
+        || purchaseOrders.find((po) => po.id === printPoId)
+        || null;
+    const activeVendorName = activePrintPo?.vendorName || '-';
+    const activePrintLines = activePrintPo ? (poItemTemplates[activePrintPo.id] || []) : [];
+
+    const queuePrintPo = useCallback((poId: string) => {
+        setPrintPoId(poId);
+        setIsPreviewOpen(true);
+    }, []);
+
+    const columns = [
+        { key: 'id', label: 'PO #', sortable: true },
+        { key: 'vendorName', label: 'Vendor', sortable: true },
+        { key: 'date', label: 'Date', sortable: true, render: (val: unknown) => formatDateID(val as string) },
+        { key: 'expectedDate', label: 'Expected', sortable: true, render: (val: unknown) => formatDateID(val as string) },
+        { key: 'amount', label: 'Total', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
+        { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Closed' ? 'Success' : (val as string)} label={val as string} /> },
+        {
+            key: 'actions', label: '', render: (_: unknown, row: Record<string, unknown>) => (
+                <div className="flex gap-1.5 justify-end">
+                    <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row['id'] as string}&mode=view`); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row['id'] as string}&mode=edit`); }} />
+                    <Button text="Print" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); queuePrintPo(row['id'] as string); }} />
+                </div>
+            )
+        }
+    ];
+
+    return (
+        <div className="max-w-full mx-auto">
+            <div className="flex flex-col gap-1.5 mb-2 relative z-[2]">
+                <div className="flex gap-1.5 flex-nowrap items-center">
+                    <button
+                        className="border border-[#b9ddff] bg-[#e8f4ff] text-primary-700 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
+                        onClick={() => {
+                            setSearchTerm('');
+                            setFilters({ status: '' });
+                            setDateRange({ from: '', to: '' });
+                        }}
+                    >
+                        <List size={16} />
+                        Catalog
+                    </button>
+                    <button
+                        className={`border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                        onClick={() => navigate('/ap/pos/new')}
+                        disabled={!canCreate}
+                    >
+                        <Plus size={16} />
+                        New PO
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
+                <div className="relative flex items-center">
+                    <Search size={18} className="absolute left-2.5 text-neutral-400" />
+                    <input
+                        type="text"
+                        className="block w-full pl-[34px] px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                        placeholder="Search PO # or vendor..."
+                        value={searchTerm}
+                        onChange={(event) => setSearchTerm(event.target.value)}
+                    />
+                </div>
+                <div className="min-w-0">
+                    <select
+                        className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                        value={filters.status}
+                        onChange={(event) => setFilters({ status: event.target.value })}
+                    >
+                        <option value="">Filter by Status</option>
+                        <option value="Draft">Draft</option>
+                        <option value="Approved">Approved</option>
+                        <option value="Billed">Billed</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+                <div className="min-w-0">
+                    <input
+                        type="date"
+                        className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                        value={dateRange.from}
+                        onChange={(event) => setDateRange((prev) => ({ ...prev, from: event.target.value }))}
+                    />
+                </div>
+                <div className="min-w-0">
+                    <input
+                        type="date"
+                        className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                        value={dateRange.to}
+                        onChange={(event) => setDateRange((prev) => ({ ...prev, to: event.target.value }))}
+                    />
+                </div>
+                {(dateRange.from || dateRange.to) && (
+                    <Button
+                        text="Clear"
+                        variant="tertiary"
+                        size="small"
+                        className="justify-self-end"
+                        onClick={() => setDateRange({ from: '', to: '' })}
+                    />
+                )}
+            </div>
+
+            <Card padding={false}>
+                <Table
+                    columns={columns as TableColumn<Record<string, unknown>>[]}
+                    data={filteredData as unknown as Record<string, unknown>[]}
+                    onRowClick={(row) => navigate(`/ap/pos/edit?poId=${row['id'] as string}&mode=view`)}
+                    showCount
+                    countLabel="orders"
+                    isLoading={isLoading}
+                    loadingLabel="Loading purchase orders..."
+                />
+            </Card>
+
+            <PrintPreviewModal
+                isOpen={isPreviewOpen}
+                onClose={() => setIsPreviewOpen(false)}
+                title="Purchase Order Print Preview"
+                documentTitle={`PurchaseOrder_${activePrintPo?.id || ''}`}
+            >
+                {activePrintPo && (
+                    // casts: PurchaseOrder/POItem/CompanyInfo lack index signatures required by print template
+                    <PurchaseOrderPrintTemplate
+                        purchaseOrder={activePrintPo as unknown as Record<string, unknown>}
+                        lineItems={activePrintLines as unknown as Record<string, unknown>[]}
+                        vendorName={activeVendorName}
+                        company={company as unknown as Record<string, unknown>}
+                    />
+                )}
+            </PrintPreviewModal>
+        </div>
+    );
+};
+
+export default PurchaseOrders;

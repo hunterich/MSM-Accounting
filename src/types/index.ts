@@ -1278,6 +1278,54 @@ export interface CustomerCategory {
   customerCount: number;
 }
 
+// ── Access Control ────────────────────────────────────────────────────────────
+
+export type ModuleKey =
+  | 'DASHBOARD' | 'GL_COA' | 'GL_JOURNAL'
+  | 'AR_INVOICES' | 'AR_SALES_ORDERS' | 'AR_PAYMENTS' | 'AR_CREDITS' | 'AR_CUSTOMERS'
+  | 'AP_POS' | 'AP_BILLS' | 'AP_PAYMENTS' | 'AP_DEBITS' | 'AP_VENDORS'
+  | 'INV_ITEMS' | 'INV_CATEGORIES' | 'INV_ADJ'
+  | 'HR_EMPLOYEES' | 'HR_ATTENDANCE' | 'HR_PAYROLL'
+  | 'BANKING' | 'INTEGRATIONS' | 'REPORTS' | 'COMPANY' | 'SETTINGS';
+
+export type RoleType = 'ADMIN' | 'ACCOUNTANT' | 'VIEWER' | 'CUSTOM';
+export type InvoiceAccessScope = 'ALL' | 'OWN';
+
+export interface Permission {
+  id: string;
+  roleId: string;
+  moduleKey: ModuleKey;
+  canView: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+}
+
+export interface Role {
+  id: string;
+  organizationId: string;
+  name: string;
+  roleType: RoleType;
+  invoiceAccessScope: InvoiceAccessScope;
+  isActive: boolean;
+  allowedDays: string[] | null;
+  startTime: string | null;
+  endTime: string | null;
+  permissions: Permission[];
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export interface DashboardSummary {
+  cashOnHand: number;
+  overdueInvoicesAmount: number;
+  netCashFlow: number;
+  outstandingBillsAmount: number;
+  recentInvoices: Pick<Invoice, 'id' | 'number' | 'customerName' | 'issueDate' | 'dueDate' | 'totalAmount' | 'status'>[];
+  recentPayments: Pick<ARPayment, 'id' | 'number' | 'customerName' | 'date' | 'totalAmount' | 'status'>[];
+  recentBills: Pick<Bill, 'id' | 'number' | 'vendorName' | 'issueDate' | 'dueDate' | 'totalAmount' | 'status'>[];
+}
+
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 
 export interface RawAuditLog {
