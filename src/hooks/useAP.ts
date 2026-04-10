@@ -41,14 +41,14 @@ const BILL_STATUS_UP: Record<string, string> = {
 const PAYMENT_STATUS_DOWN: Record<string, PaymentStatus> = { DRAFT: 'Draft', PROCESSING: 'Processing', COMPLETED: 'Completed', VOID: 'Void' };
 const PAYMENT_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Processing: 'PROCESSING', Completed: 'COMPLETED', Void: 'VOID' };
 
-// PO: DRAFT|APPROVED|PARTIAL_RECEIVED|CLOSED|CANCELLED
+// PO: DRAFT|PENDING_APPROVAL|APPROVED|PARTIAL_RECEIVED|CLOSED|CANCELLED
 // "PARTIAL_RECEIVED" → "Billed" matches the UI filter option
 const PO_STATUS_DOWN: Record<string, POStatus> = {
-    DRAFT: 'Draft', APPROVED: 'Approved', PARTIAL_RECEIVED: 'Billed',
+    DRAFT: 'Draft', PENDING_APPROVAL: 'Pending Approval', APPROVED: 'Approved', PARTIAL_RECEIVED: 'Billed',
     CLOSED: 'Closed', CANCELLED: 'Cancelled',
 };
 const PO_STATUS_UP: Record<string, string> = {
-    Draft: 'DRAFT', Approved: 'APPROVED', Billed: 'PARTIAL_RECEIVED',
+    Draft: 'DRAFT', 'Pending Approval': 'PENDING_APPROVAL', Approved: 'APPROVED', Billed: 'PARTIAL_RECEIVED',
     Closed: 'CLOSED', Cancelled: 'CANCELLED',
 };
 
@@ -418,5 +418,51 @@ export function useAPReport(params: Record<string, unknown>) {
         queryFn: () => api.get<Record<string, unknown>>('/api/v1/reports/ap', params),
         enabled: !!params.type,
         staleTime: 60_000,
+    });
+}
+
+// ── PO Actions ────────────────────────────────────────────────────────────────
+
+export function useReceiveGoods() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ poId, lines, notes }: { poId: string; lines: { purchaseOrderLineId: string; qtyReceived: number }[]; notes?: string }) =>
+            api.post<{ billId: string; billNumber: string }>(`/api/v1/purchase-orders/${poId}/receive`, { lines, notes }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.pos });
+            qc.invalidateQueries({ queryKey: AP_KEYS.bills });
+        },
+    });
+}
+
+export function useClosePO() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (poId: string) => api.post(`/api/v1/purchase-orders/${poId}/close`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.pos }),
+    });
+}
+
+export function useSubmitPOApproval() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (poId: string) => api.post(`/api/v1/purchase-orders/${poId}/submit-approval`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.pos }),
+    });
+}
+
+export function useApprovePO() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (poId: string) => api.post(`/api/v1/purchase-orders/${poId}/approve`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.pos }),
+    });
+}
+
+export function useRejectPO() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ poId, note }: { poId: string; note?: string }) => api.post(`/api/v1/purchase-orders/${poId}/reject`, { note }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.pos }),
     });
 }

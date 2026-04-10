@@ -21,6 +21,8 @@ import PaymentForm from './views/ar/PaymentForm'
 import CreditNotes from './views/ar/CreditNotes'
 import CreditNoteForm from './views/ar/CreditNoteForm'
 import SalesReturnForm from './views/ar/SalesReturnForm'
+import RecurringInvoices from './views/ar/RecurringInvoices'
+import ApprovalInbox from './views/ar/ApprovalInbox'
 import SOForm from './components/ar/salesorders/SOForm'
 
 import Bills from './views/ap/Bills'
@@ -107,6 +109,8 @@ function App(): JSX.Element {
                     <Route path="ar/credits/new" element={withPermission(<CreditNoteForm />, 'ar_credits', 'create')} />
                     <Route path="ar/credits/edit" element={withPermission(<CreditNoteForm />, 'ar_credits', 'edit')} />
                     <Route path="ar/returns/new" element={withPermission(<SalesReturnForm />, 'ar_credits', 'create')} />
+                    <Route path="ar/recurring" element={withPermission(<RecurringInvoices />, 'ar_invoices')} />
+                    <Route path="ar/approvals" element={withPermission(<ApprovalInbox />, 'ar_invoices')} />
 
                     {/* Accounts Payable */}
                     <Route path="ap" element={<Navigate to="/ap/bills" replace />} />

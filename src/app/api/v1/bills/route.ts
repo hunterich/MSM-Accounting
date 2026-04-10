@@ -68,6 +68,59 @@ export const POST = withHandler(async function POST(req: NextRequest) {
   const bill = await prisma.$transaction(async (tx: any) => {
     const createdBill = await createBillRecord(tx, orgId, parsed.data);
 
+    // --- PO line qty tracking ---
+    if (parsed.data.lines && parsed.data.lines.length > 0) {
+      const linesWithPO = (parsed.data.lines as any[]).filter(l => l.purchaseOrderLineId);
+      if (linesWithPO.length > 0) {
+        // Validate: no over-receiving
+        for (const line of linesWithPO) {
+          const poLine = await tx.purchaseOrderLine.findUnique({
+            where: { id: line.purchaseOrderLineId },
+            select: { id: true, quantity: true, receivedQty: true, purchaseOrderId: true },
+          });
+          if (!poLine) throw new ApiError(`PO line ${line.purchaseOrderLineId} not found`, 422);
+          const newTotal = Number(poLine.receivedQty) + Number(line.quantity);
+          if (newTotal > Number(poLine.quantity) + 0.0001) {
+            throw new ApiError(`Over-receiving: PO line allows ${Number(poLine.quantity) - Number(poLine.receivedQty)} more units`, 422);
+          }
+          // Increment receivedQty
+          await tx.purchaseOrderLine.update({
+            where: { id: line.purchaseOrderLineId },
+            data: { receivedQty: { increment: Number(line.quantity) } },
+          });
+          // Link the created bill line to the PO line
+          const billLine = createdBill!.lines?.find((bl: any) => bl.lineNo === line.lineNo);
+          if (billLine) {
+            await tx.billLine.update({
+              where: { id: billLine.id },
+              data: { purchaseOrderLineId: line.purchaseOrderLineId },
+            });
+          }
+        }
+        // Check PO completion and update status
+        const firstPoLineId = linesWithPO[0].purchaseOrderLineId;
+        const firstPoLine = await tx.purchaseOrderLine.findUnique({
+          where: { id: firstPoLineId },
+          select: { purchaseOrderId: true },
+        });
+        if (firstPoLine) {
+          const allPoLines = await tx.purchaseOrderLine.findMany({
+            where: { purchaseOrderId: firstPoLine.purchaseOrderId },
+            select: { quantity: true, receivedQty: true },
+          });
+          const allFull = allPoLines.every((pl: any) => Number(pl.receivedQty) >= Number(pl.quantity) - 0.0001);
+          const anyReceived = allPoLines.some((pl: any) => Number(pl.receivedQty) > 0.0001);
+          const newPoStatus = allFull ? 'CLOSED' : anyReceived ? 'PARTIAL_RECEIVED' : undefined;
+          if (newPoStatus) {
+            await tx.purchaseOrder.update({
+              where: { id: firstPoLine.purchaseOrderId },
+              data: { status: newPoStatus as any },
+            });
+          }
+        }
+      }
+    }
+
     // Add cost layers when bill status is APPROVED (or OPEN — treated as approved/ready)
     // Cast to string for forward-compatibility in case APPROVED is added to the enum later
     if ((parsed.data.status as string) === 'APPROVED' && createdBill) {

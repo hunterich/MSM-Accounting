@@ -12,6 +12,8 @@ import {
     Users,
     Menu,
     X,
+    RefreshCw,
+    CheckSquare,
     type LucideIcon,
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
@@ -57,8 +59,10 @@ const navItems: NavItem[] = [
             { label: 'Delivery Notes', path: '/ar/delivery-notes' },
             { label: 'Payments', path: '/ar/payments' },
             { label: 'Returns & Credits', path: '/ar/credits' },
+            { label: 'Recurring', path: '/ar/recurring' },
             { label: 'Customers', path: '/ar/customers' },
             { label: 'Customer Categories', path: '/ar/categories' },
+            { label: 'Approvals', path: '/ar/approvals' },
             { label: 'Shop Integrations', path: '/integrations' }
         ]
     },

@@ -387,3 +387,88 @@ export const useCreateDeliveryNote = () => {
         onSuccess:  () => qc.invalidateQueries({ queryKey: DN_KEYS.all }),
     });
 };
+
+// ── Approval workflow ─────────────────────────────────────────────────────────
+
+export function useSubmitInvoiceApproval() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (invoiceId: string) => api.post(`/api/v1/invoices/${invoiceId}/submit-approval`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.invoices }),
+    });
+}
+
+export function useApproveInvoice() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (invoiceId: string) => api.post(`/api/v1/invoices/${invoiceId}/approve`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.invoices }),
+    });
+}
+
+export function useRejectInvoice() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ invoiceId, note }: { invoiceId: string; note?: string }) => api.post(`/api/v1/invoices/${invoiceId}/reject`, { note }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.invoices }),
+    });
+}
+
+export function useSendInvoiceEmail() {
+    return useMutation({
+        mutationFn: ({ invoiceId, to, cc, message }: { invoiceId: string; to: string; cc?: string; message?: string }) =>
+            api.post(`/api/v1/invoices/${invoiceId}/send-email`, { to, cc, message }),
+    });
+}
+
+// ── Recurring Invoices ────────────────────────────────────────────────────────
+
+export const AR_RECURRING_KEYS = {
+    list: ['arRecurring'] as const,
+    single: (id: string) => ['arRecurring', id] as const,
+};
+
+export function useRecurringInvoices(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        queryKey: [...AR_RECURRING_KEYS.list, filters],
+        queryFn: () => api.get<any>('/api/v1/recurring-invoices', filters),
+        staleTime: 30_000,
+    });
+}
+
+export function useCreateRecurringInvoice() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: Record<string, unknown>) => api.post('/api/v1/recurring-invoices', body),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AR_RECURRING_KEYS.list }),
+    });
+}
+
+export function useUpdateRecurringInvoice() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...updates }: { id: string } & Record<string, unknown>) => api.put(`/api/v1/recurring-invoices/${id}`, updates),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AR_RECURRING_KEYS.list }),
+    });
+}
+
+export function useGenerateRecurringInvoice() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post<{ invoiceId: string; invoiceNumber: string; nextRunDate: string }>(`/api/v1/recurring-invoices/${id}/generate`),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: AR_RECURRING_KEYS.list });
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoices });
+        },
+    });
+}
+
+// ── Approvals (shared) ────────────────────────────────────────────────────────
+
+export function useApprovals(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        queryKey: ['approvals', filters],
+        queryFn: () => api.get<any>('/api/v1/approvals', filters),
+        staleTime: 15_000,
+    });
+}

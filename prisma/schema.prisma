@@ -30,6 +30,8 @@ model Organization {
   invoiceReminders       Boolean  @default(true)
   paymentAlerts          Boolean  @default(true)
   dailySummary           Boolean  @default(false)
+  emailFromName          String?
+  emailFromDomain        String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -69,6 +71,8 @@ model Organization {
   deliveryNotes          DeliveryNote[]
   inventoryLots          InventoryLot[]
   bankStatements         BankStatement[]
+  recurringInvoices      RecurringInvoice[]
+  approvalRequests       ApprovalRequest[]
 }
 
 model User {
@@ -86,6 +90,8 @@ model User {
   createdBillImportSessions BillImportSession[]
   auditLogs      AuditLog[]
   deliveryNotes  DeliveryNote[]
+  approvalRequestsBy  ApprovalRequest[] @relation("ApprovalReqBy")
+  approvalRequestsRev ApprovalRequest[] @relation("ApprovalRevBy")
 }
 
 model UserOrganization {
@@ -277,6 +283,7 @@ model Customer {
   salesReturns      SalesReturn[]
   creditNotes       CreditNote[]
   ecommerceConnections EcommerceConnection[]
+  recurringInvoices RecurringInvoice[]
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
@@ -442,20 +449,22 @@ model SalesInvoice {
   taxRate         Decimal       @default(11) @db.Decimal(5, 2)
   taxAmount       Decimal       @default(0) @db.Decimal(18, 2)
   totalAmount     Decimal       @default(0) @db.Decimal(18, 2)
-  soId            String?
-  notes           String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  soId               String?
+  recurringInvoiceId String?
+  notes              String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy       User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  lines           SalesInvoiceLine[]
-  attachments     SalesInvoiceAttachment[]
-  auditLogs       SalesInvoiceAuditLog[]
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy          User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  recurringInvoice   RecurringInvoice?  @relation(fields: [recurringInvoiceId], references: [id], onDelete: SetNull)
+  lines              SalesInvoiceLine[]
+  attachments        SalesInvoiceAttachment[]
+  auditLogs          SalesInvoiceAuditLog[]
   paymentAllocations ARPaymentAllocation[]
-  salesReturns    SalesReturn[]
-  creditNotes     CreditNote[]
+  salesReturns       SalesReturn[]
+  creditNotes        CreditNote[]
 
   @@unique([organizationId, number])
   @@index([organizationId, createdById, issueDate])
@@ -723,9 +732,11 @@ model PurchaseOrderLine {
   unit            String   @default("PCS")
   price           Decimal  @default(0) @db.Decimal(18, 2)
   lineTotal       Decimal  @default(0) @db.Decimal(18, 2)
+  receivedQty     Decimal  @default(0) @db.Decimal(15, 4)
 
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   item            Item?         @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  billLines       BillLine[]
 
   @@unique([purchaseOrderId, lineNo])
   @@index([itemId])
@@ -765,22 +776,25 @@ model Bill {
 }
 
 model BillLine {
-  id          String   @id @default(cuid())
-  billId       String
-  lineNo       Int
-  itemId       String?
-  accountId    String?
-  description  String
-  quantity     Decimal  @default(0) @db.Decimal(18, 4)
-  unit         String   @default("PCS")
-  price        Decimal  @default(0) @db.Decimal(18, 2)
-  lineTotal    Decimal  @default(0) @db.Decimal(18, 2)
+  id                   String   @id @default(cuid())
+  billId               String
+  lineNo               Int
+  itemId               String?
+  accountId            String?
+  description          String
+  quantity             Decimal  @default(0) @db.Decimal(18, 4)
+  unit                 String   @default("PCS")
+  price                Decimal  @default(0) @db.Decimal(18, 2)
+  lineTotal            Decimal  @default(0) @db.Decimal(18, 2)
+  purchaseOrderLineId  String?
 
-  bill         Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
-  item         Item?  @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  bill                 Bill                @relation(fields: [billId], references: [id], onDelete: Cascade)
+  item                 Item?               @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  purchaseOrderLine    PurchaseOrderLine?  @relation(fields: [purchaseOrderLineId], references: [id], onDelete: SetNull)
 
   @@unique([billId, lineNo])
   @@index([itemId])
+  @@index([purchaseOrderLineId])
 }
 
 model BillAttachment {
@@ -1300,6 +1314,7 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   VOID
+  PENDING_APPROVAL
 }
 
 enum BillStatus {
@@ -1359,6 +1374,7 @@ enum DebitSettlementType {
 
 enum PurchaseOrderStatus {
   DRAFT
+  PENDING_APPROVAL
   APPROVED
   PARTIAL_RECEIVED
   CLOSED
@@ -1529,4 +1545,96 @@ model BankStatementLine {
   matchedTxId String?
   statement   BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
   @@index([statementId])
+}
+
+// ─── Recurring Invoices ───────────────────────────────────────────────────────
+
+enum RecurringFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum RecurringStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+model RecurringInvoice {
+  id             String             @id @default(cuid())
+  organizationId String
+  customerId     String
+  title          String
+  frequency      RecurringFrequency
+  dayOfMonth     Int?
+  startDate      DateTime           @db.Date
+  endDate        DateTime?          @db.Date
+  nextRunDate    DateTime           @db.Date
+  status         RecurringStatus    @default(ACTIVE)
+  autoPost       Boolean            @default(false)
+  notes          String?
+  taxRate        Decimal            @default(0) @db.Decimal(5, 2)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer          Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  lines             RecurringInvoiceLine[]
+  generatedInvoices SalesInvoice[]
+
+  @@index([organizationId, nextRunDate, status])
+}
+
+model RecurringInvoiceLine {
+  id          String           @id @default(cuid())
+  recurringId String
+  lineNo      Int
+  itemId      String?
+  accountId   String?
+  description String
+  quantity    Decimal          @db.Decimal(15, 4)
+  unit        String?
+  price       Decimal          @db.Decimal(15, 2)
+  discountPct Decimal          @default(0) @db.Decimal(5, 2)
+  taxable     Boolean          @default(true)
+
+  recurring   RecurringInvoice @relation(fields: [recurringId], references: [id], onDelete: Cascade)
+
+  @@unique([recurringId, lineNo])
+}
+
+// ─── Approval Workflow ────────────────────────────────────────────────────────
+
+enum ApprovalDocumentType {
+  INVOICE
+  PURCHASE_ORDER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ApprovalRequest {
+  id             String               @id @default(cuid())
+  organizationId String
+  documentType   ApprovalDocumentType
+  documentId     String
+  requestedById  String
+  requestedAt    DateTime             @default(now())
+  status         ApprovalStatus       @default(PENDING)
+  reviewedById   String?
+  reviewedAt     DateTime?
+  note           String?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy    User         @relation("ApprovalReqBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy     User?        @relation("ApprovalRevBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([organizationId, documentType, documentId])
 }
