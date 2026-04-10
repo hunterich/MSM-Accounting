@@ -41,3 +41,16 @@ export function useUpdateOrganizationSettings() {
     },
   });
 }
+
+/** Convenience alias focused on costing-method updates. */
+export function useUpdateCostingMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { costingMethod: 'FIFO' | 'WEIGHTED_AVERAGE'; costingMethodEffectiveDate: string }) =>
+      api.put<RawOrganizationSettings & { needsInventoryValuationSetup?: boolean }>('/api/v1/organization/settings', body),
+    onSuccess: (data) => {
+      qc.setQueryData(ORG_SETTINGS_KEY, normalizeOrganizationSettings(data));
+      qc.invalidateQueries({ queryKey: ORG_SETTINGS_KEY });
+    },
+  });
+}

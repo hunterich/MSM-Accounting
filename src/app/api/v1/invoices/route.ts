@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
+import { InventoryDocumentType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import {
@@ -10,6 +11,8 @@ import { ApiError, logAudit, withHandler, ok, err, requireAuth, parsePaginationP
 import { toNumber, asMoney } from '@/lib/money';
 import { enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
+import { calculateAndPostCOGS } from '@/lib/inventory-costing';
+import { resolveAccountDefaultId } from '@/lib/account-defaults';
 
 export const runtime = 'nodejs';
 
@@ -23,6 +26,9 @@ export const GET = withHandler(async (req: NextRequest) => {
   const { searchParams, page, limit } = parsePaginationParams(req);
   const status = searchParams.get('status');
   const search = searchParams.get('search');
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  const customerId = searchParams.get('customerId');
 
   const access = await getInvoiceAccessContext(orgId, userId);
   const where: any = applyInvoiceAccessScope({ organizationId: orgId }, access);
@@ -31,6 +37,13 @@ export const GET = withHandler(async (req: NextRequest) => {
     { number: { contains: search, mode: 'insensitive' } },
     { customer: { name: { contains: search, mode: 'insensitive' } } },
   ];
+  if (dateFrom || dateTo) {
+    where.issueDate = {
+      ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+      ...(dateTo   ? { lte: new Date(dateTo)   } : {}),
+    };
+  }
+  if (customerId) where.customerId = customerId;
 
   const [data, total] = await Promise.all([
     prisma.salesInvoice.findMany({
@@ -191,6 +204,7 @@ export const POST = withHandler(async (request: NextRequest) => {
         taxEnabled: true,
         taxDefaultRate: true,
         taxInclusiveByDefault: true,
+        costingMethod: true,
       },
     });
 
@@ -212,7 +226,7 @@ export const POST = withHandler(async (request: NextRequest) => {
 
     const number = await nextInvoiceNumber(tx, payload.organizationId);
 
-    return tx.salesInvoice.create({
+    const invoice = await tx.salesInvoice.create({
       data: {
         organizationId: payload.organizationId,
         createdById: userId,
@@ -249,8 +263,106 @@ export const POST = withHandler(async (request: NextRequest) => {
         taxAmount: true,
         totalAmount: true,
         currency: true,
+        lines: { select: { itemId: true, quantity: true } },
       },
     });
+
+    // Auto-post COGS for inventory items when costing method is configured
+    if (organization.costingMethod) {
+      const invoiceDate = parseIsoDate(payload.issueDate);
+      const itemIds = invoice.lines
+        .map((l) => l.itemId)
+        .filter((id): id is string => Boolean(id));
+
+      if (itemIds.length > 0) {
+        const inventoryItems = await tx.item.findMany({
+          where: {
+            id: { in: itemIds },
+            organizationId: payload.organizationId,
+            type: { in: ['PRODUCT', 'RAW_MATERIAL'] },
+          },
+          select: { id: true },
+        });
+        const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
+
+        const linesWithInventory = invoice.lines.filter(
+          (l) => l.itemId && inventoryItemIds.has(l.itemId),
+        );
+
+        if (linesWithInventory.length > 0) {
+          // Resolve COGS and inventory account IDs once
+          const accounts = await tx.account.findMany({
+            where: { organizationId: payload.organizationId, isActive: true },
+            select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+          });
+
+          const cogsAccountId = resolveAccountDefaultId(accounts, undefined, 'cogsExpense');
+          const inventoryAccountId = resolveAccountDefaultId(accounts, undefined, 'inventoryAsset');
+
+          for (const line of linesWithInventory) {
+            const qty = toNumber(line.quantity);
+            if (qty <= 0 || !line.itemId) continue;
+
+            const cogs = await calculateAndPostCOGS(
+              tx,
+              payload.organizationId,
+              line.itemId,
+              null,
+              qty,
+              InventoryDocumentType.SALES,
+              invoice.id,
+              invoiceDate,
+            );
+
+            if (cogs > 0 && cogsAccountId && inventoryAccountId) {
+              // Generate a unique entryNo for the COGS journal entry
+              const cogsEntryRows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
+                SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
+                FROM "JournalEntry"
+                WHERE "organizationId" = ${payload.organizationId}
+                  AND "entryNo" LIKE ${'JE-%'}
+              `;
+              const nextSeq = (Number(cogsEntryRows[0]?.max_seq ?? 0)) + 1;
+              const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+
+              await tx.journalEntry.create({
+                data: {
+                  organizationId: payload.organizationId,
+                  entryNo,
+                  date: invoiceDate,
+                  memo: `COGS auto-post: ${invoice.number}`,
+                  source: 'SYSTEM',
+                  status: 'POSTED',
+                  postedAt: new Date(),
+                  totalDebit: asMoney(cogs),
+                  totalCredit: asMoney(cogs),
+                  lines: {
+                    create: [
+                      {
+                        lineNo: 1,
+                        accountId: cogsAccountId,
+                        description: `COGS - ${invoice.number}`,
+                        debit: asMoney(cogs),
+                        credit: 0,
+                      },
+                      {
+                        lineNo: 2,
+                        accountId: inventoryAccountId,
+                        description: `Inventory reduction - ${invoice.number}`,
+                        debit: 0,
+                        credit: asMoney(cogs),
+                      },
+                    ],
+                  },
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return invoice;
   });
 
   const responsePayload = createInvoiceResponseSchema.parse({

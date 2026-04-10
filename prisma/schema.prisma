@@ -66,6 +66,9 @@ model Organization {
   vendorDocumentMappings VendorDocumentMapping[]
   auditLogs              AuditLog[]
   salesOrders            SalesOrder[]
+  deliveryNotes          DeliveryNote[]
+  inventoryLots          InventoryLot[]
+  bankStatements         BankStatement[]
 }
 
 model User {
@@ -82,6 +85,7 @@ model User {
   salesInvoices  SalesInvoice[]
   createdBillImportSessions BillImportSession[]
   auditLogs      AuditLog[]
+  deliveryNotes  DeliveryNote[]
 }
 
 model UserOrganization {
@@ -387,6 +391,8 @@ model Item {
   stockAdjustmentLines StockAdjustmentLine[]
   ledgerEntries      InventoryLedgerEntry[]
   documentMappings   VendorDocumentMapping[]
+  inventoryLots      InventoryLot[]
+  deliveryNoteLines  DeliveryNoteLine[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -406,6 +412,8 @@ model Warehouse {
   purchaseReturns PurchaseReturn[]
   stockAdjustments StockAdjustment[]
   ledgerEntries  InventoryLedgerEntry[]
+  deliveryNotes  DeliveryNote[]
+  inventoryLots  InventoryLot[]
 
   @@unique([organizationId, code])
 }
@@ -526,6 +534,7 @@ model SalesOrder {
   notes          String?
   invoiceId      String?
   items          SalesOrderItem[]
+  deliveryNotes  DeliveryNote[]
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -533,16 +542,19 @@ model SalesOrder {
 }
 
 model SalesOrderItem {
-  id           String     @id @default(cuid())
-  salesOrderId String
-  productId    String?
-  code         String?
-  description  String
-  quantity     Decimal    @default(1) @db.Decimal(18,4)
-  unit         String?    @default("PCS")
-  price        Decimal    @default(0) @db.Decimal(18,4)
-  discount     Decimal    @default(0) @db.Decimal(5,2)
-  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  id            String     @id @default(cuid())
+  salesOrderId  String
+  productId     String?
+  code          String?
+  description   String
+  quantity      Decimal    @default(1) @db.Decimal(18,4)
+  unit          String?    @default("PCS")
+  price         Decimal    @default(0) @db.Decimal(18,4)
+  discount      Decimal    @default(0) @db.Decimal(5,2)
+  deliveredQty  Decimal    @default(0) @db.Decimal(15, 4)
+  invoicedQty   Decimal    @default(0) @db.Decimal(15, 4)
+  salesOrder    SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  deliveryNoteLines DeliveryNoteLine[]
 }
 
 model ARPayment {
@@ -1041,6 +1053,7 @@ model BankAccount {
   organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   transactions   BankTransaction[]
   ecommerceConnections EcommerceConnection[]
+  bankStatements BankStatement[]
 
   @@unique([organizationId, name])
   @@index([organizationId, code])
@@ -1430,4 +1443,90 @@ enum BillImportReviewStatus {
   NEEDS_REVIEW
   READY_TO_IMPORT
   IMPORTED
+}
+
+enum DeliveryNoteStatus {
+  DRAFT
+  DELIVERED
+  CANCELLED
+}
+
+model DeliveryNote {
+  id             String             @id @default(cuid())
+  organizationId String
+  number         String
+  salesOrderId   String
+  date           DateTime           @db.Date
+  status         DeliveryNoteStatus @default(DRAFT)
+  notes          String?
+  warehouseId    String?
+  createdById    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  salesOrder     SalesOrder         @relation(fields: [salesOrderId], references: [id])
+  warehouse      Warehouse?         @relation(fields: [warehouseId], references: [id])
+  createdBy      User?              @relation(fields: [createdById], references: [id])
+  lines          DeliveryNoteLine[]
+  @@unique([organizationId, number])
+  @@index([organizationId, salesOrderId])
+}
+
+model DeliveryNoteLine {
+  id               String       @id @default(cuid())
+  deliveryNoteId   String
+  salesOrderItemId String
+  itemId           String
+  qtyOrdered       Decimal      @db.Decimal(15, 4)
+  qtyDelivered     Decimal      @db.Decimal(15, 4)
+  deliveryNote     DeliveryNote   @relation(fields: [deliveryNoteId], references: [id], onDelete: Cascade)
+  salesOrderItem   SalesOrderItem @relation(fields: [salesOrderItemId], references: [id])
+  item             Item           @relation(fields: [itemId], references: [id])
+}
+
+model InventoryLot {
+  id             String                @id @default(cuid())
+  organizationId String
+  itemId         String
+  warehouseId    String?
+  documentType   InventoryDocumentType
+  documentId     String
+  date           DateTime
+  qtyIn          Decimal               @default(0) @db.Decimal(15, 4)
+  qtyOut         Decimal               @default(0) @db.Decimal(15, 4)
+  qtyBalance     Decimal               @db.Decimal(15, 4)
+  unitCost       Decimal               @db.Decimal(15, 6)
+  createdAt      DateTime              @default(now())
+  organization   Organization          @relation(fields: [organizationId], references: [id])
+  item           Item                  @relation(fields: [itemId], references: [id])
+  warehouse      Warehouse?            @relation(fields: [warehouseId], references: [id])
+  @@index([organizationId, itemId, date])
+  @@index([itemId, warehouseId, date])
+}
+
+model BankStatement {
+  id             String              @id @default(cuid())
+  organizationId String
+  bankAccountId  String
+  filename       String
+  importedAt     DateTime            @default(now())
+  fromDate       DateTime?
+  toDate         DateTime?
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  bankAccount    BankAccount         @relation(fields: [bankAccountId], references: [id])
+  lines          BankStatementLine[]
+  @@index([organizationId, bankAccountId])
+}
+
+model BankStatementLine {
+  id          String      @id @default(cuid())
+  statementId String
+  date        DateTime
+  description String
+  amount      Decimal     @db.Decimal(15, 2)
+  balance     Decimal?    @db.Decimal(15, 2)
+  matchStatus MatchStatus @default(UNMATCHED)
+  matchedTxId String?
+  statement   BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  @@index([statementId])
 }

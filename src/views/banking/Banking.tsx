@@ -1,11 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search } from 'lucide-react';
-import { useBankAccounts, useBankTransactions } from '../../hooks/useBanking';
+import Modal from '../../components/UI/Modal';
+import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search, Upload, Zap } from 'lucide-react';
+import {
+    useBankAccounts, useBankTransactions,
+    useBankStatements, useImportBankStatement, useAutoMatch, useManualMatch,
+    BankStatement, BankStatementLine,
+} from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import ListPage from '../../components/Layout/ListPage';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
@@ -35,6 +40,27 @@ const Banking = () => {
     const [selectedAccountId, setSelectedAccountId] = useState<string>('');
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [statusFilter, setStatusFilter] = useState<string>('');
+
+    // ── Import statement state ────────────────────────────────────────────────
+    const [importModalOpen, setImportModalOpen] = useState(false);
+    const [importAccountId, setImportAccountId] = useState('');
+    const [importFile, setImportFile] = useState<File | null>(null);
+    const [importError, setImportError] = useState('');
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // The "active" statement whose lines we show in the matching table
+    const [activeStatementId, setActiveStatementId] = useState('');
+    // Pending manual match: statementLineId → txId selection
+    const [matchingLineId, setMatchingLineId] = useState('');
+    const [matchTxnId, setMatchTxnId] = useState('');
+
+    const statementsForAccount = selectedAccountId || undefined;
+    const { data: statements = [] } = useBankStatements(statementsForAccount);
+    const activeStatement = (statements as BankStatement[]).find((s) => s.id === activeStatementId) || null;
+
+    const importStatement = useImportBankStatement();
+    const autoMatch = useAutoMatch(activeStatementId);
+    const manualMatch = useManualMatch();
 
     // Fetch transactions — filter by account when one is selected
     const txnFilters = useMemo(() => ({
@@ -254,6 +280,181 @@ const Banking = () => {
                     loadingLabel="Loading transactions..."
                 />
             </Card>
+
+            {/* ── Import Bank Statement section ─────────────────────────────── */}
+            <Card
+                title="Bank Statement Import"
+                padding
+            >
+                <div className="flex items-center gap-3 mb-4">
+                    <Button
+                        text="Import Bank Statement"
+                        variant="secondary"
+                        icon={<Upload size={16} />}
+                        disabled={!canCreate}
+                        onClick={() => setImportModalOpen(true)}
+                    />
+                    {(statements as BankStatement[]).length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <select
+                                className="h-9 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
+                                value={activeStatementId}
+                                onChange={(e) => setActiveStatementId(e.target.value)}
+                            >
+                                <option value="">Select imported statement</option>
+                                {(statements as BankStatement[]).map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                        {s.fileName || s.id} {s.importedAt ? `(${formatDateID(s.importedAt.slice(0, 10))})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            {activeStatementId && (
+                                <Button
+                                    text="Auto-match"
+                                    variant="primary"
+                                    size="small"
+                                    icon={<Zap size={14} />}
+                                    disabled={autoMatch.isPending}
+                                    onClick={() => autoMatch.mutate()}
+                                />
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {activeStatement && (
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                            <thead className="bg-neutral-50">
+                                <tr>
+                                    <th className="p-2 text-left font-semibold border border-neutral-200">Date</th>
+                                    <th className="p-2 text-left font-semibold border border-neutral-200">Description</th>
+                                    <th className="p-2 text-right font-semibold border border-neutral-200">Amount</th>
+                                    <th className="p-2 text-center font-semibold border border-neutral-200">Status</th>
+                                    <th className="p-2 text-center font-semibold border border-neutral-200 w-[180px]">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(activeStatement.lines || []).map((line: BankStatementLine) => (
+                                    <tr key={line.id} className="hover:bg-neutral-50">
+                                        <td className="p-2 border border-neutral-100">{formatDateID(line.date)}</td>
+                                        <td className="p-2 border border-neutral-100">{line.description}</td>
+                                        <td className="p-2 border border-neutral-100 text-right font-mono">
+                                            <span className={line.amount >= 0 ? 'banking-amount-positive' : 'banking-amount-negative'}>
+                                                {line.amount >= 0 ? '+' : ''}{formatIDR(line.amount)}
+                                            </span>
+                                        </td>
+                                        <td className="p-2 border border-neutral-100 text-center">
+                                            <StatusTag status={line.status === 'Matched' ? 'Success' : 'Warning'} label={line.status} />
+                                        </td>
+                                        <td className="p-2 border border-neutral-100 text-center">
+                                            {line.status === 'Unmatched' ? (
+                                                matchingLineId === line.id ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Transaction ID"
+                                                            className="h-7 w-28 px-2 text-xs border border-neutral-300 rounded"
+                                                            value={matchTxnId}
+                                                            onChange={(e) => setMatchTxnId(e.target.value)}
+                                                        />
+                                                        <Button
+                                                            text="OK"
+                                                            size="small"
+                                                            variant="primary"
+                                                            onClick={() => {
+                                                                if (matchTxnId) {
+                                                                    manualMatch.mutate({ statementLineId: line.id, txnId: matchTxnId });
+                                                                    setMatchingLineId('');
+                                                                    setMatchTxnId('');
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <Button
+                                                        text="Match"
+                                                        size="small"
+                                                        variant="secondary"
+                                                        disabled={!canCreate}
+                                                        onClick={() => { setMatchingLineId(line.id); setMatchTxnId(''); }}
+                                                    />
+                                                )
+                                            ) : (
+                                                <span className="text-xs text-neutral-400">Matched</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </Card>
+
+            {/* ── Import modal ──────────────────────────────────────────────── */}
+            <Modal
+                isOpen={importModalOpen}
+                onClose={() => { setImportModalOpen(false); setImportError(''); setImportFile(null); }}
+                title="Import Bank Statement"
+                size="sm"
+            >
+                <div className="space-y-4">
+                    {importError && (
+                        <div className="rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-sm text-danger-700">
+                            {importError}
+                        </div>
+                    )}
+                    <div>
+                        <label className="form-label">Bank Account</label>
+                        <select
+                            className="block w-full px-3 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                            value={importAccountId}
+                            onChange={(e) => setImportAccountId(e.target.value)}
+                        >
+                            <option value="">Select bank account</option>
+                            {bankAccounts.map((acc) => (
+                                <option key={acc.id} value={acc.id}>{acc.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="form-label">Statement File</label>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".csv,.ofx,.qfx"
+                            className="block w-full text-sm text-neutral-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                            onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                        />
+                        <div className="mt-1 text-xs text-neutral-500">Accepted: .csv, .ofx, .qfx</div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <Button text="Cancel" variant="secondary" onClick={() => { setImportModalOpen(false); setImportError(''); }} />
+                        <Button
+                            text={importStatement.isPending ? 'Importing...' : 'Import'}
+                            variant="primary"
+                            disabled={importStatement.isPending}
+                            onClick={async () => {
+                                if (!importFile) { setImportError('Please select a file.'); return; }
+                                if (!importAccountId) { setImportError('Please select a bank account.'); return; }
+                                setImportError('');
+                                const fd = new FormData();
+                                fd.append('file', importFile);
+                                fd.append('bankAccountId', importAccountId);
+                                try {
+                                    const result = await importStatement.mutateAsync(fd);
+                                    setActiveStatementId(result.id);
+                                    setImportModalOpen(false);
+                                    setImportFile(null);
+                                } catch (err) {
+                                    setImportError((err as Error)?.message ?? 'Import failed.');
+                                }
+                            }}
+                        />
+                    </div>
+                </div>
+            </Modal>
         </ListPage>
     );
 };

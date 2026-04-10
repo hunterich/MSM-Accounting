@@ -9,11 +9,13 @@ import type {
 } from '../types';
 
 export const INV_KEYS = {
-    items:       ['invItems'] as const,
-    item:        (id: string) => ['invItems', id] as const,
-    categories:  ['invItemCategories'] as const,
-    adjustments: ['invAdjustments'] as const,
-    adjustment:  (id: string) => ['invAdjustments', id] as const,
+    items:        ['invItems'] as const,
+    item:         (id: string) => ['invItems', id] as const,
+    categories:   ['invItemCategories'] as const,
+    adjustments:  ['invAdjustments'] as const,
+    adjustment:   (id: string) => ['invAdjustments', id] as const,
+    warehouses:   ['invWarehouses'] as const,
+    valuation:    (filters: Record<string, unknown>) => ['invValuation', filters] as const,
 };
 
 // ── Status / Type maps ────────────────────────────────────────────────────────
@@ -216,6 +218,53 @@ export function useCreateStockAdjustment() {
             qc.invalidateQueries({ queryKey: INV_KEYS.adjustments });
             qc.invalidateQueries({ queryKey: INV_KEYS.items });
         },
+    });
+}
+
+// ── Warehouses ────────────────────────────────────────────────────────────────
+
+export interface Warehouse {
+    id: string;
+    name: string;
+    code?: string;
+    address?: string;
+    isActive?: boolean;
+}
+
+export function useWarehouses() {
+    return useQuery({
+        queryKey: INV_KEYS.warehouses,
+        queryFn:  () => api.get<{ data?: Warehouse[] } | Warehouse[]>('/api/v1/warehouses'),
+        select:   (res) => (Array.isArray(res) ? res : (res.data ?? [])),
+        staleTime: 60_000,
+    });
+}
+
+// ── Stock Valuation ───────────────────────────────────────────────────────────
+
+export interface StockValuationRow {
+    itemId: string;
+    sku: string;
+    itemName: string;
+    category?: string;
+    categoryId?: string;
+    qtyOnHand: number;
+    avgUnitCost: number;
+    totalValue: number;
+    warehouseId?: string;
+    warehouseName?: string;
+}
+
+export interface StockValuationResult {
+    rows: StockValuationRow[];
+    totalValue: number;
+}
+
+export function useStockValuation(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        queryKey: INV_KEYS.valuation(filters),
+        queryFn:  () => api.get<StockValuationResult>('/api/v1/inventory/valuation', filters),
+        staleTime: 30_000,
     });
 }
 

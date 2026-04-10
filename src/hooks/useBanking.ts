@@ -20,6 +20,7 @@ export const BANK_KEYS = {
   account:      (id: string) => ['bankAccounts', id] as const,
   transactions: (filters?: Record<string, unknown>) => ['bankTransactions', filters ?? {}] as const,
   transaction:  (id: string) => ['bankTransactions', id] as const,
+  statements:   (bankAccountId?: string) => ['bankStatements', bankAccountId ?? ''] as const,
 };
 
 // ─── Normalizers ──────────────────────────────────────────────────────────────
@@ -186,6 +187,68 @@ export function useDeleteBankTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bankTransactions'] });
       qc.invalidateQueries({ queryKey: BANK_KEYS.accounts });
+    },
+  });
+}
+
+// ─── Bank Statement Hooks ─────────────────────────────────────────────────────
+
+export interface BankStatementLine {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  status: 'Matched' | 'Unmatched';
+  matchedTxnId?: string;
+}
+
+export interface BankStatement {
+  id: string;
+  bankAccountId: string;
+  fileName?: string;
+  importedAt?: string;
+  lines: BankStatementLine[];
+}
+
+export function useBankStatements(bankAccountId?: string) {
+  return useQuery({
+    queryKey: BANK_KEYS.statements(bankAccountId),
+    queryFn:  () => api.get<{ data?: BankStatement[] } | BankStatement[]>(
+      '/api/v1/bank-statements',
+      bankAccountId ? { bankAccountId } : undefined
+    ),
+    select: (res) => (Array.isArray(res) ? res : (res.data ?? [])),
+    staleTime: 30_000,
+  });
+}
+
+export function useImportBankStatement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (formData: FormData) => api.postForm<BankStatement>('/api/v1/bank-statements', formData),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bankStatements'] }),
+  });
+}
+
+export function useAutoMatch(statementId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post(`/api/v1/bank-statements/match?statementId=${statementId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bankStatements'] });
+      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
+    },
+  });
+}
+
+export function useManualMatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ statementLineId, txnId }: { statementLineId: string; txnId: string }) =>
+      api.post('/api/v1/bank-statements/manual-match', { statementLineId, txnId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bankStatements'] });
+      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
     },
   });
 }

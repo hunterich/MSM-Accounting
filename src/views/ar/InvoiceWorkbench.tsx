@@ -4,13 +4,15 @@ import InvoiceWorkbenchLayout from '../../components/ar/invoices/InvoiceWorkbenc
 import InvoiceCatalogPanel from '../../components/ar/invoices/InvoiceCatalogPanel';
 import InvoiceDetailTabs from '../../components/ar/invoices/InvoiceDetailTabs';
 import Button from '../../components/UI/Button';
+import DocumentTabBar from '../../components/UI/DocumentTabBar';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import { useInvoiceStore } from '../../stores/useInvoiceStore';
 import { useInvoices } from '../../hooks/useAR';
+import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
-import { List, X, Plus, Download, Upload } from 'lucide-react';
+import { Download, Upload } from 'lucide-react';
 import ImportInvoicesModal from '../../components/ar/invoices/ImportInvoicesModal';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
@@ -39,11 +41,6 @@ const InvoiceWorkbench = () => {
         dateFrom: searchParams.get('from') || '',
         dateTo: searchParams.get('to') || ''
     });
-    const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>(searchParams.get('invoiceId') || '');
-    const [openInvoiceIds, setOpenInvoiceIds] = useState<string[]>(() => {
-        const initial = searchParams.get('invoiceId');
-        return initial ? [initial] : [];
-    });
     const [detailMode, setDetailMode] = useState<string>(searchParams.get('mode') || 'view');
     const [mobileCatalogOpen, setMobileCatalogOpen] = useState<boolean>(false);
 
@@ -52,6 +49,15 @@ const InvoiceWorkbench = () => {
     const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
 
     const { canCreate, canEdit, canDelete } = useModulePermissions('ar_invoices');
+
+    // Tab state managed by useDocumentTabs
+    const { selectedId: selectedInvoiceId, openIds: openInvoiceIds, openTab: openInvoiceTab, closeTab: closeInvoiceTab, tabRows } = useDocumentTabs({ urlParam: 'invoiceId', maxPerRow: 5 });
+
+    // Sync selectedId setter for external use (location.state navigation)
+    // We need a way to call openTab from the effect below
+    const handleOpenTab = useCallback((invoiceId: string) => {
+        openInvoiceTab(invoiceId);
+    }, [openInvoiceTab]);
 
     useEffect(() => {
         const state = location.state || {};
@@ -68,11 +74,10 @@ const InvoiceWorkbench = () => {
             });
         }
         if (targetInvoiceId) {
-            setOpenInvoiceIds((prev) => (prev.includes(targetInvoiceId) ? prev : [...prev, targetInvoiceId]));
-            setSelectedInvoiceId(targetInvoiceId);
+            handleOpenTab(targetInvoiceId);
         }
         setDetailMode(targetMode);
-    }, [location.state, searchParams]);
+    }, [location.state, searchParams, handleOpenTab]);
 
     useEffect(() => {
         const params: Record<string, string> = {};
@@ -103,10 +108,6 @@ const InvoiceWorkbench = () => {
     const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) || null;
     const activePrintInvoice = invoices.find((invoice) => invoice.id === printInvoiceId) || null;
     const activePrintLines = activePrintInvoice ? (invoiceItemTemplates[activePrintInvoice.id] || []) : [];
-
-
-
-    const MAX_TABS_PER_ROW = 5;
 
     const catalogState = useMemo(() => ({
         searchTerm: filters.searchTerm,
@@ -159,61 +160,6 @@ const InvoiceWorkbench = () => {
         ]);
     };
 
-    const renderInvoiceTab = (invoiceId: string) => {
-        const invoice = invoices.find((row) => row.id === invoiceId);
-        if (!invoice) return null;
-        const isActive = invoiceId === selectedInvoiceId;
-        return (
-            <button
-                key={invoiceId}
-                className={`workbench-doc-tab ${isActive ? 'active' : ''}`}
-                onClick={() => setSelectedInvoiceId(invoiceId)}
-            >
-                {invoice.number || invoice.id}
-                <span
-                    className="workbench-doc-tab-close"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        closeInvoiceTab(invoiceId);
-                    }}
-                >
-                    <X size={14} />
-                </span>
-            </button>
-        );
-    };
-
-    const firstRowDynamicLimit = Math.max(0, MAX_TABS_PER_ROW - 2);
-    const firstRowInvoiceIds = openInvoiceIds.slice(0, firstRowDynamicLimit);
-    const remainingInvoiceIds = openInvoiceIds.slice(firstRowDynamicLimit);
-    const extraRows: string[][] = [];
-    for (let i = 0; i < remainingInvoiceIds.length; i += MAX_TABS_PER_ROW) {
-        extraRows.push(remainingInvoiceIds.slice(i, i + MAX_TABS_PER_ROW));
-    }
-
-    const openInvoiceTab = (invoiceId: string) => {
-        setOpenInvoiceIds((prev) => (prev.includes(invoiceId) ? prev : [...prev, invoiceId]));
-        setSelectedInvoiceId(invoiceId);
-        setDetailMode('view');
-        setMobileCatalogOpen(false);
-    };
-
-    const closeInvoiceTab = (invoiceId: string) => {
-        setOpenInvoiceIds((prev) => {
-            const idx = prev.indexOf(invoiceId);
-            const next = prev.filter((id) => id !== invoiceId);
-            if (selectedInvoiceId === invoiceId) {
-                if (next.length === 0) {
-                    setSelectedInvoiceId('');
-                } else {
-                    const fallback = next[Math.max(0, idx - 1)] || next[0];
-                    setSelectedInvoiceId(fallback);
-                }
-            }
-            return next;
-        });
-    };
-
     const catalog = (
         <InvoiceCatalogPanel
             // casts: Invoice/InvoiceFilters lack index signatures required by panel components
@@ -224,8 +170,8 @@ const InvoiceWorkbench = () => {
             onSearchChange={(searchTerm) => setFilters((prev) => ({ ...prev, searchTerm }))}
             onFilterChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
             onDateRangeChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
-            onSelectInvoice={openInvoiceTab}
-            onViewInvoice={openInvoiceTab}
+            onSelectInvoice={(id) => { openInvoiceTab(id); setDetailMode('view'); setMobileCatalogOpen(false); }}
+            onViewInvoice={(id) => { openInvoiceTab(id); setDetailMode('view'); setMobileCatalogOpen(false); }}
             canEdit={canEdit}
             onEditInvoice={handleEdit}
             onPrintInvoice={queuePrintInvoice}
@@ -267,41 +213,25 @@ const InvoiceWorkbench = () => {
                 />
             </div>
 
-            <div className="workbench-doc-tabs">
-                <div className="workbench-doc-tab-row">
-                    <button
-                        className="workbench-doc-tab workbench-doc-tab-catalog"
-                        onClick={() => {
-                            setSelectedInvoiceId('');
-                            navigate('/ar/invoices/workbench', {
-                                state: { catalogState },
-                            });
-                        }}
-                        title="Back to catalog"
-                    >
-                        <List size={16} />
-                        Catalog
-                    </button>
-                    <button
-                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
-                        onClick={() => navigate('/ar/invoices/new')}
-                        disabled={!canCreate}
-                        title="New invoice"
-                    >
-                        <Plus size={16} />
-                        New Invoice
-                    </button>
-                    {firstRowInvoiceIds.map((invoiceId) => renderInvoiceTab(invoiceId))}
+            <DocumentTabBar
+                openIds={openInvoiceIds}
+                selectedId={selectedInvoiceId}
+                tabRows={tabRows}
+                getLabel={(id) => invoices.find((inv) => inv.id === id)?.number || id}
+                onSelect={(id) => { openInvoiceTab(id); }}
+                onClose={closeInvoiceTab}
+                newTabLabel="New Invoice"
+                onNewTab={canCreate ? () => navigate('/ar/invoices/new') : undefined}
+                disableNew={!canCreate}
+                onCatalog={() => {
+                    navigate('/ar/invoices/workbench', { state: { catalogState } });
+                }}
+                firstRowSuffix={
                     <div className="workbench-tab-count">
                         Open tabs: {openInvoiceIds.length}
                     </div>
-                </div>
-                {extraRows.map((row, rowIndex) => (
-                    <div key={`extra-row-${rowIndex}`} className="workbench-doc-tab-row secondary-row">
-                        {row.map((invoiceId) => renderInvoiceTab(invoiceId))}
-                    </div>
-                ))}
-            </div>
+                }
+            />
 
             <InvoiceWorkbenchLayout
                 catalog={catalog}

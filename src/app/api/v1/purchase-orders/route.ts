@@ -19,6 +19,9 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const status = searchParams.get('status');
   const search = searchParams.get('search');
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  const vendorId = searchParams.get('vendorId');
 
   const where: any = { organizationId: orgId };
   if (status) where.status = status;
@@ -26,6 +29,13 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     { number: { contains: search, mode: 'insensitive' } },
     { vendor: { name: { contains: search, mode: 'insensitive' } } },
   ];
+  if (dateFrom || dateTo) {
+    where.date = {
+      ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+      ...(dateTo   ? { lte: new Date(dateTo)   } : {}),
+    };
+  }
+  if (vendorId) where.vendorId = vendorId;
 
   const [data, total] = await Promise.all([
     prisma.purchaseOrder.findMany({

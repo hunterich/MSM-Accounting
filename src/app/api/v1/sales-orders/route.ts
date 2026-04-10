@@ -15,9 +15,24 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 50, maxLimit: 200 });
   const status = searchParams.get('status') || undefined;
+  const search = searchParams.get('search');
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  const customerId = searchParams.get('customerId');
 
   const where: any = { organizationId: orgId };
   if (status) where.status = status.toUpperCase();
+  if (search) where.OR = [
+    { number: { contains: search, mode: 'insensitive' } },
+    { customerName: { contains: search, mode: 'insensitive' } },
+  ];
+  if (dateFrom || dateTo) {
+    where.issueDate = {
+      ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+      ...(dateTo   ? { lte: new Date(dateTo)   } : {}),
+    };
+  }
+  if (customerId) where.customerId = customerId;
 
   const [data, total] = await Promise.all([
     prisma.salesOrder.findMany({

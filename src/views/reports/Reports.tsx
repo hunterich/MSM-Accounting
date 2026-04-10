@@ -30,7 +30,10 @@ export type ReportType =
   | 'trial-balance'
   | 'balance-sheet'
   | 'balance-sheet-multi-period'
-  | 'profit-loss';
+  | 'profit-loss'
+  | 'ap-aging'
+  | 'cash-flow'
+  | 'stock-movement';
 
 /** Category IDs available in the sidebar. */
 export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inventory';
@@ -262,6 +265,60 @@ export interface BalanceSheetMultiSummary {
   variance: BalanceSheetMultiTotals;
 }
 
+// ── AP Aging ───────────────────────────────────────────────────────────────────
+
+export interface APAgingRow {
+  id: string;
+  vendorName: string;
+  billDate: string;
+  dueDate: string;
+  daysOverdue: number;
+  balance: number;
+  current: number;
+  d1_30: number;
+  d31_60: number;
+  d61_90: number;
+  d90plus: number;
+}
+
+export interface APAgingSummary {
+  current: number;
+  d1_30: number;
+  d31_60: number;
+  d61_90: number;
+  d90plus: number;
+  balance: number;
+}
+
+// ── Cash Flow ──────────────────────────────────────────────────────────────────
+
+export interface CashFlowRow {
+  bankAccountId: string;
+  bankAccountName: string;
+  date: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+}
+
+export interface CashFlowSummary {
+  totalInflow: number;
+  totalOutflow: number;
+  totalNet: number;
+}
+
+// ── Stock Movement ─────────────────────────────────────────────────────────────
+
+export interface StockMovementRow {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  openingBalance: number;
+  totalIn: number;
+  totalOut: number;
+  closingBalance: number;
+}
+
 /** Column definition used for dynamic table rendering (not yet used but exported for future use). */
 export interface ReportColumn {
   key: string;
@@ -448,10 +505,49 @@ const GL_REPORTS: ReportDefinition[] = [
   },
 ];
 
+const AP_REPORTS: ReportDefinition[] = [
+  {
+    id: 'ap-aging',
+    category: 'ap',
+    apiPath: '/api/v1/reports/ap',
+    name: 'AP Aging',
+    description: 'Shows open bills per vendor with aging buckets (Current/1-30/31-60/61-90/90+).',
+    type: 'table',
+    filterMode: 'as-of',
+  },
+];
+
+const BANKING_REPORTS: ReportDefinition[] = [
+  {
+    id: 'cash-flow',
+    category: 'banking',
+    apiPath: '/api/v1/reports/gl',
+    name: 'Cash Flow',
+    description: 'Shows inflows, outflows, and net cash per bank account for a date range.',
+    type: 'table',
+    filterMode: 'date-range',
+  },
+];
+
+const INVENTORY_REPORTS: ReportDefinition[] = [
+  {
+    id: 'stock-movement',
+    category: 'inventory',
+    apiPath: '/api/v1/reports/gl',
+    name: 'Stock Movement',
+    description: 'Shows per-item opening balance, total in/out, and closing balance for a period.',
+    type: 'table',
+    filterMode: 'date-range',
+  },
+];
+
 const REPORTS_BY_CATEGORY: Partial<Record<ReportCategoryId, ReportDefinition[]>> = {
-  sales: SALES_REPORTS,
-  gl:    GL_REPORTS,
-  ar:    AR_REPORTS,
+  sales:     SALES_REPORTS,
+  gl:        GL_REPORTS,
+  ar:        AR_REPORTS,
+  ap:        AP_REPORTS,
+  banking:   BANKING_REPORTS,
+  inventory: INVENTORY_REPORTS,
 };
 
 const IMPLEMENTED_CATEGORIES: CategoryMeta[] = ALL_CATEGORIES.filter((category) => {
@@ -913,6 +1009,14 @@ const Reports: React.FC = () => {
       return { type: report.id, dateFrom, dateTo };
     }
 
+    if (report.category === 'ap') {
+      return { type: report.id, asOfDate };
+    }
+
+    if (report.category === 'banking' || report.category === 'inventory') {
+      return { type: report.id, dateFrom, dateTo };
+    }
+
     return { type: report.id };
   };
 
@@ -958,6 +1062,55 @@ const Reports: React.FC = () => {
     }
   };
 
+  const buildApCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
+    if (report.id === 'ap-aging') {
+      const rows = (data.rows || []) as APAgingRow[];
+      const summary = (data.summary || {}) as APAgingSummary;
+      let csv = 'Bill No.,Vendor,Bill Date,Due Date,Days Overdue,Current,1-30,31-60,61-90,90+,Balance\n';
+      csv += rows.map((row) => [
+        escapeCsvCell(row.id),
+        escapeCsvCell(row.vendorName),
+        escapeCsvCell(row.billDate),
+        escapeCsvCell(row.dueDate),
+        row.daysOverdue,
+        row.current, row.d1_30, row.d31_60, row.d61_90, row.d90plus, row.balance,
+      ].join(',')).join('\n');
+      csv += `\nTotal,,,,, ${summary.current || 0},${summary.d1_30 || 0},${summary.d31_60 || 0},${summary.d61_90 || 0},${summary.d90plus || 0},${summary.balance || 0}`;
+      return csv;
+    }
+    return '';
+  };
+
+  const buildBankingCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
+    if (report.id === 'cash-flow') {
+      const rows = (data.rows || []) as CashFlowRow[];
+      const summary = (data.summary || {}) as CashFlowSummary;
+      let csv = 'Bank Account,Date,Inflow,Outflow,Net\n';
+      csv += rows.map((row) => [
+        escapeCsvCell(row.bankAccountName),
+        escapeCsvCell(row.date),
+        row.inflow, row.outflow, row.net,
+      ].join(',')).join('\n');
+      csv += `\nTotal,,${summary.totalInflow || 0},${summary.totalOutflow || 0},${summary.totalNet || 0}`;
+      return csv;
+    }
+    return '';
+  };
+
+  const buildInventoryCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
+    if (report.id === 'stock-movement') {
+      const rows = (data.rows || []) as StockMovementRow[];
+      let csv = 'SKU,Item Name,Opening Balance,Total In,Total Out,Closing Balance\n';
+      csv += rows.map((row) => [
+        escapeCsvCell(row.sku),
+        escapeCsvCell(row.itemName),
+        row.openingBalance, row.totalIn, row.totalOut, row.closingBalance,
+      ].join(',')).join('\n');
+      return csv;
+    }
+    return '';
+  };
+
   const handleExportCsv = () => {
     if (!activeReport) return;
 
@@ -966,7 +1119,13 @@ const Reports: React.FC = () => {
       ? buildArCsv(report, data as Record<string, unknown>)
       : report.category === 'gl'
         ? buildGlCsv(report, data as Record<string, unknown>)
-        : buildSalesCsv(report, data as Record<string, unknown>);
+        : report.category === 'ap'
+          ? buildApCsv(report, data as Record<string, unknown>)
+          : report.category === 'banking'
+            ? buildBankingCsv(report, data as Record<string, unknown>)
+            : report.category === 'inventory'
+              ? buildInventoryCsv(report, data as Record<string, unknown>)
+              : buildSalesCsv(report, data as Record<string, unknown>);
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -1560,6 +1719,141 @@ const Reports: React.FC = () => {
       );
     }
 
+    // ── AP Aging ─────────────────────────────────────────────────────────────
+    if (report.id === 'ap-aging') {
+      const apData = data as { rows: APAgingRow[]; summary: APAgingSummary };
+      const apRows = apData.rows || [];
+      const apSummary = apData.summary || {} as APAgingSummary;
+      if (!apRows.length) return renderEmptyReport('No open bills found for the selected date.');
+      return (
+        <div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-3 text-left font-semibold border border-neutral-300">Bill No.</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Vendor</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Bill Date</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Due Date</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Days</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Current</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">1–30</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">31–60</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">61–90</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">90+</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apRows.map((row) => (
+                <tr key={row.id} className="hover:bg-neutral-50">
+                  <td className="p-3 border border-neutral-200 font-mono text-xs">{row.id}</td>
+                  <td className="p-3 border border-neutral-200">{row.vendorName}</td>
+                  <td className="p-3 border border-neutral-200">{formatDateID(row.billDate)}</td>
+                  <td className="p-3 border border-neutral-200">{formatDateID(row.dueDate)}</td>
+                  <td className="p-3 border border-neutral-200 text-right">
+                    {row.daysOverdue > 0 ? <span className="text-danger-600 font-medium">{row.daysOverdue}</span> : 'Current'}
+                  </td>
+                  <td className="p-3 border border-neutral-200 text-right">{row.current ? formatIDR(row.current) : '—'}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{row.d1_30 ? formatIDR(row.d1_30) : '—'}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{row.d31_60 ? formatIDR(row.d31_60) : '—'}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{row.d61_90 ? formatIDR(row.d61_90) : '—'}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{row.d90plus ? formatIDR(row.d90plus) : '—'}</td>
+                  <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.balance)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-4 pt-4 border-t border-neutral-200 flex flex-wrap gap-4 text-sm font-semibold text-neutral-700">
+            <span>Current: {formatIDR(apSummary.current || 0)}</span>
+            <span>1-30: {formatIDR(apSummary.d1_30 || 0)}</span>
+            <span>31-60: {formatIDR(apSummary.d31_60 || 0)}</span>
+            <span>61-90: {formatIDR(apSummary.d61_90 || 0)}</span>
+            <span>90+: {formatIDR(apSummary.d90plus || 0)}</span>
+            <span className="ml-auto text-primary-700">Total Outstanding: {formatIDR(apSummary.balance || 0)}</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Cash Flow ─────────────────────────────────────────────────────────────
+    if (report.id === 'cash-flow') {
+      const cfData = data as { rows: CashFlowRow[]; summary: CashFlowSummary };
+      const cfRows = cfData.rows || [];
+      const cfSummary = cfData.summary || {} as CashFlowSummary;
+      if (!cfRows.length) return renderEmptyReport('No cash flow data found for the selected period.');
+      return (
+        <div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-3 text-left font-semibold border border-neutral-300">Bank Account</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Date</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Inflow</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Outflow</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cfRows.map((row, i) => (
+                <tr key={i} className="hover:bg-neutral-50">
+                  <td className="p-3 border border-neutral-200">{row.bankAccountName}</td>
+                  <td className="p-3 border border-neutral-200">{formatDateID(row.date)}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.inflow)}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.outflow)}</td>
+                  <td className={`p-3 border border-neutral-200 text-right font-medium ${row.net >= 0 ? 'text-success-700' : 'text-danger-600'}`}>
+                    {formatIDR(row.net)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-blue-50 font-bold">
+                <td colSpan={2} className="p-3 border border-neutral-300">Total</td>
+                <td className="p-3 border border-neutral-300 text-right">{formatIDR(cfSummary.totalInflow || 0)}</td>
+                <td className="p-3 border border-neutral-300 text-right">{formatIDR(cfSummary.totalOutflow || 0)}</td>
+                <td className="p-3 border border-neutral-300 text-right">{formatIDR(cfSummary.totalNet || 0)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      );
+    }
+
+    // ── Stock Movement ────────────────────────────────────────────────────────
+    if (report.id === 'stock-movement') {
+      const smData = data as { rows: StockMovementRow[] };
+      const smRows = smData.rows || [];
+      if (!smRows.length) return renderEmptyReport('No stock movement data found for the selected period.');
+      return (
+        <div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-3 text-left font-semibold border border-neutral-300 w-[140px]">SKU</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Item Name</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Opening</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">In</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Out</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Closing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {smRows.map((row) => (
+                <tr key={row.itemId} className="hover:bg-neutral-50">
+                  <td className="p-3 border border-neutral-200 font-mono text-xs">{row.sku}</td>
+                  <td className="p-3 border border-neutral-200">{row.itemName}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{Number(row.openingBalance).toFixed(2)}</td>
+                  <td className="p-3 border border-neutral-200 text-right text-success-700">{Number(row.totalIn).toFixed(2)}</td>
+                  <td className="p-3 border border-neutral-200 text-right text-danger-600">{Number(row.totalOut).toFixed(2)}</td>
+                  <td className="p-3 border border-neutral-200 text-right font-medium">{Number(row.closingBalance).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
     return <div className="p-8 text-center text-neutral-500">No renderer for this report type.</div>;
   };
 
@@ -1576,10 +1870,10 @@ const Reports: React.FC = () => {
     ? activeReport.report.id === 'balance-sheet-multi-period'
       ? `${formatDateID(activeReport.asOfDate ?? '')} vs ${formatDateID(activeReport.params.compareAsOfDate ?? '')}`
       : activeReport.report.filterMode === 'as-of'
-        ? activeReport.report.category === 'gl'
+        ? (activeReport.report.category === 'gl' || activeReport.report.category === 'ap')
           ? `As of ${formatDateID(activeReport.asOfDate ?? '')}`
           : `Per ${formatDateID(activeReport.asOfDate ?? '')}`
-        : activeReport.report.category === 'gl'
+        : (activeReport.report.category === 'gl' || activeReport.report.category === 'banking' || activeReport.report.category === 'inventory')
           ? `${formatDateID(activeReport.dateFrom ?? '')} to ${formatDateID(activeReport.dateTo ?? '')}`
           : `${formatDateID(activeReport.dateFrom ?? '')} s/d ${formatDateID(activeReport.dateTo ?? '')}`
     : '';
@@ -1636,7 +1930,7 @@ const Reports: React.FC = () => {
             )}
 
             {isLoading && (
-              <div className="p-12 text-center text-neutral-500 text-sm">Memuat laporan...</div>
+              <div className="p-12 text-center text-neutral-500 text-sm" role="status" aria-live="polite">Memuat laporan...</div>
             )}
 
             {error && !activeReport && !isLoading && (

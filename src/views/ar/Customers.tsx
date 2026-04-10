@@ -213,7 +213,7 @@ const Customers = () => {
                             </div>
                             <div className="p-2.5">
                                 {detailTab === 'summary' && (
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Name</label><strong>{selectedCustomer.name}</strong></div>
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Status</label><StatusTag status={selectedCustomer.status} /></div>
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Email</label><div>{selectedCustomer.email || '-'}</div></div>
@@ -221,7 +221,7 @@ const Customers = () => {
                                     </div>
                                 )}
                                 {detailTab === 'terms' && (
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Payment Terms</label><strong>{selectedCustomer.paymentTerms === 0 ? 'Due on Receipt' : `Net ${selectedCustomer.paymentTerms}`}</strong></div>
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Default Discount</label><strong>{selectedCustomer.defaultDiscount || 0}%</strong></div>
                                         <div className="border border-neutral-200 rounded-lg p-2.5"><label className="block text-[0.78rem] text-neutral-600 mb-1">Credit Limit</label><strong>{formatIDR(selectedCustomer.creditLimit || 0)}</strong></div>
@@ -230,7 +230,7 @@ const Customers = () => {
                                     </div>
                                 )}
                                 {detailTab === 'address' && (
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         <div className="border border-neutral-200 rounded-lg p-2.5 col-span-2"><label className="block text-[0.78rem] text-neutral-600 mb-1">Billing Address</label><div>{selectedCustomer.billingAddress || '-'}</div></div>
                                         <div className="border border-neutral-200 rounded-lg p-2.5 col-span-2"><label className="block text-[0.78rem] text-neutral-600 mb-1">Shipping Address</label><div>{selectedCustomer.shippingAddress || '-'}</div></div>
                                     </div>

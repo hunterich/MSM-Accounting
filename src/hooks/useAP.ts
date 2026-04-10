@@ -409,3 +409,14 @@ export function useUpdatePurchaseOrder() {
         },
     });
 }
+
+// ── AP Reports ────────────────────────────────────────────────────────────────
+
+export function useAPReport(params: Record<string, unknown>) {
+    return useQuery({
+        queryKey: ['apReport', params],
+        queryFn: () => api.get<Record<string, unknown>>('/api/v1/reports/ap', params),
+        enabled: !!params.type,
+        staleTime: 60_000,
+    });
+}

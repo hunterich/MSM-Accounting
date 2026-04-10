@@ -162,6 +162,7 @@ const NUMBER_QUERIES: Record<string, (prisma: any) => Promise<Array<{ max: numbe
   Bill:           (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "Bill"`,
   CreditNote:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "CreditNote"`,
   DebitNote:      (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "DebitNote"`,
+  DeliveryNote:   (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "DeliveryNote"`,
   Employee:       (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("employeeNo" FROM '[0-9]+') AS INTEGER)) AS max FROM "Employee"`,
   PurchaseOrder:  (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PurchaseOrder"`,
   PurchaseReturn: (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PurchaseReturn"`,

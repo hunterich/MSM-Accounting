@@ -4,9 +4,11 @@ import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
+import DocumentTabBar from '../../components/UI/DocumentTabBar';
+import { Search, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useARPayments } from '../../hooks/useAR';
+import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 interface PaymentFilters {
@@ -35,12 +37,13 @@ const Payments = () => {
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<PaymentFilters>({ status: '' });
     const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
-    const [selectedPaymentId, setSelectedPaymentId] = useState<string>('');
-    const [openPaymentIds, setOpenPaymentIds] = useState<string[]>([]);
     const [detailTab, setDetailTab] = useState<string>('summary');
 
     const { data: paymentsResult, isLoading } = useARPayments();
     const payments = paymentsResult?.data ?? [];
+
+    // Tab state managed by useDocumentTabs
+    const { selectedId: selectedPaymentId, openIds: openPaymentIds, openTab: openPaymentTab, closeTab: closePaymentTab, tabRows } = useDocumentTabs({ urlParam: 'paymentId' });
 
     const filteredData = useMemo(() => {
         return payments.filter(item => {
@@ -84,50 +87,6 @@ const Payments = () => {
     const linkedInvoice = null;   // Invoice detail fetching not wired yet
     const linkedBank = null;      // Bank account lookup not wired yet
 
-    const openPaymentTab = (paymentId: string) => {
-        setOpenPaymentIds((prev) => (prev.includes(paymentId) ? prev : [...prev, paymentId]));
-        setSelectedPaymentId(paymentId);
-        setDetailTab('summary');
-    };
-
-    const closePaymentTab = (paymentId: string) => {
-        setOpenPaymentIds((prev) => {
-            const idx = prev.indexOf(paymentId);
-            const next = prev.filter((id) => id !== paymentId);
-            if (selectedPaymentId === paymentId) {
-                if (next.length === 0) {
-                    setSelectedPaymentId('');
-                } else {
-                    const fallback = next[Math.max(0, idx - 1)] || next[0];
-                    setSelectedPaymentId(fallback);
-                }
-            }
-            return next;
-        });
-    };
-
-    const firstRowDynamicLimit = 3;
-    const firstRowPaymentIds = openPaymentIds.slice(0, firstRowDynamicLimit);
-    const remainingPaymentIds = openPaymentIds.slice(firstRowDynamicLimit);
-    const extraRows: string[][] = [];
-    for (let i = 0; i < remainingPaymentIds.length; i += 5) {
-        extraRows.push(remainingPaymentIds.slice(i, i + 5));
-    }
-
-    const renderPaymentTab = (paymentId: string) => {
-        const payment = payments.find((item) => item.id === paymentId);
-        if (!payment) return null;
-        const isActive = paymentId === selectedPaymentId;
-        return (
-            <button key={paymentId} className={`workbench-doc-tab ${isActive ? 'active' : ''}`} onClick={() => setSelectedPaymentId(paymentId)}>
-                {payment.id}
-                <span className="workbench-doc-tab-close" onClick={(e) => { e.stopPropagation(); closePaymentTab(paymentId); }}>
-                    <X size={14} />
-                </span>
-            </button>
-        );
-    };
-
     const filterOptions: FilterConfig[] = [
         {
             key: 'status',
@@ -141,37 +100,25 @@ const Payments = () => {
 
     return (
         <div className="container ar-module container-full-width">
-            <div className="workbench-doc-tabs">
-                <div className="workbench-doc-tab-row">
-                    <button
-                        className="workbench-doc-tab workbench-doc-tab-catalog"
-                        onClick={() => {
-                            setSearchTerm('');
-                            setFilters({ status: '' });
-                            setDateRange({ from: '', to: '' });
-                            setSelectedPaymentId('');
-                        }}
-                    >
-                        <List size={16} />
-                        Catalog
-                    </button>
-                    <button
-                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
-                        onClick={() => navigate('/ar/payments/new', { state: { mode: 'create' } })}
-                        disabled={!canCreate}
-                    >
-                        <Plus size={16} />
-                        Record Payment
-                    </button>
-                    {firstRowPaymentIds.map((paymentId) => renderPaymentTab(paymentId))}
+            <DocumentTabBar
+                openIds={openPaymentIds}
+                selectedId={selectedPaymentId}
+                tabRows={tabRows}
+                getLabel={(id) => payments.find((p) => p.id === id)?.id || id}
+                onSelect={openPaymentTab}
+                onClose={closePaymentTab}
+                newTabLabel="Record Payment"
+                onNewTab={canCreate ? () => navigate('/ar/payments/new', { state: { mode: 'create' } }) : undefined}
+                disableNew={!canCreate}
+                onCatalog={() => {
+                    setSearchTerm('');
+                    setFilters({ status: '' });
+                    setDateRange({ from: '', to: '' });
+                }}
+                firstRowSuffix={
                     <div className="workbench-tab-count">Open tabs: {openPaymentIds.length}</div>
-                </div>
-                {extraRows.map((row, rowIndex) => (
-                    <div key={`payment-row-${rowIndex}`} className="workbench-doc-tab-row secondary-row">
-                        {row.map((paymentId) => renderPaymentTab(paymentId))}
-                    </div>
-                ))}
-            </div>
+                }
+            />
 
             {!selectedPayment && (
                 <>

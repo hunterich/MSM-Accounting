@@ -5,8 +5,10 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
-import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
+import DocumentTabBar from '../../components/UI/DocumentTabBar';
+import { Plus, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useCreditNotes, useSalesReturns, useWarehouses } from '../../hooks/useReturns';
+import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
@@ -28,6 +30,17 @@ interface ReturnLine {
     price: number;
 }
 
+/** Builds a composite key used as the tab ID */
+const toKey = (type: 'credit' | 'return', id: string) => `${type}:${id}`;
+
+/** Parses a composite key back into type + id */
+const fromKey = (key: string): { type: 'credit' | 'return'; id: string } => {
+    const colonIdx = key.indexOf(':');
+    const type = key.slice(0, colonIdx) as 'credit' | 'return';
+    const id = key.slice(colonIdx + 1);
+    return { type, id };
+};
+
 const CreditNotes = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit, canDelete } = useModulePermissions('ar_credits');
@@ -39,9 +52,12 @@ const CreditNotes = () => {
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<CreditFilters>({ settlementType: '' });
     const [activeCatalogTab, setActiveCatalogTab] = useState<string>('credits');
-    const [selectedDoc, setSelectedDoc] = useState<SelectedDoc | null>(null);
-    const [openDocKeys, setOpenDocKeys] = useState<string[]>([]);
     const [detailTab, setDetailTab] = useState<string>('summary');
+
+    // Tab state: composite keys ("credit:id" | "return:id") are used as IDs
+    const { selectedId: selectedKey, openIds: openDocKeys, openTab: openDocTab, closeTab: closeDocTab, selectNone: selectNoneDoc, tabRows } = useDocumentTabs();
+
+    const selectedDoc: SelectedDoc | null = selectedKey ? fromKey(selectedKey) : null;
 
     const getReturnTotal = (salesReturn: Record<string, unknown>) => {
         if (!salesReturn) return 0;
@@ -55,27 +71,9 @@ const CreditNotes = () => {
     };
 
     const openDoc = (type: 'credit' | 'return', id: string) => {
-        const key = `${type}:${id}`;
-        setOpenDocKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
-        setSelectedDoc({ type, id });
+        const key = toKey(type, id);
+        openDocTab(key);
         setDetailTab('summary');
-    };
-
-    const closeDoc = (keyToClose: string) => {
-        setOpenDocKeys((prev) => {
-            const idx = prev.indexOf(keyToClose);
-            const next = prev.filter((key) => key !== keyToClose);
-            if (selectedDoc && `${selectedDoc.type}:${selectedDoc.id}` === keyToClose) {
-                if (next.length === 0) {
-                    setSelectedDoc(null);
-                } else {
-                    const fallback = next[Math.max(0, idx - 1)] || next[0];
-                    const [type, id] = fallback.split(':');
-                    setSelectedDoc({ type: type as 'credit' | 'return', id });
-                }
-            }
-            return next;
-        });
     };
 
     const filteredCredits = useMemo(() => {
@@ -171,61 +169,37 @@ const CreditNotes = () => {
         }
     ];
 
-    const renderOpenDocTab = (key: string) => {
-        const [type, id] = key.split(':');
-        const doc = type === 'credit'
-            ? creditNotes.find((item) => item.id === id)
-            : salesReturns.find((item) => item.id === id);
-        if (!doc) return null;
-        const isActive = selectedDoc && `${selectedDoc.type}:${selectedDoc.id}` === key;
-        return (
-            <button key={key} className={`workbench-doc-tab ${isActive ? 'active' : ''}`} onClick={() => setSelectedDoc({ type: type as 'credit' | 'return', id })}>
-                {doc.id}
-                <span className="workbench-doc-tab-close" onClick={(e) => { e.stopPropagation(); closeDoc(key); }}>
-                    <X size={14} />
-                </span>
-            </button>
-        );
+    /** Resolve a composite key to a display label */
+    const getTabLabel = (key: string): string => {
+        const { type, id } = fromKey(key);
+        if (type === 'credit') {
+            const doc = creditNotes.find((item) => item.id === id);
+            return doc ? doc.id : id;
+        }
+        const doc = salesReturns.find((item) => item.id === id);
+        return doc ? doc.id : id;
     };
-
-    const firstRowDynamicLimit = 3;
-    const firstRowDocKeys = openDocKeys.slice(0, firstRowDynamicLimit);
-    const remainingDocKeys = openDocKeys.slice(firstRowDynamicLimit);
-    const extraRows: string[][] = [];
-    for (let i = 0; i < remainingDocKeys.length; i += 5) {
-        extraRows.push(remainingDocKeys.slice(i, i + 5));
-    }
 
     return (
         <div className="container ar-module container-full-width">
-            <div className="workbench-doc-tabs">
-                <div className="workbench-doc-tab-row">
-                    <button
-                        className="workbench-doc-tab workbench-doc-tab-catalog"
-                        onClick={() => {
-                            setSelectedDoc(null);
-                        }}
-                    >
-                        <List size={16} />
-                        Catalog
-                    </button>
-                    <button
-                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
-                        onClick={() => navigate('/ar/returns/new', { state: { mode: 'create' } })}
-                        disabled={!canCreate}
-                    >
-                        <Plus size={16} />
-                        New Sales Return
-                    </button>
-                    {firstRowDocKeys.map((key) => renderOpenDocTab(key))}
+            <DocumentTabBar
+                openIds={openDocKeys}
+                selectedId={selectedKey}
+                tabRows={tabRows}
+                getLabel={getTabLabel}
+                onSelect={(key) => {
+                    const { type, id } = fromKey(key);
+                    openDoc(type, id);
+                }}
+                onClose={closeDocTab}
+                newTabLabel="New Sales Return"
+                onNewTab={canCreate ? () => navigate('/ar/returns/new', { state: { mode: 'create' } }) : undefined}
+                disableNew={!canCreate}
+                onCatalog={selectNoneDoc}
+                firstRowSuffix={
                     <div className="workbench-tab-count">Open tabs: {openDocKeys.length}</div>
-                </div>
-                {extraRows.map((row, rowIndex) => (
-                    <div key={`credit-extra-row-${rowIndex}`} className="workbench-doc-tab-row secondary-row">
-                        {row.map((key) => renderOpenDocTab(key))}
-                    </div>
-                ))}
-            </div>
+                }
+            />
 
             {!selectedDoc && (
                 <>

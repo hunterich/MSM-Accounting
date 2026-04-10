@@ -42,6 +42,8 @@ import InventoryForm from './views/inventory/InventoryForm'
 import ItemCategories from './views/inventory/ItemCategories'
 import InventoryAdjustments from './views/inventory/InventoryAdjustments'
 import AdjustmentForm from './views/inventory/AdjustmentForm'
+import StockValuation from './views/inventory/StockValuation'
+import DeliveryNotes from './views/ar/DeliveryNotes'
 import Banking from './views/banking/Banking'
 import BankingActionForm from './views/banking/BankingActionForm'
 import Employees from './views/hr/Employees'
@@ -100,6 +102,7 @@ function App(): JSX.Element {
                     <Route path="ar/payments" element={withPermission(<Payments />, 'ar_payments')} />
                     <Route path="ar/payments/new" element={withPermission(<PaymentForm />, 'ar_payments', 'create')} />
                     <Route path="ar/payments/edit" element={withPermission(<PaymentForm />, 'ar_payments', 'edit')} />
+                    <Route path="ar/delivery-notes" element={withPermission(<DeliveryNotes />, 'ar_sales_orders')} />
                     <Route path="ar/credits" element={withPermission(<CreditNotes />, 'ar_credits')} />
                     <Route path="ar/credits/new" element={withPermission(<CreditNoteForm />, 'ar_credits', 'create')} />
                     <Route path="ar/credits/edit" element={withPermission(<CreditNoteForm />, 'ar_credits', 'edit')} />
@@ -134,6 +137,7 @@ function App(): JSX.Element {
                     <Route path="inventory/adjustments" element={withPermission(<InventoryAdjustments />, 'inv_adj')} />
                     <Route path="inventory/adjustments/new" element={withPermission(<AdjustmentForm />, 'inv_adj', 'create')} />
                     <Route path="inventory/adjustments/edit" element={withPermission(<AdjustmentForm />, 'inv_adj', 'edit')} />
+                    <Route path="inventory/valuation" element={withPermission(<StockValuation />, 'inv_items')} />
 
                     {/* Banking */}
                     <Route path="banking" element={withPermission(<Banking />, 'banking')} />

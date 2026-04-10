@@ -19,8 +19,8 @@ const Layout = (): React.ReactElement => {
     return (
         <div className="flex h-screen w-screen overflow-hidden">
             <Sidebar />
-            <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden">
-                <header className="bg-neutral-0 border-b border-neutral-200 flex items-center justify-between px-6 h-14 shrink-0">
+            <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden pl-0 md:pl-[55px]">
+                <header className="bg-neutral-0 border-b border-neutral-200 flex items-center justify-between px-6 h-14 shrink-0 hidden md:flex">
                     <h2 className="text-lg font-semibold text-neutral-900 m-0">MSM Accounting</h2>
 
                     <div className="flex items-center gap-3">
@@ -30,7 +30,7 @@ const Layout = (): React.ReactElement => {
                         <Button text="Logout" size="small" variant="tertiary" onClick={handleLogout} />
                     </div>
                 </header>
-                <main id="main-content" className="overflow-y-auto flex-1 p-8 bg-neutral-50 relative">
+                <main id="main-content" className="overflow-y-auto flex-1 p-8 bg-neutral-50 relative pt-14 md:pt-8">
                     <Outlet />
                 </main>
             </div>

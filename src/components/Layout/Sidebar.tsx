@@ -10,6 +10,8 @@ import {
     BarChart3,
     Settings,
     Users,
+    Menu,
+    X,
     type LucideIcon,
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
@@ -52,6 +54,7 @@ const navItems: NavItem[] = [
         subItems: [
             { label: 'Sales Orders', path: '/ar/sales-orders' },
             { label: 'Invoices', path: '/ar/invoices' },
+            { label: 'Delivery Notes', path: '/ar/delivery-notes' },
             { label: 'Payments', path: '/ar/payments' },
             { label: 'Returns & Credits', path: '/ar/credits' },
             { label: 'Customers', path: '/ar/customers' },
@@ -79,7 +82,8 @@ const navItems: NavItem[] = [
         subItems: [
             { label: 'Items', path: '/inventory/items' },
             { label: 'Categories', path: '/inventory/categories' },
-            { label: 'Adjustments', path: '/inventory/adjustments' }
+            { label: 'Adjustments', path: '/inventory/adjustments' },
+            { label: 'Stock Valuation', path: '/inventory/valuation' }
         ]
     },
     {
@@ -170,6 +174,7 @@ const SidebarIcon = ({ item, isActive, onFlyoutOpen, onFlyoutClose, flyoutOpen }
 const Sidebar = (): React.ReactElement => {
     const location = useLocation();
     const [flyout, setFlyout] = useState<string | null>(null);
+    const [mobileOpen, setMobileOpen] = useState(false);
     const hasPermission = useAuthStore((s) => s.hasPermission);
 
     const canSeeSidebarItem = (navLabel: string): boolean => {
@@ -205,26 +210,96 @@ const Sidebar = (): React.ReactElement => {
     };
 
     return (
-        <nav className="sidebar-rail">
-            {/* Logo */}
-            <div className="sidebar-logo">
-                <span className="sidebar-logo-text">M</span>
+        <>
+            {/* Mobile top bar — visible only below md breakpoint */}
+            <div className="fixed top-0 left-0 right-0 h-14 bg-[#1a2035] flex md:hidden items-center px-4 z-50">
+                <button
+                    type="button"
+                    onClick={() => setMobileOpen(true)}
+                    className="text-white p-1 mr-3"
+                    aria-label="Open menu"
+                >
+                    <Menu size={24} />
+                </button>
+                <span className="text-white font-semibold text-base">MSM Accounting</span>
             </div>
 
-            {/* Nav icons */}
-            <div className="sidebar-icons">
-                {visibleNavItems.map(item => (
-                    <SidebarIcon
-                        key={item.label}
-                        item={item}
-                        isActive={isItemActive(item)}
-                        flyoutOpen={flyout === item.label}
-                        onFlyoutOpen={setFlyout}
-                        onFlyoutClose={() => setFlyout(null)}
+            {/* Mobile slide-over overlay */}
+            {mobileOpen && (
+                <div className="fixed inset-0 z-[60] md:hidden">
+                    {/* Backdrop */}
+                    <div
+                        className="absolute inset-0 bg-black/50"
+                        onClick={() => setMobileOpen(false)}
                     />
-                ))}
-            </div>
-        </nav>
+                    {/* Slide-over panel */}
+                    <div className="absolute top-0 left-0 h-full w-64 bg-[#1a2035] flex flex-col overflow-y-auto">
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-4 h-14 shrink-0 border-b border-white/10">
+                            <span className="text-white font-semibold text-base">MSM Accounting</span>
+                            <button
+                                type="button"
+                                onClick={() => setMobileOpen(false)}
+                                className="text-white p-1"
+                                aria-label="Close menu"
+                            >
+                                <X size={22} />
+                            </button>
+                        </div>
+                        {/* Nav items */}
+                        <nav className="flex flex-col py-2">
+                            {visibleNavItems.map(item => {
+                                const Icon = item.icon;
+                                const active = isItemActive(item);
+                                return (
+                                    <div key={item.label} className="mb-1">
+                                        <div className={`flex items-center gap-3 px-4 py-2 text-sm font-semibold ${active ? 'text-white' : 'text-white/60'}`}>
+                                            <Icon size={18} strokeWidth={1.6} />
+                                            {item.label}
+                                        </div>
+                                        {item.subItems.map(sub => (
+                                            <NavLink
+                                                key={sub.path}
+                                                to={sub.path}
+                                                end
+                                                onClick={() => setMobileOpen(false)}
+                                                className={({ isActive: subActive }) =>
+                                                    `block pl-11 pr-4 py-1.5 text-sm ${subActive ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'}`
+                                                }
+                                            >
+                                                {sub.label}
+                                            </NavLink>
+                                        ))}
+                                    </div>
+                                );
+                            })}
+                        </nav>
+                    </div>
+                </div>
+            )}
+
+            {/* Desktop sidebar rail — hidden on mobile */}
+            <nav className="sidebar-rail hidden md:flex flex-col">
+                {/* Logo */}
+                <div className="sidebar-logo">
+                    <span className="sidebar-logo-text">M</span>
+                </div>
+
+                {/* Nav icons */}
+                <div className="sidebar-icons">
+                    {visibleNavItems.map(item => (
+                        <SidebarIcon
+                            key={item.label}
+                            item={item}
+                            isActive={isItemActive(item)}
+                            flyoutOpen={flyout === item.label}
+                            onFlyoutOpen={setFlyout}
+                            onFlyoutClose={() => setFlyout(null)}
+                        />
+                    ))}
+                </div>
+            </nav>
+        </>
     );
 };
 

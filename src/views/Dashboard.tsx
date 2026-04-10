@@ -86,7 +86,7 @@ const Dashboard = (): React.ReactElement => {
                     const meta = WIDGET_REGISTRY.find((w) => w.id === id);
                     const WidgetComponent = WIDGET_COMPONENTS[id];
                     if (!meta || !WidgetComponent) return null;
-                    const colSpan = meta.size === 'lg' ? 'col-span-12' : 'col-span-4';
+                    const colSpan = meta.size === 'lg' ? 'col-span-12' : 'col-span-12 sm:col-span-6 lg:col-span-4';
                     return (
                         <div key={id} className={`${colSpan} relative ${isEditMode ? 'animate-shake' : ''}`}>
                             {isEditMode && (
@@ -107,7 +107,7 @@ const Dashboard = (): React.ReactElement => {
 
                 {/* Add Widget placeholder — only in edit mode */}
                 {isEditMode && addableWidgets.length > 0 && (
-                    <div className="col-span-4">
+                    <div className="col-span-12 sm:col-span-6 lg:col-span-4">
                         <button
                             onClick={() => setIsAddOpen(true)}
                             className="w-full h-full min-h-[140px] border-2 border-dashed border-neutral-300 rounded-lg flex flex-col items-center justify-center gap-2 text-neutral-500 hover:border-primary-400 hover:text-primary-600 transition-colors bg-transparent cursor-pointer"

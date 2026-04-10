@@ -341,3 +341,49 @@ export const useConvertSOToInvoice = () => {
         },
     });
 };
+
+// ── Delivery Notes ────────────────────────────────────────────────────────────
+
+export const DN_KEYS = {
+    all:  ['deliveryNotes'] as const,
+    one:  (id: string) => ['deliveryNotes', id] as const,
+};
+
+export interface DeliveryNoteLine {
+    itemId: string;
+    description?: string;
+    qtyOrdered: number;
+    qtyToDeliver: number;
+    unit?: string;
+}
+
+export interface DeliveryNote {
+    id: string;
+    number?: string;
+    salesOrderId: string;
+    salesOrderNumber?: string;
+    customerId?: string;
+    customerName?: string;
+    date: string;
+    warehouseId?: string;
+    warehouseName?: string;
+    notes?: string;
+    status: 'Draft' | 'Delivered' | 'Cancelled';
+    lines?: DeliveryNoteLine[];
+}
+
+export const useDeliveryNotes = (filters: Record<string, unknown> = {}) =>
+    useQuery({
+        queryKey: [...DN_KEYS.all, filters],
+        queryFn:  () => api.get<{ data: DeliveryNote[]; total?: number }>('/api/v1/delivery-notes', filters),
+        select:   (res) => ({ ...res, data: res.data ?? [] }),
+        staleTime: 30_000,
+    });
+
+export const useCreateDeliveryNote = () => {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: Partial<DeliveryNote>) => api.post('/api/v1/delivery-notes', body),
+        onSuccess:  () => qc.invalidateQueries({ queryKey: DN_KEYS.all }),
+    });
+};

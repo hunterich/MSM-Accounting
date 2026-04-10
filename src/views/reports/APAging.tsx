@@ -1,35 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useState } from 'react';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
-import { useBillStore } from '../../stores/useBillStore';
-import { useVendorStore } from '../../stores/useVendorStore';
+import Button from '../../components/UI/Button';
+import { Download } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { useAPReport } from '../../hooks/useAP';
+import { exportToCsv } from '../../utils/exportCsv';
 
-interface APAgingProps {
-    startDate: string;
-    endDate: string;
-    isInRange: (date: string) => boolean;
-}
+// ── API row shapes ─────────────────────────────────────────────────────────────
 
-/** Internal shape for each bill record from the legacy store */
-interface BillRecord {
+interface APAgingRow extends Record<string, unknown> {
     id: string;
-    status?: string;
-    date?: string;
-    due?: string;
-    amount?: number;
-    vendor?: string;
-    [key: string]: unknown;
-}
-
-/** Vendor record from the legacy store */
-interface VendorRecord {
-    id: string;
-    name?: string;
-    [key: string]: unknown;
-}
-
-interface AgingRow extends BillRecord, Record<string, unknown> {
     vendorName: string;
     billDate: string;
     dueDate: string;
@@ -42,7 +23,7 @@ interface AgingRow extends BillRecord, Record<string, unknown> {
     d90plus: number;
 }
 
-interface AgingTotals {
+interface APAgingTotals {
     current: number;
     d1_30: number;
     d31_60: number;
@@ -51,93 +32,129 @@ interface AgingTotals {
     balance: number;
 }
 
-const getAgingBucket = (daysOverdue: number): string => {
-    if (daysOverdue <= 0) return 'current';
-    if (daysOverdue <= 30) return '1-30';
-    if (daysOverdue <= 60) return '31-60';
-    if (daysOverdue <= 90) return '61-90';
-    return '90+';
-};
+interface APAgingData {
+    rows: APAgingRow[];
+    summary?: APAgingTotals;
+}
 
-const APAging = ({ startDate, endDate, isInRange }: APAgingProps) => {
-    /* These stores use loose Record types; cast for type safety within this component */
-    const bills = useBillStore((s) => s.bills) as unknown as BillRecord[];
-    const vendors = useVendorStore((s) => s.vendors) as unknown as VendorRecord[];
+// ── Component ─────────────────────────────────────────────────────────────────
 
-    const agingRows = useMemo<AgingRow[]>(() => {
-        const today = new Date();
+const APAging: React.FC = () => {
+    const [asOfDate, setAsOfDate] = useState<string>(new Date().toISOString().slice(0, 10));
 
-        return bills
-            .filter((bill) => bill.status !== 'Paid' && isInRange(bill.date ?? ''))
-            .map((bill) => {
-                const dueDate = new Date(bill.due ?? '');
-                const diffTime = today.getTime() - dueDate.getTime();
-                const daysOverdue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const { data, isLoading } = useAPReport({ type: 'aging', asOfDate });
+    const agingData = data as APAgingData | undefined;
 
-                const vendorName = vendors.find(v => v.id === bill.vendor)?.name ?? (bill.vendor ?? '');
-                const billAmount = bill.amount ?? 0;
+    const rows: APAgingRow[] = agingData?.rows ?? [];
 
-                return {
-                    ...bill,
-                    vendorName,
-                    billDate: bill.date ?? '',
-                    dueDate: bill.due ?? '',
-                    daysOverdue,
-                    balance: billAmount,
-                    current: daysOverdue <= 0 ? billAmount : 0,
-                    d1_30: daysOverdue > 0 && daysOverdue <= 30 ? billAmount : 0,
-                    d31_60: daysOverdue > 30 && daysOverdue <= 60 ? billAmount : 0,
-                    d61_90: daysOverdue > 60 && daysOverdue <= 90 ? billAmount : 0,
-                    d90plus: daysOverdue > 90 ? billAmount : 0,
-                };
-            });
-    }, [bills, vendors, isInRange]);
+    const totals: APAgingTotals = agingData?.summary ?? {
+        current: rows.reduce((s, r) => s + r.current, 0),
+        d1_30:   rows.reduce((s, r) => s + r.d1_30, 0),
+        d31_60:  rows.reduce((s, r) => s + r.d31_60, 0),
+        d61_90:  rows.reduce((s, r) => s + r.d61_90, 0),
+        d90plus: rows.reduce((s, r) => s + r.d90plus, 0),
+        balance: rows.reduce((s, r) => s + r.balance, 0),
+    };
 
-    const agingTotals = useMemo<AgingTotals>(() => ({
-        current: agingRows.reduce((s, r) => s + r.current, 0),
-        d1_30: agingRows.reduce((s, r) => s + r.d1_30, 0),
-        d31_60: agingRows.reduce((s, r) => s + r.d31_60, 0),
-        d61_90: agingRows.reduce((s, r) => s + r.d61_90, 0),
-        d90plus: agingRows.reduce((s, r) => s + r.d90plus, 0),
-        balance: agingRows.reduce((s, r) => s + r.balance, 0),
-    }), [agingRows]);
+    const handleExportCsv = () => {
+        const csvRows = rows.map((r) => ({
+            billNo: r.id,
+            vendor: r.vendorName,
+            billDate: r.billDate,
+            dueDate: r.dueDate,
+            daysOverdue: r.daysOverdue,
+            current: r.current,
+            d1_30: r.d1_30,
+            d31_60: r.d31_60,
+            d61_90: r.d61_90,
+            d90plus: r.d90plus,
+            balance: r.balance,
+        }));
+        exportToCsv(`ap-aging-${asOfDate}.csv`, csvRows, [
+            { label: 'Bill No.', key: 'billNo' },
+            { label: 'Vendor', key: 'vendor' },
+            { label: 'Bill Date', key: 'billDate' },
+            { label: 'Due Date', key: 'dueDate' },
+            { label: 'Days Overdue', key: 'daysOverdue' },
+            { label: 'Current', key: 'current' },
+            { label: '1-30 days', key: 'd1_30' },
+            { label: '31-60 days', key: 'd31_60' },
+            { label: '61-90 days', key: 'd61_90' },
+            { label: '90+ days', key: 'd90plus' },
+            { label: 'Balance', key: 'balance' },
+        ]);
+    };
 
-    const agingColumns: TableColumn<AgingRow>[] = [
+    const agingColumns: TableColumn<APAgingRow>[] = [
         { key: 'id', label: 'Bill No.', sortable: true },
         { key: 'vendorName', label: 'Vendor', sortable: true },
         { key: 'billDate', label: 'Bill Date', render: (val) => formatDateID(val as string) },
         { key: 'dueDate', label: 'Due Date', render: (val) => formatDateID(val as string) },
-        { key: 'daysOverdue', label: 'Days', align: 'right', render: (val) => (val as number) > 0 ? <span className="stock-danger">{val as number}</span> : <span className="stock-normal">Current</span> },
-        { key: 'current', label: 'Current', align: 'right', render: (val) => (val as number) ? formatIDR(val as number) : '—' },
-        { key: 'd1_30', label: '1–30 days', align: 'right', render: (val) => (val as number) ? <span className="stock-warning">{formatIDR(val as number)}</span> : '—' },
-        { key: 'd31_60', label: '31–60 days', align: 'right', render: (val) => (val as number) ? <span className="stock-danger">{formatIDR(val as number)}</span> : '—' },
-        { key: 'd61_90', label: '61–90 days', align: 'right', render: (val) => (val as number) ? <span className="stock-danger">{formatIDR(val as number)}</span> : '—' },
-        { key: 'd90plus', label: '90+ days', align: 'right', render: (val) => (val as number) ? <span className="stock-danger">{formatIDR(val as number)}</span> : '—' },
-        { key: 'balance', label: 'Balance', align: 'right', render: (val) => <span className="text-strong">{formatIDR(val as number)}</span> },
+        {
+            key: 'daysOverdue', label: 'Days', align: 'right',
+            render: (val) => (val as number) > 0
+                ? <span className="stock-danger">{val as number}</span>
+                : <span className="stock-normal">Current</span>,
+        },
+        { key: 'current',  label: 'Current',   align: 'right', render: (val) => (val as number) ? formatIDR(val as number) : '—' },
+        { key: 'd1_30',   label: '1–30 days',  align: 'right', render: (val) => (val as number) ? <span className="stock-warning">{formatIDR(val as number)}</span> : '—' },
+        { key: 'd31_60',  label: '31–60 days', align: 'right', render: (val) => (val as number) ? <span className="stock-danger">{formatIDR(val as number)}</span> : '—' },
+        { key: 'd61_90',  label: '61–90 days', align: 'right', render: (val) => (val as number) ? <span className="stock-danger">{formatIDR(val as number)}</span> : '—' },
+        { key: 'd90plus', label: '90+ days',   align: 'right', render: (val) => (val as number) ? <span className="stock-danger">{formatIDR(val as number)}</span> : '—' },
+        { key: 'balance', label: 'Balance',    align: 'right', render: (val) => <span className="text-strong">{formatIDR(val as number)}</span> },
     ];
 
     return (
         <div className="print-report-module bg-white">
+            {/* Date + export controls */}
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                    <label className="text-sm text-neutral-600 font-medium whitespace-nowrap">As of date:</label>
+                    <input
+                        type="date"
+                        className="h-9 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
+                        value={asOfDate}
+                        onChange={(e) => setAsOfDate(e.target.value)}
+                    />
+                </div>
+                <Button
+                    text="Export CSV"
+                    size="small"
+                    variant="secondary"
+                    icon={<Download size={14} />}
+                    onClick={handleExportCsv}
+                    disabled={rows.length === 0}
+                />
+            </div>
+
             <Card title="Accounts Payable Aging" padding={false} className="print:shadow-none print:border-neutral-300">
-                {agingRows.length > 0 ? (
+                {rows.length > 0 || isLoading ? (
                     <>
-                        <Table<AgingRow> columns={agingColumns} data={agingRows} virtualize={false} />
-                        <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
-                            <div />
-                            <div className="journal-totals-meta" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                                <div className="text-strong">Current: {formatIDR(agingTotals.current)}</div>
-                                <div className="text-strong">1–30: {formatIDR(agingTotals.d1_30)}</div>
-                                <div className="text-strong">31–60: {formatIDR(agingTotals.d31_60)}</div>
-                                <div className="text-strong">61–90: {formatIDR(agingTotals.d61_90)}</div>
-                                <div className="text-strong">90+: {formatIDR(agingTotals.d90plus)}</div>
-                                <div className="text-strong" style={{ borderLeft: '1px solid var(--color-neutral-300)', paddingLeft: '24px' }}>
-                                    Total Outstanding: {formatIDR(agingTotals.balance)}
+                        <Table<APAgingRow>
+                            columns={agingColumns}
+                            data={rows}
+                            isLoading={isLoading}
+                            loadingLabel="Loading AP aging..."
+                            virtualize={false}
+                        />
+                        {!isLoading && (
+                            <div className="journal-totals-bar" style={{ padding: '12px 16px', borderTop: '2px solid var(--color-neutral-300)' }}>
+                                <div />
+                                <div className="journal-totals-meta" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                                    <div className="text-strong">Current: {formatIDR(totals.current)}</div>
+                                    <div className="text-strong">1–30: {formatIDR(totals.d1_30)}</div>
+                                    <div className="text-strong">31–60: {formatIDR(totals.d31_60)}</div>
+                                    <div className="text-strong">61–90: {formatIDR(totals.d61_90)}</div>
+                                    <div className="text-strong">90+: {formatIDR(totals.d90plus)}</div>
+                                    <div className="text-strong" style={{ borderLeft: '1px solid var(--color-neutral-300)', paddingLeft: '24px' }}>
+                                        Total Outstanding: {formatIDR(totals.balance)}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
                     </>
                 ) : (
-                    <div className="module-empty-state">No open bills found.</div>
+                    <div className="module-empty-state">No open bills found for the selected date.</div>
                 )}
             </Card>
         </div>
