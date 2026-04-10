@@ -1,16 +1,7 @@
 import { Prisma, type InvoiceStatus } from '@prisma/client';
+import { toNumber, asMoney } from '@/lib/money';
 
 const OPEN_INVOICE_STATUSES: InvoiceStatus[] = ['SENT', 'OVERDUE', 'PAID'];
-
-const toNumber = (value: unknown): number => {
-  if (value === null || value === undefined) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const asMoney = (value: number): number => {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-};
 
 export class CreditLimitError extends Error {
   status: number;

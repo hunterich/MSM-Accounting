@@ -101,7 +101,7 @@ const LINE_SKIP_PREFIXES = [
   'page',
 ];
 
-const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+import { roundMoney } from '@/lib/money';
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

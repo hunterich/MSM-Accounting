@@ -86,6 +86,16 @@
 - [ ] CSV import for customers, vendors, items, COA, opening balances
 - [ ] CSV export for all list views
 - [~] Bulk invoice import from marketplace exports — Shopee 6-step wizard complete (`ImportInvoicesModal.jsx` + `shopeeImport.js` + `useIntegrationStore.js`); Tokopedia / TikTok Shop / Lazada not started
+- [x] PDF bill import — upload supplier invoice PDF → extract text → auto-match vendor + items → review → create bill (`lib/bill-imports.ts` + `/api/v1/bill-imports/` routes)
+- [~] Faktur (purchase invoice) image import — OCR-based extraction from scanned faktur images to Accurate-style purchase invoice import format
+  - [ ] Image upload endpoint (JPEG/PNG/TIFF) with size validation
+  - [ ] OCR text extraction (Tesseract.js or cloud OCR API)
+  - [ ] Indonesian faktur field parser (nomor faktur, NPWP, DPP, PPN, tanggal)
+  - [ ] Auto-match vendor by NPWP or name
+  - [ ] Auto-match items by supplier SKU / description
+  - [ ] Review UI with line-item editing before import
+  - [ ] Export to Accurate-compatible Excel format (optional)
+  - [ ] Batch upload support (multiple faktur images at once)
 
 ### 1.7 Financial Reporting Foundation
 - [~] Reporting workspace exists with Sales and AR reports, print view, and CSV export
@@ -106,9 +116,14 @@
 - [x] Credit limit enforcement on invoice and sales-order creation
 - [x] Validation + org-scoped FK checks for bills, purchase orders, AR payments, and AP payments
 - [x] Validation + org-scoped FK checks for sales orders, stock adjustments, and bank transactions
-- [~] Centralized route error-handling utility exists
-  - Adopted for new routes and selected list endpoints
-  - Remaining legacy routes still need migration
+- [x] Centralized route error-handling utility
+  - `withHandler()` wrapper adopted across all route files
+  - `requireOrg()` / `requireAuth()` helpers eliminate manual header checks
+  - Handles `ApiError`, `AccessError`, `CreditLimitError`, and Prisma errors
+  - `logAuditTx()` added for transactional audit logging
+- [x] SQL injection hardening — `nextNumber()` uses hardcoded queries per table (no string interpolation)
+- [x] Request body size limits — 10 MB cap in next.config.mjs
+- [x] Shared monetary utilities — `lib/money.ts` (toNumber, asMoney, roundMoney) replaces duplicate definitions
 
 ---
 
@@ -358,7 +373,7 @@
 | Item | Status | Priority |
 |------|--------|----------|
 | Migrate to real database (Phase 1.1) | Done — PostgreSQL + Prisma (43 tables); auth + API routes; all 6 modules wired (reads + writes); 4 sub-modules pending backend routes (credit/debit notes, sales/purchase returns) | Critical |
-| Add TypeScript | Not started | Medium |
+| Add TypeScript | [~] Backend lib + API routes migrated to TS; `@ts-nocheck` removed from route files; duplicate .js files deleted (apiClient.js, useAuthStore.js); shared `lib/money.ts` module created | Medium |
 | Unit tests for stores & utils | [~] Vitest installed; formatters + shopeeImport tests passing (26 tests) | High |
 | E2E tests (Playwright/Cypress) | Not started | Medium |
 | Error boundaries & error handling | [x] ErrorBoundary component with page/widget variants; wraps App, Dashboard, and each widget | High |
@@ -370,6 +385,9 @@
 | i18n framework (proper ID/EN switching) | Not started | Low |
 | CI/CD pipeline | Not started | Medium |
 | Backup & restore functionality | Not started | High |
+| API route hardening | [x] `withHandler()` + `requireOrg()`/`requireAuth()` across all routes; `@ts-nocheck` removed; duplicate utility functions consolidated; FNV-1a advisory lock hashing; body size limits | **Critical** |
+| Duplicate file cleanup | [x] Removed `apiClient.js` (kept `.ts`), `useAuthStore.js` (kept `.ts`) | Medium |
+| Frontend TypeScript migration | Not started — all views/components still `.jsx`; stores are `.ts` | Medium |
 
 ---
 
@@ -458,7 +476,8 @@
 | Multi-Company | No | Yes | Medium |
 | Workflow Engine | No | Yes | Medium |
 | REST API | Partial (internal Next.js API routes live for core modules; no public API key/docs yet) | Yes | Medium |
-| Multi-User Auth | Partial (JWT login + httpOnly session + API middleware + protected routes; RBAC `/403` enforcement pending) | Yes | Medium |
+| Multi-User Auth | Yes (JWT + httpOnly session + API middleware + RBAC route enforcement + document-level perms + audit log) | Yes | Low |
+| Faktur Import (OCR) | Planned (image → OCR → bill) | N/A (Accurate feature) | High |
 | Budget Controls | No | Yes | Medium |
 | Subscriptions | No | Yes | Medium |
 | Quality Management | No | Yes | Low |
@@ -502,6 +521,16 @@ v1.0   — Multi-User Auth live + all data in PostgreSQL ✓
           RBAC route enforcement — PermissionRoute + Forbidden.jsx + App.jsx wiring
           Data migration tool — DataMigrationPanel in Settings (localStorage → PostgreSQL)
           Loading skeletons — SkeletonBlock + TableSkeleton components
+
+v1.0.1 — Code Quality & Hardening
+          API route migration to withHandler() + requireOrg()/requireAuth()
+          Remove @ts-nocheck from all route files
+          Shared lib/money.ts (toNumber, asMoney, roundMoney)
+          FNV-1a advisory lock hashing + hardcoded SQL queries (no interpolation)
+          Transactional audit logging (logAuditTx)
+          Request body size limits (10 MB)
+          Duplicate file cleanup (apiClient.js, useAuthStore.js)
+          Faktur/purchase invoice image import (OCR → bill creation)
 
 v1.1   — Inventory Valuation + Bank Statement Import (Phase 1.4, 1.5)
 v1.2   — Batch/Expiry Tracking (Phase 2.2)

@@ -1,7 +1,7 @@
-// @ts-nocheck
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { corsPreflightResponse, withCors } from '@/lib/cors';
+import { corsPreflightResponse } from '@/lib/cors';
+import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -25,7 +25,7 @@ const asMoney = (value: number): number => {
 const endOfDay = (value: string | null): Date => {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid date: ${value}`);
+    throw new ApiError(`Invalid date: ${value}`, 400);
   }
   date.setHours(23, 59, 59, 999);
   return date;
@@ -84,14 +84,10 @@ const emptySummaryByType = (type: string) => {
   return {};
 };
 
-export async function GET(req: NextRequest) {
-  const orgId = req.headers.get('x-org-id');
-  if (!orgId) {
-    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
-  }
+export const GET = withHandler(async function GET(req: NextRequest) {
+  const orgId = requireOrg(req);
 
-  try {
-    const { searchParams } = new URL(req.url);
+  const { searchParams } = new URL(req.url);
     const type = searchParams.get('type') || 'aging';
     const asOfDate = endOfDay(searchParams.get('asOfDate'));
     const customerSearch = searchParams.get('customerSearch') || '';
@@ -137,7 +133,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (invoices.length === 0) {
-      return withCors(NextResponse.json({ type, rows: [], summary: emptySummaryByType(type) }));
+      return ok({ type, rows: [], summary: emptySummaryByType(type) });
     }
 
     const allocations = await prisma.aRPaymentAllocation.groupBy({
@@ -207,7 +203,7 @@ export async function GET(req: NextRequest) {
         totalOutstanding: 0,
       });
 
-      return withCors(NextResponse.json({ type, rows, summary }));
+      return ok({ type, rows, summary });
     }
 
     if (type === 'customer-balance') {
@@ -245,7 +241,7 @@ export async function GET(req: NextRequest) {
         totalOutstanding: 0,
       });
 
-      return withCors(NextResponse.json({ type, rows, summary }));
+      return ok({ type, rows, summary });
     }
 
     if (type === 'overdue-list') {
@@ -261,13 +257,8 @@ export async function GET(req: NextRequest) {
         overdueAmount: 0,
       });
 
-      return withCors(NextResponse.json({ type, rows, summary }));
+      return ok({ type, rows, summary });
     }
 
-    return withCors(NextResponse.json({ error: 'Unknown report type' }, { status: 400 }));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Report error';
-    const status = message.startsWith('Invalid date:') ? 400 : 500;
-    return withCors(NextResponse.json({ error: message }, { status }));
-  }
-}
+  return err('Unknown report type', 400);
+});

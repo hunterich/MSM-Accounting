@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Limit request body size to 10 MB (default is unlimited).
+  // Bill-import PDF uploads are the largest payloads; 10 MB is generous.
+  experimental: {
+    serverActions: { bodySizeLimit: '10mb' },
+  },
   async headers() {
     return [
       {

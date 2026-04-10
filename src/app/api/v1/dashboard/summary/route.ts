@@ -1,19 +1,10 @@
-// @ts-nocheck
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
   dashboardSummaryQuerySchema,
   dashboardSummaryResponseSchema,
 } from '@/types/api';
-
-class ApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
-}
+import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined) return 0;
@@ -31,26 +22,16 @@ const daysOverdue = (dueDate: Date | null, now: Date): number => {
   return Math.floor((now.getTime() - dueDate.getTime()) / msPerDay);
 };
 
-export async function GET(request: NextRequest) {
-  try {
-    const orgId = request.headers.get('x-org-id');
-    if (!orgId) {
-      return NextResponse.json({ message: 'Unauthenticated' }, { status: 401 });
-    }
+export const GET = withHandler(async function GET(request: NextRequest) {
+  const orgId = requireOrg(request);
 
-    const parsedQuery = dashboardSummaryQuerySchema.safeParse({ organizationId: orgId });
+  const parsedQuery = dashboardSummaryQuerySchema.safeParse({ organizationId: orgId });
 
-    if (!parsedQuery.success) {
-      return NextResponse.json(
-        {
-          message: 'organizationId is required',
-          issues: parsedQuery.error.issues,
-        },
-        { status: 400 },
-      );
-    }
+  if (!parsedQuery.success) {
+    return err('organizationId is required', 400);
+  }
 
-    const organizationId = parsedQuery.data.organizationId;
+  const organizationId = parsedQuery.data.organizationId;
     const now = new Date();
 
     const organization = await prisma.organization.findUnique({
@@ -237,13 +218,5 @@ export async function GET(request: NextRequest) {
       generatedAt: now.toISOString(),
     });
 
-    return NextResponse.json(responsePayload);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return NextResponse.json({ message: error.message }, { status: error.status });
-    }
-
-    const message = error instanceof Error ? error.message : 'Failed to compute dashboard summary';
-    return NextResponse.json({ message }, { status: 500 });
-  }
-}
+  return ok(responsePayload);
+});

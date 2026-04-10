@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { withCors } from '@/lib/cors';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { AccessError } from '@/lib/document-access';
+import { CreditLimitError } from '@/lib/credit-limit';
 
 export class ApiError extends Error {
   status: number;
@@ -28,18 +29,16 @@ function normalizeAuditPayload(
   return JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue;
 }
 
-/**
- * Fire-and-forget audit log writer.
- * Call after successful create/update/delete operations.
- */
-export function logAudit(opts: {
+type AuditOpts = {
   orgId: string;
   actorId?: string | null;
   entityType: string;
   entityId: string;
   action: 'CREATE' | 'UPDATE' | 'DELETE';
   payload?: unknown;
-}) {
+};
+
+function buildAuditData(opts: AuditOpts) {
   let payload: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined;
   try {
     payload = normalizeAuditPayload(opts.payload);
@@ -47,19 +46,37 @@ export function logAudit(opts: {
     console.error('[AuditLog] Failed to serialize payload:', error);
     payload = undefined;
   }
+  return {
+    organizationId: opts.orgId,
+    actorId: opts.actorId ?? null,
+    entityType: opts.entityType,
+    entityId: opts.entityId,
+    action: opts.action,
+    payload,
+  };
+}
 
-  defaultPrisma.auditLog.create({
-    data: {
-      organizationId: opts.orgId,
-      actorId: opts.actorId ?? null,
-      entityType: opts.entityType,
-      entityId: opts.entityId,
-      action: opts.action,
-      payload,
-    },
-  }).catch((err) => {
-    console.error('[AuditLog] Failed to write:', err);
+/**
+ * Fire-and-forget audit log writer.
+ * Call after successful create/update/delete operations.
+ * Failures are logged but never bubble up to the caller.
+ */
+export function logAudit(opts: AuditOpts): void {
+  defaultPrisma.auditLog.create({ data: buildAuditData(opts) }).catch((e) => {
+    console.error('[AuditLog] Failed to write:', e);
   });
+}
+
+/**
+ * Transactional audit log writer — use inside `prisma.$transaction()`.
+ * The audit row is committed atomically with the business operation,
+ * guaranteeing the audit trail is never missing for critical mutations.
+ */
+export function logAuditTx(
+  tx: Prisma.TransactionClient,
+  opts: AuditOpts,
+) {
+  return tx.auditLog.create({ data: buildAuditData(opts) });
 }
 
 export function err(message: string, status: number) {
@@ -125,28 +142,42 @@ export async function validateForeignKey(
   return record;
 }
 
-// Whitelist of allowed (tableName, field) pairs for nextNumber().
-// All values are hardcoded in source — never derived from user input.
-const ALLOWED_NUMBER_TARGETS = new Map<string, string>([
-  ['ARPayment',       'number'],
-  ['APPayment',       'number'],
-  ['Bill',            'number'],
-  ['CreditNote',      'number'],
-  ['DebitNote',       'number'],
-  ['Employee',        'employeeNo'],
-  ['PurchaseOrder',   'number'],
-  ['PurchaseReturn',  'number'],
-  ['SalesReturn',     'number'],
-  ['StockAdjustment', 'number'],
-]);
+/**
+ * FNV-1a 32-bit hash for advisory lock IDs.
+ * Much better distribution than naive char-code sum — reduces lock collisions.
+ */
+function fnv1aHash(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash || 1;
+}
+
+// Each entry maps to a hardcoded raw SQL query to eliminate any SQL injection risk.
+const NUMBER_QUERIES: Record<string, (prisma: any) => Promise<Array<{ max: number | null }>>> = {
+  ARPayment:      (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "ARPayment"`,
+  APPayment:      (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "APPayment"`,
+  Bill:           (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "Bill"`,
+  CreditNote:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "CreditNote"`,
+  DebitNote:      (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "DebitNote"`,
+  Employee:       (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("employeeNo" FROM '[0-9]+') AS INTEGER)) AS max FROM "Employee"`,
+  PurchaseOrder:  (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PurchaseOrder"`,
+  PurchaseReturn: (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PurchaseReturn"`,
+  SalesReturn:    (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "SalesReturn"`,
+  StockAdjustment:(p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "StockAdjustment"`,
+};
 
 /**
  * Sequential number generator using Postgres advisory lock.
  * Safe for concurrent requests — only one transaction increments at a time.
  *
+ * All SQL is fully hardcoded per table — no string interpolation.
+ *
  * @param prisma    - Prisma client instance (or transaction)
- * @param tableName - Prisma model name — must be in ALLOWED_NUMBER_TARGETS
- * @param field     - The column holding the number string — must match whitelist
+ * @param tableName - Prisma model name — must have a hardcoded query in NUMBER_QUERIES
+ * @param field     - Unused (kept for API compat) — the field is baked into each query
  * @param prefix    - Number prefix (e.g. 'BILL', 'PO', 'ARP', 'APP', 'EMP')
  */
 export async function nextNumber(
@@ -155,31 +186,55 @@ export async function nextNumber(
   field: string,
   prefix: string
 ): Promise<string> {
-  const allowedField = ALLOWED_NUMBER_TARGETS.get(tableName);
-  if (!allowedField || allowedField !== field) {
-    throw new Error(`nextNumber: disallowed target "${tableName}"."${field}"`);
+  const queryFn = NUMBER_QUERIES[tableName];
+  if (!queryFn) {
+    throw new Error(`nextNumber: disallowed target "${tableName}"`);
   }
 
-  // Derive a stable integer lock ID from the table name
-  const lockId = Math.abs(
-    tableName.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
-  );
+  const lockId = fnv1aHash(`next-number:${tableName}`);
   await prisma.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT MAX(CAST(SUBSTRING("${field}" FROM '[0-9]+') AS INTEGER)) AS max FROM "${tableName}"`
-  );
+  const rows = await queryFn(prisma);
   const max: number = rows[0]?.max ?? 0;
   return `${prefix}-${String(max + 1).padStart(4, '0')}`;
 }
 
+/**
+ * Extract and validate orgId from request headers.
+ * Throws ApiError(401) if missing.
+ */
+export function requireOrg(req: NextRequest): string {
+  const orgId = req.headers.get('x-org-id');
+  if (!orgId) throw new ApiError('Unauthenticated', 401);
+  return orgId;
+}
+
+/**
+ * Extract and validate both orgId and userId from request headers.
+ * Throws ApiError(401) if either is missing.
+ */
+export function requireAuth(req: NextRequest): { orgId: string; userId: string } {
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) throw new ApiError('Unauthenticated', 401);
+  return { orgId, userId };
+}
+
+/**
+ * Centralized error-handling wrapper for API route handlers.
+ * Catches ApiError, AccessError, CreditLimitError, and Prisma errors.
+ */
 export function withHandler<TContext = unknown>(
   handler: (req: NextRequest, ctx: TContext) => Promise<NextResponse>,
 ) {
-  return async (req: NextRequest, ctx: TContext) => {
+  return async (req: NextRequest, ctx?: TContext) => {
     try {
-      return await handler(req, ctx);
+      return await handler(req, ctx as TContext);
     } catch (error) {
-      if (error instanceof ApiError || error instanceof AccessError) {
+      if (
+        error instanceof ApiError ||
+        error instanceof AccessError ||
+        error instanceof CreditLimitError
+      ) {
         return err(error.message, error.status);
       }
 

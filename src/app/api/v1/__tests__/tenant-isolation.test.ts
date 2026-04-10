@@ -30,13 +30,13 @@ vi.mock('@/lib/cors', () => ({
   CORS_HEADERS: {},
 }));
 
-vi.mock('@/lib/api-utils', () => ({
-  ok:       (data: unknown, status = 200) => Response.json(data, { status }),
-  err:      (msg: string, status: number) => Response.json({ error: msg }, { status }),
-  logAudit: vi.fn(),
-  softDelete: (delegate: { updateMany: (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ count: number }> }, where: Record<string, unknown>, data: Record<string, unknown>) =>
-    delegate.updateMany({ where, data }).then((result) => result.count > 0),
-}));
+vi.mock('@/lib/api-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-utils')>();
+  return {
+    ...actual,
+    logAudit: vi.fn(),
+  };
+});
 
 // ── Route handler imports (after mocks) ─────────────────────────────────────
 

@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
@@ -8,22 +7,23 @@ import {
   createJournalEntryResponseSchema,
 } from '@/types/api';
 import { corsPreflightResponse } from '@/lib/cors';
-import { listResponse, logAudit } from '@/lib/api-utils';
+import {
+  ok,
+  err,
+  logAudit,
+  withHandler,
+  requireOrg,
+  requireAuth,
+  parsePaginationParams,
+  listResponse,
+  ApiError,
+} from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
 const JOURNAL_PREFIX = 'JE';
 const JOURNAL_DIGITS = 6;
 const JOURNAL_REGEX_SOURCE = '^JE-(\\d+)$';
-
-class ApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
-}
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined) return 0;
@@ -88,8 +88,8 @@ const normalizeLines = (payload: any) => {
     credit: asMoney(toNumber(line.credit)),
   }));
 
-  const totalDebit = asMoney(lines.reduce((sum, line) => sum + line.debit, 0));
-  const totalCredit = asMoney(lines.reduce((sum, line) => sum + line.credit, 0));
+  const totalDebit = asMoney(lines.reduce((sum: number, line: { debit: number }) => sum + line.debit, 0));
+  const totalCredit = asMoney(lines.reduce((sum: number, line: { credit: number }) => sum + line.credit, 0));
 
   return {
     lines,
@@ -102,15 +102,10 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
-  const orgId = req.headers.get('x-org-id');
-  if (!orgId) {
-    return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
-  }
+export const GET = withHandler(async (req: NextRequest) => {
+  const orgId = requireOrg(req);
 
-  const { searchParams } = new URL(req.url);
-  const page = Math.max(1, Number(searchParams.get('page') ?? 1));
-  const limit = Math.min(100, Number(searchParams.get('limit') ?? 20));
+  const { searchParams, page, limit } = parsePaginationParams(req);
   const status = searchParams.get('status');
   const where: any = { organizationId: orgId };
   if (status) where.status = status;
@@ -129,156 +124,126 @@ export async function GET(req: NextRequest) {
     prisma.journalEntry.count({ where }),
   ]);
   return listResponse(data, total, page, limit);
-}
+});
 
-export async function POST(request: NextRequest) {
-  try {
-    const orgId = request.headers.get('x-org-id');
-    if (!orgId) {
-      return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
-    }
+export const POST = withHandler(async (request: NextRequest) => {
+  const { orgId, userId } = requireAuth(request);
 
-    const rawPayload = await request.json();
-    if (rawPayload?.organizationId && rawPayload.organizationId !== orgId) {
-      return NextResponse.json(
-        { error: 'organizationId does not match current session' },
-        { status: 403 },
-      );
-    }
+  const rawPayload = await request.json();
+  if (rawPayload?.organizationId && rawPayload.organizationId !== orgId) {
+    throw new ApiError('organizationId does not match current session', 403);
+  }
 
-    const parsedPayload = createJournalEntryInputSchema.safeParse({
-      ...rawPayload,
-      organizationId: orgId,
+  const parsedPayload = createJournalEntryInputSchema.safeParse({
+    ...rawPayload,
+    organizationId: orgId,
+  });
+
+  if (!parsedPayload.success) {
+    return err('Invalid journal entry payload', 400);
+  }
+
+  const payload = parsedPayload.data;
+
+  const createdEntry = await prisma.$transaction(async (tx) => {
+    const organization = await tx.organization.findUnique({
+      where: { id: payload.organizationId },
+      select: { id: true },
     });
 
-    if (!parsedPayload.success) {
-      return NextResponse.json(
-        {
-          message: 'Invalid journal entry payload',
-          issues: parsedPayload.error.issues,
-        },
-        { status: 400 },
-      );
+    if (!organization) {
+      throw new ApiError('Organization not found', 404);
     }
 
-    const payload = parsedPayload.data;
-
-    const createdEntry = await prisma.$transaction(async (tx) => {
-      const organization = await tx.organization.findUnique({
-        where: { id: payload.organizationId },
-        select: { id: true },
-      });
-
-      if (!organization) {
-        throw new ApiError('Organization not found', 404);
-      }
-
-      if (payload.periodId) {
-        const period = await tx.accountingPeriod.findFirst({
-          where: {
-            id: payload.periodId,
-            organizationId: payload.organizationId,
-          },
-          select: {
-            id: true,
-            status: true,
-            isLocked: true,
-          },
-        });
-
-        if (!period) {
-          throw new ApiError('Accounting period not found', 404);
-        }
-
-        if (period.status === 'CLOSED' || period.isLocked) {
-          throw new ApiError('Accounting period is closed/locked', 422);
-        }
-      }
-
-      const { lines, totalDebit, totalCredit } = normalizeLines(payload);
-
-      if (totalDebit <= 0 || totalCredit <= 0) {
-        throw new ApiError('Journal totals must be greater than zero', 422);
-      }
-
-      if (Math.abs(totalDebit - totalCredit) > 0.0001) {
-        throw new ApiError(
-          `Unbalanced journal entry. totalDebit=${totalDebit} totalCredit=${totalCredit}`,
-          422,
-        );
-      }
-
-      const accountIds = Array.from(new Set(lines.map((line) => line.accountId)));
-      const accounts = await tx.account.findMany({
+    if (payload.periodId) {
+      const period = await tx.accountingPeriod.findFirst({
         where: {
+          id: payload.periodId,
           organizationId: payload.organizationId,
-          id: { in: accountIds },
-          isPostable: true,
-          isActive: true,
-        },
-        select: { id: true },
-      });
-
-      if (accounts.length !== accountIds.length) {
-        throw new ApiError('One or more journal line accounts are invalid/inactive', 404);
-      }
-
-      const entryNo = await nextJournalNumber(tx, payload.organizationId);
-
-      const entry = await tx.journalEntry.create({
-        data: {
-          organizationId: payload.organizationId,
-          entryNo,
-          date: parseIsoDate(payload.date),
-          memo: payload.memo,
-          source: payload.source,
-          status: payload.status,
-          periodId: payload.periodId || null,
-          totalDebit,
-          totalCredit,
-          postedAt: payload.status === 'POSTED' ? new Date() : null,
-          lines: {
-            create: lines,
-          },
         },
         select: {
           id: true,
-          entryNo: true,
-          totalDebit: true,
-          totalCredit: true,
           status: true,
+          isLocked: true,
         },
       });
 
-      await syncAccountPostingFlags(tx, payload.organizationId, accountIds);
-      return entry;
-    });
+      if (!period) {
+        throw new ApiError('Accounting period not found', 404);
+      }
 
-    const responsePayload = createJournalEntryResponseSchema.parse({
-      id: createdEntry.id,
-      entryNo: createdEntry.entryNo,
-      totalDebit: toNumber(createdEntry.totalDebit),
-      totalCredit: toNumber(createdEntry.totalCredit),
-      status: createdEntry.status,
-    });
-
-    logAudit({ orgId: orgId!, actorId: request.headers.get('x-user-id'), entityType: 'JournalEntry', entityId: createdEntry.id, action: 'CREATE', payload: rawPayload });
-    return NextResponse.json(responsePayload, { status: 201 });
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        return NextResponse.json(
-          { error: 'Journal number collision detected. Please retry.' },
-          { status: 409 },
-        );
+      if (period.status === 'CLOSED' || period.isLocked) {
+        throw new ApiError('Accounting period is closed/locked', 422);
       }
     }
 
-    const error_ = error instanceof Error ? error.message : 'Failed to create journal entry';
-    return NextResponse.json({ error: error_ }, { status: 500 });
-  }
-}
+    const { lines, totalDebit, totalCredit } = normalizeLines(payload);
+
+    if (totalDebit <= 0 || totalCredit <= 0) {
+      throw new ApiError('Journal totals must be greater than zero', 422);
+    }
+
+    if (Math.abs(totalDebit - totalCredit) > 0.0001) {
+      throw new ApiError(
+        `Unbalanced journal entry. totalDebit=${totalDebit} totalCredit=${totalCredit}`,
+        422,
+      );
+    }
+
+    const accountIds: string[] = Array.from(new Set(lines.map((line: any) => line.accountId as string)));
+    const accounts = await tx.account.findMany({
+      where: {
+        organizationId: payload.organizationId,
+        id: { in: accountIds },
+        isPostable: true,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+
+    if (accounts.length !== accountIds.length) {
+      throw new ApiError('One or more journal line accounts are invalid/inactive', 404);
+    }
+
+    const entryNo = await nextJournalNumber(tx, payload.organizationId);
+
+    const entry = await tx.journalEntry.create({
+      data: {
+        organizationId: payload.organizationId,
+        entryNo,
+        date: parseIsoDate(payload.date),
+        memo: payload.memo,
+        source: payload.source,
+        status: payload.status,
+        periodId: payload.periodId || null,
+        totalDebit,
+        totalCredit,
+        postedAt: payload.status === 'POSTED' ? new Date() : null,
+        lines: {
+          create: lines,
+        },
+      },
+      select: {
+        id: true,
+        entryNo: true,
+        totalDebit: true,
+        totalCredit: true,
+        status: true,
+      },
+    });
+
+    await syncAccountPostingFlags(tx, payload.organizationId, accountIds);
+    return entry;
+  });
+
+  const responsePayload = createJournalEntryResponseSchema.parse({
+    id: createdEntry.id,
+    entryNo: createdEntry.entryNo,
+    totalDebit: toNumber(createdEntry.totalDebit),
+    totalCredit: toNumber(createdEntry.totalCredit),
+    status: createdEntry.status,
+  });
+
+  logAudit({ orgId, actorId: userId, entityType: 'JournalEntry', entityId: createdEntry.id, action: 'CREATE', payload: rawPayload });
+  return ok(responsePayload, 201);
+});

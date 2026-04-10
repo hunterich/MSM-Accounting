@@ -34,41 +34,13 @@ vi.mock('@/lib/cors', () => ({
   CORS_HEADERS: {},
 }));
 
-vi.mock('@/lib/api-utils', () => {
-  class ApiError extends Error {
-    status: number;
-    constructor(message: string, status: number) {
-      super(message);
-      this.status = status;
-    }
-  }
-
+vi.mock('@/lib/api-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-utils')>();
   return {
-    ApiError,
-    ok: (data: unknown, status = 200) => Response.json(data, { status }),
-    err: (msg: string, status: number) => Response.json({ error: msg }, { status }),
-    listResponse: (data: unknown, total: number, page: number, limit: number) =>
-      Response.json({ data, total, page, limit }),
-    parsePaginationParams: (req: NextRequest, defaults: { page?: number; limit?: number; maxLimit?: number } = {}) => {
-      const { searchParams } = new URL(req.url);
-      return {
-        searchParams,
-        page: defaults.page ?? 1,
-        limit: defaults.limit ?? 20,
-      };
-    },
+    ...actual,
     nextNumber: vi.fn(async () => 'EMP-0001'),
     logAudit: vi.fn(),
     softDelete: vi.fn(),
-    validateForeignKey: async (
-      delegate: { findFirst: (args: { where: Record<string, unknown>; select: { id: true } }) => Promise<{ id: string } | null> },
-      where: Record<string, unknown>,
-      message: string,
-    ) => {
-      const record = await delegate.findFirst({ where, select: { id: true } });
-      if (!record) throw new ApiError(message, 404);
-      return record;
-    },
   };
 });
 

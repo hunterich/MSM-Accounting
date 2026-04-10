@@ -34,9 +34,13 @@ vi.mock('@/lib/cors', () => ({
   CORS_HEADERS: {},
 }));
 
-vi.mock('@/lib/api-utils', () => ({
-  logAudit: vi.fn(),
-}));
+vi.mock('@/lib/api-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-utils')>();
+  return {
+    ...actual,
+    logAudit: vi.fn(),
+  };
+});
 
 vi.mock('@/lib/bills', () => ({
   createBillRecord: vi.fn(),

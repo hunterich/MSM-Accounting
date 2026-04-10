@@ -1,7 +1,7 @@
-// @ts-nocheck
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { corsPreflightResponse, withCors } from '@/lib/cors';
+import { corsPreflightResponse } from '@/lib/cors';
+import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import {
   buildBalanceSheetReport,
   buildBalanceSheetMultiPeriodReport,
@@ -18,7 +18,7 @@ export async function OPTIONS() {
 const startOfDay = (value: string | null): Date => {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid date: ${value}`);
+    throw new ApiError(`Invalid date: ${value}`, 400);
   }
   date.setHours(0, 0, 0, 0);
   return date;
@@ -27,7 +27,7 @@ const startOfDay = (value: string | null): Date => {
 const endOfDay = (value: string | null): Date => {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid date: ${value}`);
+    throw new ApiError(`Invalid date: ${value}`, 400);
   }
   date.setHours(23, 59, 59, 999);
   return date;
@@ -45,14 +45,10 @@ const baseAccountSelect = {
   isActive: true,
 };
 
-export async function GET(req: NextRequest) {
-  const orgId = req.headers.get('x-org-id');
-  if (!orgId) {
-    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
-  }
+export const GET = withHandler(async function GET(req: NextRequest) {
+  const orgId = requireOrg(req);
 
-  try {
-    const { searchParams } = new URL(req.url);
+  const { searchParams } = new URL(req.url);
     const type = searchParams.get('type') || 'trial-balance';
 
     const accounts = await prisma.account.findMany({
@@ -85,11 +81,11 @@ export async function GET(req: NextRequest) {
         ? buildTrialBalanceReport(accounts, lines)
         : buildBalanceSheetReport(accounts, lines);
 
-      return withCors(NextResponse.json({
+      return ok({
         type,
         asOfDate,
         ...payload,
-      }));
+      });
     }
 
     if (type === 'balance-sheet-multi-period') {
@@ -127,7 +123,7 @@ export async function GET(req: NextRequest) {
         }),
       ]);
 
-      return withCors(NextResponse.json({
+      return ok({
         type,
         asOfDate,
         compareAsOfDate,
@@ -135,14 +131,14 @@ export async function GET(req: NextRequest) {
           buildBalanceSheetReport(accounts, currentLines),
           buildBalanceSheetReport(accounts, compareLines),
         ),
-      }));
+      });
     }
 
     if (type === 'profit-loss') {
       const dateFrom = startOfDay(searchParams.get('dateFrom'));
       const dateTo = endOfDay(searchParams.get('dateTo'));
       if (dateFrom > dateTo) {
-        return withCors(NextResponse.json({ error: 'dateFrom must be before or equal to dateTo' }, { status: 400 }));
+        return err('dateFrom must be before or equal to dateTo', 400);
       }
 
       const lines = await prisma.journalLine.findMany({
@@ -163,18 +159,13 @@ export async function GET(req: NextRequest) {
         },
       });
 
-      return withCors(NextResponse.json({
+      return ok({
         type,
         dateFrom,
         dateTo,
         ...buildProfitLossReport(accounts, lines),
-      }));
+      });
     }
 
-    return withCors(NextResponse.json({ error: 'Unknown report type' }, { status: 400 }));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Report error';
-    const status = message.startsWith('Invalid date:') ? 400 : 500;
-    return withCors(NextResponse.json({ error: message }, { status }));
-  }
-}
+  return err('Unknown report type', 400);
+});

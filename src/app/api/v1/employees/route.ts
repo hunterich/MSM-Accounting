@@ -1,8 +1,7 @@
-// @ts-nocheck
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
+import { withHandler, requireOrg, ok, err, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { employeeInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -90,9 +89,8 @@ async function resolvePositionId(
   return created.id;
 }
 
-export async function GET(req: NextRequest) {
-  const orgId = req.headers.get('x-org-id');
-  if (!orgId) return err('Unauthenticated', 401);
+export const GET = withHandler(async function GET(req: NextRequest) {
+  const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const search = searchParams.get('search');
   const status = searchParams.get('status');
@@ -116,11 +114,10 @@ export async function GET(req: NextRequest) {
     prisma.employee.count({ where }),
   ]);
   return listResponse(data.map(serializeEmployee), total, page, limit);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const orgId = req.headers.get('x-org-id');
-  if (!orgId) return err('Unauthenticated', 401);
+export const POST = withHandler(async function POST(req: NextRequest) {
+  const orgId = requireOrg(req);
   const body = await req.json();
   const normalizedBody = {
     ...body,
@@ -135,62 +132,56 @@ export async function POST(req: NextRequest) {
     return err(parsed.error.issues[0]?.message || 'Invalid employee payload', 400);
   }
 
-  try {
-    const employee = await prisma.$transaction(async (tx) => {
-      const departmentId = await resolveDepartmentId(tx, orgId, parsed.data.departmentId, parsed.data.department);
-      const positionId = await resolvePositionId(tx, orgId, parsed.data.positionId, parsed.data.position);
-      const employeeNo = await nextNumber(tx, 'Employee', 'employeeNo', 'EMP');
+  const employee = await prisma.$transaction(async (tx) => {
+    const departmentId = await resolveDepartmentId(tx, orgId, parsed.data.departmentId, parsed.data.department);
+    const positionId = await resolvePositionId(tx, orgId, parsed.data.positionId, parsed.data.position);
+    const employeeNo = await nextNumber(tx, 'Employee', 'employeeNo', 'EMP');
 
-      return tx.employee.create({
-        data: {
-          organizationId: orgId,
-          employeeNo,
-          name: parsed.data.name,
-          ktp: parsed.data.ktp || null,
-          dob: parsed.data.dob ? new Date(parsed.data.dob) : null,
-          phone: parsed.data.phone || null,
-          email: parsed.data.email || null,
-          address: parsed.data.address || null,
-          joinDate: new Date(parsed.data.joinDate),
-          departmentId,
-          positionId,
-          status: parsed.data.status,
-          type: parsed.data.type,
-          bankName: parsed.data.bankName || null,
-          accountNumber: parsed.data.accountNumber || null,
-          accountHolder: parsed.data.accountHolder || null,
-          npwp: parsed.data.npwp || null,
-          bpjsKesehatan: parsed.data.bpjsKesehatan || null,
-          bpjsKetenagakerjaan: parsed.data.bpjsKetenagakerjaan || null,
-          basicSalary: parsed.data.basicSalary,
-          compensationItems: {
-            create: [
-              ...parsed.data.allowances.map((item) => ({
-                type: 'ALLOWANCE' as const,
-                name: item.name,
-                amount: item.amount,
-              })),
-              ...parsed.data.deductions.map((item) => ({
-                type: 'DEDUCTION' as const,
-                name: item.name,
-                amount: item.amount,
-              })),
-            ],
-          },
+    return tx.employee.create({
+      data: {
+        organizationId: orgId,
+        employeeNo,
+        name: parsed.data.name,
+        ktp: parsed.data.ktp || null,
+        dob: parsed.data.dob ? new Date(parsed.data.dob) : null,
+        phone: parsed.data.phone || null,
+        email: parsed.data.email || null,
+        address: parsed.data.address || null,
+        joinDate: new Date(parsed.data.joinDate),
+        departmentId,
+        positionId,
+        status: parsed.data.status,
+        type: parsed.data.type,
+        bankName: parsed.data.bankName || null,
+        accountNumber: parsed.data.accountNumber || null,
+        accountHolder: parsed.data.accountHolder || null,
+        npwp: parsed.data.npwp || null,
+        bpjsKesehatan: parsed.data.bpjsKesehatan || null,
+        bpjsKetenagakerjaan: parsed.data.bpjsKetenagakerjaan || null,
+        basicSalary: parsed.data.basicSalary,
+        compensationItems: {
+          create: [
+            ...parsed.data.allowances.map((item) => ({
+              type: 'ALLOWANCE' as const,
+              name: item.name,
+              amount: item.amount,
+            })),
+            ...parsed.data.deductions.map((item) => ({
+              type: 'DEDUCTION' as const,
+              name: item.name,
+              amount: item.amount,
+            })),
+          ],
         },
-        include: {
-          department: true,
-          position: true,
-          compensationItems: true,
-        },
-      });
+      },
+      include: {
+        department: true,
+        position: true,
+        compensationItems: true,
+      },
     });
+  });
 
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Employee', entityId: employee.id, action: 'CREATE', payload: { name: employee.name, employeeNo: employee.employeeNo } });
-    return ok(serializeEmployee(employee), 201);
-  } catch (error) {
-    if (error instanceof ApiError) return err(error.message, error.status);
-    const message = error instanceof Error ? error.message : 'Failed to create employee';
-    return err(message, 500);
-  }
-}
+  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Employee', entityId: employee.id, action: 'CREATE', payload: { name: employee.name, employeeNo: employee.employeeNo } });
+  return ok(serializeEmployee(employee), 201);
+});
