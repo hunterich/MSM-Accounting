@@ -6,7 +6,10 @@ import {
   buildBalanceSheetReport,
   buildBalanceSheetMultiPeriodReport,
   buildProfitLossReport,
+  buildProfitLossMultiPeriodReport,
   buildTrialBalanceReport,
+  buildAccountLedgerReport,
+  buildCashFlowStatement,
 } from '@/lib/gl-reporting';
 
 export const runtime = 'nodejs';
@@ -164,6 +167,187 @@ export const GET = withHandler(async function GET(req: NextRequest) {
         dateFrom,
         dateTo,
         ...buildProfitLossReport(accounts, lines),
+      });
+    }
+
+    if (type === 'profit-loss-multi-period') {
+      const dateFrom = startOfDay(searchParams.get('dateFrom'));
+      const dateTo = endOfDay(searchParams.get('dateTo'));
+      const compareDateFrom = startOfDay(searchParams.get('compareDateFrom'));
+      const compareDateTo = endOfDay(searchParams.get('compareDateTo'));
+
+      if (dateFrom > dateTo) {
+        return err('dateFrom must be before or equal to dateTo', 400);
+      }
+      if (compareDateFrom > compareDateTo) {
+        return err('compareDateFrom must be before or equal to compareDateTo', 400);
+      }
+
+      const lineSelect = {
+        accountId: true as const,
+        debit: true as const,
+        credit: true as const,
+      };
+
+      const [currentLines, compareLines] = await Promise.all([
+        prisma.journalLine.findMany({
+          where: {
+            entry: {
+              organizationId: orgId,
+              status: 'POSTED',
+              date: { gte: dateFrom, lte: dateTo },
+            },
+          },
+          select: lineSelect,
+        }),
+        prisma.journalLine.findMany({
+          where: {
+            entry: {
+              organizationId: orgId,
+              status: 'POSTED',
+              date: { gte: compareDateFrom, lte: compareDateTo },
+            },
+          },
+          select: lineSelect,
+        }),
+      ]);
+
+      return ok({
+        type,
+        dateFrom,
+        dateTo,
+        compareDateFrom,
+        compareDateTo,
+        ...buildProfitLossMultiPeriodReport(
+          buildProfitLossReport(accounts, currentLines),
+          buildProfitLossReport(accounts, compareLines),
+        ),
+      });
+    }
+
+    if (type === 'account-ledger') {
+      const accountId = searchParams.get('accountId');
+      if (!accountId) {
+        return err('accountId is required', 400);
+      }
+
+      const account = await prisma.account.findFirst({
+        where: { id: accountId, organizationId: orgId },
+        select: { id: true, code: true, name: true, type: true },
+      });
+
+      if (!account) {
+        return err('Account not found', 404);
+      }
+
+      const dateFrom = startOfDay(searchParams.get('dateFrom'));
+      const dateTo = endOfDay(searchParams.get('dateTo'));
+
+      if (dateFrom > dateTo) {
+        return err('dateFrom must be before or equal to dateTo', 400);
+      }
+
+      const [openingLines, periodLines] = await Promise.all([
+        prisma.journalLine.findMany({
+          where: {
+            accountId,
+            entry: {
+              organizationId: orgId,
+              status: 'POSTED',
+              date: { lt: dateFrom },
+            },
+          },
+          select: {
+            accountId: true,
+            debit: true,
+            credit: true,
+          },
+        }),
+        prisma.journalLine.findMany({
+          where: {
+            accountId,
+            entry: {
+              organizationId: orgId,
+              status: 'POSTED',
+              date: { gte: dateFrom, lte: dateTo },
+            },
+          },
+          orderBy: {
+            entry: { date: 'asc' },
+          },
+          select: {
+            debit: true,
+            credit: true,
+            description: true,
+            entry: {
+              select: {
+                date: true,
+                entryNo: true,
+                memo: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      const flatPeriodLines = periodLines.map((line) => ({
+        date: line.entry.date,
+        entryNo: line.entry.entryNo,
+        description: line.description || line.entry.memo,
+        debit: line.debit,
+        credit: line.credit,
+      }));
+
+      return ok({
+        type,
+        dateFrom,
+        dateTo,
+        ...buildAccountLedgerReport(account, openingLines, flatPeriodLines),
+      });
+    }
+
+    if (type === 'cash-flow-statement') {
+      const dateFrom = startOfDay(searchParams.get('dateFrom'));
+      const dateTo = endOfDay(searchParams.get('dateTo'));
+
+      if (dateFrom > dateTo) {
+        return err('dateFrom must be before or equal to dateTo', 400);
+      }
+
+      const lineSelect = {
+        accountId: true as const,
+        debit: true as const,
+        credit: true as const,
+      };
+
+      const [beginningLines, periodLines] = await Promise.all([
+        prisma.journalLine.findMany({
+          where: {
+            entry: {
+              organizationId: orgId,
+              status: 'POSTED',
+              date: { lt: dateFrom },
+            },
+          },
+          select: lineSelect,
+        }),
+        prisma.journalLine.findMany({
+          where: {
+            entry: {
+              organizationId: orgId,
+              status: 'POSTED',
+              date: { gte: dateFrom, lte: dateTo },
+            },
+          },
+          select: lineSelect,
+        }),
+      ]);
+
+      return ok({
+        type,
+        dateFrom,
+        dateTo,
+        ...buildCashFlowStatement(accounts, beginningLines, periodLines),
       });
     }
 
