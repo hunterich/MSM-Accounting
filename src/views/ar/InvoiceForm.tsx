@@ -449,7 +449,7 @@ const InvoiceForm = () => {
     const customerOptions = customerList.map(c => ({
         value: c.id,
         label: c.name,
-        subLabel: c.id
+        subLabel: c.code || c.email || ''
     }));
 
     const TabButton = ({ id, label, icon: Icon }: { id: 'items' | 'info' | 'attachments'; label: string; icon: React.ComponentType<{ size?: number }> }) => (

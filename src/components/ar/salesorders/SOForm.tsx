@@ -252,8 +252,8 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
         () =>
             customers.map((customer) => ({
                 value: customer.id,
-                label: (customer.name as string) || customer.id,
-                subLabel: (customer.email as string) || (customer.phone as string) || customer.id,
+                label: (customer.name as string) || (customer.code as string) || '',
+                subLabel: (customer.email as string) || (customer.phone as string) || (customer.code as string) || '',
             })),
         [customers],
     );

@@ -235,7 +235,7 @@ const CreditNoteForm = () => {
         return invoices
             .filter((inv) => inv.customerId === source.customerId)
             .filter((inv) => inv.status !== 'Paid')
-            .map((inv) => ({ value: inv.id, label: `${inv.id} • ${formatDateID(inv.date)} • ${formatIDR(inv.amount)}` }));
+            .map((inv) => ({ value: inv.id, label: `${inv.number || inv.id} • ${formatDateID(inv.date)} • ${formatIDR(inv.amount)}` }));
     }, [formData.sourceInvoiceId, invoices]);
 
     const totals = useMemo(() => {
@@ -445,7 +445,7 @@ const CreditNoteForm = () => {
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Source Invoice</label>
-                        <Input className="mb-0" value={formData.sourceInvoiceId} disabled />
+                        <Input className="mb-0" value={invoices.find(inv => inv.id === formData.sourceInvoiceId)?.number || formData.sourceInvoiceId} disabled />
                     </div>
                 </div>
             </div>
