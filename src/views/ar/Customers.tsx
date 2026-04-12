@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { List, Plus, X, User, MapPin, Clock3, History } from 'lucide-react';
+import { List, Plus, X, User, MapPin, Clock3, History, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
@@ -138,6 +139,33 @@ const Customers = () => {
                     <button className={`border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} onClick={handleNewCustomer} disabled={!canCreate}>
                         <Plus size={16} />
                         New Customer
+                    </button>
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredData.map((c) => ({
+                                code: c.id,
+                                name: c.name,
+                                category: c.category || '',
+                                defaultDiscount: c.defaultDiscount || 0,
+                                paymentTerms: c.paymentTerms === 0 ? 'Due on Receipt' : `Net ${c.paymentTerms}`,
+                                balance: c.balance || 0,
+                                status: c.status,
+                            }));
+                            exportToCsv('customers.csv', rows, [
+                                { label: 'Code', key: 'code' },
+                                { label: 'Name', key: 'name' },
+                                { label: 'Category', key: 'category' },
+                                { label: 'Discount', key: 'defaultDiscount' },
+                                { label: 'Terms', key: 'paymentTerms' },
+                                { label: 'Open Balance', key: 'balance' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
                     </button>
                     {firstRowIds.map((id) => renderCustomerTab(id))}
                     <div className="ml-auto text-[0.82rem] text-neutral-600 font-semibold pr-1">Open tabs: {openCustomerIds.length}</div>

@@ -14,11 +14,12 @@ interface SearchableSelectProps {
     placeholder?: string;
     label?: React.ReactNode;
     onAddNew?: (term: string) => void;
+    footerAction?: { label: string; onAction: () => void };
     disabled?: boolean;
     className?: string;
 }
 
-const SearchableSelect = ({ options, value, onChange, placeholder = "Select...", label, onAddNew, disabled = false, className = '' }: SearchableSelectProps): React.ReactElement => {
+const SearchableSelect = ({ options, value, onChange, placeholder = "Select...", label, onAddNew, footerAction, disabled = false, className = '' }: SearchableSelectProps): React.ReactElement => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -120,6 +121,17 @@ const SearchableSelect = ({ options, value, onChange, placeholder = "Select...",
                             </div>
                         )}
                     </div>
+                    {footerAction && (
+                        <div className="border-t border-neutral-200">
+                            <button
+                                type="button"
+                                onClick={() => { setIsOpen(false); footerAction.onAction(); }}
+                                className="w-full px-3 py-2 text-left text-[0.85rem] text-primary-600 font-medium flex items-center gap-1.5 hover:bg-primary-50 transition-colors"
+                            >
+                                <Plus size={13} /> {footerAction.label}
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

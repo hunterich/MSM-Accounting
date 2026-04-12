@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Edit2, Trash2, Save } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Save, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
@@ -141,7 +142,30 @@ const CustomerCategories = () => {
                     <h1>Customer Categories</h1>
                     <p className="text-muted">Manage customer classifications and default settings</p>
                 </div>
-                <div className="page-actions">
+                <div className="page-actions flex items-center gap-2">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredCategories.map((cat) => ({
+                                name: cat.name,
+                                prefix: cat.prefix,
+                                defaultCreditLimit: cat.defaultCreditLimit,
+                                paymentTerms: cat.defaultPaymentTerms === 0 ? 'Due on Receipt' : `Net ${cat.defaultPaymentTerms}`,
+                                defaultDiscount: cat.defaultDiscount,
+                            }));
+                            exportToCsv('customer-categories.csv', rows, [
+                                { label: 'Name', key: 'name' },
+                                { label: 'Prefix', key: 'prefix' },
+                                { label: 'Credit Limit', key: 'defaultCreditLimit' },
+                                { label: 'Payment Terms', key: 'paymentTerms' },
+                                { label: 'Discount', key: 'defaultDiscount' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
                     <Button
                         variant="primary"
                         icon={<Plus size={16} />}

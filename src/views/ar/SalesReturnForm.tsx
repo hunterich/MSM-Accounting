@@ -191,7 +191,7 @@ const SalesReturnForm = () => {
         const filteredInvoices = invoices.filter((inv) => !returnData.customerId || inv.customerId === returnData.customerId);
         return filteredInvoices.map((inv) => ({
             value: inv.id,
-            label: `${inv.id} • ${inv.customerName} • ${formatDateID(inv.date)}`
+            label: `${inv.number || inv.id} • ${inv.customerName} • ${formatDateID(inv.date)}`
         }));
     }, [returnData.customerId, invoices]);
 
@@ -201,7 +201,7 @@ const SalesReturnForm = () => {
     }));
     const itemOptions = products.map((product) => ({
         value: product.id,
-        label: `${product.id} • ${product.name}`
+        label: `${product.sku || product.code || product.name} • ${product.name}`
     }));
 
     const accountMap = useMemo<Record<string, any>>(() => {

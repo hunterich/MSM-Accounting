@@ -4,7 +4,8 @@ import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { useAPPayments } from '../../hooks/useAP';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
@@ -154,6 +155,31 @@ const Payments = () => {
                         Pay Bills
                     </button>
                     {firstRowPaymentIds.map((paymentId) => renderPaymentTab(paymentId))}
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredData.map((p) => ({
+                                id: p.id,
+                                date: p.date,
+                                vendorName: p.vendorName,
+                                method: p.method,
+                                amount: p.amount,
+                                status: p.status,
+                            }));
+                            exportToCsv('ap-payments.csv', rows, [
+                                { label: 'Number', key: 'id' },
+                                { label: 'Date', key: 'date' },
+                                { label: 'Vendor', key: 'vendorName' },
+                                { label: 'Method', key: 'method' },
+                                { label: 'Amount', key: 'amount' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
                     <div className="workbench-tab-count">Open tabs: {openPaymentIds.length}</div>
                 </div>
                 {extraRows.map((row, rowIndex) => (

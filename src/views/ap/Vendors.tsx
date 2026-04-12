@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { List, Plus, Search, Tags } from 'lucide-react';
+import { List, Plus, Search, Tags, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import Button from '../../components/UI/Button';
 import Card from '../../components/UI/Card';
 import StatusTag from '../../components/UI/StatusTag';
@@ -91,6 +92,31 @@ const Vendors = () => {
                     >
                         <Plus size={16} />
                         Add Vendor
+                    </button>
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredData.map((v) => ({
+                                code: v.code,
+                                name: v.name,
+                                category: v.category || '',
+                                paymentTerms: v.paymentTerms || '',
+                                balance: v.balance || 0,
+                                status: v.status,
+                            }));
+                            exportToCsv('vendors.csv', rows, [
+                                { label: 'Code', key: 'code' },
+                                { label: 'Name', key: 'name' },
+                                { label: 'Category', key: 'category' },
+                                { label: 'Terms', key: 'paymentTerms' },
+                                { label: 'Open Balance', key: 'balance' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
                     </button>
                 </div>
             </div>

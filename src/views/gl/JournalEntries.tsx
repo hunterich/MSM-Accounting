@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import ListPage from '../../components/Layout/ListPage';
 import { useJournalEntries } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
@@ -84,13 +85,42 @@ const JournalEntries = () => {
             title="Journal Entries"
             subtitle="Review and record manual journal entries to the General Ledger."
             actions={
-                <Button
-                    text="New Journal Entry"
-                    variant="primary"
-                    icon={<Plus size={16} />}
-                    disabled={!canCreate}
-                    onClick={() => navigate('/gl/journals/new')}
-                />
+                <div className="flex items-center gap-2">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredEntries.map((je) => ({
+                                entryNo: je.entryNo,
+                                date: je.date,
+                                period: je.periodId,
+                                memo: je.memo,
+                                status: je.status,
+                                totalDebit: je.totalDebit,
+                                totalCredit: je.totalCredit,
+                            }));
+                            exportToCsv('journal-entries.csv', rows, [
+                                { label: 'Entry No', key: 'entryNo' },
+                                { label: 'Date', key: 'date' },
+                                { label: 'Period', key: 'period' },
+                                { label: 'Memo', key: 'memo' },
+                                { label: 'Status', key: 'status' },
+                                { label: 'Total Debit', key: 'totalDebit' },
+                                { label: 'Total Credit', key: 'totalCredit' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
+                    <Button
+                        text="New Journal Entry"
+                        variant="primary"
+                        icon={<Plus size={16} />}
+                        disabled={!canCreate}
+                        onClick={() => navigate('/gl/journals/new')}
+                    />
+                </div>
             }
         >
             <div className="grid grid-cols-[minmax(280px,1fr)_220px_220px] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">

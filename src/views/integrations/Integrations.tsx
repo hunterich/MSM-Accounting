@@ -5,9 +5,9 @@ import Modal from '../../components/UI/Modal';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
 import SearchableSelect from '../../components/UI/SearchableSelect';
-import { Plus, Settings, Trash2, AlertCircle } from 'lucide-react';
-import { useCustomers } from '../../hooks/useAR';
-import { useBankAccounts } from '../../hooks/useBanking';
+import { Plus, Settings, Trash2, AlertCircle, X } from 'lucide-react';
+import { useCustomers, useCreateCustomer } from '../../hooks/useAR';
+import { useBankAccounts, useCreateBankAccount } from '../../hooks/useBanking';
 import {
     useCreateEcommerceConnection,
     useDeleteEcommerceConnection,
@@ -47,6 +47,8 @@ const Integrations = () => {
     const createConnection = useCreateEcommerceConnection();
     const updateConnection = useUpdateEcommerceConnection();
     const deleteConnection = useDeleteEcommerceConnection();
+    const createCustomer = useCreateCustomer();
+    const createBankAccount = useCreateBankAccount();
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [settingsShopId, setSettingsShopId] = useState<string | null>(null);
@@ -58,6 +60,55 @@ const Integrations = () => {
         holdingAccountId: ''
     });
     const [formErrors, setFormErrors] = useState<FormErrors>({});
+
+    // Inline quick-create state
+    const [showNewCustomer, setShowNewCustomer] = useState(false);
+    const [newCustomerName, setNewCustomerName] = useState('');
+    const [newCustomerError, setNewCustomerError] = useState('');
+    const [showNewAccount, setShowNewAccount] = useState(false);
+    const [newAccountName, setNewAccountName] = useState('');
+    const [newAccountBank, setNewAccountBank] = useState('');
+    const [newAccountNumber, setNewAccountNumber] = useState('');
+    const [newAccountError, setNewAccountError] = useState('');
+
+    const handleQuickCreateCustomer = async () => {
+        const trimmed = newCustomerName.trim();
+        if (!trimmed) { setNewCustomerError('Name is required.'); return; }
+        // Auto-generate a code from the name (uppercase first letters, max 10 chars)
+        const autoCode = trimmed.replace(/\s+/g, '-').toUpperCase().slice(0, 10);
+        try {
+            const created = await createCustomer.mutateAsync({ name: trimmed, code: autoCode }) as { id: string };
+            setNewShop(prev => ({ ...prev, customerId: created.id }));
+            setShowNewCustomer(false);
+            setNewCustomerName('');
+            setNewCustomerError('');
+            setFormErrors(prev => ({ ...prev, customerId: null }));
+        } catch (e) {
+            setNewCustomerError(e instanceof Error ? e.message : 'Failed to create customer.');
+        }
+    };
+
+    const handleQuickCreateAccount = async () => {
+        if (!newAccountName.trim()) { setNewAccountError('Account name is required.'); return; }
+        try {
+            const created = await createBankAccount.mutateAsync({
+                accountNickname: newAccountName.trim(),
+                bankName: newAccountBank.trim(),
+                last4: newAccountNumber.trim(),
+                currency: 'IDR',
+                openingBalance: '0',
+            } as Parameters<typeof createBankAccount.mutateAsync>[0]);
+            setNewShop(prev => ({ ...prev, holdingAccountId: (created as { id: string }).id }));
+            setShowNewAccount(false);
+            setNewAccountName('');
+            setNewAccountBank('');
+            setNewAccountNumber('');
+            setNewAccountError('');
+            setFormErrors(prev => ({ ...prev, holdingAccountId: null }));
+        } catch (e) {
+            setNewAccountError(e instanceof Error ? e.message : 'Failed to create account.');
+        }
+    };
 
     const customerOptions: SelectOption[] = customers.map(c => ({ value: c.id, label: c.name }));
     const bankOptions: SelectOption[] = bankAccounts.map(b => ({ value: b.id, label: b.name }));
@@ -73,6 +124,8 @@ const Integrations = () => {
         setIsModalOpen(false);
         setFormErrors({});
         setNewShop({ platform: 'Shopee', name: '', customerId: '', holdingAccountId: '' });
+        setShowNewCustomer(false); setNewCustomerName(''); setNewCustomerError('');
+        setShowNewAccount(false); setNewAccountName(''); setNewAccountBank(''); setNewAccountNumber(''); setNewAccountError('');
     };
 
     const handleSaveShop = async (): Promise<void> => {
@@ -238,7 +291,8 @@ const Integrations = () => {
                     <div className="integrations-divider" />
                     <h4 className="integrations-section-title">Accounting Mapping</h4>
 
-                    <div className="mb-4">
+                    {/* Default Customer */}
+                    <div className="mb-1">
                         <label className="form-label">Default Customer</label>
                         <SearchableSelect
                             options={customerOptions}
@@ -246,36 +300,77 @@ const Integrations = () => {
                             onChange={(val) => {
                                 setNewShop({ ...newShop, customerId: val });
                                 setFormErrors((prev) => ({ ...prev, customerId: null }));
+                                setShowNewCustomer(false);
                             }}
                             placeholder="Select Customer..."
+                            footerAction={{ label: 'Add new customer', onAction: () => { setShowNewCustomer(v => !v); setShowNewAccount(false); } }}
                         />
                         {formErrors.customerId ? <div className="form-feedback invalid-feedback">{formErrors.customerId}</div> : null}
                         <span className="integrations-field-hint">Sales will be recorded under this customer.</span>
                     </div>
 
-                    <div className="mb-4">
+                    {/* Inline quick-create customer */}
+                    {showNewCustomer && (
+                        <div className="mb-4 rounded-lg border border-primary-200 bg-primary-50 p-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">New Customer</span>
+                                <button type="button" onClick={() => { setShowNewCustomer(false); setNewCustomerName(''); setNewCustomerError(''); }} className="text-neutral-400 hover:text-neutral-600"><X size={14} /></button>
+                            </div>
+                            <Input
+                                placeholder="Customer name *"
+                                value={newCustomerName}
+                                onChange={e => { setNewCustomerName(e.target.value); setNewCustomerError(''); }}
+                                className="mb-2"
+                            />
+                            {newCustomerError && <div className="form-feedback invalid-feedback mb-2">{newCustomerError}</div>}
+                            <Button
+                                text={createCustomer.isPending ? 'Creating...' : 'Create & Select'}
+                                variant="primary"
+                                size="small"
+                                disabled={createCustomer.isPending}
+                                onClick={handleQuickCreateCustomer}
+                            />
+                        </div>
+                    )}
+
+                    {/* Settlement / Holding Account */}
+                    <div className="mb-1">
                         <label className="form-label">Settlement / Holding Account</label>
-                        <select
-                            className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed"
+                        <SearchableSelect
+                            options={bankOptions}
                             value={newShop.holdingAccountId}
-                            onChange={(e) => {
-                                setNewShop({ ...newShop, holdingAccountId: e.target.value });
+                            onChange={(val) => {
+                                setNewShop({ ...newShop, holdingAccountId: val });
                                 setFormErrors((prev) => ({ ...prev, holdingAccountId: null }));
+                                setShowNewAccount(false);
                             }}
-                        >
-                            <option value="">Select Account...</option>
-                            {bankOptions.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
+                            placeholder="Select Account..."
+                            footerAction={{ label: 'Add new account', onAction: () => { setShowNewAccount(v => !v); setShowNewCustomer(false); } }}
+                        />
                         {formErrors.holdingAccountId ? <div className="form-feedback invalid-feedback">{formErrors.holdingAccountId}</div> : null}
                         <span className="integrations-field-hint">Where funds are held before withdrawal to bank.</span>
-                        {bankOptions.length === 0 ? (
-                            <span className="integrations-field-hint block mt-2 text-warning-700">
-                                No bank accounts found yet. Add the settlement account in Banking before creating a shop connection.
-                            </span>
-                        ) : null}
                     </div>
+
+                    {/* Inline quick-create bank account */}
+                    {showNewAccount && (
+                        <div className="mb-4 rounded-lg border border-primary-200 bg-primary-50 p-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">New Account</span>
+                                <button type="button" onClick={() => { setShowNewAccount(false); setNewAccountName(''); setNewAccountBank(''); setNewAccountNumber(''); setNewAccountError(''); }} className="text-neutral-400 hover:text-neutral-600"><X size={14} /></button>
+                            </div>
+                            <Input placeholder="Account name *" value={newAccountName} onChange={e => { setNewAccountName(e.target.value); setNewAccountError(''); }} className="mb-2" />
+                            <Input placeholder="Bank name (optional)" value={newAccountBank} onChange={e => setNewAccountBank(e.target.value)} className="mb-2" />
+                            <Input placeholder="Account number (optional)" value={newAccountNumber} onChange={e => setNewAccountNumber(e.target.value)} className="mb-2" />
+                            {newAccountError && <div className="form-feedback invalid-feedback mb-2">{newAccountError}</div>}
+                            <Button
+                                text={createBankAccount.isPending ? 'Creating...' : 'Create & Select'}
+                                variant="primary"
+                                size="small"
+                                disabled={createBankAccount.isPending}
+                                onClick={handleQuickCreateAccount}
+                            />
+                        </div>
+                    )}
 
                 </div>
 

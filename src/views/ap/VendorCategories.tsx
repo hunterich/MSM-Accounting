@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Edit2, Plus, Save, Search, Trash2 } from 'lucide-react';
+import { Edit2, Plus, Save, Search, Trash2, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import Button from '../../components/UI/Button';
 import Card from '../../components/UI/Card';
 import Input from '../../components/UI/Input';
@@ -191,13 +192,36 @@ const VendorCategories = () => {
             title="Vendor Categories"
             subtitle="Manage supplier groups and default A/P settings."
             actions={
-                <Button
-                    text="New Category"
-                    variant="primary"
-                    icon={<Plus size={16} />}
-                    disabled={!canCreate}
-                    onClick={() => handleOpenModal()}
-                />
+                <div className="flex items-center gap-2">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredCategories.map((cat) => ({
+                                name: cat.name,
+                                code: cat.code,
+                                defaultPaymentTerms: cat.defaultPaymentTerms || '',
+                                isActive: cat.isActive ? 'Yes' : 'No',
+                            }));
+                            exportToCsv('vendor-categories.csv', rows, [
+                                { label: 'Name', key: 'name' },
+                                { label: 'Code', key: 'code' },
+                                { label: 'Payment Terms', key: 'defaultPaymentTerms' },
+                                { label: 'Is Active', key: 'isActive' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
+                    <Button
+                        text="New Category"
+                        variant="primary"
+                        icon={<Plus size={16} />}
+                        disabled={!canCreate}
+                        onClick={() => handleOpenModal()}
+                    />
+                </div>
             }
         >
             <Card padding={false}>

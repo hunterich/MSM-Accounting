@@ -94,6 +94,18 @@
     @apply mb-2 block text-sm font-medium text-neutral-700;
   }
 
+  .form-feedback {
+    @apply mt-1 text-xs;
+  }
+
+  .invalid-feedback {
+    @apply text-danger-600;
+  }
+
+  .valid-feedback {
+    @apply text-success-600;
+  }
+
   .form-grid-tight {
     @apply items-end gap-y-3;
   }

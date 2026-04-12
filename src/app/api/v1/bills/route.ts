@@ -121,9 +121,10 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       }
     }
 
-    // Add cost layers when bill status is APPROVED (or OPEN — treated as approved/ready)
+    // Add cost layers when bill status is APPROVED or OPEN (treated as approved/ready)
     // Cast to string for forward-compatibility in case APPROVED is added to the enum later
-    if ((parsed.data.status as string) === 'APPROVED' && createdBill) {
+    const billStatus = parsed.data.status as string;
+    if ((billStatus === 'APPROVED' || billStatus === 'OPEN') && createdBill) {
       const organization = await tx.organization.findUnique({
         where: { id: orgId },
         select: { costingMethod: true },

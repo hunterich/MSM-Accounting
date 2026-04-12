@@ -562,6 +562,20 @@ export const stockAdjustmentInputSchema = z.object({
 
 export const updateStockAdjustmentInputSchema = stockAdjustmentInputSchema.omit({ organizationId: true }).partial();
 
+export const createBankAccountInputSchema = z.object({
+  name:           z.string().trim().min(1, 'Account name is required'),
+  bankName:       z.string().trim().optional().nullable(),
+  last4:          z.string().trim().max(20).optional().nullable(),
+  currency:       z.string().trim().default('IDR'),
+  openingBalance: z.coerce.number().default(0),
+  isActive:       z.boolean().default(true),
+});
+
+export const updateBankAccountInputSchema = createBankAccountInputSchema.partial();
+
+export type CreateBankAccountInput = z.infer<typeof createBankAccountInputSchema>;
+export type UpdateBankAccountInput = z.infer<typeof updateBankAccountInputSchema>;
+
 export const bankTransactionInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   number: z.string().trim().optional(),

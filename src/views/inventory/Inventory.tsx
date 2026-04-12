@@ -4,7 +4,8 @@ import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import ListPage from '../../components/Layout/ListPage';
 import { formatIDR } from '../../utils/formatters';
 import { useItems, useItemCategories } from '../../hooks/useInventory';
@@ -91,13 +92,42 @@ const Inventory = () => {
             title="Inventory Management"
             subtitle="Track stock levels, costs, and pricing."
             actions={
-                <Button
-                    text="Add Item"
-                    variant="primary"
-                    icon={<Plus size={16} />}
-                    disabled={!canCreate}
-                    onClick={() => navigate('/inventory/new')}
-                />
+                <div className="flex items-center gap-2">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredItems.map((item) => ({
+                                sku: item.sku || '',
+                                name: item.name,
+                                category: item.category || '',
+                                stock: item.stock,
+                                cost: item.cost,
+                                price: item.price,
+                                status: item.status,
+                            }));
+                            exportToCsv('inventory.csv', rows, [
+                                { label: 'SKU', key: 'sku' },
+                                { label: 'Item Name', key: 'name' },
+                                { label: 'Category', key: 'category' },
+                                { label: 'Stock', key: 'stock' },
+                                { label: 'Cost', key: 'cost' },
+                                { label: 'Price', key: 'price' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
+                    <Button
+                        text="Add Item"
+                        variant="primary"
+                        icon={<Plus size={16} />}
+                        disabled={!canCreate}
+                        onClick={() => navigate('/inventory/new')}
+                    />
+                </div>
             }
         >
             <div className="filter-bar filter-bar--3col">

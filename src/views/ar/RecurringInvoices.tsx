@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, RefreshCw, Pause, Play, Edit2, StopCircle, Trash2, X } from 'lucide-react';
+import { Plus, RefreshCw, Pause, Play, Edit2, StopCircle, Trash2, X, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { api } from '../../api/apiClient';
 import Button from '../../components/UI/Button';
 import Card from '../../components/UI/Card';
@@ -388,11 +389,34 @@ const RecurringInvoices: React.FC = () => {
                         Manage invoice templates that generate automatically on a schedule.
                     </p>
                 </div>
-                <Button
-                    text="New Recurring Invoice"
-                    icon={<Plus size={16} />}
-                    onClick={openCreate}
-                />
+                <div className="flex items-center gap-2">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = recurringInvoices.map((ri) => ({
+                                title: ri.title,
+                                frequency: FREQUENCY_OPTIONS.find((o) => o.value === ri.frequency)?.label ?? ri.frequency,
+                                status: ri.status,
+                                nextRunDate: ri.nextRunDate,
+                            }));
+                            exportToCsv('recurring-invoices.csv', rows, [
+                                { label: 'Title', key: 'title' },
+                                { label: 'Frequency', key: 'frequency' },
+                                { label: 'Status', key: 'status' },
+                                { label: 'Next Run Date', key: 'nextRunDate' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
+                    <Button
+                        text="New Recurring Invoice"
+                        icon={<Plus size={16} />}
+                        onClick={openCreate}
+                    />
+                </div>
             </div>
 
             {/* List table */}

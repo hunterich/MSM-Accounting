@@ -10,6 +10,8 @@ import { formatDateID } from '../../utils/formatters';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useOrganizationSettings, useUpdateOrganizationSettings, useUpdateCostingMethod } from '../../hooks/useOrganizationSettings';
+import { useRecalculateCosting, type RecalculateCostingResult } from '../../hooks/useInventory';
+import { formatIDR } from '../../utils/formatters';
 import Table, { TableColumn } from '../../components/UI/Table';
 
 const DEFAULT_FISCAL_YEAR_START = '2026-01-01';
@@ -102,10 +104,13 @@ const CompanySetup = () => {
 
     // Costing method change flow
     const updateCostingMethod = useUpdateCostingMethod();
+    const recalculateCosting = useRecalculateCosting();
     const [changeMethodModalOpen, setChangeMethodModalOpen] = useState(false);
     const [changingToMethod, setChangingToMethod] = useState<'FIFO' | 'WEIGHTED_AVERAGE'>('FIFO');
     const [changeEffectiveDate, setChangeEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
     const [changeMethodError, setChangeMethodError] = useState('');
+    const [recalcResult, setRecalcResult] = useState<RecalculateCostingResult | null>(null);
+    const [recalculating, setRecalculating] = useState(false);
 
     useEffect(() => {
         if (!orgSettings || didHydrate) return;
@@ -478,21 +483,34 @@ const CompanySetup = () => {
                             <div className="flex justify-end gap-2 pt-2">
                                 <Button text="Cancel" variant="secondary" onClick={() => setChangeMethodModalOpen(false)} />
                                 <Button
-                                    text={updateCostingMethod.isPending ? 'Saving...' : 'Confirm Change'}
+                                    text={recalculating ? 'Recalculating...' : updateCostingMethod.isPending ? 'Saving...' : 'Confirm Change'}
                                     variant="primary"
-                                    disabled={updateCostingMethod.isPending}
+                                    disabled={updateCostingMethod.isPending || recalculating}
                                     onClick={async () => {
                                         if (!changeEffectiveDate) { setChangeMethodError('Effective date is required.'); return; }
                                         setChangeMethodError('');
+                                        setRecalculating(true);
                                         try {
                                             await updateCostingMethod.mutateAsync({
                                                 costingMethod: changingToMethod,
                                                 costingMethodEffectiveDate: changeEffectiveDate,
                                             });
+                                            // Recalculate inventory costing
+                                            try {
+                                                const result = await recalculateCosting.mutateAsync({
+                                                    newMethod: changingToMethod,
+                                                    effectiveDate: changeEffectiveDate,
+                                                });
+                                                setRecalcResult(result);
+                                            } catch {
+                                                // Recalculation is optional; method change still succeeded
+                                            }
                                             handleChange('costingMethod', changingToMethod);
                                             setChangeMethodModalOpen(false);
                                         } catch (err) {
                                             setChangeMethodError((err as Error)?.message ?? 'Failed to change costing method.');
+                                        } finally {
+                                            setRecalculating(false);
                                         }
                                     }}
                                 />
@@ -525,6 +543,28 @@ const CompanySetup = () => {
                     <Table<AccountingPeriod> columns={periodColumns} data={periods} />
                 </Card>
             ) : null}
+
+            {/* Recalculation Result Modal */}
+            {recalcResult && (
+                <Modal title="Costing Recalculation Complete" onClose={() => setRecalcResult(null)} size="sm">
+                    <div className="p-4 space-y-3">
+                        <p className="text-sm text-neutral-700">Inventory costing has been recalculated successfully.</p>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="text-neutral-500">Items Recalculated</div>
+                            <div className="font-medium">{recalcResult.itemsRecalculated}</div>
+                            <div className="text-neutral-500">Total Value Impact</div>
+                            <div className={`font-medium ${recalcResult.totalValueChange >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                                {recalcResult.totalValueChange >= 0 ? '+' : ''}{formatIDR(recalcResult.totalValueChange)}
+                            </div>
+                            <div className="text-neutral-500">Journal Entry</div>
+                            <div className="font-mono text-xs">{recalcResult.journalEntryId}</div>
+                        </div>
+                        <div className="flex justify-end pt-2">
+                            <Button text="Close" variant="secondary" onClick={() => setRecalcResult(null)} />
+                        </div>
+                    </div>
+                </Modal>
+            )}
         </ListPage>
     );
 };

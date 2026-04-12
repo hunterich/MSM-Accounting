@@ -13,6 +13,7 @@ import {
     Menu,
     X,
     RefreshCw,
+    Building2,
     CheckSquare,
     type LucideIcon,
 } from 'lucide-react';
@@ -60,6 +61,7 @@ const navItems: NavItem[] = [
             { label: 'Payments', path: '/ar/payments' },
             { label: 'Returns & Credits', path: '/ar/credits' },
             { label: 'Recurring', path: '/ar/recurring' },
+            { label: 'Subscriptions', path: '/ar/subscriptions' },
             { label: 'Customers', path: '/ar/customers' },
             { label: 'Customer Categories', path: '/ar/categories' },
             { label: 'Approvals', path: '/ar/approvals' },
@@ -99,7 +101,8 @@ const navItems: NavItem[] = [
             { label: 'Transfer', path: '/banking/transfer' },
             { label: 'Record Expense', path: '/banking/expense' },
             { label: 'Record Income', path: '/banking/income' },
-            { label: 'Add Account', path: '/banking/account' }
+            { label: 'Add Account', path: '/banking/account' },
+            { label: 'Payment Reconciliation', path: '/banking/reconciliation' }
         ]
     },
     {
@@ -109,7 +112,18 @@ const navItems: NavItem[] = [
         subItems: [
             { label: 'Employees', path: '/hr/employees' },
             { label: 'Attendance', path: '/hr/attendance' },
-            { label: 'Payroll Run', path: '/hr/payroll-run' }
+            { label: 'Payroll Run', path: '/hr/payroll-run' },
+            { label: 'Leave Management', path: '/hr/leave' }
+        ]
+    },
+    {
+        label: 'Assets',
+        path: '/assets',
+        icon: Building2,
+        subItems: [
+            { label: 'Asset Register', path: '/assets' },
+            { label: 'Categories', path: '/assets/categories' },
+            { label: 'Depreciation Run', path: '/assets/depreciation' },
         ]
     },
     {

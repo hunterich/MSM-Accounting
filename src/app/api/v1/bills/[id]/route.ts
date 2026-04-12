@@ -38,8 +38,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { lines, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true } });
+      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
       if (!existing) return null;
+      if (existing.status !== 'DRAFT') {
+        throw new ApiError('Only DRAFT bills can be modified', 403);
+      }
       if (header.vendorId) {
         await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
       }
@@ -87,7 +90,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
-    await prisma.bill.delete({ where: { id, organizationId: orgId } });
+    const existing = await prisma.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
+    if (!existing) {
+      return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
+    }
+    if (existing.status !== 'DRAFT') {
+      return withCors(NextResponse.json({ error: 'Only DRAFT bills can be deleted' }, { status: 403 }));
+    }
+    await prisma.bill.update({ where: { id, organizationId: orgId }, data: { deletedAt: new Date() } });
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Bill', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {

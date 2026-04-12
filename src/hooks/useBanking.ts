@@ -86,9 +86,9 @@ export function useCreateBankAccount() {
     mutationFn: (formData: BankAccountFormData) => api.post('/api/v1/bank-accounts', {
       name:           formData.accountNickname,
       bankName:       formData.bankName,
-      accountNumber:  formData.last4,
+      last4:          formData.last4,
       currency:       formData.currency || 'IDR',
-      currentBalance: Number(formData.openingBalance) || 0,
+      openingBalance: Number(formData.openingBalance) || 0,
       isActive:       true,
     }),
     onSuccess: () => qc.invalidateQueries({ queryKey: BANK_KEYS.accounts }),
@@ -248,6 +248,75 @@ export function useManualMatch() {
       api.post('/api/v1/bank-statements/manual-match', { statementLineId, txnId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bankStatements'] });
+      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
+    },
+  });
+}
+
+// ─── Payment Reconciliation ──────────────────────────────────────────────────
+
+export const RECONCILIATION_KEYS = {
+  payments: ['paymentReconciliation'] as const,
+};
+
+export interface ReconciliationMatch {
+  paymentType: 'AR' | 'AP';
+  paymentId: string;
+  paymentNumber: string;
+  paymentAmount: number;
+  paymentDate: string;
+  bankTransactionId: string;
+  bankTxnDescription: string;
+  bankTxnAmount: number;
+  bankTxnDate: string;
+  customerOrVendor: string;
+}
+
+export interface UnmatchedPayment {
+  type: 'AR' | 'AP';
+  id: string;
+  number: string;
+  amount: number;
+  date: string;
+  customerOrVendor: string;
+}
+
+export interface UnmatchedBankTx {
+  id: string;
+  description: string;
+  amount: number;
+  date: string;
+  type: string;
+  bankAccount: string;
+}
+
+export interface ReconciliationResult {
+  matched: ReconciliationMatch[];
+  unmatchedPayments: UnmatchedPayment[];
+  unmatchedBankTx: UnmatchedBankTx[];
+  summary: {
+    totalMatched: number;
+    totalUnmatched: number;
+    totalUnmatchedBankTx: number;
+    matchRate: number;
+  };
+}
+
+export function usePaymentReconciliation() {
+  return useQuery({
+    queryKey: RECONCILIATION_KEYS.payments,
+    queryFn: () => api.get<ReconciliationResult>('/api/v1/reconciliation/payments'),
+    staleTime: 15_000,
+  });
+}
+
+export function useMatchPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { paymentType: 'AR' | 'AP'; paymentId: string; bankTransactionId: string }) =>
+      api.post('/api/v1/reconciliation/payments/match', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: RECONCILIATION_KEYS.payments });
       qc.invalidateQueries({ queryKey: ['bankTransactions'] });
     },
   });

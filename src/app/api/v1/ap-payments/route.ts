@@ -52,7 +52,25 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     await validateForeignKey(tx.vendor, { id: payload.vendorId, organizationId: orgId, status: 'ACTIVE' }, 'Vendor not found in organization');
     if (allocations?.length) {
       for (const allocation of allocations) {
-        await validateForeignKey(tx.bill, { id: allocation.billId, organizationId: orgId }, 'Bill not found in organization');
+        const bill = await tx.bill.findFirst({
+          where: { id: allocation.billId, organizationId: orgId },
+          select: { id: true, totalAmount: true },
+        });
+        if (!bill) {
+          throw new ApiError('Bill not found in organization', 404);
+        }
+        const existingAllocations = await tx.aPPaymentAllocation.aggregate({
+          where: { billId: allocation.billId },
+          _sum: { amountApplied: true },
+        });
+        const alreadyPaid = Number(existingAllocations._sum.amountApplied ?? 0);
+        const outstanding = Number(bill.totalAmount) - alreadyPaid;
+        if (Number(allocation.amountApplied) > outstanding + 0.01) {
+          throw new ApiError(
+            `Over-allocation: bill ${allocation.billId} has outstanding ${outstanding.toFixed(2)}, cannot apply ${allocation.amountApplied}`,
+            422,
+          );
+        }
       }
     }
     return tx.aPPayment.create({
