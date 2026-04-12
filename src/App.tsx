@@ -23,6 +23,7 @@ import CreditNoteForm from './views/ar/CreditNoteForm'
 import SalesReturnForm from './views/ar/SalesReturnForm'
 import RecurringInvoices from './views/ar/RecurringInvoices'
 import ApprovalInbox from './views/ar/ApprovalInbox'
+import SubscriptionsPage from './views/ar/Subscriptions'
 import SOForm from './components/ar/salesorders/SOForm'
 
 import Bills from './views/ap/Bills'
@@ -48,10 +49,18 @@ import StockValuation from './views/inventory/StockValuation'
 import DeliveryNotes from './views/ar/DeliveryNotes'
 import Banking from './views/banking/Banking'
 import BankingActionForm from './views/banking/BankingActionForm'
+import PaymentReconciliation from './views/banking/PaymentReconciliation'
 import Employees from './views/hr/Employees'
 import EmployeeForm from './views/hr/EmployeeForm'
 import Attendance from './views/hr/Attendance'
 import PayrollRun from './views/hr/PayrollRun'
+import LeaveManagement from './views/hr/LeaveManagement'
+
+import AssetRegister from './views/assets/AssetRegister'
+import AssetCategories from './views/assets/AssetCategories'
+import AssetForm from './views/assets/AssetForm'
+import AssetDetail from './views/assets/AssetDetail'
+import DepreciationRun from './views/assets/DepreciationRun'
 
 import Reports from './views/reports/Reports'
 import Settings from './views/settings/Settings'
@@ -111,6 +120,7 @@ function App(): JSX.Element {
                     <Route path="ar/returns/new" element={withPermission(<SalesReturnForm />, 'ar_credits', 'create')} />
                     <Route path="ar/recurring" element={withPermission(<RecurringInvoices />, 'ar_invoices')} />
                     <Route path="ar/approvals" element={withPermission(<ApprovalInbox />, 'ar_invoices')} />
+                    <Route path="ar/subscriptions" element={withPermission(<SubscriptionsPage />, 'ar_invoices')} />
 
                     {/* Accounts Payable */}
                     <Route path="ap" element={<Navigate to="/ap/bills" replace />} />
@@ -149,6 +159,7 @@ function App(): JSX.Element {
                     <Route path="banking/expense" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/income" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/account" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/reconciliation" element={withPermission(<PaymentReconciliation />, 'banking')} />
 
                     {/* HR & Payroll */}
                     <Route path="hr" element={<Navigate to="/hr/employees" replace />} />
@@ -157,6 +168,15 @@ function App(): JSX.Element {
                     <Route path="hr/employees/edit" element={withPermission(<EmployeeForm />, 'hr_employees', 'edit')} />
                     <Route path="hr/attendance" element={withPermission(<Attendance />, 'hr_attendance')} />
                     <Route path="hr/payroll-run" element={withPermission(<PayrollRun />, 'hr_payroll')} />
+                    <Route path="hr/leave" element={withPermission(<LeaveManagement />, 'hr_attendance')} />
+
+                    {/* Assets */}
+                    <Route path="assets" element={withPermission(<AssetRegister />, 'assets')} />
+                    <Route path="assets/categories" element={withPermission(<AssetCategories />, 'assets')} />
+                    <Route path="assets/new" element={withPermission(<AssetForm />, 'assets', 'create')} />
+                    <Route path="assets/:id" element={withPermission(<AssetDetail />, 'assets')} />
+                    <Route path="assets/:id/edit" element={withPermission(<AssetForm />, 'assets', 'edit')} />
+                    <Route path="assets/depreciation" element={withPermission(<DepreciationRun />, 'assets')} />
 
                     <Route path="integrations" element={withPermission(<Integrations />, 'integrations')} />
                     <Route path="reports" element={withPermission(<Reports />, 'reports')} />

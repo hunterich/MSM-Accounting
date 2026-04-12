@@ -4,7 +4,8 @@ import Card from '../../components/UI/Card';
 import Table from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Search, List } from 'lucide-react';
+import { Plus, Search, List, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID } from '../../utils/formatters';
 import { useStockAdjustments } from '../../hooks/useInventory';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
@@ -87,6 +88,29 @@ const InventoryAdjustments = () => {
                     >
                         <Plus size={16} />
                         New Adjustment
+                    </button>
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredData.map((adj) => ({
+                                id: adj.id,
+                                date: adj.date,
+                                type: adj.type,
+                                reason: adj.reason,
+                                status: adj.status,
+                            }));
+                            exportToCsv('inventory-adjustments.csv', rows, [
+                                { label: 'Reference No', key: 'id' },
+                                { label: 'Date', key: 'date' },
+                                { label: 'Type', key: 'type' },
+                                { label: 'Reason', key: 'reason' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
                     </button>
                 </div>
             </div>

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { List, Plus, Search } from 'lucide-react';
+import { List, Plus, Search, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
@@ -97,6 +98,31 @@ const Employees = () => {
                     >
                         <Plus size={16} />
                         New Employee
+                    </button>
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredData.map((emp) => ({
+                                employeeNo: emp.employeeNo || '',
+                                name: emp.name,
+                                department: emp.department || '',
+                                position: emp.position || '',
+                                basicSalary: emp.basicSalary || 0,
+                                status: emp.status,
+                            }));
+                            exportToCsv('employees.csv', rows, [
+                                { label: 'Employee ID', key: 'employeeNo' },
+                                { label: 'Name', key: 'name' },
+                                { label: 'Department', key: 'department' },
+                                { label: 'Position', key: 'position' },
+                                { label: 'Basic Salary', key: 'basicSalary' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
                     </button>
                 </div>
             </div>

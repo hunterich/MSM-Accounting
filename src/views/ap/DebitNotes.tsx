@@ -5,7 +5,8 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
-import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { useBills } from '../../hooks/useAP';
 import { useDebitNotes, usePurchaseReturns, useWarehouses } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
@@ -214,6 +215,31 @@ const DebitNotes = () => {
                         New Purchase Return
                     </button>
                     {firstRowDocKeys.map((key) => renderOpenDocTab(key))}
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredDebitNotes.map((dn) => ({
+                                id: dn.id,
+                                date: dn.date,
+                                vendorName: dn.vendorName,
+                                sourceBillId: dn.sourceBillId,
+                                amount: dn.amount,
+                                status: dn.status,
+                            }));
+                            exportToCsv('debit-notes.csv', rows, [
+                                { label: 'Number', key: 'id' },
+                                { label: 'Date', key: 'date' },
+                                { label: 'Vendor', key: 'vendorName' },
+                                { label: 'Source Bill', key: 'sourceBillId' },
+                                { label: 'Amount', key: 'amount' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
                     <div className="workbench-tab-count">Open tabs: {openDocKeys.length}</div>
                 </div>
                 {extraRows.map((row, rowIndex) => (

@@ -283,3 +283,24 @@ export function useUpdateStockAdjustment() {
         },
     });
 }
+
+// ── Costing Method Recalculation ─────────────────────────────────────────────
+
+export interface RecalculateCostingResult {
+    itemsRecalculated: number;
+    totalValueChange: number;
+    journalEntryId: string;
+}
+
+export function useRecalculateCosting() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: { newMethod: 'FIFO' | 'WEIGHTED_AVERAGE'; effectiveDate: string }) =>
+            api.post<RecalculateCostingResult>('/api/v1/inventory/recalculate-costing', body),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: INV_KEYS.items });
+            qc.invalidateQueries({ queryKey: ['invValuation'] });
+            qc.invalidateQueries({ queryKey: ['organizationSettings'] });
+        },
+    });
+}

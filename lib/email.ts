@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { prisma } from '@/lib/prisma'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -6,6 +7,37 @@ const FROM = process.env.EMAIL_FROM_ADDRESS ?? 'noreply@msm-accounting.app'
 
 function formatFrom(name?: string | null): string {
   return name ? `${name} <${FROM}>` : FROM
+}
+
+/**
+ * Replace {{variable}} Mustache-style placeholders in a string.
+ */
+function renderTemplate(template: string, variables: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] ?? `{{${key}}}`)
+}
+
+/**
+ * Look up org's email template by type. Falls back to null if none found.
+ */
+async function getOrgTemplate(
+  orgId: string,
+  type: string,
+): Promise<{ subject: string; bodyHtml: string; bodyText: string } | null> {
+  try {
+    const template = await (prisma as any).emailTemplate.findFirst({
+      where: { organizationId: orgId, type, isActive: true },
+      orderBy: { isDefault: 'desc' },
+    })
+    if (!template) return null
+    return {
+      subject: template.subject,
+      bodyHtml: template.bodyHtml || '',
+      bodyText: template.bodyText || '',
+    }
+  } catch {
+    // If EmailTemplate table doesn't exist yet, return null (use fallback)
+    return null
+  }
 }
 
 // ─── Invoice email ────────────────────────────────────────────────────────────
@@ -24,10 +56,39 @@ export interface SendInvoiceEmailOpts {
   invoiceUrl?: string
 }
 
-export async function sendInvoiceEmail(opts: SendInvoiceEmailOpts): Promise<void> {
+export async function sendInvoiceEmail(opts: SendInvoiceEmailOpts & { orgId?: string }): Promise<void> {
   const currency = opts.currency ?? 'IDR'
   const amountFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency, minimumFractionDigits: 0 }).format(opts.amount)
 
+  // Try template-based rendering first
+  if (opts.orgId) {
+    const template = await getOrgTemplate(opts.orgId, 'INVOICE')
+    if (template) {
+      const vars: Record<string, string> = {
+        invoiceNumber: opts.invoiceNumber,
+        companyName: opts.orgName,
+        customerName: opts.customerName,
+        amount: amountFormatted,
+        dueDate: opts.dueDate,
+        companyEmail: '',
+        companyPhone: '',
+      }
+      const subject = renderTemplate(template.subject, vars)
+      const html = renderTemplate(template.bodyHtml, vars)
+
+      const result = await resend.emails.send({
+        from: formatFrom(opts.emailFromName),
+        to: opts.to,
+        ...(opts.cc ? { cc: opts.cc } : {}),
+        subject,
+        html,
+      })
+      if (result.error) throw new Error(`Resend error: ${result.error.message}`)
+      return
+    }
+  }
+
+  // Fallback to hardcoded HTML
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px}
     .container{max-width:600px;margin:0 auto;background:#fff;border-radius:8px;border:1px solid #e0e0e0;overflow:hidden}
@@ -83,10 +144,37 @@ export interface SendPaymentReminderEmailOpts {
   emailFromName?: string | null
 }
 
-export async function sendPaymentReminderEmail(opts: SendPaymentReminderEmailOpts): Promise<void> {
+export async function sendPaymentReminderEmail(opts: SendPaymentReminderEmailOpts & { orgId?: string }): Promise<void> {
   const currency = opts.currency ?? 'IDR'
   const amountFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency, minimumFractionDigits: 0 }).format(opts.amount)
 
+  // Try template-based rendering
+  if (opts.orgId) {
+    const template = await getOrgTemplate(opts.orgId, 'PAYMENT_REMINDER')
+    if (template) {
+      const vars: Record<string, string> = {
+        invoiceNumber: opts.invoiceNumber,
+        companyName: opts.orgName,
+        customerName: opts.customerName,
+        amount: amountFormatted,
+        daysOverdue: String(opts.daysOverdue),
+        dueDate: '',
+      }
+      const subject = renderTemplate(template.subject, vars)
+      const html = renderTemplate(template.bodyHtml, vars)
+
+      const result = await resend.emails.send({
+        from: formatFrom(opts.emailFromName),
+        to: opts.to,
+        subject,
+        html,
+      })
+      if (result.error) throw new Error(`Resend error: ${result.error.message}`)
+      return
+    }
+  }
+
+  // Fallback to hardcoded HTML
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px}
     .container{max-width:600px;margin:0 auto;background:#fff;border-radius:8px;border:1px solid #e0e0e0;overflow:hidden}
@@ -140,10 +228,36 @@ export interface SendPurchaseOrderEmailOpts {
   expectedDate?: string
 }
 
-export async function sendPurchaseOrderEmail(opts: SendPurchaseOrderEmailOpts): Promise<void> {
+export async function sendPurchaseOrderEmail(opts: SendPurchaseOrderEmailOpts & { orgId?: string }): Promise<void> {
   const currency = opts.currency ?? 'IDR'
   const amountFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency, minimumFractionDigits: 0 }).format(opts.amount)
 
+  // Try template-based rendering
+  if (opts.orgId) {
+    const template = await getOrgTemplate(opts.orgId, 'PURCHASE_ORDER')
+    if (template) {
+      const vars: Record<string, string> = {
+        poNumber: opts.poNumber,
+        companyName: opts.orgName,
+        vendorName: opts.vendorName,
+        amount: amountFormatted,
+        expectedDate: opts.expectedDate || '',
+      }
+      const subject = renderTemplate(template.subject, vars)
+      const html = renderTemplate(template.bodyHtml, vars)
+
+      const result = await resend.emails.send({
+        from: formatFrom(opts.emailFromName),
+        to: opts.to,
+        subject,
+        html,
+      })
+      if (result.error) throw new Error(`Resend error: ${result.error.message}`)
+      return
+    }
+  }
+
+  // Fallback to hardcoded HTML
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px}
     .container{max-width:600px;margin:0 auto;background:#fff;border-radius:8px;border:1px solid #e0e0e0;overflow:hidden}

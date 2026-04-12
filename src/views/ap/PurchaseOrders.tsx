@@ -7,7 +7,8 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import PurchaseOrderPrintTemplate from '../../components/print/PurchaseOrderPrintTemplate';
-import { Plus, Search, List } from 'lucide-react';
+import { Plus, Search, List, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { usePurchaseOrders, AP_KEYS } from '../../hooks/useAP';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
@@ -296,6 +297,29 @@ const PurchaseOrders = () => {
                     >
                         <Plus size={16} />
                         New PO
+                    </button>
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredData.map((po) => ({
+                                id: po.id,
+                                vendorName: po.vendorName || '',
+                                date: po.date,
+                                amount: po.amount || 0,
+                                status: po.status,
+                            }));
+                            exportToCsv('purchase-orders.csv', rows, [
+                                { label: 'Number', key: 'id' },
+                                { label: 'Vendor', key: 'vendorName' },
+                                { label: 'Date', key: 'date' },
+                                { label: 'Amount', key: 'amount' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
                     </button>
                 </div>
             </div>

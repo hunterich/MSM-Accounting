@@ -5,7 +5,8 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import Modal from '../../components/UI/Modal';
-import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search, Upload, Zap } from 'lucide-react';
+import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search, Upload, Zap, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import {
     useBankAccounts, useBankTransactions,
     useBankStatements, useImportBankStatement, useAutoMatch, useManualMatch,
@@ -149,6 +150,29 @@ const Banking = () => {
             subtitle="Manage bank accounts, transactions, and reconciliation."
             actions={
                 <div className="page-header-actions">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredTransactions.map((txn) => ({
+                                date: txn.date,
+                                description: txn.description,
+                                amount: txn.amount,
+                                status: txn.status,
+                                type: txn.type,
+                            }));
+                            exportToCsv('banking-transactions.csv', rows, [
+                                { label: 'Date', key: 'date' },
+                                { label: 'Description', key: 'description' },
+                                { label: 'Amount', key: 'amount' },
+                                { label: 'Status', key: 'status' },
+                                { label: 'Type', key: 'type' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
                     <Button
                         text="Transfer"
                         variant="tertiary"

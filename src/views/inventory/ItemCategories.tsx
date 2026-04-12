@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Edit2, Trash2, Save } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Save, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
@@ -132,13 +133,36 @@ const ItemCategories = () => {
             title="Item Categories"
             subtitle="Manage inventory categories and SKU prefixes."
             actions={
-                <Button
-                    text="New Category"
-                    variant="primary"
-                    icon={<Plus size={16} />}
-                    disabled={!canCreate}
-                    onClick={() => handleOpenModal()}
-                />
+                <div className="flex items-center gap-2">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filtered.map((cat) => ({
+                                name: cat.name,
+                                code: cat.code,
+                                description: cat.description || '',
+                                isActive: cat.isActive ? 'Yes' : 'No',
+                            }));
+                            exportToCsv('item-categories.csv', rows, [
+                                { label: 'Name', key: 'name' },
+                                { label: 'Code', key: 'code' },
+                                { label: 'Description', key: 'description' },
+                                { label: 'Is Active', key: 'isActive' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
+                    <Button
+                        text="New Category"
+                        variant="primary"
+                        icon={<Plus size={16} />}
+                        disabled={!canCreate}
+                        onClick={() => handleOpenModal()}
+                    />
+                </div>
             }
         >
             <Card padding={false}>

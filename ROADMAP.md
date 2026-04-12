@@ -70,21 +70,22 @@
 - [x] Weighted Average costing method — `getWeightedAverageCost()` calculates WA across open lots
 - [x] First-login / onboarding choice for company costing method — wizard in CompanySetup.tsx when `org.costingMethod` is null
 - [x] Settings option to switch costing method later with confirmation flow — "Change Method" modal with effective date picker and recalculation warning
-- [ ] Costing method switch recalculation from effective date with audit trail of the change
-- [x] Perpetual inventory (auto GL posting on stock movements) — invoice creation auto-posts Debit COGS / Credit Inventory; bill approval auto-posts Debit Inventory / Credit AP
-- [x] COGS auto-calculation on invoice line items — `calculateAndPostCOGS()` called per inventory line on invoice POST
+- [x] Costing method switch recalculation from effective date with audit trail of the change — `/api/v1/inventory/recalculate-costing` collapses/recreates cost layers, creates audit journal entry, updates org settings
+- [x] Perpetual inventory (auto GL posting on stock movements) — invoice DRAFT→SENT auto-posts Debit COGS / Credit Inventory; bill approval auto-posts Debit Inventory / Credit AP
+- [x] COGS auto-calculation on invoice line items — `calculateAndPostCOGS()` called per inventory line on DRAFT→SENT transition (CPA timing fix)
 - [x] Stock valuation report — `/api/v1/inventory/valuation` route + `StockValuation.tsx` view with category/warehouse filters and Excel export
 
 ### 1.5 Bank Statement Import & Reconciliation
 - [x] CSV / OFX bank statement import — `lib/bank-statement-parser.ts` auto-detects format; `/api/v1/bank-statements` POST stores BankStatement + lines
 - [x] Auto-matching rules (by amount, reference, date) — `/api/v1/bank-statements/match` matches by amount (±0.01) and date (±3 days)
 - [x] Manual match/unmatch interface — `PUT /api/v1/bank-statements/[lineId]` + Banking.tsx import panel with per-line match actions
-- [ ] Reconciliation summary report
+- [x] Reconciliation summary report — `/api/v1/reports/banking?type=reconciliation-summary`; `BankReconciliation.tsx` view
+- [x] Payment reconciliation against bank transactions — `/api/v1/reconciliation/payments` auto-matches AR/AP payments to bank txns; `PaymentReconciliation.tsx` with manual match UI
 - [x] Basic transaction matching exists but no import
 
 ### 1.6 Data Import / Export
-- [ ] CSV import for customers, vendors, items, COA, opening balances
-- [ ] CSV export for all list views
+- [x] CSV import for customers, vendors, items, COA, opening balances — `CsvImportPanel.tsx` in Settings; `/api/v1/import/[entity]` route with dry-run; 7 entity types including opening journals, invoices, bills
+- [x] CSV export for all list views — `exportToCsv` utility added to 18+ list pages (Customers, Vendors, Payments, POs, COA, Journal Entries, Inventory, Employees, etc.)
 - [~] Bulk invoice import from marketplace exports — Shopee 6-step wizard complete (`ImportInvoicesModal.jsx` + `shopeeImport.js` + `useIntegrationStore.js`); Tokopedia / TikTok Shop / Lazada not started
 - [x] PDF bill import — upload supplier invoice PDF → extract text → auto-match vendor + items → review → create bill (`lib/bill-imports.ts` + `/api/v1/bill-imports/` routes)
 - [~] Faktur (purchase invoice) image import — OCR-based extraction from scanned faktur images to Accurate-style purchase invoice import format
@@ -98,8 +99,8 @@
   - [ ] Batch upload support (multiple faktur images at once)
 
 ### 1.7 Financial Reporting Foundation
-- [~] Reporting workspace exists with Sales and AR reports, print view, and CSV export
-- [~] GL financial statements in Reports module — Trial Balance, Balance Sheet, and Profit & Loss are the current implementation priority
+- [x] Reporting workspace exists with Sales and AR reports, print view, and CSV export
+- [x] GL financial statements in Reports module — Trial Balance, Balance Sheet, and Profit & Loss implemented
 - [x] AP aging and vendor balance reports — `/api/v1/reports/ap` with type=aging/vendor-balance/overdue-list; APAging.tsx now API-driven
 - [x] Cash / bank movement reports — `/api/v1/reports/gl?type=cash-flow` with inflow/outflow per bank account
 - [x] Inventory stock movement and valuation reports — `/api/v1/reports/gl?type=stock-movement` + `/api/v1/inventory/valuation`; all three new reports added to Reports.tsx
@@ -109,10 +110,10 @@
 - [x] Accounting period CRUD + close/lock action
 - [x] Department and Position CRUD
 - [x] Warehouse CRUD
-- [~] Soft delete for master data
+- [x] Soft delete for master data
   - Customers, vendors, employees, and items now deactivate instead of hard deleting
   - Bank accounts, item categories, and vendor categories now also deactivate instead of hard deleting
-  - Remaining document modules still use hard delete and need follow-up
+  - SalesInvoice and Bill: `deletedAt DateTime?` added; DELETE routes soft-delete; GET filters `deletedAt: null`
 - [x] Credit limit enforcement on invoice and sales-order creation
 - [x] Validation + org-scoped FK checks for bills, purchase orders, AR payments, and AP payments
 - [x] Validation + org-scoped FK checks for sales orders, stock adjustments, and bank transactions
@@ -141,11 +142,13 @@
 - [ ] Includes batch-level stock visibility, expiry alerts, and controlled picking on stock movements
 
 ### 2.3 Recurring Invoices / Subscriptions
-- [ ] Recurring invoice templates (monthly, quarterly, annual)
-- [ ] Auto-generation schedule
-- [ ] Subscription plans with trial period
-- [ ] Subscription status lifecycle (Active, Past Due, Cancelled)
-- [ ] Pro-rata billing on cancellation
+- [x] Recurring invoice templates (monthly, quarterly, annual) — `RecurringInvoices.tsx` + `/api/v1/recurring-invoices` CRUD
+- [x] Auto-generation schedule — `/api/v1/recurring-invoices/run` batch endpoint + per-template `Generate Now`
+- [x] Subscription plans with trial period — `SubscriptionPlan` model + CRUD API; trial days configurable per plan
+- [x] Subscription status lifecycle (Trialing, Active, Past Due, Cancelled, Expired) — `Subscription` model + status transitions
+- [x] Pro-rata billing on cancellation — `lib/subscription.ts` calculates refund based on days remaining in period
+- [x] Subscription invoice auto-generation — `/api/v1/subscriptions/generate-invoices` batch endpoint
+- [x] Subscriptions UI — `Subscriptions.tsx` with tab layout (Subscriptions | Plans), full CRUD, cancel with refund display
 
 ### 2.4 Multi-User & Role-Based Permissions
 - [x] Security & Roles settings UI (Akses Grup) — Accurate-style module group sidebar + permission matrix
@@ -162,11 +165,11 @@
 - [x] Enforce RBAC on routes (redirect to /403 if user navigates directly to restricted URL) — `PermissionRoute` wrapper component; `Forbidden.jsx` page with smart fallback navigation; wired into App.jsx for all module routes
 
 ### 2.5 Email Integration
-- [ ] Send invoice PDF to customer via email
-- [ ] Automated payment reminders (overdue invoices)
+- [x] Send invoice PDF to customer via email — `/api/v1/invoices/[id]/send-email`; updates status to SENT + audit log
+- [x] Automated payment reminders (overdue invoices) — `/api/v1/email/reminders` batch endpoint
 - [~] Notification toggle exists in settings but not wired
-- [ ] Send PO to vendor via email
-- [ ] Email templates (customizable)
+- [x] Send PO to vendor via email — `/api/v1/purchase-orders/[id]/send-email`
+- [x] Email templates (customizable) — `EmailTemplate` model + CRUD API; `EmailTemplates.tsx` in Settings; `lib/email.ts` renders templates with `{{variable}}` substitution; fallback to hardcoded HTML; 3 default templates (Invoice, Reminder, PO)
 
 ### 2.6 Vendor Categories
 - [x] Vendor category CRUD (like Customer Categories)
@@ -175,9 +178,10 @@
 
 ### 2.7 Accounting Governance
 - [x] Credit limit enforcement using outstanding AR balance + new document amount
-- [ ] Approval workflow for invoices / purchase orders
-- [ ] Payment reconciliation against bank transactions
-- [ ] Accounting period close checklist and reopen flow
+- [x] Approval workflow for invoices / purchase orders — `ApprovalInbox.tsx`; submit/approve/reject routes; `ApprovalRequest` model
+- [x] Payment reconciliation against bank transactions — `/api/v1/reconciliation/payments` auto-match + manual match; `PaymentReconciliation.tsx`
+- [x] Accounting period close checklist and reopen flow — `/api/v1/accounting-periods/[id]/close-checklist` + `/close`
+- [x] **CPA Audit Controls**: Document immutability (block edit/delete on non-DRAFT), COGS timing fix (post on SENT), BillStatus APPROVED enum, payment allocation validation
 
 ---
 
@@ -196,32 +200,34 @@
 - [ ] Sales person assignment & commission tracking
 
 ### 3.2 HR & Payroll (Employee Master Data & Payroll Run)
-- [~] **Employee Master Data:**
+- [x] **Employee Master Data:**
   - [x] Personal info (Name, KTP, DOB, Contact, Address)
   - [x] Employment details (Join Date, Department, Job Title, Employment Status)
   - [x] Bank details (Bank Name, Account Number, Account Holder)
   - [x] Government IDs (NPWP, BPJS Kesehatan, BPJS Ketenagakerjaan)
   - [x] Salary Structure (Basic Salary, Default Allowances, Default Deductions)
-- [ ] **Attendance & Leave Management:** (placeholder page at /hr/attendance)
-  - [ ] Time tracking / Daily attendance (manual entry or import)
-  - [ ] Leave types (Annual, Sick, Unpaid)
-  - [ ] Leave balance management
-- [ ] **Payroll Processing & Generation:** (placeholder page at /hr/payroll-run)
-  - [ ] Monthly batch run (generate payslips for all active employees)
-  - [ ] Variable component entry (Overtime, Bonuses, Penalties per run)
-  - [ ] PPh 21 Tax calculation (TER integration)
-  - [ ] BPJS calculations (Employer vs Employee portions)
+- [x] **Attendance & Leave Management:**
+  - [x] Time tracking / Daily attendance (manual entry + bulk entry) — `Attendance.tsx` with calendar date strip, status filter, bulk entry modal; `/api/v1/attendance` CRUD with upsert
+  - [x] Leave types (Annual, Sick, Maternity, Paternity, Unpaid, Other) — `LeaveType` model + CRUD; configurable entitlement + carry-over
+  - [x] Leave balance management — `LeaveBalance` model per employee/year; auto-initialized with carry-over; `/api/v1/leave-balances` API
+  - [x] Leave request workflow (submit → approve/reject) — `LeaveRequest` model; balance validation on submit; balance decrement on approve; `LeaveManagement.tsx` with 3-tab layout
+- [x] **Payroll Processing & Generation:**
+  - [x] Monthly batch run (generate payslips for all active employees) — `PayrollRun` + `PayrollLine` models; `/api/v1/payroll-runs/[id]/calculate` batch endpoint
+  - [x] Variable component entry (Overtime hours, Allowances, Deductions per employee)
+  - [x] PPh 21 Tax calculation (TER 2024 rates) — `lib/payroll-calc.ts` with full bracket tables for categories A/B/C up to 1.4B/month
+  - [x] BPJS calculations (Employer vs Employee portions) — Kesehatan (1%/4%), JHT (2%/3.7%), JP (1%/2%), JKK (0.24%), JKM (0.3%) with 2024 ceilings
+  - [x] Payroll Run UI — `PayrollRun.tsx` with summary cards (gross/deductions/tax/BPJS/net), employee line detail table, CSV export
   - [ ] Salary slip PDF generation
-- [ ] **Accounting Integration:**
-  - [ ] Auto-post Payroll Summary Journal Entry upon approval (Debit Salary Expense, Credit Bank/Taxes Payable)
+- [x] **Accounting Integration:**
+  - [x] Auto-post Payroll Summary Journal Entry upon approval — `/api/v1/payroll-runs/[id]/post` creates JE (Debit Salary Expense, Credit Cash + Tax Payable + BPJS Payable)
 
 ### 3.3 Asset Management
-- [ ] Fixed asset register
-- [ ] Asset categories (Furniture, Equipment, Vehicle, etc.)
-- [ ] Depreciation methods (Straight Line, Declining Balance)
-- [ ] Automated monthly depreciation journal entries
-- [ ] Asset disposal / write-off
-- [ ] Asset movement tracking (location, custodian)
+- [x] Fixed asset register — `AssetRegister.tsx` with search, category/status filters, summary cards (total assets, cost, book value); `/api/v1/assets` CRUD with auto-generated ASSET-XXXXXX numbers
+- [x] Asset categories (Furniture, Equipment, Vehicle, etc.) — `AssetCategory` model with depreciation defaults; `AssetCategories.tsx` CRUD UI
+- [x] Depreciation methods (Straight Line, Declining Balance, Double Declining) — `lib/depreciation.ts` with salvage value floor; configurable per asset or category default
+- [x] Automated monthly depreciation journal entries — `/api/v1/assets/depreciation/run` batch processes all ACTIVE assets; creates `AssetDepreciation` records + GL journal entries (Debit Depreciation Expense, Credit Accumulated Depreciation); auto-marks FULLY_DEPRECIATED
+- [x] Asset disposal / write-off — `/api/v1/assets/[id]/dispose` calculates gain/loss; creates journal entry (Debit Cash + Accum Dep, Credit Asset + Gain/Loss); `AssetDetail.tsx` disposal modal with gain/loss preview
+- [x] Asset movement tracking (location, custodian, department, serial number)
 - [ ] Asset maintenance schedule
 
 ### 3.4 Budget Controls
@@ -469,8 +475,8 @@
 | Bank Statement Import | No | Yes | **Critical** |
 | POS | No | Yes | **Critical** |
 | CRM | No | Yes | High |
-| HR & Payroll | Partial (Employee master data) | Yes | High |
-| Asset Management | No | Yes | High |
+| HR & Payroll | Yes (Employee + Attendance + Leave + Payroll with PPh 21 + BPJS + GL posting) | Yes | Low |
+| Asset Management | Yes (Register + Categories + Depreciation SL/DB/DDB + Disposal + GL) | Yes | Low |
 | Manufacturing / BOM | Separate project (MSM Manufacturing) | Yes | N/A |
 | Project Management | No | Yes | Medium |
 | Multi-Company | No | Yes | Medium |
@@ -479,7 +485,7 @@
 | Multi-User Auth | Yes (JWT + httpOnly session + API middleware + RBAC route enforcement + document-level perms + audit log) | Yes | Low |
 | Faktur Import (OCR) | Planned (image → OCR → bill) | N/A (Accurate feature) | High |
 | Budget Controls | No | Yes | Medium |
-| Subscriptions | No | Yes | Medium |
+| Subscriptions | Yes (Plans + Lifecycle + Pro-rata + Invoice Generation) | Yes | Low |
 | Quality Management | No | Yes | Low |
 | Helpdesk / Support | No | Yes | Low |
 | Loan Management | No | Yes | Low |
@@ -532,17 +538,46 @@ v1.0.1 — Code Quality & Hardening
           Duplicate file cleanup (apiClient.js, useAuthStore.js)
           Faktur/purchase invoice image import (OCR → bill creation)
 
-v1.1   — Inventory Valuation + Bank Statement Import (Phase 1.4, 1.5)
-v1.2   — Batch/Expiry Tracking (Phase 2.2)
-v1.3   — Email Integration + Recurring Invoices (Phase 2.5, 2.3)
-v1.4   — POS Module (Phase 2.1)
-v1.5   — CRM (Phase 3.1)
-v1.6   — E-Commerce Auto-Posting (Phase 3.5)
-v1.7   — HR & Payroll full (Phase 3.2)
-v1.8   — Asset Management + Budget Controls (Phase 3.3, 3.4)
-v2.0   — Multi-Company + REST API + Workflow Engine (Phase 4)
+v1.1   — Inventory Valuation + Bank Statement Import (Phase 1.4, 1.5) ✓
+          Costing method switch recalculation with audit trail
+          Bank reconciliation summary report
+          CSV export on all list pages + CSV import tool in Settings
+
+v1.2   — Recurring Invoices + Subscriptions + Email Templates (Phase 2.3, 2.5) ✓
+          Recurring invoice templates (monthly/quarterly/annual) + auto-generation
+          Subscription plans with trial periods + pro-rata billing + lifecycle
+          Customizable email templates (invoice, payment reminder, PO)
+          Approval workflow for invoices & POs (Phase 2.7)
+
+v1.3   — CPA Audit Controls + Soft Delete (Phase 1.8) ✓
+          Document immutability (only DRAFT editable/deletable)
+          COGS posting on DRAFT→SENT (not at creation)
+          Payment allocation validation (no over-allocation)
+          Soft delete for invoices & bills (deletedAt)
+
+v1.4   — HR & Payroll full (Phase 3.2) ✓
+          Attendance tracking (daily entry, bulk import, calendar view)
+          Leave management (types, requests, approval, balances)
+          Payroll run (PPh 21 TER 2024, BPJS, overtime, proration)
+          Payroll GL journal posting (salary expense, tax/BPJS liabilities)
+
+v1.5   — Asset Management (Phase 3.3) ✓
+          Fixed asset register + categories
+          Depreciation: Straight Line, Declining Balance, Double Declining
+          Asset disposal with gain/loss calculation
+          Automated monthly depreciation journal entries
+
+v1.6   — Payment Reconciliation (Phase 2.7 cont.) ✓
+          Two-panel match UI (bank transactions vs AR/AP payments)
+          Auto-match suggestions + manual match/unmatch
+
+v1.7   — Batch/Expiry Tracking (Phase 2.2)
+v1.8   — POS Module (Phase 2.1)
+v1.9   — CRM (Phase 3.1)
+v2.0   — E-Commerce Auto-Posting + Budget Controls (Phase 3.4, 3.5)
+v3.0   — Multi-Company + REST API + Workflow Engine (Phase 4)
          Manufacturing / BOM developed separately as MSM Manufacturing add-on
-v3.0   — Domain-specific verticals (Phase 5)
+v4.0   — Domain-specific verticals (Phase 5)
 ```
 
 ---

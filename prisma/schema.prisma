@@ -73,6 +73,16 @@ model Organization {
   bankStatements         BankStatement[]
   recurringInvoices      RecurringInvoice[]
   approvalRequests       ApprovalRequest[]
+  attendanceRecords      AttendanceRecord[]
+  leaveTypes             LeaveType[]
+  leaveRequests          LeaveRequest[]
+  leaveBalances          LeaveBalance[]
+  payrollRuns            PayrollRun[]
+  assetCategories        AssetCategory[]
+  assets                 Asset[]
+  emailTemplates         EmailTemplate[]
+  subscriptionPlans      SubscriptionPlan[]
+  subscriptions          Subscription[]
 }
 
 model User {
@@ -211,6 +221,7 @@ model JournalEntry {
   period         AccountingPeriod? @relation(fields: [periodId], references: [id], onDelete: SetNull)
   createdBy      User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
   lines          JournalLine[]
+  payrollRuns    PayrollRun[]
 
   @@unique([organizationId, entryNo])
   @@index([organizationId, date, status])
@@ -284,6 +295,7 @@ model Customer {
   creditNotes       CreditNote[]
   ecommerceConnections EcommerceConnection[]
   recurringInvoices RecurringInvoice[]
+  subscriptions     Subscription[]
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
@@ -1158,6 +1170,10 @@ model Employee {
   department            Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   position              Position?        @relation(fields: [positionId], references: [id], onDelete: SetNull)
   compensationItems     EmployeeCompensationItem[]
+  attendanceRecords     AttendanceRecord[]
+  leaveRequests         LeaveRequest[]
+  leaveBalances         LeaveBalance[]
+  payrollLines          PayrollLine[]
 
   @@unique([organizationId, employeeNo])
   @@index([organizationId, name])
@@ -1176,6 +1192,156 @@ model EmployeeCompensationItem {
   employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([employeeId, type])
+}
+
+model AttendanceRecord {
+  id             String           @id @default(cuid())
+  organizationId String
+  employeeId     String
+  date           DateTime         @db.Date
+  checkIn        DateTime?
+  checkOut       DateTime?
+  hoursWorked    Decimal?         @db.Decimal(5, 2)
+  overtimeHours  Decimal          @default(0) @db.Decimal(5, 2)
+  status         AttendanceStatus @default(PRESENT)
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee       Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@index([organizationId, date])
+  @@index([employeeId, date])
+}
+
+model LeaveType {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  category       LeaveCategory @default(ANNUAL)
+  entitlementDays Int          @default(12)
+  carryOver      Boolean       @default(false)
+  maxCarryDays   Int           @default(0)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leaveRequests  LeaveRequest[]
+  leaveBalances  LeaveBalance[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model LeaveRequest {
+  id             String             @id @default(cuid())
+  organizationId String
+  employeeId     String
+  leaveTypeId    String
+  startDate      DateTime           @db.Date
+  endDate        DateTime           @db.Date
+  totalDays      Int
+  reason         String?
+  status         LeaveRequestStatus @default(PENDING)
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee       Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType      LeaveType     @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status])
+  @@index([employeeId, startDate])
+}
+
+model LeaveBalance {
+  id             String    @id @default(cuid())
+  organizationId String
+  employeeId     String
+  leaveTypeId    String
+  year           Int
+  entitlement    Int       @default(0)
+  used           Int       @default(0)
+  carried        Int       @default(0)
+  remaining      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType      LeaveType    @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([organizationId, year])
+}
+
+model PayrollRun {
+  id             String           @id @default(cuid())
+  organizationId String
+  number         String
+  month          Int
+  year           Int
+  periodStart    DateTime         @db.Date
+  periodEnd      DateTime         @db.Date
+  status         PayrollRunStatus @default(DRAFT)
+  totalGross     Decimal          @default(0) @db.Decimal(18, 2)
+  totalDeductions Decimal         @default(0) @db.Decimal(18, 2)
+  totalTax       Decimal          @default(0) @db.Decimal(18, 2)
+  totalBpjs      Decimal          @default(0) @db.Decimal(18, 2)
+  totalNet       Decimal          @default(0) @db.Decimal(18, 2)
+  notes          String?
+  journalEntryId String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  lines          PayrollLine[]
+
+  @@unique([organizationId, number])
+  @@unique([organizationId, month, year])
+  @@index([organizationId, status])
+}
+
+model PayrollLine {
+  id                  String     @id @default(cuid())
+  payrollRunId        String
+  employeeId          String
+  basicSalary         Decimal    @default(0) @db.Decimal(18, 2)
+  totalAllowances     Decimal    @default(0) @db.Decimal(18, 2)
+  totalDeductions     Decimal    @default(0) @db.Decimal(18, 2)
+  overtimePay         Decimal    @default(0) @db.Decimal(18, 2)
+  grossPay            Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsKesEmployee     Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsKesEmployer     Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsJhtEmployee     Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsJhtEmployer     Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsJpEmployee      Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsJpEmployer      Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsJkkEmployer     Decimal    @default(0) @db.Decimal(18, 2)
+  bpjsJkmEmployer     Decimal    @default(0) @db.Decimal(18, 2)
+  pph21               Decimal    @default(0) @db.Decimal(18, 2)
+  totalBpjsEmployee   Decimal    @default(0) @db.Decimal(18, 2)
+  totalBpjsEmployer   Decimal    @default(0) @db.Decimal(18, 2)
+  netPay              Decimal    @default(0) @db.Decimal(18, 2)
+  workingDays         Int        @default(0)
+  presentDays         Int        @default(0)
+  absentDays          Int        @default(0)
+  overtimeHours       Decimal    @default(0) @db.Decimal(5, 2)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  payrollRun          PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee            Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([payrollRunId, employeeId])
+  @@index([payrollRunId])
 }
 
 model EcommerceConnection {
@@ -1448,6 +1614,39 @@ enum ConnectionStatus {
   INACTIVE
 }
 
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  SICK
+  LEAVE
+  LATE
+  HALF_DAY
+}
+
+enum LeaveCategory {
+  ANNUAL
+  SICK
+  MATERNITY
+  PATERNITY
+  UNPAID
+  OTHER
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  CALCULATED
+  REVIEWED
+  POSTED
+  VOID
+}
+
 enum BillImportStatus {
   UPLOADED
   EXTRACTED
@@ -1637,4 +1836,192 @@ model ApprovalRequest {
 
   @@index([organizationId, status])
   @@index([organizationId, documentType, documentId])
+}
+// ─── Asset Management ───────────────────────────────────────────────────────
+
+enum DepreciationMethod {
+  STRAIGHT_LINE
+  DECLINING_BALANCE
+  DOUBLE_DECLINING
+}
+
+enum AssetStatus {
+  DRAFT
+  ACTIVE
+  FULLY_DEPRECIATED
+  DISPOSED
+  WRITTEN_OFF
+}
+
+model AssetCategory {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  name                 String
+  depreciationMethod   DepreciationMethod @default(STRAIGHT_LINE)
+  usefulLifeMonths     Int                @default(60)
+  salvagePercent       Decimal            @default(0) @db.Decimal(5, 2)
+  assetAccountId       String?
+  depExpenseAccountId  String?
+  accumDepAccountId    String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assets               Asset[]
+
+  @@unique([organizationId, name])
+}
+
+model Asset {
+  id                      String             @id @default(cuid())
+  organizationId          String
+  assetNo                 String
+  name                    String
+  description             String?
+  categoryId              String
+  acquisitionDate         DateTime
+  acquisitionCost         Decimal            @db.Decimal(18, 2)
+  depreciationMethod      DepreciationMethod @default(STRAIGHT_LINE)
+  usefulLifeMonths        Int                @default(60)
+  salvageValue            Decimal            @default(0) @db.Decimal(18, 2)
+  accumulatedDepreciation Decimal            @default(0) @db.Decimal(18, 2)
+  bookValue               Decimal            @db.Decimal(18, 2)
+  status                  AssetStatus        @default(DRAFT)
+  location                String?
+  custodian               String?
+  department              String?
+  serialNumber            String?
+  vendor                  String?
+  lastDepreciationDate    DateTime?
+  disposalDate            DateTime?
+  disposalAmount          Decimal?           @db.Decimal(18, 2)
+  disposalMethod          String?
+  disposalNotes           String?
+  disposalGainLoss        Decimal?           @db.Decimal(18, 2)
+  deletedAt               DateTime?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category                AssetCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  depreciationEntries     AssetDepreciation[]
+
+  @@unique([organizationId, assetNo])
+  @@index([organizationId, status])
+}
+
+model AssetDepreciation {
+  id                String       @id @default(cuid())
+  organizationId    String
+  assetId           String
+  date              DateTime
+  month             Int
+  year              Int
+  amount            Decimal      @db.Decimal(18, 2)
+  accumulatedTotal  Decimal      @db.Decimal(18, 2)
+  bookValue         Decimal      @db.Decimal(18, 2)
+  journalEntryId    String?
+  createdAt         DateTime     @default(now())
+
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset             Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, month, year])
+  @@index([organizationId, year, month])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Email Templates
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum EmailTemplateType {
+  INVOICE
+  PAYMENT_REMINDER
+  PURCHASE_ORDER
+  PAYMENT_RECEIPT
+  WELCOME
+  CUSTOM
+}
+
+model EmailTemplate {
+  id             String            @id @default(cuid())
+  organizationId String
+  name           String
+  type           EmailTemplateType
+  subject        String
+  bodyHtml       String            @db.Text
+  bodyText       String?           @db.Text
+  variables      Json?
+  isDefault      Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId, type])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subscriptions
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  SEMI_ANNUAL
+  ANNUAL
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+model SubscriptionPlan {
+  id             String          @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  price          Decimal         @db.Decimal(18, 2)
+  interval       BillingInterval @default(MONTHLY)
+  trialDays      Int             @default(0)
+  isActive       Boolean         @default(true)
+  features       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscriptions  Subscription[]
+
+  @@unique([organizationId, name])
+}
+
+model Subscription {
+  id              String             @id @default(cuid())
+  organizationId  String
+  customerId      String
+  planId          String
+  status          SubscriptionStatus @default(TRIALING)
+  startDate       DateTime           @db.Date
+  trialEndDate    DateTime?          @db.Date
+  currentPeriodStart DateTime        @db.Date
+  currentPeriodEnd   DateTime        @db.Date
+  cancelledAt     DateTime?
+  cancelReason    String?
+  nextInvoiceDate DateTime?          @db.Date
+  totalBilled     Decimal            @default(0) @db.Decimal(18, 2)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  plan            SubscriptionPlan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status])
+  @@index([customerId])
 }

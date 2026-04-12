@@ -76,7 +76,7 @@ import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useCustomers, useInvoices, useCreateInvoice, useUpdateInvoice } from '../../hooks/useAR';
+import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
 
 class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
@@ -240,9 +240,24 @@ const InvoiceForm = () => {
         }
     };
 
-    const handleAddNewCustomer = () => {
-        if (window.confirm("To add a new customer, you will be redirected to the Customer Form. Unsaved changes to this invoice will be lost. Continue?")) {
-            navigate('/ar/customers/new');
+    // Inline quick-create customer
+    const createCustomer = useCreateCustomer();
+    const [showNewCustomer, setShowNewCustomer] = useState(false);
+    const [newCustomerName, setNewCustomerName] = useState('');
+    const [newCustomerError, setNewCustomerError] = useState('');
+
+    const handleQuickCreateCustomer = async () => {
+        const trimmed = newCustomerName.trim();
+        if (!trimmed) { setNewCustomerError('Name is required.'); return; }
+        const autoCode = trimmed.replace(/\s+/g, '-').toUpperCase().slice(0, 10);
+        try {
+            const created = await createCustomer.mutateAsync({ name: trimmed, code: autoCode }) as { id: string };
+            setFormData(prev => ({ ...prev, customerId: created.id }));
+            setShowNewCustomer(false);
+            setNewCustomerName('');
+            setNewCustomerError('');
+        } catch (e) {
+            setNewCustomerError(e instanceof Error ? e.message : 'Failed to create customer.');
         }
     };
 
@@ -493,10 +508,21 @@ const InvoiceForm = () => {
                                     label="Customer *"
                                     options={customerOptions}
                                     value={formData.customerId}
-                                    onChange={handleCustomerChange}
-                                    onAddNew={handleAddNewCustomer}
+                                    onChange={(val) => { handleCustomerChange(val); setShowNewCustomer(false); }}
+                                    footerAction={{ label: 'Add new customer', onAction: () => setShowNewCustomer(v => !v) }}
                                     placeholder="Search & Select Customer..."
                                 />
+                                {showNewCustomer && (
+                                    <div className="rounded-lg border border-primary-200 bg-primary-50 p-3 -mt-2">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">New Customer</span>
+                                            <button type="button" onClick={() => { setShowNewCustomer(false); setNewCustomerName(''); setNewCustomerError(''); }} className="text-neutral-400 hover:text-neutral-600"><X size={14} /></button>
+                                        </div>
+                                        <Input placeholder="Customer name *" value={newCustomerName} onChange={e => { setNewCustomerName(e.target.value); setNewCustomerError(''); }} className="mb-2" />
+                                        {newCustomerError && <div className="form-feedback invalid-feedback mb-2">{newCustomerError}</div>}
+                                        <Button text={createCustomer.isPending ? 'Creating...' : 'Create & Select'} variant="primary" size="small" disabled={createCustomer.isPending} onClick={handleQuickCreateCustomer} />
+                                    </div>
+                                )}
                             </div>
                             {/* Invoice Date */}
                             <div className="col-span-2">

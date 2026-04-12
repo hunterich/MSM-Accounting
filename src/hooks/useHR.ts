@@ -5,6 +5,12 @@ import type { ListResponse, Employee, RawEmployee, EmployeeStatus } from '../typ
 export const HR_KEYS = {
     employees: ['hrEmployees'] as const,
     employee:  (id: string) => ['hrEmployees', id] as const,
+    attendance: ['hrAttendance'] as const,
+    leaveTypes: ['hrLeaveTypes'] as const,
+    leaveRequests: ['hrLeaveRequests'] as const,
+    leaveBalances: ['hrLeaveBalances'] as const,
+    payrollRuns: ['hrPayrollRuns'] as const,
+    payrollRun: (id: string) => ['hrPayrollRuns', id] as const,
 };
 
 // ── Status maps ───────────────────────────────────────────────────────────────
@@ -112,5 +118,195 @@ export function useDeleteEmployee() {
     return useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/employees/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.employees }),
+    });
+}
+
+// ── Attendance ───────────────────────────────────────────────────────────────
+
+export function useAttendance(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        queryKey: [...HR_KEYS.attendance, filters],
+        queryFn: () => api.get<ListResponse<any>>('/api/v1/attendance', filters),
+        staleTime: 30_000,
+    });
+}
+
+export function useCreateAttendance() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: any) => api.post('/api/v1/attendance', body),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.attendance }),
+    });
+}
+
+export function useUpdateAttendance() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...updates }: any) => api.put(`/api/v1/attendance/${id}`, updates),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.attendance }),
+    });
+}
+
+export function useDeleteAttendance() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.delete(`/api/v1/attendance/${id}`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.attendance }),
+    });
+}
+
+// ── Leave Types ──────────────────────────────────────────────────────────────
+
+export function useLeaveTypes() {
+    return useQuery({
+        queryKey: HR_KEYS.leaveTypes,
+        queryFn: () => api.get<ListResponse<any>>('/api/v1/leave-types'),
+        staleTime: 60_000,
+    });
+}
+
+export function useCreateLeaveType() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: any) => api.post('/api/v1/leave-types', body),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.leaveTypes }),
+    });
+}
+
+export function useUpdateLeaveType() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...updates }: any) => api.put(`/api/v1/leave-types/${id}`, updates),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.leaveTypes }),
+    });
+}
+
+export function useDeleteLeaveType() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.delete(`/api/v1/leave-types/${id}`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.leaveTypes }),
+    });
+}
+
+// ── Leave Requests ───────────────────────────────────────────────────────────
+
+export function useLeaveRequests(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        queryKey: [...HR_KEYS.leaveRequests, filters],
+        queryFn: () => api.get<ListResponse<any>>('/api/v1/leave-requests', filters),
+        staleTime: 30_000,
+    });
+}
+
+export function useCreateLeaveRequest() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: any) => api.post('/api/v1/leave-requests', body),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: HR_KEYS.leaveRequests });
+            qc.invalidateQueries({ queryKey: HR_KEYS.leaveBalances });
+        },
+    });
+}
+
+export function useApproveLeave() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, reviewNote }: { id: string; reviewNote?: string }) =>
+            api.put(`/api/v1/leave-requests/${id}`, { status: 'APPROVED', reviewNote }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: HR_KEYS.leaveRequests });
+            qc.invalidateQueries({ queryKey: HR_KEYS.leaveBalances });
+        },
+    });
+}
+
+export function useRejectLeave() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, reviewNote }: { id: string; reviewNote?: string }) =>
+            api.put(`/api/v1/leave-requests/${id}`, { status: 'REJECTED', reviewNote }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.leaveRequests }),
+    });
+}
+
+// ── Leave Balances ───────────────────────────────────────────────────────────
+
+export function useLeaveBalances(employeeId?: string, year?: number) {
+    const filters: Record<string, unknown> = {};
+    if (employeeId) filters.employeeId = employeeId;
+    if (year) filters.year = year;
+
+    return useQuery({
+        queryKey: [...HR_KEYS.leaveBalances, filters],
+        queryFn: () => api.get<ListResponse<any>>('/api/v1/leave-balances', filters),
+        staleTime: 30_000,
+    });
+}
+
+export function useInitializeLeaveBalances() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: { year: number; employeeIds?: string[] }) =>
+            api.post('/api/v1/leave-balances', body),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.leaveBalances }),
+    });
+}
+
+// ── Payroll Runs ─────────────────────────────────────────────────────────────
+
+export function usePayrollRuns(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        queryKey: [...HR_KEYS.payrollRuns, filters],
+        queryFn: () => api.get<ListResponse<any>>('/api/v1/payroll-runs', filters),
+        staleTime: 30_000,
+    });
+}
+
+export function usePayrollRun(id: string | undefined) {
+    return useQuery({
+        queryKey: HR_KEYS.payrollRun(id ?? ''),
+        queryFn: () => api.get<any>(`/api/v1/payroll-runs/${id}`),
+        enabled: Boolean(id),
+        staleTime: 30_000,
+    });
+}
+
+export function useCreatePayrollRun() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: any) => api.post('/api/v1/payroll-runs', body),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.payrollRuns }),
+    });
+}
+
+export function useCalculatePayroll() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/payroll-runs/${id}/calculate`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: HR_KEYS.payrollRuns });
+            qc.invalidateQueries({ queryKey: HR_KEYS.payrollRun(id) });
+        },
+    });
+}
+
+export function usePostPayroll() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/payroll-runs/${id}/post`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: HR_KEYS.payrollRuns });
+            qc.invalidateQueries({ queryKey: HR_KEYS.payrollRun(id) });
+        },
+    });
+}
+
+export function useDeletePayrollRun() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.delete(`/api/v1/payroll-runs/${id}`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.payrollRuns }),
     });
 }

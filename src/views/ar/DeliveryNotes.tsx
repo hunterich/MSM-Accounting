@@ -5,7 +5,8 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import Modal from '../../components/UI/Modal';
 import ListPage from '../../components/Layout/ListPage';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID } from '../../utils/formatters';
 import { useDeliveryNotes, useCreateDeliveryNote, DeliveryNote, DeliveryNoteLine } from '../../hooks/useAR';
 import { useSalesOrders } from '../../hooks/useAR';
@@ -134,13 +135,40 @@ const DeliveryNotes: React.FC = () => {
             title="Delivery Notes"
             subtitle="Track goods dispatched to customers."
             actions={
-                <Button
-                    text="New Delivery Note"
-                    variant="primary"
-                    icon={<Plus size={16} />}
-                    disabled={!canCreate}
-                    onClick={() => setModalOpen(true)}
-                />
+                <div className="flex items-center gap-2">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filtered.map((dn) => ({
+                                id: dn.id,
+                                salesOrderNumber: dn.salesOrderNumber || '',
+                                customerName: dn.customerName || '',
+                                date: dn.date,
+                                warehouseName: dn.warehouseName || '',
+                                status: dn.status,
+                            }));
+                            exportToCsv('delivery-notes.csv', rows, [
+                                { label: 'Number', key: 'id' },
+                                { label: 'SO Number', key: 'salesOrderNumber' },
+                                { label: 'Customer', key: 'customerName' },
+                                { label: 'Date', key: 'date' },
+                                { label: 'Warehouse', key: 'warehouseName' },
+                                { label: 'Status', key: 'status' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
+                    <Button
+                        text="New Delivery Note"
+                        variant="primary"
+                        icon={<Plus size={16} />}
+                        disabled={!canCreate}
+                        onClick={() => setModalOpen(true)}
+                    />
+                </div>
             }
         >
             {/* Filter bar */}

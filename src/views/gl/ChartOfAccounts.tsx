@@ -3,7 +3,8 @@ import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import Input from '../../components/UI/Input';
-import { Plus, Upload, ChevronDown, ChevronRight, PencilLine, Trash2, Archive, RotateCcw, Search } from 'lucide-react';
+import { Plus, Upload, ChevronDown, ChevronRight, PencilLine, Trash2, Archive, RotateCcw, Search, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import ListPage from '../../components/Layout/ListPage';
 import { SkeletonBlock } from '../../components/UI/LoadingSkeleton';
 import { useChartOfAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount } from '../../hooks/useGL';
@@ -398,6 +399,29 @@ const ChartOfAccounts = () => {
             subtitle="Hierarchy, posting controls, and report grouping."
             actions={(
                 <div className="flex gap-2 items-center">
+                    <button
+                        className="btn btn-secondary flex items-center gap-1"
+                        title="Export CSV"
+                        onClick={() => {
+                            const rows = filteredRows.map((account) => ({
+                                code: account.code,
+                                name: account.name,
+                                type: account.type,
+                                parent: account.parentId ? (accountById[account.parentId] ? `${accountById[account.parentId].code} ${accountById[account.parentId].name}` : '') : '',
+                                balance: groupedBalances.totalsById[account.id] || 0,
+                            }));
+                            exportToCsv('chart-of-accounts.csv', rows, [
+                                { label: 'Code', key: 'code' },
+                                { label: 'Name', key: 'name' },
+                                { label: 'Type', key: 'type' },
+                                { label: 'Parent', key: 'parent' },
+                                { label: 'Balance', key: 'balance' },
+                            ]);
+                        }}
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
                     <Button text="Import CoA" variant="secondary" icon={<Upload size={16} />} />
                     <Button text="Add Account" variant="primary" icon={<Plus size={16} />} disabled={!canCreate} onClick={openCreate} />
                 </div>

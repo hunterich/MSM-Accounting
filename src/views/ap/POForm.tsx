@@ -3,14 +3,16 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { poSchema, zodToFormErrors } from '../../utils/formSchemas';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { usePurchaseOrders, useCreatePurchaseOrder, useUpdatePurchaseOrder } from '../../hooks/useAP';
-import { useVendors } from '../../hooks/useAP';
+import { useVendors, useCreateVendor } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { X } from 'lucide-react';
 import type { Account, PurchaseOrder } from '../../types';
 
 type POFormData = {
@@ -108,8 +110,31 @@ const POForm = () => {
 
     const createPurchaseOrder = useCreatePurchaseOrder();
     const updatePurchaseOrder = useUpdatePurchaseOrder();
+    const createVendor = useCreateVendor();
+
+    // Inline quick-create vendor
+    const [showNewVendor, setShowNewVendor] = useState(false);
+    const [newVendorName, setNewVendorName] = useState('');
+    const [newVendorError, setNewVendorError] = useState('');
+
+    const handleQuickCreateVendor = async () => {
+        const trimmed = newVendorName.trim();
+        if (!trimmed) { setNewVendorError('Name is required.'); return; }
+        const autoCode = trimmed.replace(/\s+/g, '-').toUpperCase().slice(0, 10);
+        try {
+            const created = await createVendor.mutateAsync({ name: trimmed, code: autoCode }) as { id: string };
+            setFormData(prev => ({ ...prev, vendorId: created.id }));
+            setShowNewVendor(false);
+            setNewVendorName('');
+            setNewVendorError('');
+            if (errors.vendorId) setErrors(prev => ({ ...prev, vendorId: undefined }));
+        } catch (e) {
+            setNewVendorError(e instanceof Error ? e.message : 'Failed to create vendor.');
+        }
+    };
 
     const selectedPO = useMemo<PurchaseOrder | null>(() => purchaseOrders.find((po) => po.id === poId) || null, [poId, purchaseOrders]);
+    const vendorOptions = useMemo(() => vendors.map(v => ({ value: v.id, label: v.name, subLabel: v.code || '' })), [vendors]);
 
     const accountMap = useMemo<Record<string, Account>>(() => {
         return chartOfAccounts.reduce<Record<string, Account>>((map, account) => {
@@ -263,19 +288,31 @@ const POForm = () => {
                         <div className="grid grid-cols-12 gap-x-5 gap-y-4">
                             <div className="col-span-6">
                                 <label className="form-label block mb-1">Vendor <span className="text-danger-500">*</span></label>
-                                <select
-                                    name="vendorId"
-                                    className={`w-full h-10 px-3 rounded-md border text-sm focus:outline-none focus:ring-2 focus:ring-primary-100 ${errors.vendorId ? 'border-danger-500' : 'border-neutral-300 bg-neutral-0'} disabled:bg-neutral-100`}
+                                <SearchableSelect
+                                    options={vendorOptions}
                                     value={formData.vendorId}
-                                    onChange={handleChange}
+                                    onChange={(val) => {
+                                        setFormData(prev => ({ ...prev, vendorId: val }));
+                                        if (errors.vendorId) setErrors(prev => ({ ...prev, vendorId: undefined }));
+                                        setShowNewVendor(false);
+                                    }}
+                                    placeholder="Select Vendor..."
                                     disabled={isViewMode}
-                                >
-                                    <option value="">Select Vendor...</option>
-                                    {vendors.map((vendor) => (
-                                        <option key={vendor.id} value={vendor.id}>{vendor.id} - {vendor.name}</option>
-                                    ))}
-                                </select>
+                                    footerAction={isViewMode ? undefined : { label: 'Add new vendor', onAction: () => setShowNewVendor(v => !v) }}
+                                    className="!mb-0"
+                                />
                                 {errors.vendorId && <span className="text-danger-500 text-xs mt-1 block">{errors.vendorId}</span>}
+                                {showNewVendor && (
+                                    <div className="mt-2 rounded-lg border border-primary-200 bg-primary-50 p-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">New Vendor</span>
+                                            <button type="button" onClick={() => { setShowNewVendor(false); setNewVendorName(''); setNewVendorError(''); }} className="text-neutral-400 hover:text-neutral-600"><X size={14} /></button>
+                                        </div>
+                                        <Input placeholder="Vendor name *" value={newVendorName} onChange={e => { setNewVendorName(e.target.value); setNewVendorError(''); }} className="mb-2" />
+                                        {newVendorError && <div className="form-feedback invalid-feedback mb-2">{newVendorError}</div>}
+                                        <Button text={createVendor.isPending ? 'Creating...' : 'Create & Select'} variant="primary" size="small" disabled={createVendor.isPending} onClick={handleQuickCreateVendor} />
+                                    </div>
+                                )}
                             </div>
                             <div className="col-span-6">
                                 <Input

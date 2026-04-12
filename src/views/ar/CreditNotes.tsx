@@ -6,7 +6,8 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
 import DocumentTabBar from '../../components/UI/DocumentTabBar';
-import { Plus, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Plus, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { useCreditNotes, useSalesReturns, useWarehouses } from '../../hooks/useReturns';
 import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { formatDateID, formatIDR } from '../../utils/formatters';
@@ -197,7 +198,34 @@ const CreditNotes = () => {
                 disableNew={!canCreate}
                 onCatalog={selectNoneDoc}
                 firstRowSuffix={
-                    <div className="workbench-tab-count">Open tabs: {openDocKeys.length}</div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            className="btn btn-secondary flex items-center gap-1"
+                            title="Export CSV"
+                            onClick={() => {
+                                const rows = filteredCredits.map((cn) => ({
+                                    id: cn.id,
+                                    date: cn.date,
+                                    customerName: cn.customerName,
+                                    sourceInvoiceId: cn.sourceInvoiceId,
+                                    amount: cn.amount,
+                                    status: cn.status,
+                                }));
+                                exportToCsv('credit-notes.csv', rows, [
+                                    { label: 'Number', key: 'id' },
+                                    { label: 'Date', key: 'date' },
+                                    { label: 'Customer', key: 'customerName' },
+                                    { label: 'Source Invoice', key: 'sourceInvoiceId' },
+                                    { label: 'Amount', key: 'amount' },
+                                    { label: 'Status', key: 'status' },
+                                ]);
+                            }}
+                        >
+                            <Download size={16} />
+                            <span className="hidden sm:inline">Export</span>
+                        </button>
+                        <div className="workbench-tab-count">Open tabs: {openDocKeys.length}</div>
+                    </div>
                 }
             />
 

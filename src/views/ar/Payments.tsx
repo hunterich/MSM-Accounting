@@ -5,7 +5,8 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import DocumentTabBar from '../../components/UI/DocumentTabBar';
-import { Search, FileText, Paperclip, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Search, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
+import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useARPayments } from '../../hooks/useAR';
 import { useDocumentTabs } from '../../hooks/useDocumentTabs';
@@ -116,7 +117,34 @@ const Payments = () => {
                     setDateRange({ from: '', to: '' });
                 }}
                 firstRowSuffix={
-                    <div className="workbench-tab-count">Open tabs: {openPaymentIds.length}</div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            className="btn btn-secondary flex items-center gap-1"
+                            title="Export CSV"
+                            onClick={() => {
+                                const rows = filteredData.map((p) => ({
+                                    id: p.id,
+                                    date: p.date,
+                                    customerName: p.customerName,
+                                    method: p.method,
+                                    amount: p.amount,
+                                    status: p.status,
+                                }));
+                                exportToCsv('ar-payments.csv', rows, [
+                                    { label: 'Number', key: 'id' },
+                                    { label: 'Date', key: 'date' },
+                                    { label: 'Customer', key: 'customerName' },
+                                    { label: 'Method', key: 'method' },
+                                    { label: 'Amount', key: 'amount' },
+                                    { label: 'Status', key: 'status' },
+                                ]);
+                            }}
+                        >
+                            <Download size={16} />
+                            <span className="hidden sm:inline">Export</span>
+                        </button>
+                        <div className="workbench-tab-count">Open tabs: {openPaymentIds.length}</div>
+                    </div>
                 }
             />
 

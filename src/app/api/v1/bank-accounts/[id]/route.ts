@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit, softDelete } from '@/lib/api-utils';
+import { updateBankAccountInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -24,11 +25,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const body = await req.json();
+  const parsed = updateBankAccountInputSchema.safeParse(body);
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid bank account payload', 400);
   const account = await prisma.bankAccount.update({
     where: { id, organizationId: orgId },
-    data: { ...body, updatedAt: new Date() },
+    data: { ...parsed.data, updatedAt: new Date() },
   });
-  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankAccount', entityId: id, action: 'UPDATE', payload: body });
+  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankAccount', entityId: id, action: 'UPDATE', payload: { name: account.name } });
   return ok(account);
 }
 
