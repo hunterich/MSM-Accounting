@@ -464,6 +464,7 @@ model SalesInvoice {
   soId               String?
   recurringInvoiceId String?
   notes              String?
+  deletedAt          DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -769,6 +770,7 @@ model Bill {
   taxAmount      Decimal     @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal     @default(0) @db.Decimal(18, 2)
   notes          String?
+  deletedAt      DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

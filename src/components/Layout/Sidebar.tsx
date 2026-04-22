@@ -131,7 +131,8 @@ const navItems: NavItem[] = [
         path: '/reports',
         icon: BarChart3,
         subItems: [
-            { label: 'All Reports', path: '/reports' }
+            { label: 'All Reports', path: '/reports' },
+            { label: 'Bank Reconciliation', path: '/reports/bank-reconciliation' }
         ]
     },
     {

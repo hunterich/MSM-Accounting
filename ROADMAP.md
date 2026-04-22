@@ -79,12 +79,15 @@
 - [x] CSV / OFX bank statement import — `lib/bank-statement-parser.ts` auto-detects format; `/api/v1/bank-statements` POST stores BankStatement + lines
 - [x] Auto-matching rules (by amount, reference, date) — `/api/v1/bank-statements/match` matches by amount (±0.01) and date (±3 days)
 - [x] Manual match/unmatch interface — `PUT /api/v1/bank-statements/[lineId]` + Banking.tsx import panel with per-line match actions
-- [x] Reconciliation summary report — `/api/v1/reports/banking?type=reconciliation-summary`; `BankReconciliation.tsx` view
+- [x] Reconciliation summary report — `/api/v1/reports/banking?type=reconciliation-summary`; `BankReconciliation.tsx` view; book balance vs statement balance + matched/unmatched counts per account
 - [x] Payment reconciliation against bank transactions — `/api/v1/reconciliation/payments` auto-matches AR/AP payments to bank txns; `PaymentReconciliation.tsx` with manual match UI
-- [x] Basic transaction matching exists but no import
 
 ### 1.6 Data Import / Export
-- [x] CSV import for customers, vendors, items, COA, opening balances — `CsvImportPanel.tsx` in Settings; `/api/v1/import/[entity]` route with dry-run; 7 entity types including opening journals, invoices, bills
+- [x] CSV import for customers, vendors, items, COA, opening balances — `CsvImportPanel.tsx` in Settings (CSV Import tab); `/api/v1/import/[entity]` route with dry-run; 7 entity types including opening journals, invoices, bills
+  - [x] Opening balance fields on customer/vendor/item CSV templates (openingBalance, openingStock, openingValue)
+  - [x] Opening Balance Journal import — CSV with accountCode/debit/credit, auto-validates balanced journal, creates POSTED `source=OPENING` JournalEntry
+  - [x] Opening AR Invoices import — import old unpaid invoices with original dates, matched by customerName, created as POSTED
+  - [x] Opening AP Bills import — import old unpaid bills with original dates, matched by vendorName, created as APPROVED
 - [x] CSV export for all list views — `exportToCsv` utility added to 18+ list pages (Customers, Vendors, Payments, POs, COA, Journal Entries, Inventory, Employees, etc.)
 - [~] Bulk invoice import from marketplace exports — Shopee 6-step wizard complete (`ImportInvoicesModal.jsx` + `shopeeImport.js` + `useIntegrationStore.js`); Tokopedia / TikTok Shop / Lazada not started
 - [x] PDF bill import — upload supplier invoice PDF → extract text → auto-match vendor + items → review → create bill (`lib/bill-imports.ts` + `/api/v1/bill-imports/` routes)
@@ -100,7 +103,7 @@
 
 ### 1.7 Financial Reporting Foundation
 - [x] Reporting workspace exists with Sales and AR reports, print view, and CSV export
-- [x] GL financial statements in Reports module — Trial Balance, Balance Sheet, and Profit & Loss implemented
+- [x] GL financial statements in Reports module — Trial Balance, Balance Sheet (standard + multi-period comparison), and Profit & Loss fully implemented in `src/app/api/v1/reports/gl/route.ts` and `src/views/reports/Reports.tsx`; `lib/gl-reporting.ts` migrated to TypeScript
 - [x] AP aging and vendor balance reports — `/api/v1/reports/ap` with type=aging/vendor-balance/overdue-list; APAging.tsx now API-driven
 - [x] Cash / bank movement reports — `/api/v1/reports/gl?type=cash-flow` with inflow/outflow per bank account
 - [x] Inventory stock movement and valuation reports — `/api/v1/reports/gl?type=stock-movement` + `/api/v1/inventory/valuation`; all three new reports added to Reports.tsx
@@ -113,7 +116,7 @@
 - [x] Soft delete for master data
   - Customers, vendors, employees, and items now deactivate instead of hard deleting
   - Bank accounts, item categories, and vendor categories now also deactivate instead of hard deleting
-  - SalesInvoice and Bill: `deletedAt DateTime?` added; DELETE routes soft-delete; GET filters `deletedAt: null`
+  - SalesInvoice and Bill: `deletedAt DateTime?` added to schema; DELETE routes soft-delete; GET list routes filter `deletedAt: null`
 - [x] Credit limit enforcement on invoice and sales-order creation
 - [x] Validation + org-scoped FK checks for bills, purchase orders, AR payments, and AP payments
 - [x] Validation + org-scoped FK checks for sales orders, stock adjustments, and bank transactions
@@ -178,9 +181,9 @@
 
 ### 2.7 Accounting Governance
 - [x] Credit limit enforcement using outstanding AR balance + new document amount
-- [x] Approval workflow for invoices / purchase orders — `ApprovalInbox.tsx`; submit/approve/reject routes; `ApprovalRequest` model
+- [x] Approval workflow for invoices / purchase orders — `ApprovalInbox.tsx`; submit/approve/reject routes for invoices + POs; `ApprovalRequest` model; `PENDING_APPROVAL` status on invoice/PO
 - [x] Payment reconciliation against bank transactions — `/api/v1/reconciliation/payments` auto-match + manual match; `PaymentReconciliation.tsx`
-- [x] Accounting period close checklist and reopen flow — `/api/v1/accounting-periods/[id]/close-checklist` + `/close`
+- [x] Accounting period close checklist and reopen flow — `/api/v1/accounting-periods/[id]/close-checklist` health check + `/close` blocks on unposted journals
 - [x] **CPA Audit Controls**: Document immutability (block edit/delete on non-DRAFT), COGS timing fix (post on SENT), BillStatus APPROVED enum, payment allocation validation
 
 ---
@@ -469,10 +472,10 @@
 | Tax (PPN) | Yes | Yes | Low |
 | E-Commerce Integration | Partial | Full | High |
 | Sales Orders | Yes (CRUD + Convert to Invoice + Print) | Yes | Low |
-| Delivery Notes | No | Yes | **Critical** |
+| Delivery Notes | Yes (DN from SO, delivered qty tracking) | Yes | Low |
 | Print / PDF | Yes (Invoice, Bill, PO, SO — A4 templates + CSV export) | Yes | Low |
-| Inventory Valuation | No | Yes (FIFO/WA/LIFO) | **Critical** |
-| Bank Statement Import | No | Yes | **Critical** |
+| Inventory Valuation | Yes (FIFO/WA, cost layers, stock valuation report) | Yes (FIFO/WA/LIFO) | Low |
+| Bank Statement Import | Yes (CSV/OFX, auto-match, reconciliation report) | Yes | Low |
 | POS | No | Yes | **Critical** |
 | CRM | No | Yes | High |
 | HR & Payroll | Yes (Employee + Attendance + Leave + Payroll with PPh 21 + BPJS + GL posting) | Yes | Low |
@@ -541,7 +544,7 @@ v1.0.1 — Code Quality & Hardening
 v1.1   — Inventory Valuation + Bank Statement Import (Phase 1.4, 1.5) ✓
           Costing method switch recalculation with audit trail
           Bank reconciliation summary report
-          CSV export on all list pages + CSV import tool in Settings
+          CSV export on all list pages + CSV import tool in Settings (7 entity types)
 
 v1.2   — Recurring Invoices + Subscriptions + Email Templates (Phase 2.3, 2.5) ✓
           Recurring invoice templates (monthly/quarterly/annual) + auto-generation

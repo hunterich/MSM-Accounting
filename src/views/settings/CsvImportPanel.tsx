@@ -6,22 +6,50 @@ import { useImport, type ImportEntity, type ImportRow } from '../../hooks/useImp
 
 // ── CSV templates ─────────────────────────────────────────────────────────────
 
-const TEMPLATES: Record<ImportEntity, { columns: string[]; sample: string[][] }> = {
+const TEMPLATES: Record<ImportEntity, { columns: string[]; sample: string[][]; hint?: string }> = {
   customers: {
-    columns: ['name', 'email', 'phone', 'address', 'npwp', 'creditLimit', 'paymentTerms'],
-    sample: [['PT Maju Bersama', 'info@majubersama.com', '021-5551234', 'Jl. Sudirman No.1 Jakarta', '01.234.567.8-901.000', '50000000', '30']],
+    columns: ['name', 'email', 'phone', 'address', 'npwp', 'creditLimit', 'paymentTerms', 'openingBalance'],
+    sample: [['PT Maju Bersama', 'info@majubersama.com', '021-5551234', 'Jl. Sudirman No.1 Jakarta', '01.234.567.8-901.000', '50000000', '30', '12500000']],
+    hint: 'openingBalance = outstanding AR from prior system',
   },
   vendors: {
-    columns: ['name', 'email', 'phone', 'address', 'npwp', 'paymentTerms'],
-    sample: [['CV Sumber Jaya', 'vendor@sumberjaya.co.id', '021-5559876', 'Jl. Gatot Subroto No.5 Jakarta', '02.345.678.9-012.000', '14']],
+    columns: ['name', 'email', 'phone', 'address', 'npwp', 'paymentTerms', 'openingBalance'],
+    sample: [['CV Sumber Jaya', 'vendor@sumberjaya.co.id', '021-5559876', 'Jl. Gatot Subroto No.5 Jakarta', '02.345.678.9-012.000', '14', '8000000']],
+    hint: 'openingBalance = outstanding AP from prior system',
   },
   items: {
-    columns: ['name', 'sku', 'type', 'unit', 'salePrice', 'purchasePrice', 'trackInventory'],
-    sample: [['Laptop Asus VivoBook', 'LAP-ASUS-001', 'PRODUCT', 'PCS', '8500000', '7000000', 'true']],
+    columns: ['name', 'sku', 'type', 'unit', 'salePrice', 'purchasePrice', 'trackInventory', 'openingStock', 'openingValue'],
+    sample: [['Laptop Asus VivoBook', 'LAP-ASUS-001', 'PRODUCT', 'PCS', '8500000', '7000000', 'true', '25', '175000000']],
+    hint: 'openingStock = qty on hand, openingValue = total cost value of stock',
   },
   accounts: {
     columns: ['code', 'name', 'type', 'description'],
     sample: [['1-1010', 'Kas Besar', 'ASSET', 'Cash on hand'], ['4-1000', 'Pendapatan Jasa', 'REVENUE', 'Service revenue']],
+  },
+  'opening-journal': {
+    columns: ['accountCode', 'debit', 'credit', 'description'],
+    sample: [
+      ['1-1010', '100000000', '0', 'Cash opening balance'],
+      ['1-1200', '50000000', '0', 'Accounts Receivable opening'],
+      ['2-1000', '0', '30000000', 'Accounts Payable opening'],
+      ['3-1000', '0', '120000000', 'Retained Earnings opening'],
+    ],
+    hint: 'One row per GL account. Total debits must equal total credits. Uses existing COA codes.',
+  },
+  'opening-invoices': {
+    columns: ['customerName', 'invoiceNumber', 'issueDate', 'dueDate', 'amount', 'notes'],
+    sample: [
+      ['PT Maju Bersama', 'INV-2025-001', '2025-11-15', '2025-12-15', '12500000', 'Unpaid from prior system'],
+      ['CV Abadi Sentosa', '', '2025-10-01', '2025-11-01', '8750000', ''],
+    ],
+    hint: 'Import outstanding invoices from your old system. Customer must already exist. Invoices are created as POSTED.',
+  },
+  'opening-bills': {
+    columns: ['vendorName', 'billNumber', 'issueDate', 'dueDate', 'amount', 'notes'],
+    sample: [
+      ['CV Sumber Jaya', 'BILL-2025-042', '2025-12-01', '2026-01-01', '8000000', 'Unpaid from prior system'],
+    ],
+    hint: 'Import outstanding bills from your old system. Vendor must already exist. Bills are created as APPROVED.',
   },
 };
 
@@ -73,6 +101,9 @@ const ENTITY_LABELS: Record<ImportEntity, string> = {
   vendors: 'Vendors',
   items: 'Items',
   accounts: 'Chart of Accounts',
+  'opening-journal': 'Opening Balance Journal',
+  'opening-invoices': 'Opening AR Invoices',
+  'opening-bills': 'Opening AP Bills',
 };
 
 const CsvImportPanel: React.FC = () => {
@@ -262,6 +293,7 @@ const CsvImportPanel: React.FC = () => {
       <div className="text-xs text-neutral-400 border-t pt-3 mt-2">
         <p className="font-medium mb-1">Column reference for {ENTITY_LABELS[entity]}:</p>
         <p className="font-mono">{template.columns.join(', ')}</p>
+        {template.hint && <p className="mt-1 text-neutral-500 italic">{template.hint}</p>}
       </div>
     </div>
   );

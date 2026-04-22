@@ -40,7 +40,8 @@ export type ReportType =
   | 'ap-overdue-list'
   | 'cash-flow'
   | 'stock-movement'
-  | 'pph21-summary';
+  | 'pph21-summary'
+  | 'bank-reconciliation';
 
 /** Category IDs available in the sidebar. */
 export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inventory' | 'hr';
@@ -315,6 +316,29 @@ export interface CashFlowSummary {
   totalInflow: number;
   totalOutflow: number;
   totalNet: number;
+}
+
+// ── Bank Reconciliation ────────────────────────────────────────────────────────
+
+export interface BankReconciliationRow {
+  accountId: string;
+  accountName: string;
+  accountCode: string | null;
+  bankName: string | null;
+  bookBalance: number;
+  statementEndBalance: number | null;
+  variance: number | null;
+  totalLines: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  unmatchedAmount: number;
+  lastStatementDate: string | null;
+}
+
+export interface BankReconciliationSummary {
+  totalAccounts: number;
+  totalUnmatched: number;
+  totalUnmatchedAmount: number;
 }
 
 // ── Stock Movement ─────────────────────────────────────────────────────────────
@@ -707,6 +731,15 @@ const BANKING_REPORTS: ReportDefinition[] = [
     apiPath: '/api/v1/reports/gl',
     name: 'Cash Flow',
     description: 'Shows inflows, outflows, and net cash per bank account for a date range.',
+    type: 'table',
+    filterMode: 'date-range',
+  },
+  {
+    id: 'bank-reconciliation',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Bank Reconciliation',
+    description: 'Shows book balance vs statement balance with matched/unmatched counts and variance per bank account.',
     type: 'table',
     filterMode: 'date-range',
   },
@@ -1404,6 +1437,23 @@ const Reports: React.FC = () => {
         row.inflow, row.outflow, row.net,
       ].join(',')).join('\n');
       csv += `\nTotal,,${summary.totalInflow || 0},${summary.totalOutflow || 0},${summary.totalNet || 0}`;
+      return csv;
+    }
+    if (report.id === 'bank-reconciliation') {
+      const rows = (data.rows || []) as BankReconciliationRow[];
+      let csv = 'Account,Code,Bank,Book Balance,Statement Balance,Variance,Matched,Unmatched,Unmatched Amount,Last Statement\n';
+      csv += rows.map((row) => [
+        escapeCsvCell(row.accountName),
+        escapeCsvCell(row.accountCode ?? ''),
+        escapeCsvCell(row.bankName ?? ''),
+        row.bookBalance,
+        row.statementEndBalance ?? '',
+        row.variance ?? '',
+        row.matchedCount,
+        row.unmatchedCount,
+        row.unmatchedAmount,
+        escapeCsvCell(row.lastStatementDate ? formatDateID(row.lastStatementDate) : ''),
+      ].join(',')).join('\n');
       return csv;
     }
     return '';
@@ -2151,6 +2201,74 @@ const Reports: React.FC = () => {
                 <td className="p-3 border border-neutral-300 text-right">{formatIDR(cfSummary.totalNet || 0)}</td>
               </tr>
             </tfoot>
+          </table>
+        </div>
+      );
+    }
+
+    // ── Bank Reconciliation ───────────────────────────────────────────────────
+    if (report.id === 'bank-reconciliation') {
+      const reconData = data as { rows: BankReconciliationRow[]; summary: BankReconciliationSummary };
+      const reconRows = reconData.rows || [];
+      const reconSummary = reconData.summary || {} as BankReconciliationSummary;
+      if (!reconRows.length) return renderEmptyReport('No bank accounts with statements found. Import a bank statement in Banking to get started.');
+      return (
+        <div>
+          <div className="flex gap-4 mb-4 text-sm">
+            <div className="bg-blue-50 border border-blue-200 rounded px-3 py-2">
+              <span className="text-neutral-500">Accounts: </span>
+              <span className="font-semibold">{reconSummary.totalAccounts ?? reconRows.length}</span>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              <span className="text-neutral-500">Unmatched Lines: </span>
+              <span className="font-semibold text-amber-700">{reconSummary.totalUnmatched ?? 0}</span>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              <span className="text-neutral-500">Unmatched Amount: </span>
+              <span className="font-semibold text-amber-700">{formatIDR(reconSummary.totalUnmatchedAmount ?? 0)}</span>
+            </div>
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-3 text-left font-semibold border border-neutral-300">Account</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Bank</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Book Balance</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Statement Balance</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Variance</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Matched</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300">Unmatched</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Last Statement</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reconRows.map((row) => {
+                const hasVariance = row.variance != null && Math.abs(row.variance) > 0.01;
+                return (
+                  <tr key={row.accountId} className="hover:bg-neutral-50">
+                    <td className="p-3 border border-neutral-200">
+                      <div className="font-medium">{row.accountName}</div>
+                      {row.accountCode && <div className="text-xs text-neutral-400">{row.accountCode}</div>}
+                    </td>
+                    <td className="p-3 border border-neutral-200 text-neutral-500">{row.bankName ?? '—'}</td>
+                    <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.bookBalance)}</td>
+                    <td className="p-3 border border-neutral-200 text-right">
+                      {row.statementEndBalance != null ? formatIDR(row.statementEndBalance) : <span className="text-neutral-400 text-xs">No statement</span>}
+                    </td>
+                    <td className={`p-3 border border-neutral-200 text-right font-medium ${hasVariance ? 'text-danger-600' : 'text-success-700'}`}>
+                      {row.variance != null ? formatIDR(row.variance) : '—'}
+                    </td>
+                    <td className="p-3 border border-neutral-200 text-right text-success-700">{row.matchedCount}</td>
+                    <td className={`p-3 border border-neutral-200 text-right ${row.unmatchedCount > 0 ? 'text-amber-600 font-semibold' : ''}`}>
+                      {row.unmatchedCount > 0 ? `${row.unmatchedCount} (${formatIDR(row.unmatchedAmount)})` : row.unmatchedCount}
+                    </td>
+                    <td className="p-3 border border-neutral-200 text-sm text-neutral-500">
+                      {row.lastStatementDate ? formatDateID(row.lastStatementDate) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
         </div>
       );

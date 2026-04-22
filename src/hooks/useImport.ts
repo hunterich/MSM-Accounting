@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
 
-export type ImportEntity = 'customers' | 'vendors' | 'items' | 'accounts';
+export type ImportEntity = 'customers' | 'vendors' | 'items' | 'accounts' | 'opening-journal' | 'opening-invoices' | 'opening-bills';
 
 export interface ImportRow {
   [key: string]: string | number | boolean | undefined;

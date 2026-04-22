@@ -28,7 +28,7 @@ export const GET = withHandler(async (req: NextRequest) => {
   const customerId = searchParams.get('customerId');
 
   const access = await getInvoiceAccessContext(orgId, userId);
-  const where: any = applyInvoiceAccessScope({ organizationId: orgId }, access);
+  const where: any = applyInvoiceAccessScope({ organizationId: orgId, deletedAt: null }, access);
   if (status) where.status = status;
   if (search) where.OR = [
     { number: { contains: search, mode: 'insensitive' } },

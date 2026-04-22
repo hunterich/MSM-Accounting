@@ -63,6 +63,7 @@ import AssetDetail from './views/assets/AssetDetail'
 import DepreciationRun from './views/assets/DepreciationRun'
 
 import Reports from './views/reports/Reports'
+import BankReconciliation from './views/reports/BankReconciliation'
 import Settings from './views/settings/Settings'
 import Integrations from './views/integrations/Integrations'
 import CompanySetup from './views/company/CompanySetup'
@@ -180,6 +181,7 @@ function App(): JSX.Element {
 
                     <Route path="integrations" element={withPermission(<Integrations />, 'integrations')} />
                     <Route path="reports" element={withPermission(<Reports />, 'reports')} />
+                    <Route path="reports/bank-reconciliation" element={withPermission(<BankReconciliation />, 'reports')} />
                     <Route path="company-setup" element={withPermission(<CompanySetup />, 'company')} />
                     <Route path="settings" element={withPermission(<Settings />, 'settings')} />
                 </Route>

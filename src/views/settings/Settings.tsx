@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload } from 'lucide-react';
 import SecurityRolesTab from './SecurityRolesTab';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from './DataMigrationPanel';
 import EmailTemplates from './EmailTemplates';
+import CsvImportPanel from './CsvImportPanel';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { ACCOUNT_DEFAULT_SPECS, DEFAULT_ACCOUNT_DEFAULTS } from '../../../lib/account-defaults';
@@ -83,6 +84,7 @@ const Settings = () => {
         { id: 'audit', label: 'Audit Log', icon: ScrollText },
         { id: 'migration', label: 'Migrasi Data', icon: DatabaseZap },
         { id: 'email-templates', label: 'Email Templates', icon: Mail },
+        { id: 'csv-import', label: 'CSV Import', icon: Upload },
     ];
 
     const saveCustomerCreditSettings = (): boolean => {
@@ -533,6 +535,13 @@ const Settings = () => {
 
                 {activeTab === 'email-templates' && (
                     <EmailTemplates />
+                )}
+
+                {activeTab === 'csv-import' && (
+                    <Card title="CSV Import">
+                        <p className="settings-muted mb-4">Bulk-import customers, vendors, items, or chart of accounts from a CSV file. Download the template, fill in your data, then upload.</p>
+                        <CsvImportPanel />
+                    </Card>
                 )}
             </div>
         </div>

@@ -240,7 +240,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       return withCors(NextResponse.json({ error: 'Only DRAFT invoices can be deleted' }, { status: 403 }));
     }
 
-    await prisma.salesInvoice.deleteMany({ where: { id, organizationId: orgId } });
+    await prisma.salesInvoice.update({ where: { id, organizationId: orgId }, data: { deletedAt: new Date() } });
     logAudit({ orgId: orgId!, actorId: _req.headers.get('x-user-id'), entityType: 'SalesInvoice', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {

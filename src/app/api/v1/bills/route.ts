@@ -28,7 +28,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const dateTo = searchParams.get('dateTo');
   const vendorId = searchParams.get('vendorId');
 
-  const where: any = { organizationId: orgId };
+  const where: any = { organizationId: orgId, deletedAt: null };
   if (status) where.status = status;
   if (search) where.OR = [
     { number: { contains: search, mode: 'insensitive' } },
