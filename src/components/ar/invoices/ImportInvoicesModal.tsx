@@ -17,6 +17,7 @@ import {
     computeStockDeficits,
     type ShopeeParseResult,
     type StockDeficit,
+    type HeaderResolution,
 } from '../../../utils/shopeeImport';
 import { formatIDR } from '../../../utils/formatters';
 import type { EcommerceConnection } from '../../../types';
@@ -85,6 +86,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const [parseResult, setParseResult] = useState<ShopeeParseResult | null>(null);
     const [parsing, setParsing] = useState<boolean>(false);
     const [parseError, setParseError] = useState<string>('');
+    const [headerReport, setHeaderReport] = useState<HeaderResolution | null>(null);
 
     // Item mapping state: { [productKey]: inventoryItemId }
     const [localMappings, setLocalMappings] = useState<Record<string, string>>({});
@@ -125,6 +127,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setParseResult(null);
         setParsing(false);
         setParseError('');
+        setHeaderReport(null);
         setLocalMappings({});
         setShowAllMappings(false);
         setInvoiceStatus('Paid');
@@ -144,19 +147,22 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         if (!f) return;
         setFile(f);
         setParseError('');
+        setHeaderReport(null);
         setParsing(true);
 
         try {
             const shop = shops.find((s) => s.id === shopId);
             const result = await parseShopeeExcel(f, shop?.importStatusFilter || 'Selesai');
 
-            if (result.warnings.length > 0 && result.parsedOrders.length === 0) {
-                setParseError(result.warnings[0]);
+            if (result.parsedOrders.length === 0) {
+                setParseError(result.warnings[0] || 'No orders could be parsed from this file.');
+                setHeaderReport(result.headerReport);
                 setParsing(false);
                 return;
             }
 
             setParseResult(result);
+            setHeaderReport(result.headerReport);
 
             // Initialize local mappings from saved shop mappings
             const saved = shop?.itemMappings || {};
@@ -336,9 +342,43 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         </label>
                     </div>
                     {parseError && (
-                        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700 flex gap-2">
-                            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                            {parseError}
+                        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+                            <div className="flex gap-2">
+                                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                                <div className="flex-1">
+                                    <div className="font-medium">{parseError}</div>
+                                    {headerReport && headerReport.missingRequired.length > 0 && (
+                                        <div className="mt-3 space-y-2 text-xs">
+                                            <div>
+                                                <div className="font-semibold text-red-800">Missing required columns:</div>
+                                                <ul className="list-disc list-inside mt-1">
+                                                    {headerReport.missingRequired.map((m) => (
+                                                        <li key={m.internalKey}>
+                                                            <strong>{m.expected[0]}</strong>
+                                                            {m.expected.length > 1 && (
+                                                                <span className="text-red-600"> (or: {m.expected.slice(1).join(', ')})</span>
+                                                            )}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                            {headerReport.actualHeaders.length > 0 && (
+                                                <details className="mt-2">
+                                                    <summary className="cursor-pointer text-red-800 font-semibold">
+                                                        Headers found in file ({headerReport.actualHeaders.length})
+                                                    </summary>
+                                                    <div className="mt-1 p-2 bg-white border border-red-100 rounded text-red-700 font-mono text-[11px] leading-relaxed break-words">
+                                                        {headerReport.actualHeaders.join(' · ')}
+                                                    </div>
+                                                </details>
+                                            )}
+                                            <div className="text-red-600 italic">
+                                                If Shopee&rsquo;s export format has changed, please report the new column names so they can be added to the parser.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -363,7 +403,39 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 ))}
             </div>
 
-            {/* Warnings */}
+            {/* Header format drift notice */}
+            {headerReport && (headerReport.missingOptional.length > 0 || headerReport.unknownHeaders.length > 0) && (
+                <details className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
+                    <summary className="cursor-pointer font-medium">
+                        File format notes
+                        {headerReport.missingOptional.length > 0 && ` · ${headerReport.missingOptional.length} optional column(s) missing`}
+                        {headerReport.unknownHeaders.length > 0 && ` · ${headerReport.unknownHeaders.length} unknown column(s)`}
+                    </summary>
+                    <div className="mt-2 space-y-2 text-xs">
+                        {headerReport.missingOptional.length > 0 && (
+                            <div>
+                                <div className="font-semibold">Optional columns not found (fields will be blank):</div>
+                                <div className="mt-1 text-blue-700">
+                                    {headerReport.missingOptional.map((m) => m.expected[0]).join(', ')}
+                                </div>
+                            </div>
+                        )}
+                        {headerReport.unknownHeaders.length > 0 && (
+                            <div>
+                                <div className="font-semibold">Columns in file that were not recognised:</div>
+                                <div className="mt-1 text-blue-700 font-mono text-[11px] break-words">
+                                    {headerReport.unknownHeaders.join(' · ')}
+                                </div>
+                                <div className="mt-1 italic text-blue-600">
+                                    These are ignored. If any contain data you need, report them so the parser can be updated.
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </details>
+            )}
+
+            {/* Row-level warnings */}
             {parseResult!.warnings.length > 0 && (
                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
                     <strong>{parseResult!.warnings.length} warning(s):</strong>

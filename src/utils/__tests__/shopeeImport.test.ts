@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildProductKey, transformOrdersToInvoices } from '../shopeeImport';
+import {
+    buildProductKey,
+    transformOrdersToInvoices,
+    normalizeHeader,
+    resolveHeaders,
+} from '../shopeeImport';
 import type {
     ParsedShopeeOrder,
     TransformConfig,
@@ -157,5 +162,94 @@ describe('transformOrdersToInvoices', () => {
     it('stores PO number as Shopee order number', () => {
         const result: TransformResult = transformOrdersToInvoices(sampleOrders, baseConfig, []);
         expect(result.newInvoices[0].poNumber).toBe('SHP-2026-001');
+    });
+});
+
+// ── normalizeHeader ──────────────────────────────────────────
+
+describe('normalizeHeader', () => {
+    it('lowercases and strips punctuation', () => {
+        expect(normalizeHeader('No. Pesanan')).toBe('nopesanan');
+    });
+
+    it('collapses whitespace and dashes', () => {
+        expect(normalizeHeader('No   Pesanan')).toBe('nopesanan');
+        expect(normalizeHeader('NO-PESANAN')).toBe('nopesanan');
+    });
+
+    it('strips parentheses', () => {
+        expect(normalizeHeader('Username (Pembeli)')).toBe('usernamepembeli');
+    });
+
+    it('treats slash-separated words as one token', () => {
+        expect(normalizeHeader('Kota/Kabupaten')).toBe('kotakabupaten');
+    });
+
+    it('returns empty for nullish', () => {
+        expect(normalizeHeader('')).toBe('');
+        // @ts-expect-error intentional null test
+        expect(normalizeHeader(null)).toBe('');
+    });
+});
+
+// ── resolveHeaders ───────────────────────────────────────────
+
+describe('resolveHeaders', () => {
+    it('resolves canonical Shopee headers exactly', () => {
+        const result = resolveHeaders([
+            'No. Pesanan', 'Nama Produk', 'Total Harga Produk', 'Status Pesanan',
+        ]);
+        expect(result.missingRequired).toHaveLength(0);
+        expect(result.resolvedHeaders.orderNumber).toBe('No. Pesanan');
+        expect(result.resolvedHeaders.productName).toBe('Nama Produk');
+        expect(result.resolvedHeaders.productTotal).toBe('Total Harga Produk');
+        expect(result.resolvedHeaders.orderStatus).toBe('Status Pesanan');
+    });
+
+    it('matches headers with different punctuation and casing', () => {
+        const result = resolveHeaders([
+            'no pesanan', 'NAMA PRODUK', 'total-harga-produk',
+        ]);
+        expect(result.missingRequired).toHaveLength(0);
+        expect(result.resolvedHeaders.orderNumber).toBe('no pesanan');
+    });
+
+    it('uses aliases when Shopee renames a column', () => {
+        const result = resolveHeaders([
+            'Nomor Pesanan', 'Product Name', 'Product Total',
+        ]);
+        expect(result.missingRequired).toHaveLength(0);
+        expect(result.resolvedHeaders.orderNumber).toBe('Nomor Pesanan');
+        expect(result.resolvedHeaders.productName).toBe('Product Name');
+    });
+
+    it('reports missing required columns', () => {
+        const result = resolveHeaders(['Nama Produk', 'Status Pesanan']);
+        const missingKeys = result.missingRequired.map((m) => m.internalKey);
+        expect(missingKeys).toContain('orderNumber');
+        expect(missingKeys).toContain('productTotal');
+        expect(missingKeys).not.toContain('productName');
+    });
+
+    it('reports optional missing columns without blocking', () => {
+        const result = resolveHeaders([
+            'No. Pesanan', 'Nama Produk', 'Total Harga Produk',
+        ]);
+        expect(result.missingRequired).toHaveLength(0);
+        const optionalKeys = result.missingOptional.map((m) => m.internalKey);
+        expect(optionalKeys).toContain('orderStatus');
+        expect(optionalKeys).toContain('quantity');
+    });
+
+    it('reports unknown headers found in file', () => {
+        const result = resolveHeaders([
+            'No. Pesanan', 'Nama Produk', 'Total Harga Produk', 'Some Future Column',
+        ]);
+        expect(result.unknownHeaders).toContain('Some Future Column');
+    });
+
+    it('preserves the actual header string (not the alias) in resolvedHeaders', () => {
+        const result = resolveHeaders(['no. pesanan!', 'Nama Produk', 'Total Harga Produk']);
+        expect(result.resolvedHeaders.orderNumber).toBe('no. pesanan!');
     });
 });
