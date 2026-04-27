@@ -71,7 +71,7 @@ type ProductLike = any;
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
-import { Printer, Save, Search, Info, Package, Paperclip, FileText, X } from 'lucide-react';
+import { Printer, Save, Search, Info, Package, Paperclip, FileText, X, AlertTriangle } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
@@ -621,7 +621,7 @@ const InvoiceForm = () => {
                                                         >
                                                             <div>
                                                                 <div className="font-semibold text-[0.95rem]">{p.name}</div>
-                                                                <div className="text-xs text-neutral-500">{p.code} • Stock: 99+</div>
+                                                                <div className="text-xs text-neutral-500">{p.code} • Stock: {(p.currentStock ?? p.stock ?? 0).toLocaleString()}</div>
                                                             </div>
                                                             <div className="font-bold text-success-600">
                                                                 {formatIDR(p.price)}
@@ -671,6 +671,21 @@ const InvoiceForm = () => {
                                                         className="w-full text-sm border-0 bg-transparent p-0 m-0 focus:ring-0 text-neutral-900 placeholder-neutral-400"
                                                         placeholder="Description"
                                                     />
+                                                    {(() => {
+                                                        if (!item.productId) return null;
+                                                        const prod = products.find((p: ProductLike) => p.id === item.productId);
+                                                        if (!prod) return null;
+                                                        const avail = prod.currentStock ?? prod.stock ?? 0;
+                                                        if (item.quantity > avail) {
+                                                            return (
+                                                                <div className="flex items-center gap-1 mt-1 text-[11px] text-amber-600">
+                                                                    <AlertTriangle size={11} />
+                                                                    Only {avail} available — stock will go negative
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </td>
                                                 <td className="p-2 align-top">
                                                     <Input

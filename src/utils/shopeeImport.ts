@@ -612,6 +612,50 @@ export function transformOrdersToInvoices(
     };
 }
 
+// ── Stock deficit check ───────────────────────────────────────────────────────
+
+export interface StockDeficit {
+    itemId: string;
+    itemName: string;
+    totalRequired: number;
+    currentStock: number;
+    deficit: number;
+}
+
+/**
+ * Given parsed orders + item mappings, returns items whose total required qty
+ * exceeds currentStock.  Call after mappings are finalised (Step 3).
+ */
+export function computeStockDeficits(
+    orders: ParsedShopeeOrder[],
+    itemMappings: Record<string, string>,
+    inventoryItems: Array<{ id: string; name: string; currentStock: number }>,
+): StockDeficit[] {
+    const required = new Map<string, number>();
+    for (const order of orders) {
+        for (const item of order.items) {
+            const itemId = itemMappings[buildProductKey(item)];
+            if (!itemId) continue;
+            required.set(itemId, (required.get(itemId) ?? 0) + item.quantity);
+        }
+    }
+    const deficits: StockDeficit[] = [];
+    for (const [itemId, totalRequired] of required) {
+        const inv = inventoryItems.find((i) => i.id === itemId);
+        if (!inv) continue;
+        if (totalRequired > inv.currentStock) {
+            deficits.push({
+                itemId,
+                itemName: inv.name,
+                totalRequired,
+                currentStock: inv.currentStock,
+                deficit: totalRequired - inv.currentStock,
+            });
+        }
+    }
+    return deficits;
+}
+
 /** Map Shopee payment methods to app's method names */
 function mapPaymentMethod(shopeeMethod: string): string {
     const m = String(shopeeMethod).toLowerCase();
