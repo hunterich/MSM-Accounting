@@ -546,7 +546,7 @@ const CompanySetup = () => {
 
             {/* Recalculation Result Modal */}
             {recalcResult && (
-                <Modal title="Costing Recalculation Complete" onClose={() => setRecalcResult(null)} size="sm">
+                <Modal isOpen title="Costing Recalculation Complete" onClose={() => setRecalcResult(null)} size="sm">
                     <div className="p-4 space-y-3">
                         <p className="text-sm text-neutral-700">Inventory costing has been recalculated successfully.</p>
                         <div className="grid grid-cols-2 gap-2 text-sm">

@@ -110,8 +110,10 @@ function validateRows(entity: ImportEntity, rows: unknown[]): { valid: unknown[]
 
 // ── POST handler ──────────────────────────────────────────────────────────────
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ entity: string }> }) {
-  return withHandler(req, async () => {
+export const POST = withHandler(async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ entity: string }> },
+) {
     const orgId = requireOrg(req);
     const { entity } = await params;
 
@@ -137,17 +139,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
     let created = 0;
 
     if (entity === 'customers') {
+      const customerSeq = await prisma.customer.count({ where: { organizationId: orgId } });
+      let custIdx = 0;
       for (const row of valid as z.infer<typeof CustomerRowSchema>[]) {
         await prisma.customer.create({
           data: {
             organizationId: orgId,
+            code: `CUST-${String(customerSeq + (++custIdx)).padStart(6, '0')}`,
             name: row.name,
             email: row.email || null,
             phone: row.phone || null,
-            address: row.address || null,
-            npwp: row.npwp || null,
+            billingAddress: row.address || null,
+            paymentTermsDays: row.paymentTerms ?? 30,
             creditLimit: row.creditLimit ?? 0,
-            paymentTerms: row.paymentTerms ?? 30,
             openingBalance: row.openingBalance ?? 0,
           },
         });
@@ -156,16 +160,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
     }
 
     if (entity === 'vendors') {
+      const vendorSeq = await prisma.vendor.count({ where: { organizationId: orgId } });
+      let venIdx = 0;
       for (const row of valid as z.infer<typeof VendorRowSchema>[]) {
         await prisma.vendor.create({
           data: {
             organizationId: orgId,
+            code: `VEND-${String(vendorSeq + (++venIdx)).padStart(6, '0')}`,
             name: row.name,
             email: row.email || null,
             phone: row.phone || null,
-            address: row.address || null,
             npwp: row.npwp || null,
-            paymentTerms: row.paymentTerms ?? 30,
+            // Vendor.paymentTerms is a free-form string (e.g. "Net 30"); coerce.
+            paymentTerms: row.paymentTerms != null ? `Net ${row.paymentTerms}` : null,
             openingBalance: row.openingBalance ?? 0,
           },
         });
@@ -179,16 +186,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
           data: {
             organizationId: orgId,
             name: row.name,
-            sku: row.sku || null,
+            // Item.sku is required — generate from name when not supplied.
+            sku: row.sku || row.name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 32),
             type: row.type,
             unit: row.unit,
-            salePrice: row.salePrice,
-            purchasePrice: row.purchasePrice,
-            trackInventory: row.trackInventory as boolean,
-            openingStock: row.openingStock ?? 0,
+            sellingPrice: row.salePrice,
             costPrice: row.openingValue != null && row.openingStock
               ? row.openingValue / row.openingStock
               : row.purchasePrice,
+            openingStock: row.openingStock ?? 0,
           },
         });
         created++;
@@ -204,13 +210,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
           errors.push({ row: -1, message: `Account code ${row.code} already exists — skipped` });
           continue;
         }
+        // Normal side derives from account type.
+        const normalSide = (row.type === 'ASSET' || row.type === 'EXPENSE') ? 'DEBIT' : 'CREDIT';
         await prisma.account.create({
           data: {
             organizationId: orgId,
             code: row.code,
             name: row.name,
             type: row.type,
-            description: row.description || null,
+            normalSide,
             isActive: true,
             isPostable: true,
           },
@@ -325,7 +333,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
             customerId: customer.id,
             issueDate: new Date(inv.issueDate),
             dueDate: inv.dueDate ? new Date(inv.dueDate) : null,
-            status: 'POSTED',
+            status: 'SENT',
             subtotal: inv.amount,
             totalAmount: inv.amount,
             taxEnabled: false,
@@ -337,7 +345,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
                 quantity: 1,
                 unit: 'LOT',
                 price: inv.amount,
-                lineTotal: inv.amount,
+                lineSubtotal: inv.amount,
               }],
             },
           },
@@ -378,7 +386,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
             vendorId: vendor.id,
             issueDate: new Date(bill.issueDate),
             dueDate: bill.dueDate ? new Date(bill.dueDate) : null,
-            status: 'APPROVED',
+            status: 'OPEN',
             subtotal: bill.amount,
             totalAmount: bill.amount,
             notes: bill.notes || 'Opening balance bill (imported)',
@@ -399,5 +407,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ent
     }
 
     return ok({ created, skipped: valid.length - created, errors });
-  });
-}
+});
