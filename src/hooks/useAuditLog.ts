@@ -10,31 +10,31 @@ export const AUDIT_KEYS = {
 };
 
 const ACTION_LABELS: Record<string, string> = {
-  CREATE: 'Buat',
-  UPDATE: 'Ubah',
-  DELETE: 'Hapus',
+  CREATE: 'Create',
+  UPDATE: 'Update',
+  DELETE: 'Delete',
 };
 
 const ENTITY_LABELS: Record<string, string> = {
-  SalesInvoice: 'Faktur Penjualan',
-  Bill: 'Tagihan',
-  ARPayment: 'Pembayaran AR',
-  APPayment: 'Pembayaran AP',
-  Customer: 'Pelanggan',
+  SalesInvoice: 'Sales Invoice',
+  Bill: 'Bill',
+  ARPayment: 'AR Payment',
+  APPayment: 'AP Payment',
+  Customer: 'Customer',
   Vendor: 'Vendor',
-  PurchaseOrder: 'Pesanan Pembelian',
-  JournalEntry: 'Jurnal',
-  Account: 'Akun',
-  Item: 'Barang',
-  StockAdjustment: 'Penyesuaian Stok',
-  BankAccount: 'Rekening Bank',
-  BankTransaction: 'Transaksi Bank',
-  Employee: 'Karyawan',
-  CreditNote: 'Nota Kredit',
-  DebitNote: 'Nota Debit',
-  SalesReturn: 'Retur Penjualan',
-  PurchaseReturn: 'Retur Pembelian',
-  CustomerCategory: 'Kategori Pelanggan',
+  PurchaseOrder: 'Purchase Order',
+  JournalEntry: 'Journal Entry',
+  Account: 'Account',
+  Item: 'Item',
+  StockAdjustment: 'Stock Adjustment',
+  BankAccount: 'Bank Account',
+  BankTransaction: 'Bank Transaction',
+  Employee: 'Employee',
+  CreditNote: 'Credit Note',
+  DebitNote: 'Debit Note',
+  SalesReturn: 'Sales Return',
+  PurchaseReturn: 'Purchase Return',
+  CustomerCategory: 'Customer Category',
 };
 
 function normalizeAuditLog(raw: RawAuditLog): AuditLog {

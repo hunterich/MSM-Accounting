@@ -18,19 +18,19 @@ import { exportToCsv } from '../../utils/exportCsv';
 type Tab = 'requests' | 'types' | 'balances';
 
 const CATEGORY_LABELS: Record<string, string> = {
-    ANNUAL: 'Tahunan',
-    SICK: 'Sakit',
-    MATERNITY: 'Melahirkan',
-    PATERNITY: 'Cuti Ayah',
-    UNPAID: 'Tanpa Gaji',
-    OTHER: 'Lainnya',
+    ANNUAL: 'Annual',
+    SICK: 'Sick',
+    MATERNITY: 'Maternity',
+    PATERNITY: 'Paternity',
+    UNPAID: 'Unpaid',
+    OTHER: 'Other',
 };
 
 const STATUS_LABELS: Record<string, string> = {
-    PENDING: 'Menunggu',
-    APPROVED: 'Disetujui',
-    REJECTED: 'Ditolak',
-    CANCELLED: 'Dibatalkan',
+    PENDING: 'Pending',
+    APPROVED: 'Approved',
+    REJECTED: 'Rejected',
+    CANCELLED: 'Cancelled',
 };
 
 const LeaveManagement = () => {
@@ -40,15 +40,15 @@ const LeaveManagement = () => {
     return (
         <ListPage
             containerClassName="hr-module"
-            title="Manajemen Cuti"
-            subtitle="Kelola jenis cuti, permohonan cuti, dan saldo cuti karyawan."
+            title="Leave Management"
+            subtitle="Manage leave types, leave requests, and employee leave balances."
         >
             {/* Tab bar */}
             <div className="flex border-b border-neutral-200 mb-4">
                 {([
-                    { key: 'requests' as Tab, label: 'Permohonan Cuti' },
-                    { key: 'types' as Tab, label: 'Jenis Cuti' },
-                    { key: 'balances' as Tab, label: 'Saldo Cuti' },
+                    { key: 'requests' as Tab, label: 'Leave Requests' },
+                    { key: 'types' as Tab, label: 'Leave Types' },
+                    { key: 'balances' as Tab, label: 'Leave Balances' },
                 ]).map((tab) => (
                     <button
                         key={tab.key}
@@ -133,20 +133,20 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
             status: STATUS_LABELS[r.status] || r.status,
             reason: r.reason || '',
         })), [
-            { label: 'Karyawan', key: 'employee' },
-            { label: 'Jenis Cuti', key: 'leaveType' },
-            { label: 'Mulai', key: 'startDate' },
-            { label: 'Selesai', key: 'endDate' },
-            { label: 'Hari', key: 'totalDays' },
+            { label: 'Employee', key: 'employee' },
+            { label: 'Leave Type', key: 'leaveType' },
+            { label: 'Start', key: 'startDate' },
+            { label: 'End', key: 'endDate' },
+            { label: 'Days', key: 'totalDays' },
             { label: 'Status', key: 'status' },
-            { label: 'Alasan', key: 'reason' },
+            { label: 'Reason', key: 'reason' },
         ]);
     };
 
     const columns: TableColumn<any>[] = [
         {
             key: 'employee',
-            label: 'Karyawan',
+            label: 'Employee',
             render: (_v: unknown, row: any) => (
                 <div>
                     <div className="font-medium">{row.employee?.name}</div>
@@ -156,22 +156,22 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
         },
         {
             key: 'leaveType',
-            label: 'Jenis Cuti',
+            label: 'Leave Type',
             render: (_v: unknown, row: any) => row.leaveType?.name || '-',
         },
         {
             key: 'startDate',
-            label: 'Mulai',
+            label: 'Start',
             render: (v: unknown) => v ? new Date(v as string).toLocaleDateString('id-ID') : '-',
         },
         {
             key: 'endDate',
-            label: 'Selesai',
+            label: 'End',
             render: (v: unknown) => v ? new Date(v as string).toLocaleDateString('id-ID') : '-',
         },
         {
             key: 'totalDays',
-            label: 'Hari',
+            label: 'Days',
             align: 'right',
         },
         {
@@ -181,7 +181,7 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
         },
         {
             key: 'actions',
-            label: 'Aksi',
+            label: 'Actions',
             render: (_v: unknown, row: any) => {
                 if (row.status !== 'PENDING' || !canEdit) return null;
                 return (
@@ -190,13 +190,13 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
                             className="text-xs text-green-600 hover:text-green-800 px-2 py-1 rounded hover:bg-green-50"
                             onClick={(e) => { e.stopPropagation(); approveLeave.mutate({ id: row.id }); }}
                         >
-                            Setujui
+                            Approve
                         </button>
                         <button
                             className="text-xs text-danger-500 hover:text-danger-700 px-2 py-1 rounded hover:bg-danger-50"
                             onClick={(e) => { e.stopPropagation(); rejectLeave.mutate({ id: row.id }); }}
                         >
-                            Tolak
+                            Reject
                         </button>
                     </div>
                 );
@@ -212,46 +212,46 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
                     onChange={(e) => setStatusFilter(e.target.value)}
                     className="border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                 >
-                    <option value="">Semua Status</option>
-                    <option value="PENDING">Menunggu</option>
-                    <option value="APPROVED">Disetujui</option>
-                    <option value="REJECTED">Ditolak</option>
+                    <option value="">All Statuses</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="APPROVED">Approved</option>
+                    <option value="REJECTED">Rejected</option>
                 </select>
                 <div className="flex gap-2">
                     <Button variant="secondary" size="small" icon={<Download size={16} />} text="Export" onClick={handleExport} />
                     {canCreate && (
-                        <Button size="small" icon={<Plus size={16} />} text="Ajukan Cuti" onClick={() => setShowCreateModal(true)} />
+                        <Button size="small" icon={<Plus size={16} />} text="Request Leave" onClick={() => setShowCreateModal(true)} />
                     )}
                 </div>
             </div>
 
             <Card>
-                <Table columns={columns} data={requests} isLoading={isLoading} showCount countLabel="permohonan" />
+                <Table columns={columns} data={requests} isLoading={isLoading} showCount countLabel="requests" />
             </Card>
 
-            <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Ajukan Permohonan Cuti" size="md">
+            <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Submit Leave Request" size="md">
                 <div className="p-4 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-neutral-700 mb-1">Karyawan</label>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1">Employee</label>
                         <select
                             value={form.employeeId}
                             onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
                             className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                         >
-                            <option value="">Pilih karyawan...</option>
+                            <option value="">Select employee...</option>
                             {employees.map((emp: any) => (
                                 <option key={emp.id} value={emp.id}>{emp.name}</option>
                             ))}
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-neutral-700 mb-1">Jenis Cuti</label>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1">Leave Type</label>
                         <select
                             value={form.leaveTypeId}
                             onChange={(e) => setForm({ ...form, leaveTypeId: e.target.value })}
                             className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                         >
-                            <option value="">Pilih jenis cuti...</option>
+                            <option value="">Select leave type...</option>
                             {leaveTypes.map((lt: any) => (
                                 <option key={lt.id} value={lt.id}>{lt.name} ({CATEGORY_LABELS[lt.category] || lt.category})</option>
                             ))}
@@ -259,7 +259,7 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Tanggal Mulai</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">Start Date</label>
                             <input
                                 type="date"
                                 value={form.startDate}
@@ -268,7 +268,7 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Tanggal Selesai</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">End Date</label>
                             <input
                                 type="date"
                                 value={form.endDate}
@@ -278,22 +278,22 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
                         </div>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-neutral-700 mb-1">Total Hari: <span className="font-bold">{form.totalDays}</span></label>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1">Total Days: <span className="font-bold">{form.totalDays}</span></label>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-neutral-700 mb-1">Alasan</label>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1">Reason</label>
                         <textarea
                             value={form.reason}
                             onChange={(e) => setForm({ ...form, reason: e.target.value })}
                             rows={3}
                             className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
-                            placeholder="Alasan permohonan cuti..."
+                            placeholder="Reason for leave request..."
                         />
                     </div>
                     <div className="flex justify-end gap-2">
-                        <Button variant="secondary" text="Batal" onClick={() => setShowCreateModal(false)} />
+                        <Button variant="secondary" text="Cancel" onClick={() => setShowCreateModal(false)} />
                         <Button
-                            text={createRequest.isPending ? 'Menyimpan...' : 'Ajukan'}
+                            text={createRequest.isPending ? 'Saving...' : 'Submit'}
                             onClick={handleCreate}
                             disabled={createRequest.isPending || !form.employeeId || !form.leaveTypeId || !form.startDate || !form.endDate}
                         />
@@ -355,22 +355,22 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
     };
 
     const columns: TableColumn<any>[] = [
-        { key: 'name', label: 'Nama' },
+        { key: 'name', label: 'Name' },
         {
             key: 'category',
-            label: 'Kategori',
+            label: 'Category',
             render: (v: unknown) => CATEGORY_LABELS[v as string] || (v as string),
         },
-        { key: 'entitlementDays', label: 'Hak (Hari)', align: 'right' },
+        { key: 'entitlementDays', label: 'Entitlement (Days)', align: 'right' },
         {
             key: 'carryOver',
             label: 'Carry Over',
-            render: (v: unknown, row: any) => v ? `Ya (maks ${row.maxCarryDays} hari)` : 'Tidak',
+            render: (v: unknown, row: any) => v ? `Yes (max ${row.maxCarryDays} days)` : 'No',
         },
         {
             key: 'isActive',
             label: 'Status',
-            render: (v: unknown) => <StatusTag status={v ? 'Aktif' : 'Nonaktif'} />,
+            render: (v: unknown) => <StatusTag status={v ? 'Active' : 'Inactive'} />,
         },
         {
             key: 'actions',
@@ -390,10 +390,10 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                             className="text-xs text-danger-500 hover:text-danger-700"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (confirm('Hapus jenis cuti ini?')) deleteLeaveType.mutate(row.id);
+                                if (confirm('Delete this leave type?')) deleteLeaveType.mutate(row.id);
                             }}
                         >
-                            Hapus
+                            Delete
                         </button>
                     )}
                 </div>
@@ -405,29 +405,29 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
         <>
             <div className="flex justify-end mb-3">
                 {canCreate && (
-                    <Button size="small" icon={<Plus size={16} />} text="Tambah Jenis Cuti" onClick={openCreate} />
+                    <Button size="small" icon={<Plus size={16} />} text="Add Leave Type" onClick={openCreate} />
                 )}
             </div>
 
             <Card>
-                <Table columns={columns} data={leaveTypes} isLoading={isLoading} showCount countLabel="jenis cuti" />
+                <Table columns={columns} data={leaveTypes} isLoading={isLoading} showCount countLabel="leave types" />
             </Card>
 
-            <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingId ? 'Edit Jenis Cuti' : 'Tambah Jenis Cuti'} size="md">
+            <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingId ? 'Edit Leave Type' : 'Add Leave Type'} size="md">
                 <div className="p-4 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-neutral-700 mb-1">Nama</label>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1">Name</label>
                         <input
                             type="text"
                             value={form.name}
                             onChange={(e) => setForm({ ...form, name: e.target.value })}
                             className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
-                            placeholder="Contoh: Cuti Tahunan"
+                            placeholder="Example: Annual Leave"
                         />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Kategori</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">Category</label>
                             <select
                                 value={form.category}
                                 onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -439,7 +439,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Hak (Hari/Tahun)</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">Entitlement (Days/Year)</label>
                             <input
                                 type="number"
                                 value={form.entitlementDays}
@@ -461,7 +461,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                         </label>
                         {form.carryOver && (
                             <div className="flex items-center gap-2">
-                                <label className="text-sm text-neutral-600">Maks:</label>
+                                <label className="text-sm text-neutral-600">Max:</label>
                                 <input
                                     type="number"
                                     value={form.maxCarryDays}
@@ -469,14 +469,14 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                                     className="w-20 border border-neutral-300 rounded-lg px-2 py-1 text-sm"
                                     min={0}
                                 />
-                                <span className="text-sm text-neutral-500">hari</span>
+                                <span className="text-sm text-neutral-500">days</span>
                             </div>
                         )}
                     </div>
                     <div className="flex justify-end gap-2">
-                        <Button variant="secondary" text="Batal" onClick={() => setShowModal(false)} />
+                        <Button variant="secondary" text="Cancel" onClick={() => setShowModal(false)} />
                         <Button
-                            text={editingId ? 'Simpan' : 'Tambah'}
+                            text={editingId ? 'Save' : 'Add'}
                             onClick={handleSave}
                             disabled={!form.name || createLeaveType.isPending || updateLeaveType.isPending}
                         />
@@ -497,7 +497,7 @@ function LeaveBalancesTab({ canCreate }: { canCreate: boolean }) {
     const initBalances = useInitializeLeaveBalances();
 
     const handleInit = async () => {
-        if (confirm(`Inisialisasi saldo cuti untuk tahun ${year}? Ini akan membuat saldo untuk semua karyawan aktif berdasarkan jenis cuti yang ada.`)) {
+        if (confirm(`Initialize leave balances for ${year}? This will create balances for all active employees based on existing leave types.`)) {
             try {
                 await initBalances.mutateAsync({ year });
             } catch {
@@ -522,7 +522,7 @@ function LeaveBalancesTab({ canCreate }: { canCreate: boolean }) {
     const columns: TableColumn<any>[] = [
         {
             key: 'employee',
-            label: 'Karyawan',
+            label: 'Employee',
             render: (_v: unknown, row: any) => (
                 <div>
                     <div className="font-medium">{row.employee?.name}</div>
@@ -532,15 +532,15 @@ function LeaveBalancesTab({ canCreate }: { canCreate: boolean }) {
         },
         {
             key: 'leaveType',
-            label: 'Jenis Cuti',
+            label: 'Leave Type',
             render: (_v: unknown, row: any) => row.leaveType?.name || '-',
         },
-        { key: 'entitlement', label: 'Hak', align: 'right' },
+        { key: 'entitlement', label: 'Entitlement', align: 'right' },
         { key: 'carried', label: 'Carry Over', align: 'right' },
-        { key: 'used', label: 'Terpakai', align: 'right' },
+        { key: 'used', label: 'Used', align: 'right' },
         {
             key: 'remaining',
-            label: 'Sisa',
+            label: 'Remaining',
             align: 'right',
             render: (v: unknown) => (
                 <span className={`font-semibold ${Number(v) <= 0 ? 'text-danger-500' : Number(v) <= 3 ? 'text-warning-600' : 'text-green-600'}`}>
@@ -566,7 +566,7 @@ function LeaveBalancesTab({ canCreate }: { canCreate: boolean }) {
                     <Button
                         size="small"
                         icon={<RefreshCw size={16} />}
-                        text={initBalances.isPending ? 'Memproses...' : `Inisialisasi ${year}`}
+                        text={initBalances.isPending ? 'Processing...' : `Initialize ${year}`}
                         onClick={handleInit}
                         disabled={initBalances.isPending}
                     />
@@ -574,13 +574,13 @@ function LeaveBalancesTab({ canCreate }: { canCreate: boolean }) {
             </div>
 
             <Card>
-                <Table columns={columns} data={balances} isLoading={isLoading} showCount countLabel="saldo cuti" />
+                <Table columns={columns} data={balances} isLoading={isLoading} showCount countLabel="leave balances" />
             </Card>
 
             {initBalances.isSuccess && initBalances.data && (
                 <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-                    Berhasil membuat {(initBalances.data as any).created} saldo cuti baru.
-                    {(initBalances.data as any).skipped > 0 && ` (${(initBalances.data as any).skipped} sudah ada)`}
+                    Created {(initBalances.data as any).created} new leave balances.
+                    {(initBalances.data as any).skipped > 0 && ` (${(initBalances.data as any).skipped} already existed)`}
                 </div>
             )}
         </>

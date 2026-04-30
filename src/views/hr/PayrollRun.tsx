@@ -15,16 +15,16 @@ import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { exportToCsv } from '../../utils/exportCsv';
 
 const MONTH_NAMES = [
-    '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    '', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
 const STATUS_LABELS: Record<string, string> = {
     DRAFT: 'Draft',
-    CALCULATED: 'Dihitung',
-    REVIEWED: 'Ditinjau',
-    POSTED: 'Diposting',
-    VOID: 'Batal',
+    CALCULATED: 'Calculated',
+    REVIEWED: 'Reviewed',
+    POSTED: 'Posted',
+    VOID: 'Void',
 };
 
 function getMonthRange(month: number, year: number): { start: string; end: string } {
@@ -70,7 +70,7 @@ const PayrollRun = () => {
 
     const handleCalculate = async () => {
         if (!selectedRunId) return;
-        if (!confirm('Hitung payroll? Ini akan menghitung ulang semua baris payroll.')) return;
+        if (!confirm('Calculate payroll? This will recompute every payroll line.')) return;
         try {
             await calculatePayroll.mutateAsync(selectedRunId);
         } catch {
@@ -80,7 +80,7 @@ const PayrollRun = () => {
 
     const handlePost = async () => {
         if (!selectedRunId) return;
-        if (!confirm('Posting payroll ke GL? Ini akan membuat jurnal dan tidak dapat dibatalkan.')) return;
+        if (!confirm('Post payroll to GL? This creates a journal entry and cannot be undone.')) return;
         try {
             await postPayroll.mutateAsync(selectedRunId);
         } catch {
@@ -89,7 +89,7 @@ const PayrollRun = () => {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Hapus payroll run ini?')) return;
+        if (!confirm('Delete this payroll run?')) return;
         try {
             await deletePayrollRun.mutateAsync(id);
             if (selectedRunId === id) setSelectedRunId(null);
@@ -114,18 +114,18 @@ const PayrollRun = () => {
             presentDays: l.presentDays,
             absentDays: l.absentDays,
         })), [
-            { label: 'No. Karyawan', key: 'employeeNo' },
-            { label: 'Nama', key: 'name' },
-            { label: 'Gaji Pokok', key: 'basicSalary' },
-            { label: 'Tunjangan', key: 'allowances' },
-            { label: 'Lembur', key: 'overtime' },
-            { label: 'Gaji Kotor', key: 'grossPay' },
-            { label: 'Potongan', key: 'deductions' },
-            { label: 'BPJS Karyawan', key: 'bpjsEmployee' },
+            { label: 'Employee No.', key: 'employeeNo' },
+            { label: 'Name', key: 'name' },
+            { label: 'Basic Salary', key: 'basicSalary' },
+            { label: 'Allowances', key: 'allowances' },
+            { label: 'Overtime', key: 'overtime' },
+            { label: 'Gross Pay', key: 'grossPay' },
+            { label: 'Deductions', key: 'deductions' },
+            { label: 'BPJS (Employee)', key: 'bpjsEmployee' },
             { label: 'PPh 21', key: 'pph21' },
-            { label: 'Gaji Bersih', key: 'netPay' },
-            { label: 'Hari Hadir', key: 'presentDays' },
-            { label: 'Hari Absen', key: 'absentDays' },
+            { label: 'Net Pay', key: 'netPay' },
+            { label: 'Days Present', key: 'presentDays' },
+            { label: 'Days Absent', key: 'absentDays' },
         ]);
     };
 
@@ -135,17 +135,17 @@ const PayrollRun = () => {
         const lines = selectedRun.lines || [];
 
         const summaryCards = [
-            { label: 'Total Bruto', value: formatIDR(Number(selectedRun.totalGross)), color: 'text-neutral-900' },
-            { label: 'Total Potongan', value: formatIDR(Number(selectedRun.totalDeductions)), color: 'text-danger-500' },
+            { label: 'Total Gross', value: formatIDR(Number(selectedRun.totalGross)), color: 'text-neutral-900' },
+            { label: 'Total Deductions', value: formatIDR(Number(selectedRun.totalDeductions)), color: 'text-danger-500' },
             { label: 'Total PPh 21', value: formatIDR(Number(selectedRun.totalTax)), color: 'text-warning-600' },
             { label: 'Total BPJS', value: formatIDR(Number(selectedRun.totalBpjs)), color: 'text-info-600' },
-            { label: 'Total Neto', value: formatIDR(Number(selectedRun.totalNet)), color: 'text-green-600' },
+            { label: 'Total Net', value: formatIDR(Number(selectedRun.totalNet)), color: 'text-green-600' },
         ];
 
         const lineColumns: TableColumn<any>[] = [
             {
                 key: 'employee',
-                label: 'Karyawan',
+                label: 'Employee',
                 render: (_v: unknown, row: any) => (
                     <div>
                         <div className="font-medium text-sm">{row.employee?.name}</div>
@@ -155,31 +155,31 @@ const PayrollRun = () => {
             },
             {
                 key: 'basicSalary',
-                label: 'Gaji Pokok',
+                label: 'Basic Salary',
                 align: 'right',
                 render: (v: unknown) => formatIDR(Number(v)),
             },
             {
                 key: 'totalAllowances',
-                label: 'Tunjangan',
+                label: 'Allowances',
                 align: 'right',
                 render: (v: unknown) => formatIDR(Number(v)),
             },
             {
                 key: 'overtimePay',
-                label: 'Lembur',
+                label: 'Overtime',
                 align: 'right',
                 render: (v: unknown) => Number(v) > 0 ? formatIDR(Number(v)) : '-',
             },
             {
                 key: 'grossPay',
-                label: 'Bruto',
+                label: 'Gross',
                 align: 'right',
                 render: (v: unknown) => <span className="font-medium">{formatIDR(Number(v))}</span>,
             },
             {
                 key: 'totalDeductions',
-                label: 'Potongan',
+                label: 'Deductions',
                 align: 'right',
                 render: (v: unknown) => Number(v) > 0 ? formatIDR(Number(v)) : '-',
             },
@@ -197,13 +197,13 @@ const PayrollRun = () => {
             },
             {
                 key: 'netPay',
-                label: 'Neto',
+                label: 'Net',
                 align: 'right',
                 render: (v: unknown) => <span className="font-bold text-green-700">{formatIDR(Number(v))}</span>,
             },
             {
                 key: 'presentDays',
-                label: 'Hadir',
+                label: 'Present',
                 align: 'right',
                 render: (v: unknown, row: any) => `${v}/${row.workingDays}`,
             },
@@ -230,7 +230,7 @@ const PayrollRun = () => {
                                     variant="secondary"
                                     size="small"
                                     icon={<Calculator size={16} />}
-                                    text={calculatePayroll.isPending ? 'Menghitung...' : 'Hitung'}
+                                    text={calculatePayroll.isPending ? 'Calculating...' : 'Calculate'}
                                     onClick={handleCalculate}
                                     disabled={calculatePayroll.isPending}
                                 />
@@ -238,7 +238,7 @@ const PayrollRun = () => {
                                     <Button
                                         size="small"
                                         icon={<Send size={16} />}
-                                        text={postPayroll.isPending ? 'Memposting...' : 'Posting ke GL'}
+                                        text={postPayroll.isPending ? 'Posting...' : 'Post to GL'}
                                         onClick={handlePost}
                                         disabled={postPayroll.isPending}
                                     />
@@ -267,13 +267,13 @@ const PayrollRun = () => {
                         data={lines}
                         isLoading={runLoading}
                         showCount
-                        countLabel="karyawan"
+                        countLabel="employees"
                     />
                 </Card>
 
                 {selectedRun.journalEntryId && (
                     <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-                        Jurnal telah diposting: {selectedRun.journalEntryId}
+                        Journal entry posted: {selectedRun.journalEntryId}
                     </div>
                 )}
             </ListPage>
@@ -283,10 +283,10 @@ const PayrollRun = () => {
     // ── List View ────────────────────────────────────────────────────────────
 
     const listColumns: TableColumn<any>[] = [
-        { key: 'number', label: 'Nomor' },
+        { key: 'number', label: 'Number' },
         {
             key: 'month',
-            label: 'Periode',
+            label: 'Period',
             render: (v: unknown, row: any) => `${MONTH_NAMES[v as number]} ${row.year}`,
         },
         {
@@ -296,19 +296,19 @@ const PayrollRun = () => {
         },
         {
             key: 'totalGross',
-            label: 'Total Bruto',
+            label: 'Total Gross',
             align: 'right',
             render: (v: unknown) => formatIDR(Number(v)),
         },
         {
             key: 'totalNet',
-            label: 'Total Neto',
+            label: 'Total Net',
             align: 'right',
             render: (v: unknown) => <span className="font-semibold">{formatIDR(Number(v))}</span>,
         },
         {
             key: '_count',
-            label: 'Karyawan',
+            label: 'Employees',
             align: 'right',
             render: (v: unknown) => (v as any)?.lines ?? 0,
         },
@@ -340,10 +340,10 @@ const PayrollRun = () => {
         <ListPage
             containerClassName="hr-module"
             title="Payroll Run"
-            subtitle="Buat, hitung, dan posting penggajian."
+            subtitle="Create, calculate, and post payroll."
             actions={
                 canCreate ? (
-                    <Button size="small" icon={<Plus size={16} />} text="Buat Payroll" onClick={() => setShowCreateModal(true)} />
+                    <Button size="small" icon={<Plus size={16} />} text="Create Payroll" onClick={() => setShowCreateModal(true)} />
                 ) : null
             }
         >
@@ -354,16 +354,16 @@ const PayrollRun = () => {
                     isLoading={runsLoading}
                     onRowClick={(row: any) => setSelectedRunId(row.id)}
                     showCount
-                    countLabel="payroll run"
+                    countLabel="payroll runs"
                 />
             </Card>
 
             {/* Create Modal */}
-            <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Buat Payroll Run Baru" size="sm">
+            <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create New Payroll Run" size="sm">
                 <div className="p-4 space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Bulan</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">Month</label>
                             <select
                                 value={createMonth}
                                 onChange={(e) => setCreateMonth(Number(e.target.value))}
@@ -375,7 +375,7 @@ const PayrollRun = () => {
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Tahun</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">Year</label>
                             <select
                                 value={createYear}
                                 onChange={(e) => setCreateYear(Number(e.target.value))}
@@ -388,19 +388,19 @@ const PayrollRun = () => {
                         </div>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-neutral-700 mb-1">Catatan</label>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1">Notes</label>
                         <textarea
                             value={createNotes}
                             onChange={(e) => setCreateNotes(e.target.value)}
                             rows={2}
                             className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
-                            placeholder="Catatan opsional..."
+                            placeholder="Optional notes..."
                         />
                     </div>
                     <div className="flex justify-end gap-2">
-                        <Button variant="secondary" text="Batal" onClick={() => setShowCreateModal(false)} />
+                        <Button variant="secondary" text="Cancel" onClick={() => setShowCreateModal(false)} />
                         <Button
-                            text={createPayrollRun.isPending ? 'Membuat...' : 'Buat'}
+                            text={createPayrollRun.isPending ? 'Creating...' : 'Create'}
                             onClick={handleCreate}
                             disabled={createPayrollRun.isPending}
                         />

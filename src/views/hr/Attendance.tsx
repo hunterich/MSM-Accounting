@@ -13,22 +13,22 @@ import { exportToCsv } from '../../utils/exportCsv';
 type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'SICK' | 'LEAVE' | 'LATE' | 'HALF_DAY';
 
 const STATUS_OPTIONS: { value: AttendanceStatus | ''; label: string }[] = [
-    { value: '', label: 'Semua Status' },
-    { value: 'PRESENT', label: 'Hadir' },
-    { value: 'ABSENT', label: 'Tidak Hadir' },
-    { value: 'SICK', label: 'Sakit' },
-    { value: 'LEAVE', label: 'Cuti' },
-    { value: 'LATE', label: 'Terlambat' },
-    { value: 'HALF_DAY', label: 'Setengah Hari' },
+    { value: '', label: 'All Statuses' },
+    { value: 'PRESENT', label: 'Present' },
+    { value: 'ABSENT', label: 'Absent' },
+    { value: 'SICK', label: 'Sick' },
+    { value: 'LEAVE', label: 'Leave' },
+    { value: 'LATE', label: 'Late' },
+    { value: 'HALF_DAY', label: 'Half Day' },
 ];
 
 const STATUS_LABELS: Record<string, string> = {
-    PRESENT: 'Hadir',
-    ABSENT: 'Tidak Hadir',
-    SICK: 'Sakit',
-    LEAVE: 'Cuti',
-    LATE: 'Terlambat',
-    HALF_DAY: 'Setengah Hari',
+    PRESENT: 'Present',
+    ABSENT: 'Absent',
+    SICK: 'Sick',
+    LEAVE: 'Leave',
+    LATE: 'Late',
+    HALF_DAY: 'Half Day',
 };
 
 function formatTime(dateStr: string | null | undefined): string {

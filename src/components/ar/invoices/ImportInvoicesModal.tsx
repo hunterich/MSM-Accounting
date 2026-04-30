@@ -295,7 +295,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 {selectedShop && (
                     <div className="mt-2 text-xs text-neutral-500">
                         Customer: <strong>{(customers as Array<{ id: string; name?: string }>).find((c) => c.id === selectedShop.customer)?.name || selectedShop.customer}</strong>
-                        {' | '}Filter: <strong>{selectedShop.importStatusFilter === 'All' ? 'All Statuses' : 'Selesai Only'}</strong>
+                        {' | '}Filter: <strong>{selectedShop.importStatusFilter === 'All' ? 'All Statuses' : 'Completed Only'}</strong>
                     </div>
                 )}
             </div>

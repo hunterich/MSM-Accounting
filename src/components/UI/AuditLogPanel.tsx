@@ -36,11 +36,11 @@ const AuditLogPanel = ({ entityType, entityId, limit = 20 }: AuditLogPanelProps)
   };
 
   if (isLoading) {
-    return <div className="text-sm text-neutral-500 p-4">Memuat log audit...</div>;
+    return <div className="text-sm text-neutral-500 p-4">Loading audit log...</div>;
   }
 
   if (logs.length === 0) {
-    return <div className="text-sm text-neutral-500 p-4">Belum ada riwayat aktivitas.</div>;
+    return <div className="text-sm text-neutral-500 p-4">No activity history yet.</div>;
   }
 
   return (
