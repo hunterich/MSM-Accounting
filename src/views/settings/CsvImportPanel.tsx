@@ -188,7 +188,7 @@ const CsvImportPanel: React.FC = () => {
           </select>
         </div>
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
           onClick={() => downloadCsv(`template-${entity}.csv`, toCsv(template.columns, template.sample))}
         >
@@ -262,7 +262,7 @@ const CsvImportPanel: React.FC = () => {
             >
               {isPending ? 'Importing…' : `Import ${dryRunResult.valid} rows`}
             </Button>
-            <Button variant="outline" onClick={reset}>Cancel</Button>
+            <Button variant="secondary" onClick={reset}>Cancel</Button>
           </div>
         </Card>
       )}
@@ -284,7 +284,7 @@ const CsvImportPanel: React.FC = () => {
                   ))}
                 </div>
               )}
-              <Button variant="outline" size="sm" className="mt-3" onClick={reset}>Import More</Button>
+              <Button variant="secondary" size="sm" className="mt-3" onClick={reset}>Import More</Button>
             </div>
           </div>
         </Card>
