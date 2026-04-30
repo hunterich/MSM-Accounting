@@ -4,16 +4,19 @@ import Button from '../../UI/Button';
 import Table from '../../UI/Table';
 import SearchableSelect from '../../UI/SearchableSelect';
 import StatusTag from '../../UI/StatusTag';
-import { Upload, CheckCircle, AlertTriangle, ArrowLeft, ArrowRight, Loader } from 'lucide-react';
+import { Upload, CheckCircle, AlertTriangle, ArrowLeft, ArrowRight, Loader, PackageX } from 'lucide-react';
 import { useEcommerceConnections, useUpdateEcommerceConnection } from '../../../hooks/useIntegrations';
 import { useInvoiceStore } from '../../../stores/useInvoiceStore';
 import { usePaymentStore } from '../../../stores/usePaymentStore';
 import { useInventoryStore } from '../../../stores/useInventoryStore';
 import { useCustomerStore } from '../../../stores/useCustomerStore';
+import { useItems } from '../../../hooks/useInventory';
 import {
     parseShopeeExcel,
     transformOrdersToInvoices,
+    computeStockDeficits,
     type ShopeeParseResult,
+    type StockDeficit,
 } from '../../../utils/shopeeImport';
 import { formatIDR } from '../../../utils/formatters';
 import type { EcommerceConnection } from '../../../types';
@@ -74,6 +77,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     const products = useInventoryStore((s) => s.products);
     const customers = useCustomerStore((s) => s.customers);
+    const { data: itemsData } = useItems({ limit: 200 });
 
     const [step, setStep] = useState<WizardStep>('upload');
     const [shopId, setShopId] = useState<string>('');
@@ -200,6 +204,16 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         if (!parseResult) return 0;
         return parseResult.uniqueProducts.filter((p) => localMappings[p.key]).length;
     }, [parseResult, localMappings]);
+
+    const stockDeficits = useMemo<StockDeficit[]>(() => {
+        if (!parseResult || !itemsData?.data) return [];
+        const invItems = itemsData.data.map((i) => ({
+            id: i.id,
+            name: i.name,
+            currentStock: i.currentStock,
+        }));
+        return computeStockDeficits(parseResult.parsedOrders, localMappings, invItems);
+    }, [parseResult, localMappings, itemsData]);
 
     const handleMappingChange = (productKey: string, inventoryItemId: string): void => {
         setLocalMappings((prev) => ({ ...prev, [productKey]: inventoryItemId }));
@@ -393,19 +407,33 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         {showAllMappings ? 'No products found.' : 'All products are mapped!'}
                     </div>
                 ) : (
-                    mappingItems.map((item) => (
-                        <div key={item.key} className="grid grid-cols-2 gap-3 items-center py-2 border-b border-neutral-100">
-                            <div className="text-sm truncate" title={item.key}>
-                                {item.key}
+                    mappingItems.map((item) => {
+                        const mappedId = localMappings[item.key];
+                        const invItem = mappedId ? itemsData?.data?.find((i) => i.id === mappedId) : undefined;
+                        const isDeficit = mappedId ? stockDeficits.some((d) => d.itemId === mappedId) : false;
+                        return (
+                            <div key={item.key} className="grid grid-cols-2 gap-3 items-start py-2 border-b border-neutral-100">
+                                <div className="text-sm truncate pt-1" title={item.key}>
+                                    {item.key}
+                                </div>
+                                <div>
+                                    <SearchableSelect
+                                        options={productOptions}
+                                        value={mappedId || ''}
+                                        onChange={(val: string) => handleMappingChange(item.key, val)}
+                                        placeholder="Select item..."
+                                    />
+                                    {invItem && (
+                                        <div className={`flex items-center gap-1 mt-1 text-[11px] ${isDeficit ? 'text-amber-600' : 'text-neutral-400'}`}>
+                                            {isDeficit && <AlertTriangle size={11} />}
+                                            Stock: {invItem.currentStock.toLocaleString()}
+                                            {isDeficit && ` — deficit: −${stockDeficits.find((d) => d.itemId === mappedId)!.deficit}`}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            <SearchableSelect
-                                options={productOptions}
-                                value={localMappings[item.key] || ''}
-                                onChange={(val: string) => handleMappingChange(item.key, val)}
-                                placeholder="Select item..."
-                            />
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </div>
@@ -477,6 +505,23 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         <div className="font-semibold">{formatIDR(preview.stats.totalAmount)}</div>
                     </div>
                 </div>
+
+                {stockDeficits.length > 0 && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                        <div className="flex items-center gap-2 font-semibold mb-2">
+                            <AlertTriangle size={14} />
+                            {stockDeficits.length} item{stockDeficits.length > 1 ? 's' : ''} will go negative after import
+                        </div>
+                        <ul className="list-disc list-inside space-y-0.5 text-xs">
+                            {stockDeficits.map((d) => (
+                                <li key={d.itemId}>
+                                    <strong>{d.itemName}</strong>: need {d.totalRequired}, have {d.currentStock} (deficit: −{d.deficit})
+                                </li>
+                            ))}
+                        </ul>
+                        <p className="mt-2 text-xs text-amber-700">Import will proceed — adjust stock afterward if needed.</p>
+                    </div>
+                )}
             </div>
         );
     };
@@ -490,7 +535,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     );
 
     const renderDone = (): React.ReactElement => (
-        <div className="flex flex-col items-center justify-center py-8 gap-4">
+        <div className="flex flex-col items-center justify-center py-8 gap-4 w-full">
             <CheckCircle size={48} className="text-green-500" />
             <h3 className="text-lg font-semibold">Import Complete!</h3>
             {importResult && (
@@ -503,6 +548,22 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     <div className="font-medium">{importResult.paymentCount.toLocaleString()}</div>
                     <div className="text-neutral-500">Total amount:</div>
                     <div className="font-semibold">{formatIDR(importResult.totalAmount)}</div>
+                </div>
+            )}
+            {stockDeficits.length > 0 && (
+                <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                    <div className="flex items-center gap-2 font-semibold mb-2">
+                        <PackageX size={14} />
+                        {stockDeficits.length} item{stockDeficits.length > 1 ? 's' : ''} went negative
+                    </div>
+                    <ul className="list-disc list-inside space-y-0.5 text-xs">
+                        {stockDeficits.map((d) => (
+                            <li key={d.itemId}>
+                                <strong>{d.itemName}</strong>: −{d.deficit} units below zero
+                            </li>
+                        ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-amber-700">Use Stock Adjustments to correct inventory if needed.</p>
                 </div>
             )}
         </div>

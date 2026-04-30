@@ -854,6 +854,7 @@ export interface RawInventoryItem {
   openingStock?: number | string | null;
   stockQty?: number | string | null;
   stock?: number | string | null;
+  currentStock?: number | string | null;
   cost?: number | string | null;
   costPrice?: number | string | null;
   price?: number | string | null;
@@ -883,6 +884,7 @@ export interface InventoryItem {
   category: string;
   categoryCode: string;
   stock: number;
+  currentStock: number;
   cost: number;
   price: number;
   unit: string;

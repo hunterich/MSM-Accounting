@@ -30,6 +30,7 @@ const ADJ_STATUS_UP:   Record<string, string>    = { Draft: 'DRAFT', Approved: '
 
 function normalizeItem(raw: RawInventoryItem): InventoryItem {
     const stock = Number(raw.openingStock ?? raw.stockQty ?? raw.stock ?? 0);
+    const currentStock = Number(raw.currentStock ?? stock);
     return {
         id:                       raw.id,
         sku:                      raw.sku      || '',
@@ -40,6 +41,7 @@ function normalizeItem(raw: RawInventoryItem): InventoryItem {
         category:                 raw.category?.name || '',
         categoryCode:             raw.category?.code || '',
         stock,
+        currentStock,
         cost:  Number(raw.cost  ?? raw.costPrice  ?? 0),
         price: Number(raw.price ?? raw.sellingPrice ?? 0),
         unit:  raw.unit || 'PCS',
@@ -56,7 +58,7 @@ function normalizeItem(raw: RawInventoryItem): InventoryItem {
         inventoryAccountId: raw.inventoryAccountId || '',
         revenueAccountId:   raw.revenueAccountId   || '',
         cogsAccountId:      raw.cogsAccountId      || '',
-        status: stock === 0 ? 'Out of Stock' : stock < 5 ? 'Low Stock' : 'In Stock',
+        status: currentStock === 0 ? 'Out of Stock' : currentStock < 5 ? 'Low Stock' : 'In Stock',
     };
 }
 
