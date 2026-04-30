@@ -137,17 +137,23 @@ const CustomerForm = () => {
         }
     }, [isCreateMode, categories, formData.category]);
 
-    // Auto-generate ID when category changes (simple version)
+    // Auto-generate sequential ID per category prefix (e.g. RET-0001, RET-0002)
+    const nextCustomerId = useMemo(() => {
+        if (!isCreateMode || !formData.category) return '';
+        const cat = categories.find(c => c.name === formData.category);
+        if (!cat?.prefix) return '';
+        const re = new RegExp(`^${cat.prefix}-(\\d+)$`);
+        const maxSeq = customers.reduce((max: number, c: any) => {
+            const m = String(c.id || c.code || '').match(re);
+            return m ? Math.max(max, parseInt(m[1], 10)) : max;
+        }, 0);
+        return `${cat.prefix}-${String(maxSeq + 1).padStart(4, '0')}`;
+    }, [isCreateMode, formData.category, categories, customers]);
+
     useEffect(() => {
-        if (isCreateMode && formData.category) {
-            const cat = categories.find(c => c.name === formData.category);
-            if (cat) {
-                // Generate a random ID for demo purposes
-                const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-                setFormData(prev => ({ ...prev, id: `${cat.prefix}-${randomNum}` }));
-            }
-        }
-    }, [formData.category, isCreateMode, categories]);
+        if (!nextCustomerId) return;
+        setFormData(prev => (prev.id === nextCustomerId ? prev : { ...prev, id: nextCustomerId }));
+    }, [nextCustomerId]);
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = event.target;
