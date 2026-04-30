@@ -113,7 +113,7 @@ const BankReconciliation: React.FC = () => {
           <h1 className="text-xl font-semibold text-neutral-900">Bank Reconciliation</h1>
           <p className="text-sm text-neutral-500 mt-0.5">Book balance vs statement balance per bank account</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={!rows.length}>
+        <Button variant="secondary" size="sm" onClick={handleExport} disabled={!rows.length}>
           <Download size={14} className="mr-1" /> Export CSV
         </Button>
       </div>

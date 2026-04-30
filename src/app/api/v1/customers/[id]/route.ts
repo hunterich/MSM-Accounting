@@ -28,9 +28,10 @@ async function resolveCustomerCategoryId(orgId: string, categoryId?: string | nu
     where: { organizationId: orgId, name: categoryName },
     select: { id: true },
   });
-  if (!category) {
-    throw new ApiError('Customer category not found in organization', 404);
-  }
+  // Stale category names (e.g. legacy seed values that never made it to the DB)
+  // shouldn't block unrelated edits like address changes — skip the field instead
+  // of 404'ing the whole request.
+  if (!category) return undefined;
   return category.id;
 }
 

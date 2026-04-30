@@ -4,16 +4,9 @@ import { customerSchema, zodToFormErrors } from '../../utils/formSchemas';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { useCustomerStore } from '../../stores/useCustomerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers, useCreateCustomer, useUpdateCustomer } from '../../hooks/useAR';
-
-// Mock store for categories (in a real app this would be in a context or redux)
-// We'll use the imported initial data for now, assuming read-only for the form unless we wire it up fully.
-// Since the user might have added categories in the previous step (in memory), we can't easily share state without a real store.
-// For this task, we will stick to using the imported data and acknowledge that new categories created in the other page won't appear here without a refresh/context.
-// However, to make it work better for the demo, let's try to read from localStorage if we implemented it there?
-// The user didn't ask for localStorage persistence, so I'll stick to the imported mock data + local state pattern.
+import { useCustomerCategories } from '../../hooks/useReturns';
 
 interface CustomerFormData {
     id: string;
@@ -94,7 +87,8 @@ const CustomerForm = () => {
 
     const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = (customersData?.data || []) as any[];
-    const categories = useCustomerStore(state => state.customerCategories) as any[];
+    const { data: categoriesData } = useCustomerCategories();
+    const categories = (categoriesData ?? []) as any[];
     const masterCreditSettings = useSettingsStore((state) => state.customerCreditSettings);
     const createCustomer = useCreateCustomer();
     const updateCustomerMutation = useUpdateCustomer();
