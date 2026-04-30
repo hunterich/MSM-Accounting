@@ -36,7 +36,7 @@ export interface ShopeeRawRow {
 
 // ── Mapped (normalised) row ───────────────────────────────────────────────────
 
-/** Row after applying COLUMN_MAP — values are still raw (string | number | Date). */
+/** Row after header resolution — values are still raw (string | number | Date). */
 interface MappedRow {
     orderNumber: unknown;
     orderStatus: unknown;
@@ -66,7 +66,7 @@ interface MappedRow {
     trackingNumber: unknown;
     /** 1-based Excel row index (header = 1, first data row = 2). */
     _rowIndex: number;
-    /** Allow dynamic key access via COLUMN_MAP entries. */
+    /** Allow dynamic key access via resolved header entries. */
     [key: string]: unknown;
 }
 
@@ -122,12 +122,29 @@ export interface ParseStats {
     uniqueProductCount?: number;
 }
 
+/** Header resolution result — describes which expected columns were found,
+ *  which aliases matched, and which expected columns are missing. */
+export interface HeaderResolution {
+    /** internalKey → actual header string as it appears in the file */
+    resolvedHeaders: Record<string, string>;
+    /** Required specs whose aliases did not match any header in the file. */
+    missingRequired: Array<{ internalKey: string; expected: string[] }>;
+    /** Optional specs whose aliases did not match (non-blocking). */
+    missingOptional: Array<{ internalKey: string; expected: string[] }>;
+    /** Headers present in the file but not recognised by any spec. */
+    unknownHeaders: string[];
+    /** All headers found in the file, in order (for display). */
+    actualHeaders: string[];
+}
+
 /** Return value of `parseShopeeExcel`. */
 export interface ShopeeParseResult {
     parsedOrders: ParsedShopeeOrder[];
     uniqueProducts: UniqueProduct[];
     warnings: string[];
     stats: ParseStats;
+    /** Detailed header resolution — always populated, even on success. */
+    headerReport: HeaderResolution;
 }
 
 // ── Invoice / payment output types ───────────────────────────────────────────
@@ -226,34 +243,118 @@ export interface TransformResult {
 
 // ── Column mapping: Shopee Indonesian headers → internal keys ─────────────────
 
-const COLUMN_MAP: Record<string, keyof Omit<MappedRow, '_rowIndex'>> = {
-    'No. Pesanan':                           'orderNumber',
-    'Status Pesanan':                        'orderStatus',
-    'Waktu Pesanan Dibuat':                  'orderCreatedTime',
-    'Waktu Pembayaran Dilakukan':            'paymentTime',
-    'Waktu Pesanan Selesai':                 'orderCompletedTime',
-    'SKU Induk':                             'parentSKU',
-    'Nama Produk':                           'productName',
-    'Nomor Referensi SKU':                   'skuReference',
-    'Nama Variasi':                          'variationName',
-    'Harga Awal':                            'originalPrice',
-    'Harga Setelah Diskon':                  'priceAfterDiscount',
-    'Jumlah':                                'quantity',
-    'Total Harga Produk':                    'productTotal',
-    'Total Diskon':                          'totalDiscount',
-    'Diskon Dari Penjual':                   'sellerDiscount',
-    'Diskon Dari Shopee':                    'shopeeDiscount',
-    'Ongkos Kirim Dibayar oleh Pembeli':     'buyerShippingCost',
-    'Username (Pembeli)':                    'buyerUsername',
-    'Nama Penerima':                         'recipientName',
-    'No. Telepon':                           'phone',
-    'Alamat Pengiriman':                     'shippingAddress',
-    'Kota/Kabupaten':                        'city',
-    'Provinsi':                              'province',
-    'Metode Pembayaran':                     'paymentMethod',
-    'Total Pembayaran':                      'totalPayment',
-    'No. Resi':                              'trackingNumber',
-};
+type InternalKey =
+    | 'orderNumber' | 'orderStatus' | 'orderCreatedTime' | 'paymentTime'
+    | 'orderCompletedTime' | 'parentSKU' | 'productName' | 'skuReference'
+    | 'variationName' | 'originalPrice' | 'priceAfterDiscount' | 'quantity'
+    | 'productTotal' | 'totalDiscount' | 'sellerDiscount' | 'shopeeDiscount'
+    | 'buyerShippingCost' | 'buyerUsername' | 'recipientName' | 'phone'
+    | 'shippingAddress' | 'city' | 'province' | 'paymentMethod'
+    | 'totalPayment' | 'trackingNumber';
+
+interface ColumnSpec {
+    internalKey: InternalKey;
+    required: boolean;
+    /** All known/accepted header strings for this field. First entry is
+     *  treated as the canonical display name. Shopee's actual header format
+     *  is preferred as the first alias. */
+    aliases: string[];
+}
+
+/** Column specifications. Each spec lists multiple accepted header names so
+ *  that small format changes (renames, translations) do not silently break
+ *  parsing. Fuzzy normalisation on top of this also catches case / punctuation
+ *  / whitespace changes automatically. */
+const COLUMN_SPECS: ColumnSpec[] = [
+    // Required — parsing fails hard if any of these are missing.
+    { internalKey: 'orderNumber',      required: true,  aliases: ['No. Pesanan', 'Nomor Pesanan', 'Order No', 'Order Number'] },
+    { internalKey: 'productName',      required: true,  aliases: ['Nama Produk', 'Product Name'] },
+    { internalKey: 'productTotal',     required: true,  aliases: ['Total Harga Produk', 'Total Produk', 'Product Total'] },
+
+    // Optional — missing → warning, parser still succeeds.
+    { internalKey: 'orderStatus',        required: false, aliases: ['Status Pesanan', 'Order Status'] },
+    { internalKey: 'orderCreatedTime',   required: false, aliases: ['Waktu Pesanan Dibuat', 'Order Created Time'] },
+    { internalKey: 'paymentTime',        required: false, aliases: ['Waktu Pembayaran Dilakukan', 'Payment Time'] },
+    { internalKey: 'orderCompletedTime', required: false, aliases: ['Waktu Pesanan Selesai', 'Order Completed Time'] },
+    { internalKey: 'parentSKU',          required: false, aliases: ['SKU Induk', 'Parent SKU'] },
+    { internalKey: 'skuReference',       required: false, aliases: ['Nomor Referensi SKU', 'SKU Reference No', 'SKU Reference'] },
+    { internalKey: 'variationName',      required: false, aliases: ['Nama Variasi', 'Variation Name'] },
+    { internalKey: 'originalPrice',      required: false, aliases: ['Harga Awal', 'Original Price'] },
+    { internalKey: 'priceAfterDiscount', required: false, aliases: ['Harga Setelah Diskon', 'Price After Discount', 'Deal Price'] },
+    { internalKey: 'quantity',           required: false, aliases: ['Jumlah', 'Quantity', 'Qty'] },
+    { internalKey: 'totalDiscount',      required: false, aliases: ['Total Diskon', 'Total Discount'] },
+    { internalKey: 'sellerDiscount',     required: false, aliases: ['Diskon Dari Penjual', 'Seller Discount'] },
+    { internalKey: 'shopeeDiscount',     required: false, aliases: ['Diskon Dari Shopee', 'Shopee Discount'] },
+    { internalKey: 'buyerShippingCost',  required: false, aliases: ['Ongkos Kirim Dibayar oleh Pembeli', 'Buyer Paid Shipping Fee'] },
+    { internalKey: 'buyerUsername',      required: false, aliases: ['Username (Pembeli)', 'Buyer Username', 'Username'] },
+    { internalKey: 'recipientName',      required: false, aliases: ['Nama Penerima', 'Recipient Name'] },
+    { internalKey: 'phone',              required: false, aliases: ['No. Telepon', 'Nomor Telepon', 'Phone Number', 'Phone'] },
+    { internalKey: 'shippingAddress',    required: false, aliases: ['Alamat Pengiriman', 'Shipping Address'] },
+    { internalKey: 'city',               required: false, aliases: ['Kota/Kabupaten', 'Kota', 'City'] },
+    { internalKey: 'province',           required: false, aliases: ['Provinsi', 'Province'] },
+    { internalKey: 'paymentMethod',      required: false, aliases: ['Metode Pembayaran', 'Payment Method'] },
+    { internalKey: 'totalPayment',       required: false, aliases: ['Total Pembayaran', 'Total Payment'] },
+    { internalKey: 'trackingNumber',     required: false, aliases: ['No. Resi', 'Nomor Resi', 'Tracking Number', 'Tracking No'] },
+];
+
+/** Normalise a header string for fuzzy matching.
+ *  Lowercases, strips all non-alphanumeric characters (punctuation, whitespace,
+ *  parentheses), so e.g. "No. Pesanan", "no pesanan", "NO-PESANAN" all collapse
+ *  to "nopesanan". Uses Unicode-aware regex to preserve non-ASCII letters. */
+export function normalizeHeader(s: string): string {
+    return String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+/** Resolve the headers found in a file against COLUMN_SPECS using fuzzy
+ *  (normalised) matching. Returns a full resolution report so callers can
+ *  display exactly what matched, what's missing, and what's unknown. */
+export function resolveHeaders(actualHeaders: string[]): HeaderResolution {
+    // Build normalised → original-header lookup from the file.
+    const normalisedFile = new Map<string, string>();
+    for (const h of actualHeaders) {
+        const norm = normalizeHeader(h);
+        if (norm && !normalisedFile.has(norm)) {
+            normalisedFile.set(norm, h);
+        }
+    }
+
+    const resolvedHeaders: Record<string, string> = {};
+    const matchedNormalised = new Set<string>();
+    const missingRequired: HeaderResolution['missingRequired'] = [];
+    const missingOptional: HeaderResolution['missingOptional'] = [];
+
+    for (const spec of COLUMN_SPECS) {
+        let found: string | undefined;
+        for (const alias of spec.aliases) {
+            const norm = normalizeHeader(alias);
+            if (normalisedFile.has(norm)) {
+                found = normalisedFile.get(norm);
+                matchedNormalised.add(norm);
+                break;
+            }
+        }
+        if (found) {
+            resolvedHeaders[spec.internalKey] = found;
+        } else if (spec.required) {
+            missingRequired.push({ internalKey: spec.internalKey, expected: spec.aliases });
+        } else {
+            missingOptional.push({ internalKey: spec.internalKey, expected: spec.aliases });
+        }
+    }
+
+    const unknownHeaders = actualHeaders.filter((h) => {
+        const norm = normalizeHeader(h);
+        return norm && !matchedNormalised.has(norm);
+    });
+
+    return {
+        resolvedHeaders,
+        missingRequired,
+        missingOptional,
+        unknownHeaders,
+        actualHeaders,
+    };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -318,35 +419,56 @@ export async function parseShopeeExcel(
     const rawRows = XLSX.utils.sheet_to_json<ShopeeRawRow>(worksheet, { defval: '' });
 
     if (rawRows.length === 0) {
+        const emptyReport: HeaderResolution = {
+            resolvedHeaders: {},
+            missingRequired: [],
+            missingOptional: [],
+            unknownHeaders: [],
+            actualHeaders: [],
+        };
         return {
             parsedOrders: [],
             uniqueProducts: [],
             warnings: ['File is empty or has no data rows.'],
             stats: { totalRows: 0, totalOrders: 0, skippedRows: 0, totalAmount: 0 },
+            headerReport: emptyReport,
         };
     }
 
-    // Validate expected columns
-    const headers = Object.keys(rawRows[0]);
-    const requiredCols = ['No. Pesanan', 'Nama Produk', 'Total Harga Produk'];
-    const missingCols = requiredCols.filter((c) => !headers.includes(c));
-    if (missingCols.length > 0) {
+    // Resolve headers via fuzzy matching + alias list.
+    const actualHeaders = Object.keys(rawRows[0]);
+    const headerReport = resolveHeaders(actualHeaders);
+
+    if (headerReport.missingRequired.length > 0) {
+        const missingNames = headerReport.missingRequired
+            .map((m) => m.expected[0])
+            .join(', ');
         return {
             parsedOrders: [],
             uniqueProducts: [],
-            warnings: [`Missing required columns: ${missingCols.join(', ')}. This may not be a Shopee payment report.`],
+            warnings: [`Missing required columns: ${missingNames}. This may not be a Shopee payment report, or the format has changed.`],
             stats: { totalRows: rawRows.length, totalOrders: 0, skippedRows: rawRows.length, totalAmount: 0 },
+            headerReport,
         };
     }
 
     const warnings: string[] = [];
     let skippedRows = 0;
 
-    // Map rows through COLUMN_MAP
+    // Warn about missing optional columns — parser continues but user should
+    // know certain fields will be blank.
+    if (headerReport.missingOptional.length > 0) {
+        const missingOptionalNames = headerReport.missingOptional
+            .map((m) => m.expected[0])
+            .join(', ');
+        warnings.push(`Optional columns not found (fields will be blank): ${missingOptionalNames}`);
+    }
+
+    // Map rows using the resolved header → internalKey assignments.
     const mappedRows: MappedRow[] = rawRows.map((raw, idx) => {
         const row = {} as MappedRow;
-        for (const [shopeeKey, internalKey] of Object.entries(COLUMN_MAP)) {
-            row[internalKey] = raw[shopeeKey] ?? '';
+        for (const [internalKey, actualHeader] of Object.entries(headerReport.resolvedHeaders)) {
+            row[internalKey] = raw[actualHeader] ?? '';
         }
         row._rowIndex = idx + 2; // 1-based, +1 for header
         return row;
@@ -444,6 +566,7 @@ export async function parseShopeeExcel(
             totalAmount,
             uniqueProductCount: uniqueProducts.length,
         },
+        headerReport,
     };
 }
 
