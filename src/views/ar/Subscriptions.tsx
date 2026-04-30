@@ -321,7 +321,7 @@ const SubscriptionsPage: React.FC = () => {
 
       {/* Create Subscription Modal */}
       {subModalOpen && (
-        <Modal title="New Subscription" onClose={() => setSubModalOpen(false)}>
+        <Modal isOpen title="New Subscription" onClose={() => setSubModalOpen(false)}>
           <div className="space-y-4 p-4">
             <div>
               <label className="form-label">Customer</label>
@@ -371,7 +371,7 @@ const SubscriptionsPage: React.FC = () => {
 
       {/* Plan Modal */}
       {planModalOpen && (
-        <Modal title={editingPlanId ? 'Edit Plan' : 'New Plan'} onClose={() => setPlanModalOpen(false)}>
+        <Modal isOpen title={editingPlanId ? 'Edit Plan' : 'New Plan'} onClose={() => setPlanModalOpen(false)}>
           <div className="space-y-4 p-4">
             <div>
               <label className="form-label">Plan Name</label>
@@ -418,7 +418,7 @@ const SubscriptionsPage: React.FC = () => {
 
       {/* Cancel Result Modal */}
       {cancelResult && (
-        <Modal title="Subscription Cancelled" onClose={() => setCancelResult(null)} size="sm">
+        <Modal isOpen title="Subscription Cancelled" onClose={() => setCancelResult(null)} size="sm">
           <div className="p-4 space-y-3">
             <div className="text-sm text-neutral-700">
               <p>The subscription has been cancelled. Here is the pro-rata refund calculation:</p>

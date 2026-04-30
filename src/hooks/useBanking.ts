@@ -270,6 +270,8 @@ export interface ReconciliationMatch {
   bankTxnAmount: number;
   bankTxnDate: string;
   customerOrVendor: string;
+  // Allow shared `Table` component to accept this row type.
+  [key: string]: unknown;
 }
 
 export interface UnmatchedPayment {
