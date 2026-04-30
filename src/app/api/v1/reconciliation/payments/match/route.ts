@@ -50,7 +50,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     where: { id: bankTransactionId },
     data: {
       reference: `${paymentType}-MATCH:${paymentId}`,
-      status: 'Matched',
+      status: 'MATCHED',
     },
   });
 

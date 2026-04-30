@@ -9,8 +9,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
-  return withHandler(req, async () => {
+export const GET = withHandler(async function GET(req: NextRequest) {
     const orgId = requireOrg(req);
     const { searchParams } = new URL(req.url);
     const type = searchParams.get('type') ?? 'reconciliation-summary';
@@ -86,5 +85,4 @@ export async function GET(req: NextRequest) {
     }
 
     return ok({ rows: [], summary: {} });
-  });
-}
+});

@@ -4,16 +4,20 @@ import Button from '../../UI/Button';
 import Table from '../../UI/Table';
 import SearchableSelect from '../../UI/SearchableSelect';
 import StatusTag from '../../UI/StatusTag';
-import { Upload, CheckCircle, AlertTriangle, ArrowLeft, ArrowRight, Loader } from 'lucide-react';
+import { Upload, CheckCircle, AlertTriangle, ArrowLeft, ArrowRight, Loader, PackageX } from 'lucide-react';
 import { useEcommerceConnections, useUpdateEcommerceConnection } from '../../../hooks/useIntegrations';
 import { useInvoiceStore } from '../../../stores/useInvoiceStore';
 import { usePaymentStore } from '../../../stores/usePaymentStore';
 import { useInventoryStore } from '../../../stores/useInventoryStore';
 import { useCustomerStore } from '../../../stores/useCustomerStore';
+import { useItems } from '../../../hooks/useInventory';
 import {
     parseShopeeExcel,
     transformOrdersToInvoices,
+    computeStockDeficits,
     type ShopeeParseResult,
+    type StockDeficit,
+    type HeaderResolution,
 } from '../../../utils/shopeeImport';
 import { formatIDR } from '../../../utils/formatters';
 import type { EcommerceConnection } from '../../../types';
@@ -74,6 +78,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     const products = useInventoryStore((s) => s.products);
     const customers = useCustomerStore((s) => s.customers);
+    const { data: itemsData } = useItems({ limit: 200 });
 
     const [step, setStep] = useState<WizardStep>('upload');
     const [shopId, setShopId] = useState<string>('');
@@ -81,6 +86,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const [parseResult, setParseResult] = useState<ShopeeParseResult | null>(null);
     const [parsing, setParsing] = useState<boolean>(false);
     const [parseError, setParseError] = useState<string>('');
+    const [headerReport, setHeaderReport] = useState<HeaderResolution | null>(null);
 
     // Item mapping state: { [productKey]: inventoryItemId }
     const [localMappings, setLocalMappings] = useState<Record<string, string>>({});
@@ -121,6 +127,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setParseResult(null);
         setParsing(false);
         setParseError('');
+        setHeaderReport(null);
         setLocalMappings({});
         setShowAllMappings(false);
         setInvoiceStatus('Paid');
@@ -140,19 +147,22 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         if (!f) return;
         setFile(f);
         setParseError('');
+        setHeaderReport(null);
         setParsing(true);
 
         try {
             const shop = shops.find((s) => s.id === shopId);
             const result = await parseShopeeExcel(f, shop?.importStatusFilter || 'Selesai');
 
-            if (result.warnings.length > 0 && result.parsedOrders.length === 0) {
-                setParseError(result.warnings[0]);
+            if (result.parsedOrders.length === 0) {
+                setParseError(result.warnings[0] || 'No orders could be parsed from this file.');
+                setHeaderReport(result.headerReport);
                 setParsing(false);
                 return;
             }
 
             setParseResult(result);
+            setHeaderReport(result.headerReport);
 
             // Initialize local mappings from saved shop mappings
             const saved = shop?.itemMappings || {};
@@ -200,6 +210,16 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         if (!parseResult) return 0;
         return parseResult.uniqueProducts.filter((p) => localMappings[p.key]).length;
     }, [parseResult, localMappings]);
+
+    const stockDeficits = useMemo<StockDeficit[]>(() => {
+        if (!parseResult || !itemsData?.data) return [];
+        const invItems = itemsData.data.map((i) => ({
+            id: i.id,
+            name: i.name,
+            currentStock: i.currentStock,
+        }));
+        return computeStockDeficits(parseResult.parsedOrders, localMappings, invItems);
+    }, [parseResult, localMappings, itemsData]);
 
     const handleMappingChange = (productKey: string, inventoryItemId: string): void => {
         setLocalMappings((prev) => ({ ...prev, [productKey]: inventoryItemId }));
@@ -322,9 +342,43 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         </label>
                     </div>
                     {parseError && (
-                        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700 flex gap-2">
-                            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                            {parseError}
+                        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+                            <div className="flex gap-2">
+                                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                                <div className="flex-1">
+                                    <div className="font-medium">{parseError}</div>
+                                    {headerReport && headerReport.missingRequired.length > 0 && (
+                                        <div className="mt-3 space-y-2 text-xs">
+                                            <div>
+                                                <div className="font-semibold text-red-800">Missing required columns:</div>
+                                                <ul className="list-disc list-inside mt-1">
+                                                    {headerReport.missingRequired.map((m) => (
+                                                        <li key={m.internalKey}>
+                                                            <strong>{m.expected[0]}</strong>
+                                                            {m.expected.length > 1 && (
+                                                                <span className="text-red-600"> (or: {m.expected.slice(1).join(', ')})</span>
+                                                            )}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                            {headerReport.actualHeaders.length > 0 && (
+                                                <details className="mt-2">
+                                                    <summary className="cursor-pointer text-red-800 font-semibold">
+                                                        Headers found in file ({headerReport.actualHeaders.length})
+                                                    </summary>
+                                                    <div className="mt-1 p-2 bg-white border border-red-100 rounded text-red-700 font-mono text-[11px] leading-relaxed break-words">
+                                                        {headerReport.actualHeaders.join(' · ')}
+                                                    </div>
+                                                </details>
+                                            )}
+                                            <div className="text-red-600 italic">
+                                                If Shopee&rsquo;s export format has changed, please report the new column names so they can be added to the parser.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -349,7 +403,39 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 ))}
             </div>
 
-            {/* Warnings */}
+            {/* Header format drift notice */}
+            {headerReport && (headerReport.missingOptional.length > 0 || headerReport.unknownHeaders.length > 0) && (
+                <details className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
+                    <summary className="cursor-pointer font-medium">
+                        File format notes
+                        {headerReport.missingOptional.length > 0 && ` · ${headerReport.missingOptional.length} optional column(s) missing`}
+                        {headerReport.unknownHeaders.length > 0 && ` · ${headerReport.unknownHeaders.length} unknown column(s)`}
+                    </summary>
+                    <div className="mt-2 space-y-2 text-xs">
+                        {headerReport.missingOptional.length > 0 && (
+                            <div>
+                                <div className="font-semibold">Optional columns not found (fields will be blank):</div>
+                                <div className="mt-1 text-blue-700">
+                                    {headerReport.missingOptional.map((m) => m.expected[0]).join(', ')}
+                                </div>
+                            </div>
+                        )}
+                        {headerReport.unknownHeaders.length > 0 && (
+                            <div>
+                                <div className="font-semibold">Columns in file that were not recognised:</div>
+                                <div className="mt-1 text-blue-700 font-mono text-[11px] break-words">
+                                    {headerReport.unknownHeaders.join(' · ')}
+                                </div>
+                                <div className="mt-1 italic text-blue-600">
+                                    These are ignored. If any contain data you need, report them so the parser can be updated.
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </details>
+            )}
+
+            {/* Row-level warnings */}
             {parseResult!.warnings.length > 0 && (
                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
                     <strong>{parseResult!.warnings.length} warning(s):</strong>
@@ -393,19 +479,33 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         {showAllMappings ? 'No products found.' : 'All products are mapped!'}
                     </div>
                 ) : (
-                    mappingItems.map((item) => (
-                        <div key={item.key} className="grid grid-cols-2 gap-3 items-center py-2 border-b border-neutral-100">
-                            <div className="text-sm truncate" title={item.key}>
-                                {item.key}
+                    mappingItems.map((item) => {
+                        const mappedId = localMappings[item.key];
+                        const invItem = mappedId ? itemsData?.data?.find((i) => i.id === mappedId) : undefined;
+                        const isDeficit = mappedId ? stockDeficits.some((d) => d.itemId === mappedId) : false;
+                        return (
+                            <div key={item.key} className="grid grid-cols-2 gap-3 items-start py-2 border-b border-neutral-100">
+                                <div className="text-sm truncate pt-1" title={item.key}>
+                                    {item.key}
+                                </div>
+                                <div>
+                                    <SearchableSelect
+                                        options={productOptions}
+                                        value={mappedId || ''}
+                                        onChange={(val: string) => handleMappingChange(item.key, val)}
+                                        placeholder="Select item..."
+                                    />
+                                    {invItem && (
+                                        <div className={`flex items-center gap-1 mt-1 text-[11px] ${isDeficit ? 'text-amber-600' : 'text-neutral-400'}`}>
+                                            {isDeficit && <AlertTriangle size={11} />}
+                                            Stock: {invItem.currentStock.toLocaleString()}
+                                            {isDeficit && ` — deficit: −${stockDeficits.find((d) => d.itemId === mappedId)!.deficit}`}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            <SearchableSelect
-                                options={productOptions}
-                                value={localMappings[item.key] || ''}
-                                onChange={(val: string) => handleMappingChange(item.key, val)}
-                                placeholder="Select item..."
-                            />
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </div>
@@ -477,6 +577,23 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         <div className="font-semibold">{formatIDR(preview.stats.totalAmount)}</div>
                     </div>
                 </div>
+
+                {stockDeficits.length > 0 && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                        <div className="flex items-center gap-2 font-semibold mb-2">
+                            <AlertTriangle size={14} />
+                            {stockDeficits.length} item{stockDeficits.length > 1 ? 's' : ''} will go negative after import
+                        </div>
+                        <ul className="list-disc list-inside space-y-0.5 text-xs">
+                            {stockDeficits.map((d) => (
+                                <li key={d.itemId}>
+                                    <strong>{d.itemName}</strong>: need {d.totalRequired}, have {d.currentStock} (deficit: −{d.deficit})
+                                </li>
+                            ))}
+                        </ul>
+                        <p className="mt-2 text-xs text-amber-700">Import will proceed — adjust stock afterward if needed.</p>
+                    </div>
+                )}
             </div>
         );
     };
@@ -490,7 +607,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     );
 
     const renderDone = (): React.ReactElement => (
-        <div className="flex flex-col items-center justify-center py-8 gap-4">
+        <div className="flex flex-col items-center justify-center py-8 gap-4 w-full">
             <CheckCircle size={48} className="text-green-500" />
             <h3 className="text-lg font-semibold">Import Complete!</h3>
             {importResult && (
@@ -503,6 +620,22 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     <div className="font-medium">{importResult.paymentCount.toLocaleString()}</div>
                     <div className="text-neutral-500">Total amount:</div>
                     <div className="font-semibold">{formatIDR(importResult.totalAmount)}</div>
+                </div>
+            )}
+            {stockDeficits.length > 0 && (
+                <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                    <div className="flex items-center gap-2 font-semibold mb-2">
+                        <PackageX size={14} />
+                        {stockDeficits.length} item{stockDeficits.length > 1 ? 's' : ''} went negative
+                    </div>
+                    <ul className="list-disc list-inside space-y-0.5 text-xs">
+                        {stockDeficits.map((d) => (
+                            <li key={d.itemId}>
+                                <strong>{d.itemName}</strong>: −{d.deficit} units below zero
+                            </li>
+                        ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-amber-700">Use Stock Adjustments to correct inventory if needed.</p>
                 </div>
             )}
         </div>

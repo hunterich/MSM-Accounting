@@ -28,7 +28,17 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     prisma.item.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { name: 'asc' }, include: { category: { select: { id: true, name: true, code: true } } } }),
     prisma.item.count({ where }),
   ]);
-  return listResponse(data, total, page, limit);
+  const itemIds = data.map((i) => i.id);
+  const stockAgg = itemIds.length
+    ? await prisma.inventoryLot.groupBy({
+        by: ['itemId'],
+        where: { itemId: { in: itemIds } },
+        _sum: { qtyBalance: true },
+      })
+    : [];
+  const stockMap = new Map(stockAgg.map((r) => [r.itemId, Number(r._sum.qtyBalance ?? 0)]));
+  const enriched = data.map((i) => ({ ...i, currentStock: stockMap.get(i.id) ?? 0 }));
+  return listResponse(enriched, total, page, limit);
 });
 
 export async function POST(req: NextRequest) {

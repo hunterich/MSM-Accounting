@@ -25,43 +25,54 @@ const BankReconciliation: React.FC = () => {
 
   const handleExport = () => {
     const csvRows = rows.map((r) => ({
-      Account: r.accountName,
-      Code: r.accountCode ?? '',
-      Bank: r.bankName ?? '',
-      'Book Balance': r.bookBalance,
-      'Statement Balance': r.statementEndBalance ?? '',
-      Variance: r.variance ?? '',
-      Matched: r.matchedCount,
-      Unmatched: r.unmatchedCount,
-      'Unmatched Amount': r.unmatchedAmount,
-      'Last Statement': r.lastStatementDate ? formatDateID(r.lastStatementDate) : '',
+      account: r.accountName,
+      code: r.accountCode ?? '',
+      bank: r.bankName ?? '',
+      bookBalance: r.bookBalance,
+      statementBalance: r.statementEndBalance ?? '',
+      variance: r.variance ?? '',
+      matched: r.matchedCount,
+      unmatched: r.unmatchedCount,
+      unmatchedAmount: r.unmatchedAmount,
+      lastStatement: r.lastStatementDate ? formatDateID(r.lastStatementDate) : '',
     }));
-    exportToCsv(csvRows, 'bank-reconciliation');
+    exportToCsv('bank-reconciliation.csv', csvRows, [
+      { label: 'Account', key: 'account' },
+      { label: 'Code', key: 'code' },
+      { label: 'Bank', key: 'bank' },
+      { label: 'Book Balance', key: 'bookBalance' },
+      { label: 'Statement Balance', key: 'statementBalance' },
+      { label: 'Variance', key: 'variance' },
+      { label: 'Matched', key: 'matched' },
+      { label: 'Unmatched', key: 'unmatched' },
+      { label: 'Unmatched Amount', key: 'unmatchedAmount' },
+      { label: 'Last Statement', key: 'lastStatement' },
+    ]);
   };
 
   const columns: TableColumn<BankReconciliationRow>[] = [
     {
       key: 'accountName',
       label: 'Account',
-      render: (row) => (
+      render: (_v, row) => (
         <div>
           <div className="font-medium">{row.accountName}</div>
           {row.accountCode && <div className="text-xs text-neutral-400">{row.accountCode}</div>}
         </div>
       ),
     },
-    { key: 'bankName', label: 'Bank', render: (row) => row.bankName ?? '—' },
+    { key: 'bankName', label: 'Bank', render: (_v, row) => row.bankName ?? '—' },
     {
       key: 'bookBalance',
       label: 'Book Balance',
       align: 'right',
-      render: (row) => formatIDR(row.bookBalance),
+      render: (_v, row) => formatIDR(row.bookBalance),
     },
     {
       key: 'statementEndBalance',
       label: 'Statement Balance',
       align: 'right',
-      render: (row) =>
+      render: (_v, row) =>
         row.statementEndBalance != null
           ? formatIDR(row.statementEndBalance)
           : <span className="text-neutral-400 text-xs">No statement</span>,
@@ -70,7 +81,7 @@ const BankReconciliation: React.FC = () => {
       key: 'variance',
       label: 'Variance',
       align: 'right',
-      render: (row) => {
+      render: (_v, row) => {
         if (row.variance == null) return '—';
         const hasVariance = Math.abs(row.variance) > 0.01;
         return (
@@ -84,13 +95,13 @@ const BankReconciliation: React.FC = () => {
       key: 'matchedCount',
       label: 'Matched',
       align: 'right',
-      render: (row) => <span className="text-success-700">{row.matchedCount}</span>,
+      render: (_v, row) => <span className="text-success-700">{row.matchedCount}</span>,
     },
     {
       key: 'unmatchedCount',
       label: 'Unmatched',
       align: 'right',
-      render: (row) =>
+      render: (_v, row) =>
         row.unmatchedCount > 0 ? (
           <span className="text-amber-600 font-semibold">
             {row.unmatchedCount} ({formatIDR(row.unmatchedAmount)})
@@ -102,7 +113,7 @@ const BankReconciliation: React.FC = () => {
     {
       key: 'lastStatementDate',
       label: 'Last Statement',
-      render: (row) => (row.lastStatementDate ? formatDateID(row.lastStatementDate) : '—'),
+      render: (_v, row) => (row.lastStatementDate ? formatDateID(row.lastStatementDate) : '—'),
     },
   ];
 
@@ -137,8 +148,7 @@ const BankReconciliation: React.FC = () => {
         <Table<BankReconciliationRow>
           columns={columns}
           data={rows}
-          loading={isLoading}
-          emptyMessage="No bank accounts with statements found. Import a bank statement in Banking to get started."
+          isLoading={isLoading}
         />
       </Card>
     </div>
