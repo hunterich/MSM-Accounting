@@ -102,6 +102,40 @@ export function useChartOfAccounts(filters?: Record<string, unknown>) {
   });
 }
 
+/**
+ * Fetch accounts filtered by one or more account types. Used by pickers (e.g.
+ * the shop mapping modal) that need a long list of a specific category. The
+ * accounts endpoint returns `{ data, total, page, limit }`, so we unwrap it
+ * and merge results across types.
+ */
+export function useAccountsByType(types: string | string[], opts: { limit?: number; enabled?: boolean } = {}) {
+  const list = Array.isArray(types) ? types : [types];
+  const limit = opts.limit ?? 200;
+  const enabled = opts.enabled ?? true;
+
+  return useQuery({
+    queryKey: [...GL_KEYS.accounts, { types: list, limit }],
+    enabled,
+    queryFn: async () => {
+      const results = await Promise.all(
+        list.map((t) =>
+          api.get<{ data: RawAccount[] } | RawAccount[]>('/api/v1/accounts', { type: t, limit })
+            .then((res) => Array.isArray(res) ? res : (res?.data ?? []))
+        )
+      );
+      const seen = new Set<string>();
+      return results.flat()
+        .filter((a) => {
+          if (!a?.id || seen.has(a.id)) return false;
+          seen.add(a.id);
+          return true;
+        })
+        .map(normalizeAccount)
+        .filter((a) => a.isActive && a.isPostable);
+    },
+  });
+}
+
 export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({

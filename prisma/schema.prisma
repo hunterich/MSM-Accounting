@@ -80,6 +80,7 @@ model Organization {
   payrollRuns            PayrollRun[]
   assetCategories        AssetCategory[]
   assets                 Asset[]
+  assetDepreciations     AssetDepreciation[]
   emailTemplates         EmailTemplate[]
   subscriptionPlans      SubscriptionPlan[]
   subscriptions          Subscription[]
@@ -1356,6 +1357,8 @@ model EcommerceConnection {
   status           ConnectionStatus @default(ACTIVE)
   importStatusFilter String         @default("Selesai")
   itemMappings     Json?
+  // Tabbed shop config: paymentMode, vatInclusive, fees{}, shipping{}, others{}, notes
+  mappings         Json?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 

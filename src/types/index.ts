@@ -232,6 +232,42 @@ export interface RawOrganizationSettings {
   costingMethodEffectiveDate?: string | null;
 }
 
+export type ShopPaymentMode = 'direct' | 'settlement_import';
+
+export interface ShopFeesMapping {
+  sellerDiscountAccountId?: string | null;
+  shippingVarianceAccountId?: string | null;
+  platformFeeAccountId?: string | null;
+  adjustmentAccountId?: string | null;
+  affiliateFeeAccountId?: string | null;
+}
+
+export interface ShopShippingMapping {
+  buyerShippingRevenueAccountId?: string | null;
+  actualShippingCostAccountId?: string | null;
+  platformShippingSubsidyAccountId?: string | null;
+  shippingInsuranceAccountId?: string | null;
+  codFeeAccountId?: string | null;
+}
+
+export interface ShopOthersMapping {
+  refundAccountId?: string | null;
+  sellerVoucherAccountId?: string | null;
+  platformVoucherAccountId?: string | null;
+  coinCashbackAccountId?: string | null;
+  withholdingTaxAccountId?: string | null;
+  roundingAccountId?: string | null;
+  notes?: string;
+}
+
+export interface ShopMappings {
+  paymentMode: ShopPaymentMode;
+  vatInclusive: boolean;
+  fees?: ShopFeesMapping;
+  shipping?: ShopShippingMapping;
+  others?: ShopOthersMapping;
+}
+
 export interface RawEcommerceConnection {
   id: string;
   platform?: string | null;
@@ -243,6 +279,7 @@ export interface RawEcommerceConnection {
   status?: string | null;
   importStatusFilter?: string | null;
   itemMappings?: Record<string, string> | null;
+  mappings?: ShopMappings | null;
 }
 
 export interface RawBillImportSuggestion {
@@ -345,6 +382,7 @@ export interface EcommerceConnection {
   status: ConnectionStatus;
   importStatusFilter: ImportStatusFilter;
   itemMappings: Record<string, string>;
+  mappings: ShopMappings | null;
 }
 
 export interface Customer {
