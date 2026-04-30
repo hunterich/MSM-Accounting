@@ -80,6 +80,7 @@ model Organization {
   payrollRuns            PayrollRun[]
   assetCategories        AssetCategory[]
   assets                 Asset[]
+  assetDepreciations     AssetDepreciation[]
   emailTemplates         EmailTemplate[]
   subscriptionPlans      SubscriptionPlan[]
   subscriptions          Subscription[]
