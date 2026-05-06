@@ -71,7 +71,17 @@
 - [x] First-login / onboarding choice for company costing method — wizard in CompanySetup.tsx when `org.costingMethod` is null
 - [x] Settings option to switch costing method later with confirmation flow — "Change Method" modal with effective date picker and recalculation warning
 - [x] Costing method switch recalculation from effective date with audit trail of the change — `/api/v1/inventory/recalculate-costing` collapses/recreates cost layers, creates audit journal entry, updates org settings
-- [x] Perpetual inventory (auto GL posting on stock movements) — invoice DRAFT→SENT auto-posts Debit COGS / Credit Inventory; bill approval auto-posts Debit Inventory / Credit AP
+- [x] Perpetual inventory + transactional GL posting — every transactional route posts a balanced JournalEntry inside its own `prisma.$transaction` (PR #16):
+  - Invoice DRAFT→SENT: `DR AR / CR Sales / CR Output Tax` *plus* `DR COGS / CR Inventory` (per inventory line)
+  - Bill POST: one JE per bill — `DR Inventory + DR Expense + DR Input Tax / CR AP` (replaces prior per-line posting; service lines now included)
+  - AR Payment: `DR Bank / CR AR`; AP Payment: `DR AP / CR Bank`
+  - Credit Note: `DR Sales Returns / CR AR`; Debit Note: `DR AP / CR Purchase Returns`
+  - Stock Adjustment: writes `InventoryLedgerEntry` rows *plus* `DR Inventory / CR Variance` (or reverse) — perpetual ledger was unwritten before
+  - Shared helper `lib/journal-posting.ts:postJournalEntry` enforces debits = credits on every post
+  - Trial-balance smoke verified: `SUM(debit) − SUM(credit) = 0` across POSTED entries
+- [ ] Sales Returns / Purchase Returns GL posting (`/api/v1/sales-returns`, `/api/v1/purchase-returns` — different schemas from credit/debit notes; still unposted)
+- [ ] Tax-amount split on Credit / Debit Notes (schema currently stores flat `amount` only — needs migration to add `taxAmount` for proper Output/Input Tax reversal)
+- [ ] Account Defaults expansion (Accurate-style): split the flat list into 4 sub-tabs (Barang & Jasa / Perusahaan / Penjualan-Pembelian / Persediaan); add `inventoryAdjustment`, `stockVariance`, `roundingAccount`, `salesDiscount`, `purchaseDiscount`, `openingBalanceEquity`, `retainedEarnings`, `incomeTaxExpense` (today the new postings fall back to `cogsExpense` for unmatched cases)
 - [x] COGS auto-calculation on invoice line items — `calculateAndPostCOGS()` called per inventory line on DRAFT→SENT transition (CPA timing fix)
 - [x] Stock valuation report — `/api/v1/inventory/valuation` route + `StockValuation.tsx` view with category/warehouse filters and Excel export
 
@@ -166,6 +176,8 @@
 - [x] Document-level permissions (invoice ownership + per-role "all" vs "own" visibility)
 - [x] Audit log (who changed what, when) — `logAudit()` wired into all 38 API route handlers (POST/PUT/DELETE); `AuditLog` Prisma model; `/api/v1/audit-logs` endpoint; `AuditLogPanel.jsx` UI; `useAuditLog.js` React Query hook
 - [x] Enforce RBAC on routes (redirect to /403 if user navigates directly to restricted URL) — `PermissionRoute` wrapper component; `Forbidden.jsx` page with smart fallback navigation; wired into App.jsx for all module routes
+- [x] Master/Categories permission split — `ar_customers` ("Customers Master") + `ar_customer_categories`, `ap_vendors` ("Vendors Master") + `ap_vendor_categories` so a user can be denied the master without losing categories (and vice versa)
+- [x] Per-module action flags beyond CRUD — `ModulePermission` extended with optional flags (`reprint`, `overridePrice`, `sellBelowCost`, `invoiceWithoutSO`); `MODULE_EXTRA_ACTIONS` metadata + `useExtraAction(moduleKey, action)` hook; rendered as indented sub-rows in the role editor; gates Print buttons + line-price input + invoice-without-SO save
 
 ### 2.5 Email Integration
 - [x] Send invoice PDF to customer via email — `/api/v1/invoices/[id]/send-email`; updates status to SENT + audit log
@@ -180,11 +192,16 @@
 - [x] Filter vendors by category
 
 ### 2.7 Accounting Governance
+- [x] Settings IA: Features / Restrictions / Approval Rules tabs (Accurate-style)
+  - **Features tab** — org-wide on/off toggles for whole modules (Sales Orders, Sales Returns, Recurring, Subscriptions, Delivery Notes, Customer/Vendor Categories, Approvals, Shop Integrations, Purchase Orders, Item Categories, Fixed Assets, HR & Payroll, Tax). Disabled modules disappear from the sidebar for everyone. `useSettingsStore.features` + `SUBITEM_FEATURE_MAP` in `Sidebar.tsx`
+  - **Restrictions tab** — single home for org-wide rules (`enforceLimit`, `blockSellBelowCost`, `requireSalesOrder`); moved out of Customers & Sales tab so policies don't mix with master defaults
+  - **Approval Rules tab** — per-module require-approval toggles (10 modules across AR/AP/Inv/HR). Phase 1 = configuration persists; save-time enforcement per form is a follow-up
 - [x] Credit limit enforcement using outstanding AR balance + new document amount
 - [x] Approval workflow for invoices / purchase orders — `ApprovalInbox.tsx`; submit/approve/reject routes for invoices + POs; `ApprovalRequest` model; `PENDING_APPROVAL` status on invoice/PO
 - [x] Payment reconciliation against bank transactions — `/api/v1/reconciliation/payments` auto-match + manual match; `PaymentReconciliation.tsx`
 - [x] Accounting period close checklist and reopen flow — `/api/v1/accounting-periods/[id]/close-checklist` health check + `/close` blocks on unposted journals
 - [x] **CPA Audit Controls**: Document immutability (block edit/delete on non-DRAFT), COGS timing fix (post on SENT), BillStatus APPROVED enum, payment allocation validation
+- [ ] Save-time enforcement of `approvalRequirements` toggles in each form (current Phase 1 only persists the config; forms still create records directly without checking the require-approval flag)
 
 ---
 
