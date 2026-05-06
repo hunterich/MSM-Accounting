@@ -92,8 +92,68 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         });
       }
 
-      // Post COGS when invoice transitions DRAFT → SENT
+      // Post AR + COGS journals when invoice transitions DRAFT → SENT.
+      // The AR-side post (DR AR / CR Sales / CR Tax) runs for every invoice;
+      // the COGS post only runs when the org has a costing method and the
+      // invoice has inventory lines.
       if (existing.status === 'DRAFT' && header.status === 'SENT') {
+        const invoiceHeader = await tx.salesInvoice.findUnique({
+          where: { id },
+          select: {
+            number: true,
+            issueDate: true,
+            totalAmount: true,
+            taxAmount: true,
+          },
+        });
+        const accounts = await tx.account.findMany({
+          where: { organizationId: existing.organizationId, isActive: true },
+          select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+        });
+
+        if (invoiceHeader) {
+          const totalAmount = toNumber(invoiceHeader.totalAmount);
+          const taxAmount = toNumber(invoiceHeader.taxAmount);
+          const revenueAmount = totalAmount - taxAmount;
+          const arAccountId = resolveAccountDefaultId(accounts, undefined, 'arControl');
+          const salesAccountId = resolveAccountDefaultId(accounts, undefined, 'salesRevenue');
+          const taxAccountId = taxAmount > 0
+            ? resolveAccountDefaultId(accounts, undefined, 'arTax')
+            : null;
+          const arInvoiceDate = new Date(invoiceHeader.issueDate);
+
+          if (totalAmount > 0 && arAccountId && salesAccountId && (taxAmount === 0 || taxAccountId)) {
+            const arLines = [
+              {
+                accountId: arAccountId,
+                description: `AR - ${invoiceHeader.number}`,
+                debit: totalAmount,
+                credit: 0,
+              },
+              {
+                accountId: salesAccountId,
+                description: `Sales - ${invoiceHeader.number}`,
+                debit: 0,
+                credit: revenueAmount,
+              },
+            ];
+            if (taxAmount > 0 && taxAccountId) {
+              arLines.push({
+                accountId: taxAccountId,
+                description: `Output tax - ${invoiceHeader.number}`,
+                debit: 0,
+                credit: taxAmount,
+              });
+            }
+            await postJournalEntry(tx, {
+              organizationId: existing.organizationId,
+              date: arInvoiceDate,
+              memo: `Sales recognition: ${invoiceHeader.number}`,
+              lines: arLines,
+            });
+          }
+        }
+
         const organization = await tx.organization.findUnique({
           where: { id: existing.organizationId },
           select: { costingMethod: true },
