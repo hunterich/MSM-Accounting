@@ -1,7 +1,18 @@
 import { Resend } from 'resend'
 import { prisma } from '@/lib/prisma'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+let _resend: Resend | null = null
+function getResend(): Resend {
+  if (!_resend) {
+    _resend = new Resend(process.env.RESEND_API_KEY ?? 're_unset')
+  }
+  return _resend
+}
+const resend = new Proxy({} as Resend, {
+  get(_, prop) {
+    return (getResend() as unknown as Record<string | symbol, unknown>)[prop as string]
+  },
+})
 
 const FROM = process.env.EMAIL_FROM_ADDRESS ?? 'noreply@msm-accounting.app'
 

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
+import { asMoney, toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -47,22 +48,26 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         number,
         organizationId: orgId,
         returnDate: new Date(header.returnDate),
-        subtotal:    Number(header.subtotal    ?? 0),
-        taxAmount:   Number(header.taxAmount   ?? 0),
-        totalAmount: Number(header.totalAmount ?? 0),
-        taxRate:     Number(header.taxRate     ?? 11),
+        subtotal:    asMoney(toNumber(header.subtotal)),
+        taxAmount:   asMoney(toNumber(header.taxAmount)),
+        totalAmount: asMoney(toNumber(header.totalAmount)),
+        taxRate:     toNumber(header.taxRate ?? 11),
         lines: lines?.length ? {
-          create: lines.map((l: any, idx: number) => ({
-            lineNo:       idx + 1,
-            lineKey:      l.lineKey || null,
-            itemId:       l.itemId || null,
-            description:  l.description || '',
-            qtyPurchased: Number(l.qtyPurchased ?? 0),
-            qtyReturn:    Number(l.qtyReturn ?? 0),
-            unit:         l.unit || 'PCS',
-            price:        Number(l.price ?? 0),
-            lineTotal:    Number(l.lineTotal ?? l.qtyReturn * l.price),
-          })),
+          create: lines.map((l: any, idx: number) => {
+            const qtyReturn = toNumber(l.qtyReturn);
+            const price = asMoney(toNumber(l.price));
+            return {
+              lineNo:       idx + 1,
+              lineKey:      l.lineKey || null,
+              itemId:       l.itemId || null,
+              description:  l.description || '',
+              qtyPurchased: toNumber(l.qtyPurchased),
+              qtyReturn,
+              unit:         l.unit || 'PCS',
+              price,
+              lineTotal:    asMoney(l.lineTotal != null ? toNumber(l.lineTotal) : qtyReturn * price),
+            };
+          }),
         } : undefined,
       },
       include: { lines: true },
