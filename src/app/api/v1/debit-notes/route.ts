@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { postJournalEntry } from '@/lib/journal-posting';
+import { toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +42,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
 
   const debitNote = await prisma.$transaction(async (tx) => {
     const number = await nextNumber(tx, 'DebitNote', 'number', 'DBN');
-    return tx.debitNote.create({
+    const created = await tx.debitNote.create({
       data: {
         ...body,
         number,
@@ -48,6 +51,46 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         date: new Date(body.date),
       },
     });
+
+    // Post DR AP / CR Purchase Return for the debited amount.
+    // Note: schema stores a flat `amount` without explicit tax breakdown.
+    const amount = toNumber(created.amount);
+    if (amount > 0) {
+      const accounts = await tx.account.findMany({
+        where: { organizationId: orgId, isActive: true },
+        select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+      });
+      const apAccountId =
+        created.apAccountId
+        ?? resolveAccountDefaultId(accounts, undefined, 'apControl');
+      const returnAccountId =
+        created.returnAccountId
+        ?? resolveAccountDefaultId(accounts, undefined, 'apReturn');
+
+      if (apAccountId && returnAccountId) {
+        await postJournalEntry(tx, {
+          organizationId: orgId,
+          date: new Date(created.date),
+          memo: `Debit note: ${created.number}`,
+          lines: [
+            {
+              accountId: apAccountId,
+              description: `AP reduction - ${created.number}`,
+              debit: amount,
+              credit: 0,
+            },
+            {
+              accountId: returnAccountId,
+              description: `Purchase return - ${created.number}`,
+              debit: 0,
+              credit: amount,
+            },
+          ],
+        });
+      }
+    }
+
+    return created;
   });
 
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'DebitNote', entityId: debitNote.id, action: 'CREATE', payload: { number: debitNote.number } });
