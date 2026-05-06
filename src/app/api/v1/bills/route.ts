@@ -12,6 +12,7 @@ import { createBillRecord } from '@/lib/bills';
 import { addCostLayer } from '@/lib/inventory-costing';
 import { resolveAccountDefaultId } from '@/lib/account-defaults';
 import { toNumber, asMoney } from '@/lib/money';
+import { postJournalEntry } from '@/lib/journal-posting';
 
 export const runtime = 'nodejs';
 
@@ -136,22 +137,23 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           .map((l: any) => l.itemId)
           .filter((id: string | null) => Boolean(id)) as string[];
 
-        if (itemIds.length > 0) {
-          const inventoryItems = await tx.item.findMany({
-            where: {
-              id: { in: itemIds },
-              organizationId: orgId,
-              type: { in: ['PRODUCT', 'RAW_MATERIAL'] },
-            },
-            select: { id: true },
-          });
-          const inventoryItemIds = new Set(inventoryItems.map((i: any) => i.id));
+        const inventoryItems = itemIds.length > 0
+          ? await tx.item.findMany({
+              where: {
+                id: { in: itemIds },
+                organizationId: orgId,
+                type: { in: ['PRODUCT', 'RAW_MATERIAL'] },
+              },
+              select: { id: true },
+            })
+          : [];
+        const inventoryItemIds = new Set(inventoryItems.map((i: any) => i.id));
 
-          const inventoryLines = billLines.filter(
-            (l: any) => l.itemId && inventoryItemIds.has(l.itemId),
-          );
+        const inventoryLines = billLines.filter(
+          (l: any) => l.itemId && inventoryItemIds.has(l.itemId),
+        );
 
-          if (inventoryLines.length > 0) {
+        if (billLines.length > 0) {
             // Resolve account IDs once
             const accounts = await tx.account.findMany({
               where: { organizationId: orgId, isActive: true },
@@ -159,17 +161,23 @@ export const POST = withHandler(async function POST(req: NextRequest) {
             });
 
             const inventoryAccountId = resolveAccountDefaultId(accounts, undefined, 'inventoryAsset');
-            const apAccountId = resolveAccountDefaultId(accounts, undefined, 'apControl');
+            const apAccountId =
+              (createdBill.apAccountId as string | null | undefined)
+              ?? resolveAccountDefaultId(accounts, undefined, 'apControl');
+            const inputTaxAccountId = resolveAccountDefaultId(accounts, undefined, 'apTax');
+            // Service-line catch-all expense — no per-category mapping yet,
+            // so use cogsExpense until a Settings field is added for it.
+            const expenseAccountId = resolveAccountDefaultId(accounts, undefined, 'cogsExpense');
 
             const billDate = createdBill.issueDate
               ? new Date(createdBill.issueDate)
               : new Date();
 
+            // Add inventory cost layers for inventory lines (unchanged behavior).
             for (const line of inventoryLines) {
               const qty = toNumber(line.quantity);
               const unitCost = toNumber(line.price);
               if (qty <= 0 || !line.itemId) continue;
-
               await addCostLayer(
                 tx,
                 orgId,
@@ -181,58 +189,71 @@ export const POST = withHandler(async function POST(req: NextRequest) {
                 createdBill.id,
                 billDate,
               );
+            }
 
-              if (inventoryAccountId && apAccountId) {
-                const lineTotal = asMoney(qty * unitCost);
+            // Post one balanced journal entry for the whole bill.
+            const inventorySubtotal = inventoryLines.reduce(
+              (sum: number, line: any) => sum + toNumber(line.lineTotal ?? toNumber(line.quantity) * toNumber(line.price)),
+              0,
+            );
+            const serviceLines = billLines.filter(
+              (l: any) => !l.itemId || !inventoryItemIds.has(l.itemId),
+            );
+            const serviceSubtotal = serviceLines.reduce(
+              (sum: number, line: any) => sum + toNumber(line.lineTotal ?? toNumber(line.quantity) * toNumber(line.price)),
+              0,
+            );
+            const taxAmount = toNumber(createdBill.taxAmount);
+            const totalAmount = toNumber(createdBill.totalAmount);
 
-                // Generate entryNo for this GL entry
-                const entryRows = await tx.$queryRaw`
-                  SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-                  FROM "JournalEntry"
-                  WHERE "organizationId" = ${orgId}
-                    AND "entryNo" LIKE ${'JE-%'}
-                `;
-                const nextSeq = (Number((entryRows as any)[0]?.max_seq ?? 0)) + 1;
-                const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+            const journalLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [];
+            if (inventorySubtotal > 0 && inventoryAccountId) {
+              journalLines.push({
+                accountId: inventoryAccountId,
+                description: `Inventory - ${createdBill.number}`,
+                debit: asMoney(inventorySubtotal),
+                credit: 0,
+              });
+            }
+            if (serviceSubtotal > 0 && expenseAccountId) {
+              journalLines.push({
+                accountId: expenseAccountId,
+                description: `Expense - ${createdBill.number}`,
+                debit: asMoney(serviceSubtotal),
+                credit: 0,
+              });
+            }
+            if (taxAmount > 0 && inputTaxAccountId) {
+              journalLines.push({
+                accountId: inputTaxAccountId,
+                description: `Input tax - ${createdBill.number}`,
+                debit: asMoney(taxAmount),
+                credit: 0,
+              });
+            }
+            if (totalAmount > 0 && apAccountId) {
+              journalLines.push({
+                accountId: apAccountId,
+                description: `AP - ${createdBill.number}`,
+                debit: 0,
+                credit: asMoney(totalAmount),
+              });
+            }
 
-                await tx.journalEntry.create({
-                  data: {
-                    organizationId: orgId,
-                    entryNo,
-                    date: billDate,
-                    memo: `Inventory receipt: ${createdBill.number}`,
-                    source: 'SYSTEM',
-                    status: 'POSTED',
-                    postedAt: new Date(),
-                    totalDebit: lineTotal,
-                    totalCredit: lineTotal,
-                    lines: {
-                      create: [
-                        {
-                          lineNo: 1,
-                          accountId: inventoryAccountId,
-                          description: `Inventory - ${createdBill.number}`,
-                          debit: lineTotal,
-                          credit: 0,
-                        },
-                        {
-                          lineNo: 2,
-                          accountId: apAccountId,
-                          description: `AP Control - ${createdBill.number}`,
-                          debit: 0,
-                          credit: lineTotal,
-                        },
-                      ],
-                    },
-                  },
-                });
-              }
+            // Only post when we have at least one debit and the credit side.
+            const hasDebit = journalLines.some((l) => l.debit > 0);
+            const hasCredit = journalLines.some((l) => l.credit > 0);
+            if (hasDebit && hasCredit) {
+              await postJournalEntry(tx, {
+                organizationId: orgId,
+                date: billDate,
+                memo: `Bill: ${createdBill.number}`,
+                lines: journalLines,
+              });
             }
           }
         }
       }
-    }
-
     return createdBill;
   });
 
