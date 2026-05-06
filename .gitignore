@@ -11,7 +11,9 @@ node_modules
 dist
 dist-ssr
 .next
-.claude
+.claude/*
+!.claude/launch.json
+!.claude/settings.json
 *.tsbuildinfo
 *.local
 .env
