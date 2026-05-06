@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
@@ -10,6 +10,7 @@ import EmailTemplates from './EmailTemplates';
 import CsvImportPanel from './CsvImportPanel';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import { useAccountDefaults, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
 import { ACCOUNT_DEFAULT_SPECS, DEFAULT_ACCOUNT_DEFAULTS } from '../../../lib/account-defaults';
 import type { AccountDefaultKey } from '../../../lib/account-defaults';
 import type { LucideIcon } from 'lucide-react';
@@ -94,6 +95,8 @@ const Settings = () => {
     const documentNumbering = useSettingsStore(s => s.documentNumbering ?? DEFAULT_DOCUMENT_NUMBERING);
     const updateDocumentNumbering = useSettingsStore(s => s.updateDocumentNumbering);
     const { data: chartOfAccounts = [] } = useChartOfAccounts();
+    const { data: serverAccountDefaults } = useAccountDefaults();
+    const updateOrgSettings = useUpdateOrganizationSettings();
 
     const [generalSettings, setGeneralSettings] = useState(storeCompanyInfo);
     const [taxData, setTaxData] = useState(storeTaxSettings);
@@ -106,6 +109,15 @@ const Settings = () => {
     const [features, setFeatures] = useState(storeFeatures);
     const [approvalRequirements, setApprovalRequirements] = useState(storeApprovalRequirements);
     const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
+
+    // Hydrate from server-of-truth (DB) when org settings load. Falls back to
+    // Zustand cache for first paint to avoid flicker. Server values overwrite
+    // local state on every fetch.
+    useEffect(() => {
+      if (!serverAccountDefaults) return;
+      if (Object.keys(serverAccountDefaults).length === 0) return;
+      setAccountDefaults((prev) => ({ ...prev, ...serverAccountDefaults }));
+    }, [serverAccountDefaults]);
     const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
         require2FA: false,
         allowInvites: true,
@@ -155,7 +167,7 @@ const Settings = () => {
         return true;
     };
 
-    const saveSection = (sectionId: string): void => {
+    const saveSection = async (sectionId: string): Promise<void> => {
         if (sectionId === 'general') {
             if (!generalSettings.companyName.trim()) {
                 window.alert('Company name is required.');
@@ -194,7 +206,20 @@ const Settings = () => {
         }
 
         if (sectionId === 'accounts') {
-            updateAccountDefaults(accountDefaults);
+            // Server is source of truth. Strip empty values (= "Auto-detect")
+            // so the API can clear them, then mirror response into Zustand
+            // cache so other components reading from the store stay in sync.
+            const payload: Record<string, string> = {};
+            for (const [k, v] of Object.entries(accountDefaults as Record<string, string>)) {
+                if (typeof v === 'string') payload[k] = v;
+            }
+            try {
+                await updateOrgSettings.mutateAsync({ accountDefaults: payload });
+                updateAccountDefaults(accountDefaults);
+            } catch (e) {
+                window.alert(`Failed to save account defaults: ${e instanceof Error ? e.message : 'Unknown error'}`);
+                return;
+            }
         }
 
         if (sectionId === 'security') {

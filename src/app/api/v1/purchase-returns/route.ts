@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 
 export const runtime = 'nodejs';
 
@@ -40,7 +41,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
 
   const purchaseReturn = await prisma.$transaction(async (tx) => {
     const number = await nextNumber(tx, 'PurchaseReturn', 'number', 'PRN');
-    return tx.purchaseReturn.create({
+    const created = await tx.purchaseReturn.create({
       data: {
         ...header,
         number,
@@ -64,6 +65,15 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           })),
         } : undefined,
       },
+      include: { lines: true },
+    });
+
+    if (created.status === 'APPROVED') {
+      await postPurchaseReturnOnApproval(tx, created.id);
+    }
+
+    return tx.purchaseReturn.findUniqueOrThrow({
+      where: { id: created.id },
       include: { lines: true },
     });
   });

@@ -10,7 +10,7 @@ import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requi
 import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
 import { addCostLayer } from '@/lib/inventory-costing';
-import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { toNumber, asMoney } from '@/lib/money';
 import { postJournalEntry } from '@/lib/journal-posting';
 
@@ -160,14 +160,15 @@ export const POST = withHandler(async function POST(req: NextRequest) {
               select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
             });
 
-            const inventoryAccountId = resolveAccountDefaultId(accounts, undefined, 'inventoryAsset');
+            const settings = await loadOrgAccountDefaults(tx, orgId);
+            const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
             const apAccountId =
               (createdBill.apAccountId as string | null | undefined)
-              ?? resolveAccountDefaultId(accounts, undefined, 'apControl');
-            const inputTaxAccountId = resolveAccountDefaultId(accounts, undefined, 'apTax');
+              ?? resolveAccountDefaultId(accounts, settings, 'apControl');
+            const inputTaxAccountId = resolveAccountDefaultId(accounts, settings, 'apTax');
             // Service-line catch-all expense — no per-category mapping yet,
             // so use cogsExpense until a Settings field is added for it.
-            const expenseAccountId = resolveAccountDefaultId(accounts, undefined, 'cogsExpense');
+            const expenseAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
 
             const billDate = createdBill.issueDate
               ? new Date(createdBill.issueDate)

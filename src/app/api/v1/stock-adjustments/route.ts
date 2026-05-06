@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { stockAdjustmentInputSchema } from '@/types/api';
-import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { asMoney, toNumber } from '@/lib/money';
 
@@ -121,11 +121,11 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           where: { organizationId: orgId, isActive: true },
           select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
         });
-        const inventoryAccountId = resolveAccountDefaultId(accounts, undefined, 'inventoryAsset');
-        // No dedicated `inventoryAdjustment` default exists yet — fall back
-        // to cogsExpense as a temporary catch-all. Settings work to add a
-        // proper default is tracked separately.
-        const varianceAccountId = resolveAccountDefaultId(accounts, undefined, 'cogsExpense');
+        const settings = await loadOrgAccountDefaults(tx, orgId);
+        const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+        const varianceAccountId =
+          resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment')
+          || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
 
         if (inventoryAccountId && varianceAccountId) {
           const memo = `Stock adjustment: ${adj.number}`;

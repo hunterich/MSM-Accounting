@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
+import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 
 export const runtime = 'nodejs';
 
@@ -37,11 +38,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { lines, ...header } = body;
 
     const pr = await prisma.$transaction(async (tx) => {
+      const prior = await tx.purchaseReturn.findFirst({
+        where: { id, organizationId: orgId },
+        select: { id: true, status: true, journalEntryId: true },
+      });
+      if (!prior) {
+        throw new Error('Purchase return not found');
+      }
+
+      const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1 && lines === undefined;
+      if (prior.status !== 'DRAFT' && !isStatusOnlyUpdate) {
+        throw new Error('Only DRAFT purchase returns can be modified');
+      }
+
       if (lines) {
         await tx.purchaseReturnLine.deleteMany({ where: { purchaseReturnId: id } });
       }
 
-      return tx.purchaseReturn.update({
+      const updated = await tx.purchaseReturn.update({
         where: { id, organizationId: orgId },
         data: {
           ...header,
@@ -66,6 +80,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             },
           } : {}),
         },
+        include: { lines: true },
+      });
+
+      if (prior.status === 'DRAFT' && updated.status === 'APPROVED' && !prior.journalEntryId) {
+        await postPurchaseReturnOnApproval(tx, id);
+      }
+
+      return tx.purchaseReturn.findUniqueOrThrow({
+        where: { id },
         include: { lines: true },
       });
     });
