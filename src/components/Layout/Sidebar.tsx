@@ -157,7 +157,17 @@ const Sidebar = (): React.ReactElement => {
         [permissions],
     );
 
-    const toggleGroup = (g: string) => setCollapsedGroups(s => ({ ...s, [g]: !s[g] }));
+    const toggleGroup = (g: string) => setCollapsedGroups(s => {
+        // Accordion behavior: expanding a group collapses the others. Collapsing
+        // the open group leaves the rest collapsed (already are).
+        const isCurrentlyCollapsed = s[g] !== false;
+        if (isCurrentlyCollapsed) {
+            const next = allGroupsCollapsed();
+            next[g] = false;
+            return next;
+        }
+        return { ...s, [g]: true };
+    });
 
     const isItemActive = (path: string): boolean => {
         if (path === '/') return location.pathname === '/';
