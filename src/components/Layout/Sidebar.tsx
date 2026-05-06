@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { useSettingsStore, type FeatureFlags } from '../../stores/useSettingsStore';
 
 interface SubItem {
     label: string;
@@ -106,6 +107,30 @@ const PARENT_LABEL_FOR: Record<string, string> = {
 };
 
 const COLLAPSED_KEY = 'msm.sidebar.collapsed';
+
+/**
+ * Maps a sidebar sub-item path to a feature flag in useSettingsStore.features.
+ * When the flag is false, the item is hidden regardless of RBAC. Paths NOT in
+ * this map are always feature-allowed (gated only by RBAC).
+ */
+const SUBITEM_FEATURE_MAP: Record<string, keyof FeatureFlags> = {
+    '/ar/sales-orders':       'salesOrders',
+    '/ar/credits':            'salesReturns',
+    '/ar/recurring':          'recurringInvoices',
+    '/ar/subscriptions':      'subscriptions',
+    '/ar/delivery-notes':     'deliveryNotes',
+    '/ar/categories':         'customerCategories',
+    '/ar/approvals':          'approvals',
+    '/integrations':          'shopIntegrations',
+    '/ap/pos':                'purchaseOrders',
+    '/ap/vendor-categories':  'vendorCategories',
+    '/inventory/categories':  'itemCategories',
+    '/assets':                'fixedAssets',
+    '/hr':                    'hrPayroll',
+    '/hr/employees':          'hrPayroll',
+    '/hr/attendance':         'hrPayroll',
+    '/hr/payroll-run':        'hrPayroll',
+};
 const allGroupsCollapsed = (): Record<string, boolean> =>
     NAV_GROUPS.reduce<Record<string, boolean>>((acc, g) => { acc[g.group] = true; return acc; }, {});
 
@@ -113,6 +138,7 @@ const Sidebar = (): React.ReactElement => {
     const location = useLocation();
     const permissions = useAuthStore((s) => s.permissions);
     const hasPermission = useAuthStore((s) => s.hasPermission);
+    const features = useSettingsStore((s) => s.features);
     const [mobileOpen, setMobileOpen] = useState(false);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
         try {
@@ -138,6 +164,11 @@ const Sidebar = (): React.ReactElement => {
     }, []);
 
     const canSeeSubItem = (path: string): boolean => {
+        // Feature-flag gate first — bail early if the org has the module off.
+        const featureKey = SUBITEM_FEATURE_MAP[path];
+        if (featureKey && features?.[featureKey] === false) return false;
+
+        // RBAC check (unchanged).
         const key = SUBITEM_PERMISSION_MAP[path];
         if (!key) {
             const parent = PARENT_LABEL_FOR[path];
@@ -154,7 +185,7 @@ const Sidebar = (): React.ReactElement => {
             items: g.items.filter(it => canSeeSubItem(it.path)),
         })).filter(g => g.items.length > 0),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [permissions],
+        [permissions, features],
     );
 
     const toggleGroup = (g: string) => setCollapsedGroups(s => {

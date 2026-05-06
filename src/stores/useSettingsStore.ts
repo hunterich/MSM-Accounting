@@ -40,11 +40,55 @@ export interface SalesPolicySettings {
     requireSalesOrder:     boolean;
 }
 
+/**
+ * Org-level feature flags. Each toggle hides the corresponding sidebar item
+ * (and its routes for users) when false. Defaults to all-on so existing orgs
+ * keep their full UI on upgrade.
+ */
+export interface FeatureFlags {
+    // Sales
+    salesOrders:        boolean;
+    salesReturns:       boolean;
+    recurringInvoices:  boolean;
+    subscriptions:      boolean;
+    deliveryNotes:      boolean;
+    customerCategories: boolean;
+    approvals:          boolean;
+    shopIntegrations:   boolean;
+    // Purchases
+    purchaseOrders:     boolean;
+    vendorCategories:   boolean;
+    // Inventory / Other
+    itemCategories:     boolean;
+    fixedAssets:        boolean;
+    hrPayroll:          boolean;
+}
+
+/**
+ * Per-module flag for whether create/edit operations require approval before
+ * they take effect. Phase 1: configuration only — actual save-time enforcement
+ * lives in each module's form (follow-up).
+ */
+export interface ApprovalRequirements {
+    ar_sales_orders: boolean;
+    ar_invoices:     boolean;
+    ar_payments:     boolean;
+    ar_credits:      boolean;
+    ap_pos:          boolean;
+    ap_bills:        boolean;
+    ap_payments:     boolean;
+    ap_debits:       boolean;
+    inv_adj:         boolean;
+    hr_payroll:      boolean;
+}
+
 interface SettingsStore {
     companyInfo:              CompanyInfo;
     taxSettings:              TaxSettings;
     customerCreditSettings:   CustomerCreditSettings;
     salesPolicy:              SalesPolicySettings;
+    features:                 FeatureFlags;
+    approvalRequirements:     ApprovalRequirements;
     accountDefaults:          AccountDefaultsConfig;
     documentNumbering:        Record<string, DocNumberingConfig>;
     dashboardConfig:          Record<string, string[]>;
@@ -53,6 +97,8 @@ interface SettingsStore {
     updateTaxSettings:        (updates: Partial<TaxSettings>) => void;
     updateCustomerCreditSettings:(updates: Partial<CustomerCreditSettings>) => void;
     updateSalesPolicy:        (updates: Partial<SalesPolicySettings>) => void;
+    updateFeatures:           (updates: Partial<FeatureFlags>) => void;
+    updateApprovalRequirements:(updates: Partial<ApprovalRequirements>) => void;
     updateAccountDefaults:    (updates: Partial<AccountDefaultsConfig>) => void;
     updateDocumentNumbering:  (docType: string, updates: Partial<DocNumberingConfig>) => void;
     getDashboardWidgets:      (userId: string) => string[];
@@ -96,11 +142,42 @@ const DEFAULT_SALES_POLICY: SalesPolicySettings = {
     requireSalesOrder: false,
 };
 
+const DEFAULT_FEATURES: FeatureFlags = {
+    salesOrders: true,
+    salesReturns: true,
+    recurringInvoices: true,
+    subscriptions: true,
+    deliveryNotes: true,
+    customerCategories: true,
+    approvals: true,
+    shopIntegrations: true,
+    purchaseOrders: true,
+    vendorCategories: true,
+    itemCategories: true,
+    fixedAssets: true,
+    hrPayroll: true,
+};
+
+const DEFAULT_APPROVAL_REQUIREMENTS: ApprovalRequirements = {
+    ar_sales_orders: false,
+    ar_invoices: false,
+    ar_payments: false,
+    ar_credits: false,
+    ap_pos: false,
+    ap_bills: false,
+    ap_payments: false,
+    ap_debits: false,
+    inv_adj: false,
+    hr_payroll: false,
+};
+
 interface PersistedSettingsState {
     companyInfo?: Partial<CompanyInfo>;
     taxSettings?: Partial<TaxSettings>;
     customerCreditSettings?: Partial<CustomerCreditSettings>;
     salesPolicy?: Partial<SalesPolicySettings>;
+    features?: Partial<FeatureFlags>;
+    approvalRequirements?: Partial<ApprovalRequirements>;
     accountDefaults?: Partial<AccountDefaultsConfig>;
     documentNumbering?: Record<string, Partial<DocNumberingConfig>>;
     dashboardConfig?: Record<string, string[]>;
@@ -113,6 +190,8 @@ export const useSettingsStore = create<SettingsStore>()(
             taxSettings: DEFAULT_TAX_SETTINGS,
             customerCreditSettings: DEFAULT_CUSTOMER_CREDIT_SETTINGS,
             salesPolicy: DEFAULT_SALES_POLICY,
+            features: DEFAULT_FEATURES,
+            approvalRequirements: DEFAULT_APPROVAL_REQUIREMENTS,
             accountDefaults: DEFAULT_ACCOUNT_DEFAULTS,
             documentNumbering: DEFAULT_DOCUMENT_NUMBERING,
             dashboardConfig: {}, // Record<userId, widgetId[]>
@@ -142,6 +221,16 @@ export const useSettingsStore = create<SettingsStore>()(
                     salesPolicy: { ...state.salesPolicy, ...updates }
                 }));
             },
+            updateFeatures: (updates) => {
+                set((state) => ({
+                    features: { ...state.features, ...updates }
+                }));
+            },
+            updateApprovalRequirements: (updates) => {
+                set((state) => ({
+                    approvalRequirements: { ...state.approvalRequirements, ...updates }
+                }));
+            },
             updateAccountDefaults: (updates) => {
                 set((state) => ({
                     accountDefaults: { ...state.accountDefaults, ...updates }
@@ -164,7 +253,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: 'msm-settings',
-            version: 7,
+            version: 8,
             migrate: (persistedState) => ({
                 ...(persistedState as PersistedSettingsState | undefined),
                 companyInfo: {
@@ -182,6 +271,14 @@ export const useSettingsStore = create<SettingsStore>()(
                 salesPolicy: {
                     ...DEFAULT_SALES_POLICY,
                     ...((persistedState as PersistedSettingsState | undefined)?.salesPolicy || {}),
+                },
+                features: {
+                    ...DEFAULT_FEATURES,
+                    ...((persistedState as PersistedSettingsState | undefined)?.features || {}),
+                },
+                approvalRequirements: {
+                    ...DEFAULT_APPROVAL_REQUIREMENTS,
+                    ...((persistedState as PersistedSettingsState | undefined)?.approvalRequirements || {}),
                 },
                 accountDefaults: {
                     ...DEFAULT_ACCOUNT_DEFAULTS,
