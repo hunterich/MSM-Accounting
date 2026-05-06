@@ -35,10 +35,16 @@ interface CustomerCreditSettings {
     enforceLimit:        boolean;
 }
 
+export interface SalesPolicySettings {
+    blockSellBelowCost:    boolean;
+    requireSalesOrder:     boolean;
+}
+
 interface SettingsStore {
     companyInfo:              CompanyInfo;
     taxSettings:              TaxSettings;
     customerCreditSettings:   CustomerCreditSettings;
+    salesPolicy:              SalesPolicySettings;
     accountDefaults:          AccountDefaultsConfig;
     documentNumbering:        Record<string, DocNumberingConfig>;
     dashboardConfig:          Record<string, string[]>;
@@ -46,6 +52,7 @@ interface SettingsStore {
     updateCompanyInfo:        (updates: Partial<CompanyInfo>) => void;
     updateTaxSettings:        (updates: Partial<TaxSettings>) => void;
     updateCustomerCreditSettings:(updates: Partial<CustomerCreditSettings>) => void;
+    updateSalesPolicy:        (updates: Partial<SalesPolicySettings>) => void;
     updateAccountDefaults:    (updates: Partial<AccountDefaultsConfig>) => void;
     updateDocumentNumbering:  (docType: string, updates: Partial<DocNumberingConfig>) => void;
     getDashboardWidgets:      (userId: string) => string[];
@@ -84,10 +91,16 @@ const DEFAULT_CUSTOMER_CREDIT_SETTINGS = {
     enforceLimit: true,
 };
 
+const DEFAULT_SALES_POLICY: SalesPolicySettings = {
+    blockSellBelowCost: false,
+    requireSalesOrder: false,
+};
+
 interface PersistedSettingsState {
     companyInfo?: Partial<CompanyInfo>;
     taxSettings?: Partial<TaxSettings>;
     customerCreditSettings?: Partial<CustomerCreditSettings>;
+    salesPolicy?: Partial<SalesPolicySettings>;
     accountDefaults?: Partial<AccountDefaultsConfig>;
     documentNumbering?: Record<string, Partial<DocNumberingConfig>>;
     dashboardConfig?: Record<string, string[]>;
@@ -99,6 +112,7 @@ export const useSettingsStore = create<SettingsStore>()(
             companyInfo: DEFAULT_COMPANY_INFO,
             taxSettings: DEFAULT_TAX_SETTINGS,
             customerCreditSettings: DEFAULT_CUSTOMER_CREDIT_SETTINGS,
+            salesPolicy: DEFAULT_SALES_POLICY,
             accountDefaults: DEFAULT_ACCOUNT_DEFAULTS,
             documentNumbering: DEFAULT_DOCUMENT_NUMBERING,
             dashboardConfig: {}, // Record<userId, widgetId[]>
@@ -123,6 +137,11 @@ export const useSettingsStore = create<SettingsStore>()(
                     customerCreditSettings: { ...state.customerCreditSettings, ...updates }
                 }));
             },
+            updateSalesPolicy: (updates) => {
+                set((state) => ({
+                    salesPolicy: { ...state.salesPolicy, ...updates }
+                }));
+            },
             updateAccountDefaults: (updates) => {
                 set((state) => ({
                     accountDefaults: { ...state.accountDefaults, ...updates }
@@ -145,7 +164,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: 'msm-settings',
-            version: 6,
+            version: 7,
             migrate: (persistedState) => ({
                 ...(persistedState as PersistedSettingsState | undefined),
                 companyInfo: {
@@ -159,6 +178,10 @@ export const useSettingsStore = create<SettingsStore>()(
                 customerCreditSettings: {
                     ...DEFAULT_CUSTOMER_CREDIT_SETTINGS,
                     ...((persistedState as PersistedSettingsState | undefined)?.customerCreditSettings || {}),
+                },
+                salesPolicy: {
+                    ...DEFAULT_SALES_POLICY,
+                    ...((persistedState as PersistedSettingsState | undefined)?.salesPolicy || {}),
                 },
                 accountDefaults: {
                     ...DEFAULT_ACCOUNT_DEFAULTS,

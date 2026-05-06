@@ -44,10 +44,12 @@ const Settings = () => {
     const storeCompanyInfo = useSettingsStore(s => s.companyInfo);
     const storeTaxSettings = useSettingsStore(s => s.taxSettings);
     const storeCustomerCreditSettings = useSettingsStore(s => s.customerCreditSettings);
+    const storeSalesPolicy = useSettingsStore(s => s.salesPolicy);
     const storeAccountDefaults = useSettingsStore(s => s.accountDefaults ?? DEFAULT_ACCOUNT_DEFAULTS);
     const updateCompanyInfo = useSettingsStore(s => s.updateCompanyInfo);
     const updateTaxSettings = useSettingsStore(s => s.updateTaxSettings);
     const updateCustomerCreditSettings = useSettingsStore(s => s.updateCustomerCreditSettings);
+    const updateSalesPolicy = useSettingsStore(s => s.updateSalesPolicy);
     const updateAccountDefaults = useSettingsStore(s => s.updateAccountDefaults);
     const documentNumbering = useSettingsStore(s => s.documentNumbering ?? DEFAULT_DOCUMENT_NUMBERING);
     const updateDocumentNumbering = useSettingsStore(s => s.updateDocumentNumbering);
@@ -60,6 +62,7 @@ const Settings = () => {
         defaultPaymentTerms: String(storeCustomerCreditSettings.defaultPaymentTerms),
         enforceLimit: storeCustomerCreditSettings.enforceLimit,
     });
+    const [salesPolicy, setSalesPolicy] = useState(storeSalesPolicy);
     const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
     const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
         require2FA: false,
@@ -125,6 +128,7 @@ const Settings = () => {
             if (!saveCustomerCreditSettings()) {
                 return;
             }
+            updateSalesPolicy(salesPolicy);
         }
 
         if (sectionId === 'accounts') {
@@ -343,6 +347,35 @@ const Settings = () => {
                                     className="settings-checkbox-input"
                                 />
                                 <span className="settings-label-strong">Enforce Credit Limit validation on invoices</span>
+                            </label>
+                        </div>
+
+                        <h3 className="settings-section-title mt-6">Sales Policies</h3>
+                        <div className="settings-help-text mb-3">
+                            Org-wide rules for invoice creation. Users with the matching role override flag (under Security &amp; Roles → AR Invoices) can bypass each rule.
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={salesPolicy.blockSellBelowCost}
+                                    onChange={(e) => setSalesPolicy({ ...salesPolicy, blockSellBelowCost: e.target.checked })}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Block selling below product cost</span>
+                            </label>
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={salesPolicy.requireSalesOrder}
+                                    onChange={(e) => setSalesPolicy({ ...salesPolicy, requireSalesOrder: e.target.checked })}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Require Sales Order before creating Invoice</span>
                             </label>
                         </div>
 

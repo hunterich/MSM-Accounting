@@ -26,6 +26,7 @@ interface InvoiceFormData {
     billingAddress:  string;
     shippingAddress: string;
     poNumber:        string;
+    salesOrderId?:   string;
     issueDate:       string;
     dueDate:         string;
     shippingDate:    string;
@@ -76,6 +77,7 @@ import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useExtraAction } from '../../hooks/useModulePermissions';
 import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
 
@@ -118,6 +120,12 @@ const InvoiceForm = () => {
     const products = (itemsData?.data || []) as ProductLike[];
     const createInvoice = useCreateInvoice();
     const updateInvoiceMutation = useUpdateInvoice();
+
+    // Sales policy enforcement (org-wide rules + role overrides)
+    const salesPolicy = useSettingsStore((s) => s.salesPolicy);
+    const canBypassBelowCost = useExtraAction('ar_invoices', 'sellBelowCost');
+    const canBypassRequireSO = useExtraAction('ar_invoices', 'invoiceWithoutSO');
+    const canOverridePrice   = useExtraAction('ar_invoices', 'overridePrice');
 
     const [formData, setFormData] = useState<InvoiceFormData>({
         customerId: '',
@@ -367,6 +375,23 @@ const InvoiceForm = () => {
     const isPageLoading = customersLoading || invoicesLoading || itemsLoading;
 
     const handleApprove = async () => {
+        // Org-wide sales policy enforcement (role overrides bypass these checks)
+        if (salesPolicy.requireSalesOrder && !formData.salesOrderId && !canBypassRequireSO) {
+            window.alert('A Sales Order is required before creating an invoice. Link a Sales Order or ask an administrator to grant the "Create Invoice Without Sales Order" override.');
+            return;
+        }
+        if (salesPolicy.blockSellBelowCost && !canBypassBelowCost) {
+            const violator = formData.items.find((line) => {
+                const product = products.find((p) => String(p.id) === String(line.productId));
+                const cost = Number(product?.cost ?? 0);
+                return cost > 0 && line.price > 0 && line.price < cost;
+            });
+            if (violator) {
+                window.alert(`Line "${violator.description}" is priced below cost. Adjust the price or ask an administrator to grant the "Sell Below Cost" override.`);
+                return;
+            }
+        }
+
         let assignedNo = formData.number;
         if (numberingMode === 'auto') {
             assignedNo = buildAutoNumber(formData.issueDate);
@@ -707,6 +732,7 @@ const InvoiceForm = () => {
                                                     <Input
                                                         type="number"
                                                         value={item.price}
+                                                        disabled={Boolean(item.productId) && !canOverridePrice}
                                                         onChange={(e) => handleItemChange(item.id, 'price', Number(e.target.value))}
                                                         inputClassName="text-sm h-8 text-right"
                                                     />

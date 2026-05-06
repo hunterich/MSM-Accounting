@@ -24,7 +24,7 @@ interface Category extends CategoryFormData {
 }
 
 const CustomerCategories = () => {
-    const { canCreate, canEdit, canDelete } = useModulePermissions('ar_customers');
+    const { canCreate, canEdit, canDelete } = useModulePermissions('ar_customer_categories');
     const { data: categories = [], isLoading } = useCustomerCategories();
     const createCategoryMutation = useCreateCustomerCategory();
     const updateCategoryMutation = useUpdateCustomerCategory();

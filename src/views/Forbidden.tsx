@@ -34,6 +34,7 @@ export default function Forbidden() {
       { path: '/ar/payments', moduleKey: 'ar_payments' },
       { path: '/ar/credits', moduleKey: 'ar_credits' },
       { path: '/ar/customers', moduleKey: 'ar_customers' },
+      { path: '/ar/categories', moduleKey: 'ar_customer_categories' },
       { path: '/ap/pos', moduleKey: 'ap_pos' },
       { path: '/ap/bills', moduleKey: 'ap_bills' },
       { path: '/ap/payments', moduleKey: 'ap_payments' },

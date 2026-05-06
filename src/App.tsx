@@ -110,7 +110,7 @@ function App(): JSX.Element {
                     <Route path="ar/customers" element={withPermission(<Customers />, 'ar_customers')} />
                     <Route path="ar/customers/new" element={withPermission(<CustomerForm />, 'ar_customers', 'create')} />
                     <Route path="ar/customers/edit" element={withPermission(<CustomerForm />, 'ar_customers', 'edit')} />
-                    <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customers')} />
+                    <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customer_categories')} />
                     <Route path="ar/payments" element={withPermission(<Payments />, 'ar_payments')} />
                     <Route path="ar/payments/new" element={withPermission(<PaymentForm />, 'ar_payments', 'create')} />
                     <Route path="ar/payments/edit" element={withPermission(<PaymentForm />, 'ar_payments', 'edit')} />
