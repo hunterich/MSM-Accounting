@@ -28,6 +28,7 @@ interface InvoiceCatalogPanelProps {
     isLoading?: boolean;
     selectedId?: string;
     canEdit?: boolean;
+    canPrint?: boolean;
     filters: InvoiceFilters;
     onSearchChange: (value: string) => void;
     onFilterChange: (key: string, value: string) => void;
@@ -60,6 +61,7 @@ const InvoiceCatalogPanel: React.FC<InvoiceCatalogPanelProps> = ({
     isLoading = false,
     selectedId,
     canEdit = true,
+    canPrint = true,
     filters,
     onSearchChange,
     onFilterChange,
@@ -154,9 +156,11 @@ const InvoiceCatalogPanel: React.FC<InvoiceCatalogPanelProps> = ({
                                         <button className={`border border-neutral-300 bg-neutral-0 text-neutral-700 w-[26px] h-[26px] rounded-md inline-flex items-center justify-center hover:bg-neutral-100 ${canEdit ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} onClick={(e) => { e.stopPropagation(); onEditInvoice(row.id); }} title="Edit" disabled={!canEdit}>
                                             <Pencil size={14} />
                                         </button>
-                                        <button className="border border-neutral-300 bg-neutral-0 text-neutral-700 w-[26px] h-[26px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" onClick={(e) => { e.stopPropagation(); onPrintInvoice(row.id); }} title="Print">
-                                            <Printer size={14} />
-                                        </button>
+                                        {canPrint && (
+                                            <button className="border border-neutral-300 bg-neutral-0 text-neutral-700 w-[26px] h-[26px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" onClick={(e) => { e.stopPropagation(); onPrintInvoice(row.id); }} title="Print">
+                                                <Printer size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 </td>
                             </tr>

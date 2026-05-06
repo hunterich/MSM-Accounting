@@ -110,7 +110,7 @@ function App(): JSX.Element {
                     <Route path="ar/customers" element={withPermission(<Customers />, 'ar_customers')} />
                     <Route path="ar/customers/new" element={withPermission(<CustomerForm />, 'ar_customers', 'create')} />
                     <Route path="ar/customers/edit" element={withPermission(<CustomerForm />, 'ar_customers', 'edit')} />
-                    <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customers')} />
+                    <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customer_categories')} />
                     <Route path="ar/payments" element={withPermission(<Payments />, 'ar_payments')} />
                     <Route path="ar/payments/new" element={withPermission(<PaymentForm />, 'ar_payments', 'create')} />
                     <Route path="ar/payments/edit" element={withPermission(<PaymentForm />, 'ar_payments', 'edit')} />
@@ -140,7 +140,7 @@ function App(): JSX.Element {
                     <Route path="ap/debits/new" element={withPermission(<DebitNoteForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/edit" element={withPermission(<DebitNoteForm />, 'ap_debits', 'edit')} />
                     <Route path="ap/vendors" element={withPermission(<Vendors />, 'ap_vendors')} />
-                    <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendors')} />
+                    <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendor_categories')} />
                     <Route path="ap/vendors/new" element={withPermission(<VendorForm />, 'ap_vendors', 'create')} />
                     <Route path="ap/vendors/edit" element={withPermission(<VendorForm />, 'ap_vendors', 'edit')} />
 

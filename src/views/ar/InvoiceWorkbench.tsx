@@ -14,7 +14,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
 import { Download, Upload } from 'lucide-react';
 import ImportInvoicesModal from '../../components/ar/invoices/ImportInvoicesModal';
-import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { useModulePermissions, useExtraAction } from '../../hooks/useModulePermissions';
 
 interface InvoiceFilters {
     searchTerm: string;
@@ -49,6 +49,7 @@ const InvoiceWorkbench = () => {
     const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
 
     const { canCreate, canEdit, canDelete } = useModulePermissions('ar_invoices');
+    const canReprint = useExtraAction('ar_invoices', 'reprint');
 
     // Tab state managed by useDocumentTabs
     const { selectedId: selectedInvoiceId, openIds: openInvoiceIds, openTab: openInvoiceTab, closeTab: closeInvoiceTab, tabRows } = useDocumentTabs({ urlParam: 'invoiceId', maxPerRow: 5 });
@@ -173,6 +174,7 @@ const InvoiceWorkbench = () => {
             onSelectInvoice={(id) => { openInvoiceTab(id); setDetailMode('view'); setMobileCatalogOpen(false); }}
             onViewInvoice={(id) => { openInvoiceTab(id); setDetailMode('view'); setMobileCatalogOpen(false); }}
             canEdit={canEdit}
+            canPrint={canReprint}
             onEditInvoice={handleEdit}
             onPrintInvoice={queuePrintInvoice}
         />
@@ -185,6 +187,7 @@ const InvoiceWorkbench = () => {
             onPrint={() => queuePrintInvoice(selectedInvoice.id)}
             canEdit={canEdit}
             canDelete={canDelete}
+            canPrint={canReprint}
         />
     ) : (
         <div className="invoice-workbench-card">

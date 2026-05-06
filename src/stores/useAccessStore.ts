@@ -12,7 +12,29 @@ export interface ModulePermission {
     create: boolean;
     edit:   boolean;
     delete: boolean;
+    // Optional per-module action flags. Only modules listed in
+    // MODULE_EXTRA_ACTIONS expose these in the role editor.
+    reprint?:           boolean;
+    overridePrice?:     boolean;
+    sellBelowCost?:     boolean;
+    invoiceWithoutSO?:  boolean;
 }
+
+export type ExtraActionKey = 'reprint' | 'overridePrice' | 'sellBelowCost' | 'invoiceWithoutSO';
+
+/**
+ * Per-module action flags beyond view/create/edit/delete. Renders as an extra
+ * checkbox row under the module in the role editor; gated at the page level
+ * via useExtraActionPermission(moduleKey, actionKey).
+ */
+export const MODULE_EXTRA_ACTIONS: Record<string, { key: ExtraActionKey; label: string }[]> = {
+    ar_invoices: [
+        { key: 'reprint',          label: 'Reprint Invoice' },
+        { key: 'overridePrice',    label: 'Override Price' },
+        { key: 'sellBelowCost',    label: 'Sell Below Cost' },
+        { key: 'invoiceWithoutSO', label: 'Create Invoice Without Sales Order' },
+    ],
+};
 
 export interface AccessRole {
     id:          string;
@@ -39,6 +61,7 @@ interface AccessStore {
     getCurrentUser:  () => AccessUser;
     getCurrentRole:  () => AccessRole;
     hasPermission:   (moduleKey: string, action: PermAction) => boolean;
+    hasExtraAction:  (moduleKey: string, action: ExtraActionKey) => boolean;
     canSeeSidebarItem:(navLabel: string) => boolean;
     canSeeSubItem:   (path: string) => boolean;
     switchUser:      (userId: string) => void;
@@ -65,12 +88,14 @@ export const MODULE_KEYS = {
     ar_invoices:   { label: 'Invoices',               group: 'Accounts Receivable' },
     ar_payments:   { label: 'Receive Payments',       group: 'Accounts Receivable' },
     ar_credits:    { label: 'Returns & Credits',      group: 'Accounts Receivable' },
-    ar_customers:  { label: 'Customers & Categories', group: 'Accounts Receivable' },
+    ar_customers:  { label: 'Customers Master',      group: 'Accounts Receivable' },
+    ar_customer_categories: { label: 'Customer Categories', group: 'Accounts Receivable' },
     ap_pos:        { label: 'Purchase Orders',        group: 'Accounts Payable' },
     ap_bills:      { label: 'Purchase Bills',         group: 'Accounts Payable' },
     ap_payments:   { label: 'Send Payments',          group: 'Accounts Payable' },
     ap_debits:     { label: 'Returns & Debits',       group: 'Accounts Payable' },
-    ap_vendors:    { label: 'Vendors',                group: 'Accounts Payable' },
+    ap_vendors:    { label: 'Vendors Master',         group: 'Accounts Payable' },
+    ap_vendor_categories: { label: 'Vendor Categories', group: 'Accounts Payable' },
     inv_items:      { label: 'Inventory Items',        group: 'Inventory' },
     inv_categories: { label: 'Item Categories',        group: 'Inventory' },
     inv_adj:        { label: 'Stock Adjustments',      group: 'Inventory' },
@@ -92,8 +117,8 @@ export const MODULE_KEYS = {
 export const SIDEBAR_PERMISSION_MAP: Record<string, string[]> = {
     'Dashboard':           ['dashboard'],
     'General Ledger':      ['gl_coa', 'gl_journal'],
-    'Accounts Receivable': ['ar_sales_orders', 'ar_invoices', 'ar_payments', 'ar_credits', 'ar_customers'],
-    'Accounts Payable':    ['ap_pos', 'ap_bills', 'ap_payments', 'ap_debits', 'ap_vendors'],
+    'Accounts Receivable': ['ar_sales_orders', 'ar_invoices', 'ar_payments', 'ar_credits', 'ar_customers', 'ar_customer_categories'],
+    'Accounts Payable':    ['ap_pos', 'ap_bills', 'ap_payments', 'ap_debits', 'ap_vendors', 'ap_vendor_categories'],
     'Inventory':           ['inv_items', 'inv_categories', 'inv_adj'],
     'Assets':              ['assets'],
     'HR & Payroll':        ['hr_employees', 'hr_attendance', 'hr_payroll'],
@@ -117,13 +142,13 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/ar/payments':           'ar_payments',
     '/ar/credits':            'ar_credits',
     '/ar/customers':          'ar_customers',
-    '/ar/categories':         'ar_customers',
+    '/ar/categories':         'ar_customer_categories',
     '/ap/pos':                'ap_pos',
     '/ap/bills':              'ap_bills',
     '/ap/payments':           'ap_payments',
     '/ap/debits':             'ap_debits',
     '/ap/vendors':            'ap_vendors',
-    '/ap/vendor-categories':  'ap_vendors',
+    '/ap/vendor-categories':  'ap_vendor_categories',
     '/inventory':              'inv_items',
     '/inventory/items':        'inv_items',
     '/inventory/categories':   'inv_categories',
@@ -148,7 +173,12 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
 /* ---------- helper: full-access permission object ---------- */
 const allPermissions = (): PermissionMatrix =>
     Object.keys(MODULE_KEYS).reduce((acc: PermissionMatrix, key) => {
-        acc[key] = { view: true, create: true, edit: true, delete: true };
+        const base: ModulePermission = { view: true, create: true, edit: true, delete: true };
+        const extras = MODULE_EXTRA_ACTIONS[key];
+        if (extras) {
+            extras.forEach((extra) => { base[extra.key] = true; });
+        }
+        acc[key] = base;
         return acc;
     }, {});
 
@@ -188,20 +218,31 @@ const missingPermissionTemplate = (role: Partial<AccessRole> | undefined, permis
 const normalizeRolePermissions = (role: AccessRole): AccessRole => {
     const current: PermissionMatrix = role?.permissions || {};
     const fallback = missingPermissionTemplate(role, current);
+    const isAdminLike = role?.id === 'role_admin' || (role?.name || '').toLowerCase().includes('admin') || isFullAccessMatrix(current);
 
     const normalized = Object.keys(MODULE_KEYS).reduce((acc: PermissionMatrix, key) => {
         const existing = current[key];
+        const extras = MODULE_EXTRA_ACTIONS[key] || [];
         if (existing && typeof existing === 'object') {
-            acc[key] = {
+            const next: ModulePermission = {
                 view: existing.view === true,
                 create: existing.create === true,
                 edit: existing.edit === true,
                 delete: existing.delete === true,
             };
+            // Preserve extra action flags from existing data; fall back to true
+            // for admin-like roles so they keep override capability after migration.
+            extras.forEach((extra) => {
+                const raw = existing[extra.key];
+                next[extra.key] = raw === true || (raw === undefined && isAdminLike);
+            });
+            acc[key] = next;
             return acc;
         }
 
-        acc[key] = { ...fallback };
+        const fresh: ModulePermission = { ...fallback };
+        extras.forEach((extra) => { fresh[extra.key] = isAdminLike; });
+        acc[key] = fresh;
         return acc;
     }, {});
 
@@ -241,9 +282,11 @@ const defaultRoles = [
             ar_payments:  { view: true, create: true,  edit: true,  delete: false },
             ar_credits:   { view: true, create: true,  edit: true,  delete: false },
             ar_customers: { view: true, create: true,  edit: true,  delete: false },
+            ar_customer_categories: { view: true, create: true, edit: true, delete: false },
             ap_bills:     { view: true, create: true,  edit: true,  delete: false },
             ap_payments:  { view: true, create: true,  edit: true,  delete: false },
             ap_vendors:   { view: true, create: true,  edit: true,  delete: false },
+            ap_vendor_categories: { view: true, create: true, edit: true, delete: false },
             inv_items:      { view: true, create: false, edit: false, delete: false },
             inv_categories: { view: true, create: true,  edit: true,  delete: false },
             assets:         { view: true, create: true,  edit: true,  delete: false },
@@ -309,6 +352,17 @@ export const useAccessStore = create<AccessStore>()(
                 const role = get().getCurrentRole();
                 if (!role || !role.permissions[moduleKey]) return false;
                 return role.permissions[moduleKey][action] === true;
+            },
+
+            /**
+             * Check an extra per-module action flag (e.g. reprint, overridePrice).
+             * Returns false if the flag is not explicitly granted on the role.
+             */
+            hasExtraAction: (moduleKey, action) => {
+                const role = get().getCurrentRole();
+                const perm = role?.permissions?.[moduleKey];
+                if (!perm) return false;
+                return perm[action] === true;
             },
 
             /**

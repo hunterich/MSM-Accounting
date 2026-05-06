@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck } from 'lucide-react';
 import SecurityRolesTab from './SecurityRolesTab';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from './DataMigrationPanel';
@@ -39,15 +39,57 @@ interface MenuItem {
     icon: LucideIcon;
 }
 
+interface ToggleRowProps {
+    label: string;
+    checked: boolean;
+    onChange: (next: boolean) => void;
+    hint?: string;
+}
+
+const FeatureRow = ({ label, checked, onChange, hint }: ToggleRowProps) => (
+    <div className="mb-3">
+        <label className="form-label settings-checkbox-label">
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onChange(e.target.checked)}
+                className="settings-checkbox-input"
+            />
+            <span className="settings-label-strong">{label}</span>
+        </label>
+        {hint && <div className="settings-help-text ml-6">{hint}</div>}
+    </div>
+);
+
+const ApprovalRow = ({ label, checked, onChange }: ToggleRowProps) => (
+    <div className="mb-3">
+        <label className="form-label settings-checkbox-label">
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onChange(e.target.checked)}
+                className="settings-checkbox-input"
+            />
+            <span className="settings-label-strong">Require approval for {label}</span>
+        </label>
+    </div>
+);
+
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('customers');
     const storeCompanyInfo = useSettingsStore(s => s.companyInfo);
     const storeTaxSettings = useSettingsStore(s => s.taxSettings);
     const storeCustomerCreditSettings = useSettingsStore(s => s.customerCreditSettings);
+    const storeSalesPolicy = useSettingsStore(s => s.salesPolicy);
+    const storeFeatures = useSettingsStore(s => s.features);
+    const storeApprovalRequirements = useSettingsStore(s => s.approvalRequirements);
     const storeAccountDefaults = useSettingsStore(s => s.accountDefaults ?? DEFAULT_ACCOUNT_DEFAULTS);
     const updateCompanyInfo = useSettingsStore(s => s.updateCompanyInfo);
     const updateTaxSettings = useSettingsStore(s => s.updateTaxSettings);
     const updateCustomerCreditSettings = useSettingsStore(s => s.updateCustomerCreditSettings);
+    const updateSalesPolicy = useSettingsStore(s => s.updateSalesPolicy);
+    const updateFeatures = useSettingsStore(s => s.updateFeatures);
+    const updateApprovalRequirements = useSettingsStore(s => s.updateApprovalRequirements);
     const updateAccountDefaults = useSettingsStore(s => s.updateAccountDefaults);
     const documentNumbering = useSettingsStore(s => s.documentNumbering ?? DEFAULT_DOCUMENT_NUMBERING);
     const updateDocumentNumbering = useSettingsStore(s => s.updateDocumentNumbering);
@@ -60,6 +102,9 @@ const Settings = () => {
         defaultPaymentTerms: String(storeCustomerCreditSettings.defaultPaymentTerms),
         enforceLimit: storeCustomerCreditSettings.enforceLimit,
     });
+    const [salesPolicy, setSalesPolicy] = useState(storeSalesPolicy);
+    const [features, setFeatures] = useState(storeFeatures);
+    const [approvalRequirements, setApprovalRequirements] = useState(storeApprovalRequirements);
     const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
     const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
         require2FA: false,
@@ -77,6 +122,9 @@ const Settings = () => {
     const menuItems: MenuItem[] = [
         { id: 'general', label: 'Company Info', icon: Briefcase },
         { id: 'customers', label: 'Customers & Sales', icon: User },
+        { id: 'features', label: 'Features', icon: ToggleLeft },
+        { id: 'restrictions', label: 'Restrictions', icon: Lock },
+        { id: 'approvals', label: 'Approval Rules', icon: ClipboardCheck },
         { id: 'accounts', label: 'Account Defaults', icon: Briefcase },
         { id: 'numbering', label: 'Document Numbering', icon: Hash },
         { id: 'security', label: 'Security & Roles', icon: Shield },
@@ -125,6 +173,24 @@ const Settings = () => {
             if (!saveCustomerCreditSettings()) {
                 return;
             }
+        }
+
+        if (sectionId === 'features') {
+            updateFeatures(features);
+            // Pajak checkbox in this tab binds to taxData.enabled (single source
+            // of truth) — persist that change here too.
+            updateTaxSettings({ enabled: taxData.enabled });
+        }
+
+        if (sectionId === 'restrictions') {
+            if (!saveCustomerCreditSettings()) {
+                return;
+            }
+            updateSalesPolicy(salesPolicy);
+        }
+
+        if (sectionId === 'approvals') {
+            updateApprovalRequirements(approvalRequirements);
         }
 
         if (sectionId === 'accounts') {
@@ -334,6 +400,55 @@ const Settings = () => {
                             />
                         </div>
 
+                        <div className="settings-help-text mt-2 mb-4">
+                            Looking for the credit-limit and sales-policy rules? They live under <span className="settings-label-strong">Restrictions</span> now.
+                        </div>
+
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('customers')} />
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'features' && (
+                    <Card title="Features">
+                        <p className="settings-muted">
+                            Turn whole modules on or off. Disabled modules disappear from the sidebar for everyone in the organization. Re-enable any time.
+                        </p>
+
+                        <h3 className="settings-section-title mt-4">Sales</h3>
+                        <FeatureRow label="Sales Orders"           checked={features.salesOrders}        onChange={(v) => setFeatures({ ...features, salesOrders: v })} />
+                        <FeatureRow label="Sales Returns"          checked={features.salesReturns}       onChange={(v) => setFeatures({ ...features, salesReturns: v })} />
+                        <FeatureRow label="Recurring Invoices"     checked={features.recurringInvoices}  onChange={(v) => setFeatures({ ...features, recurringInvoices: v })} />
+                        <FeatureRow label="Subscriptions"          checked={features.subscriptions}      onChange={(v) => setFeatures({ ...features, subscriptions: v })} />
+                        <FeatureRow label="Delivery Notes"         checked={features.deliveryNotes}      onChange={(v) => setFeatures({ ...features, deliveryNotes: v })} />
+                        <FeatureRow label="Customer Categories"    checked={features.customerCategories} onChange={(v) => setFeatures({ ...features, customerCategories: v })} />
+                        <FeatureRow label="Approvals"              checked={features.approvals}          onChange={(v) => setFeatures({ ...features, approvals: v })} />
+                        <FeatureRow label="Shop Integrations"      checked={features.shopIntegrations}   onChange={(v) => setFeatures({ ...features, shopIntegrations: v })} />
+
+                        <h3 className="settings-section-title mt-6">Purchases</h3>
+                        <FeatureRow label="Purchase Orders"        checked={features.purchaseOrders}    onChange={(v) => setFeatures({ ...features, purchaseOrders: v })} />
+                        <FeatureRow label="Vendor Categories"      checked={features.vendorCategories}  onChange={(v) => setFeatures({ ...features, vendorCategories: v })} />
+
+                        <h3 className="settings-section-title mt-6">Inventory &amp; Other</h3>
+                        <FeatureRow label="Item Categories"        checked={features.itemCategories}    onChange={(v) => setFeatures({ ...features, itemCategories: v })} />
+                        <FeatureRow label="Fixed Assets"           checked={features.fixedAssets}       onChange={(v) => setFeatures({ ...features, fixedAssets: v })} />
+                        <FeatureRow label="HR &amp; Payroll"       checked={features.hrPayroll}         onChange={(v) => setFeatures({ ...features, hrPayroll: v })} />
+                        <FeatureRow label="Tax (PPN)"              checked={taxData.enabled}            onChange={(v) => setTaxData({ ...taxData, enabled: v })} hint="Mirrors Company Info → Tax Settings."  />
+
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('features')} />
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'restrictions' && (
+                    <Card title="Org-wide Restrictions">
+                        <p className="settings-muted">
+                            Rules that apply across the whole organization. Users with the matching role override flag (under Security &amp; Roles) can bypass each rule.
+                        </p>
+
+                        <h3 className="settings-section-title mt-4">Customer &amp; Credit</h3>
                         <div className="mb-4">
                             <label className="form-label settings-checkbox-label">
                                 <input
@@ -346,8 +461,63 @@ const Settings = () => {
                             </label>
                         </div>
 
+                        <h3 className="settings-section-title mt-6">Sales Policies</h3>
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={salesPolicy.blockSellBelowCost}
+                                    onChange={(e) => setSalesPolicy({ ...salesPolicy, blockSellBelowCost: e.target.checked })}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Block selling below product cost</span>
+                            </label>
+                        </div>
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={salesPolicy.requireSalesOrder}
+                                    onChange={(e) => setSalesPolicy({ ...salesPolicy, requireSalesOrder: e.target.checked })}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Require Sales Order before creating Invoice</span>
+                            </label>
+                        </div>
+
                         <div className="settings-save-wrap">
-                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('customers')} />
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('restrictions')} />
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'approvals' && (
+                    <Card title="Approval Requirements">
+                        <p className="settings-muted">
+                            Pick which modules require approval before create/edit operations take effect. Pending records appear in the Approval Inbox under Sales.
+                        </p>
+                        <div className="settings-help-text mt-1 mb-3">
+                            Note: Phase 1 — these toggles persist your selection. Save-time enforcement in each form is rolled out per module.
+                        </div>
+
+                        <h3 className="settings-section-title mt-4">Accounts Receivable</h3>
+                        <ApprovalRow label="Sales Orders"       checked={approvalRequirements.ar_sales_orders} onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ar_sales_orders: v })} />
+                        <ApprovalRow label="Invoices"           checked={approvalRequirements.ar_invoices}     onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ar_invoices: v })} />
+                        <ApprovalRow label="Receive Payments"   checked={approvalRequirements.ar_payments}     onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ar_payments: v })} />
+                        <ApprovalRow label="Returns &amp; Credits" checked={approvalRequirements.ar_credits}   onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ar_credits: v })} />
+
+                        <h3 className="settings-section-title mt-6">Accounts Payable</h3>
+                        <ApprovalRow label="Purchase Orders"    checked={approvalRequirements.ap_pos}      onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ap_pos: v })} />
+                        <ApprovalRow label="Bills"              checked={approvalRequirements.ap_bills}    onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ap_bills: v })} />
+                        <ApprovalRow label="Send Payments"      checked={approvalRequirements.ap_payments} onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ap_payments: v })} />
+                        <ApprovalRow label="Returns &amp; Debits" checked={approvalRequirements.ap_debits} onChange={(v) => setApprovalRequirements({ ...approvalRequirements, ap_debits: v })} />
+
+                        <h3 className="settings-section-title mt-6">Inventory &amp; HR</h3>
+                        <ApprovalRow label="Stock Adjustments"  checked={approvalRequirements.inv_adj}    onChange={(v) => setApprovalRequirements({ ...approvalRequirements, inv_adj: v })} />
+                        <ApprovalRow label="Payroll Runs"       checked={approvalRequirements.hr_payroll} onChange={(v) => setApprovalRequirements({ ...approvalRequirements, hr_payroll: v })} />
+
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('approvals')} />
                         </div>
                     </Card>
                 )}

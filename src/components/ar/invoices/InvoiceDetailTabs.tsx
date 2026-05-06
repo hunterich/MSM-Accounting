@@ -35,9 +35,10 @@ interface InvoiceDetailTabsProps {
     onPrint?: () => void;
     canEdit?: boolean;
     canDelete?: boolean;
+    canPrint?: boolean;
 }
 
-const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, onPrint, canEdit = true, canDelete = false }) => {
+const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, onPrint, canEdit = true, canDelete = false, canPrint = true }) => {
     const [activeTab, setActiveTab] = useState('items');
 
     const renderTabContent = () => {
@@ -65,7 +66,9 @@ const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, 
                     <StatusTag status={invoice.status} />
                 </div>
                 <div className="flex gap-2">
-                    <Button text="Print" size="small" variant="secondary" onClick={onPrint} />
+                    {canPrint && (
+                        <Button text="Print" size="small" variant="secondary" onClick={onPrint} />
+                    )}
                     <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={onEdit} />
                 </div>
             </div>
