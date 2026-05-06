@@ -4,7 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { postJournalEntry } from '@/lib/journal-posting';
-import { toNumber } from '@/lib/money';
+import { asMoney, toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -47,7 +47,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         ...body,
         number,
         organizationId: orgId,
-        amount: Number(body.amount) || 0,
+        amount: asMoney(toNumber(body.amount)),
         date: new Date(body.date),
       },
     });

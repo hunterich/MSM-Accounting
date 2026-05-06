@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { nextNumber, validateForeignKey } from '@/lib/api-utils';
+import { asMoney, toNumber } from '@/lib/money';
 import type { BillInput } from '@/types/api';
 
 type CreateBillOptions = {
@@ -48,7 +49,9 @@ export async function createBillRecord(
         lineNo: line.lineNo ?? index + 1,
         itemId: line.itemId || null,
         accountId: line.accountId || null,
-        lineTotal: line.lineTotal ?? (Number(line.quantity) * Number(line.price)),
+        lineTotal: line.lineTotal != null
+          ? asMoney(toNumber(line.lineTotal))
+          : asMoney(toNumber(line.quantity) * toNumber(line.price)),
       })),
     });
   }
