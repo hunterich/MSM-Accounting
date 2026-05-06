@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler, ApiError, nextNumber } from '@/lib/api-utils';
 import { arPaymentInputSchema } from '@/types/api';
-import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { toNumber } from '@/lib/money';
 
@@ -96,12 +96,13 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         where: { organizationId: orgId, isActive: true },
         select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
       });
+      const settings = await loadOrgAccountDefaults(tx, orgId);
       const bankAccountId =
         created.depositAccountId
-        ?? resolveAccountDefaultId(accounts, undefined, 'bankAsset');
+        ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
       const arAccountId =
         created.arAccountId
-        ?? resolveAccountDefaultId(accounts, undefined, 'arControl');
+        ?? resolveAccountDefaultId(accounts, settings, 'arControl');
 
       if (bankAccountId && arAccountId) {
         await postJournalEntry(tx, {

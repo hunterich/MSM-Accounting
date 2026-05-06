@@ -7,7 +7,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { nextNumber } from '@/lib/api-utils';
 import { apPaymentInputSchema } from '@/types/api';
-import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { toNumber } from '@/lib/money';
 
@@ -97,12 +97,13 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         where: { organizationId: orgId, isActive: true },
         select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
       });
+      const settings = await loadOrgAccountDefaults(tx, orgId);
       const apAccountId =
         created.apAccountId
-        ?? resolveAccountDefaultId(accounts, undefined, 'apControl');
+        ?? resolveAccountDefaultId(accounts, settings, 'apControl');
       const bankAccountId =
         created.cashAccountId
-        ?? resolveAccountDefaultId(accounts, undefined, 'bankAsset');
+        ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
 
       if (apAccountId && bankAccountId) {
         await postJournalEntry(tx, {

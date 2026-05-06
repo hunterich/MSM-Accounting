@@ -230,6 +230,7 @@ export interface RawOrganizationSettings {
   costingMethodSetAt?: string | null;
   costingMethodSetById?: string | null;
   costingMethodEffectiveDate?: string | null;
+  accountDefaults?: Record<string, string> | null;
 }
 
 export interface RawEcommerceConnection {
@@ -329,6 +330,7 @@ export interface OrganizationSettings {
   costingMethodSetAt: string;
   costingMethodSetById: string;
   costingMethodEffectiveDate: string;
+  accountDefaults: Record<string, string>;
   needsInventoryValuationSetup: boolean;
 }
 

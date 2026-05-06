@@ -349,6 +349,7 @@ export const updateOrganizationSettingsInputSchema = z.object({
   invoiceReminders: z.boolean().optional(),
   paymentAlerts: z.boolean().optional(),
   dailySummary: z.boolean().optional(),
+  accountDefaults: z.record(z.string().min(1), z.string()).optional(),
 });
 
 const documentLineSchema = z.object({

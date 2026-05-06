@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
-import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { toNumber } from '@/lib/money';
 
@@ -60,12 +60,13 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         where: { organizationId: orgId, isActive: true },
         select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
       });
+      const settings = await loadOrgAccountDefaults(tx, orgId);
       const apAccountId =
         created.apAccountId
-        ?? resolveAccountDefaultId(accounts, undefined, 'apControl');
+        ?? resolveAccountDefaultId(accounts, settings, 'apControl');
       const returnAccountId =
         created.returnAccountId
-        ?? resolveAccountDefaultId(accounts, undefined, 'apReturn');
+        ?? resolveAccountDefaultId(accounts, settings, 'apReturn');
 
       if (apAccountId && returnAccountId) {
         await postJournalEntry(tx, {

@@ -5,6 +5,13 @@ import type { OrganizationSettings, RawOrganizationSettings } from '../types';
 export const ORG_SETTINGS_KEY = ['organizationSettings'] as const;
 
 function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInventoryValuationSetup?: boolean }): OrganizationSettings {
+  const rawDefaults = raw.accountDefaults;
+  const accountDefaults: Record<string, string> = {};
+  if (rawDefaults && typeof rawDefaults === 'object') {
+    for (const [k, v] of Object.entries(rawDefaults)) {
+      if (typeof v === 'string' && v.length > 0) accountDefaults[k] = v;
+    }
+  }
   return {
     id: raw.id,
     legalName: raw.legalName || '',
@@ -17,6 +24,7 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
     costingMethodSetAt: raw.costingMethodSetAt ? String(raw.costingMethodSetAt) : '',
     costingMethodSetById: raw.costingMethodSetById || '',
     costingMethodEffectiveDate: raw.costingMethodEffectiveDate ? String(raw.costingMethodEffectiveDate).slice(0, 10) : '',
+    accountDefaults,
     needsInventoryValuationSetup: raw.needsInventoryValuationSetup === true || !raw.costingMethod,
   };
 }
@@ -40,6 +48,12 @@ export function useUpdateOrganizationSettings() {
       qc.invalidateQueries({ queryKey: ORG_SETTINGS_KEY });
     },
   });
+}
+
+/** Convenience hook returning just the org's account-defaults map. */
+export function useAccountDefaults() {
+  const q = useOrganizationSettings();
+  return { ...q, data: q.data?.accountDefaults ?? {} };
 }
 
 /** Convenience alias focused on costing-method updates. */

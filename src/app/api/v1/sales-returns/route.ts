@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 
 export const runtime = 'nodejs';
 
@@ -40,7 +41,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
 
   const salesReturn = await prisma.$transaction(async (tx) => {
     const number = await nextNumber(tx, 'SalesReturn', 'number', 'SRN');
-    return tx.salesReturn.create({
+    const created = await tx.salesReturn.create({
       data: {
         ...header,
         number,
@@ -63,6 +64,17 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           })),
         } : undefined,
       },
+      include: { lines: true },
+    });
+
+    // Post inventory leg if user creates as APPROVED directly. PUT handler
+    // covers DRAFT → APPROVED transitions.
+    if (created.status === 'APPROVED') {
+      await postSalesReturnOnApproval(tx, created.id);
+    }
+
+    return tx.salesReturn.findUniqueOrThrow({
+      where: { id: created.id },
       include: { lines: true },
     });
   });
