@@ -7,6 +7,7 @@ import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@
 import { calculateAndPostCOGS } from '@/lib/inventory-costing';
 import { resolveAccountDefaultId } from '@/lib/account-defaults';
 import { toNumber, asMoney } from '@/lib/money';
+import { postJournalEntry } from '@/lib/journal-posting';
 
 export const runtime = 'nodejs';
 
@@ -149,45 +150,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 );
 
                 if (cogs > 0 && cogsAccountId && inventoryAccountId) {
-                  const cogsEntryRows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-                    SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-                    FROM "JournalEntry"
-                    WHERE "organizationId" = ${existing.organizationId}
-                      AND "entryNo" LIKE ${'JE-%'}
-                  `;
-                  const nextSeq = (Number(cogsEntryRows[0]?.max_seq ?? 0)) + 1;
-                  const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
-
-                  await tx.journalEntry.create({
-                    data: {
-                      organizationId: existing.organizationId,
-                      entryNo,
-                      date: invoiceDate,
-                      memo: `COGS auto-post: ${existing.number}`,
-                      source: 'SYSTEM',
-                      status: 'POSTED',
-                      postedAt: new Date(),
-                      totalDebit: asMoney(cogs),
-                      totalCredit: asMoney(cogs),
-                      lines: {
-                        create: [
-                          {
-                            lineNo: 1,
-                            accountId: cogsAccountId,
-                            description: `COGS - ${existing.number}`,
-                            debit: asMoney(cogs),
-                            credit: 0,
-                          },
-                          {
-                            lineNo: 2,
-                            accountId: inventoryAccountId,
-                            description: `Inventory reduction - ${existing.number}`,
-                            debit: 0,
-                            credit: asMoney(cogs),
-                          },
-                        ],
+                  await postJournalEntry(tx, {
+                    organizationId: existing.organizationId,
+                    date: invoiceDate,
+                    memo: `COGS auto-post: ${existing.number}`,
+                    lines: [
+                      {
+                        accountId: cogsAccountId,
+                        description: `COGS - ${existing.number}`,
+                        debit: cogs,
+                        credit: 0,
                       },
-                    },
+                      {
+                        accountId: inventoryAccountId,
+                        description: `Inventory reduction - ${existing.number}`,
+                        debit: 0,
+                        credit: cogs,
+                      },
+                    ],
                   });
                 }
               }

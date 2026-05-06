@@ -12,6 +12,7 @@ import { createBillRecord } from '@/lib/bills';
 import { addCostLayer } from '@/lib/inventory-costing';
 import { resolveAccountDefaultId } from '@/lib/account-defaults';
 import { toNumber, asMoney } from '@/lib/money';
+import { postJournalEntry } from '@/lib/journal-posting';
 
 export const runtime = 'nodejs';
 
@@ -184,47 +185,24 @@ export const POST = withHandler(async function POST(req: NextRequest) {
 
               if (inventoryAccountId && apAccountId) {
                 const lineTotal = asMoney(qty * unitCost);
-
-                // Generate entryNo for this GL entry
-                const entryRows = await tx.$queryRaw`
-                  SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-                  FROM "JournalEntry"
-                  WHERE "organizationId" = ${orgId}
-                    AND "entryNo" LIKE ${'JE-%'}
-                `;
-                const nextSeq = (Number((entryRows as any)[0]?.max_seq ?? 0)) + 1;
-                const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
-
-                await tx.journalEntry.create({
-                  data: {
-                    organizationId: orgId,
-                    entryNo,
-                    date: billDate,
-                    memo: `Inventory receipt: ${createdBill.number}`,
-                    source: 'SYSTEM',
-                    status: 'POSTED',
-                    postedAt: new Date(),
-                    totalDebit: lineTotal,
-                    totalCredit: lineTotal,
-                    lines: {
-                      create: [
-                        {
-                          lineNo: 1,
-                          accountId: inventoryAccountId,
-                          description: `Inventory - ${createdBill.number}`,
-                          debit: lineTotal,
-                          credit: 0,
-                        },
-                        {
-                          lineNo: 2,
-                          accountId: apAccountId,
-                          description: `AP Control - ${createdBill.number}`,
-                          debit: 0,
-                          credit: lineTotal,
-                        },
-                      ],
+                await postJournalEntry(tx, {
+                  organizationId: orgId,
+                  date: billDate,
+                  memo: `Inventory receipt: ${createdBill.number}`,
+                  lines: [
+                    {
+                      accountId: inventoryAccountId,
+                      description: `Inventory - ${createdBill.number}`,
+                      debit: lineTotal,
+                      credit: 0,
                     },
-                  },
+                    {
+                      accountId: apAccountId,
+                      description: `AP Control - ${createdBill.number}`,
+                      debit: 0,
+                      credit: lineTotal,
+                    },
+                  ],
                 });
               }
             }
