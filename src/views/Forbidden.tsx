@@ -39,6 +39,7 @@ export default function Forbidden() {
       { path: '/ap/payments', moduleKey: 'ap_payments' },
       { path: '/ap/debits', moduleKey: 'ap_debits' },
       { path: '/ap/vendors', moduleKey: 'ap_vendors' },
+      { path: '/ap/vendor-categories', moduleKey: 'ap_vendor_categories' },
       { path: '/inventory/items', moduleKey: 'inv_items' },
       { path: '/inventory/adjustments', moduleKey: 'inv_adj' },
       { path: '/banking', moduleKey: 'banking' },

@@ -140,7 +140,7 @@ function App(): JSX.Element {
                     <Route path="ap/debits/new" element={withPermission(<DebitNoteForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/edit" element={withPermission(<DebitNoteForm />, 'ap_debits', 'edit')} />
                     <Route path="ap/vendors" element={withPermission(<Vendors />, 'ap_vendors')} />
-                    <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendors')} />
+                    <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendor_categories')} />
                     <Route path="ap/vendors/new" element={withPermission(<VendorForm />, 'ap_vendors', 'create')} />
                     <Route path="ap/vendors/edit" element={withPermission(<VendorForm />, 'ap_vendors', 'edit')} />
 

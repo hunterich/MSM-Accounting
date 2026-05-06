@@ -106,6 +106,8 @@ const PARENT_LABEL_FOR: Record<string, string> = {
 };
 
 const COLLAPSED_KEY = 'msm.sidebar.collapsed';
+const allGroupsCollapsed = (): Record<string, boolean> =>
+    NAV_GROUPS.reduce<Record<string, boolean>>((acc, g) => { acc[g.group] = true; return acc; }, {});
 
 const Sidebar = (): React.ReactElement => {
     const location = useLocation();
@@ -113,7 +115,10 @@ const Sidebar = (): React.ReactElement => {
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const [mobileOpen, setMobileOpen] = useState(false);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
-        try { return JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '{}'); } catch { return {}; }
+        try {
+            const raw = localStorage.getItem(COLLAPSED_KEY);
+            return raw ? JSON.parse(raw) : allGroupsCollapsed();
+        } catch { return allGroupsCollapsed(); }
     });
     const [paletteOpen, setPaletteOpen] = useState(false);
 
