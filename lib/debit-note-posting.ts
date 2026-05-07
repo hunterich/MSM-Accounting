@@ -1,13 +1,14 @@
 /**
  * GL posting for DebitNote applied transition.
  *
- * Mirrors `lib/purchase-return-posting.ts` but covers only the AP side
+ * Mirrors `lib/purchase-return-posting.ts` — covers the AP side only
  * (notes have no inventory leg). Books DR AP / CR Purchase-Return for
  * the debit-note amount.
  *
- * Idempotency: see `credit-note-posting.ts` — the schema has no
- * journalEntryId column, so the calling PUT handler enforces the
- * DRAFT → APPLIED transition guard and refuses APPLIED → DRAFT.
+ * Idempotency: short-circuits when `debitNote.journalEntryId` is already
+ * set (DB-token, parity with purchase-return-posting). The PUT handler
+ * additionally rejects any `* → DRAFT` transition once the note has left
+ * DRAFT. Belt and suspenders.
  */
 import type { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
@@ -30,9 +31,13 @@ export async function postDebitNoteOnApply(
       amount: true,
       apAccountId: true,
       returnAccountId: true,
+      journalEntryId: true,
     },
   });
   if (!dn) throw new Error(`DebitNote ${debitNoteId} not found`);
+
+  // Idempotency token — already posted, nothing to do.
+  if (dn.journalEntryId) return;
 
   const amount = toNumber(dn.amount);
   if (amount <= 0) {
@@ -55,7 +60,7 @@ export async function postDebitNoteOnApply(
     );
   }
 
-  await postJournalEntry(tx, {
+  const je = await postJournalEntry(tx, {
     organizationId: dn.organizationId,
     date: dn.date,
     memo: `Debit note: ${dn.number}`,
@@ -73,5 +78,10 @@ export async function postDebitNoteOnApply(
         credit: amount,
       },
     ],
+  });
+
+  await tx.debitNote.update({
+    where: { id: dn.id },
+    data: { journalEntryId: je.id, postedAt: new Date() },
   });
 }

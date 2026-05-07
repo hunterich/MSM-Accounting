@@ -226,6 +226,8 @@ model JournalEntry {
   payrollRuns    PayrollRun[]
   salesReturns    SalesReturn[]    @relation("SalesReturnJournal")
   purchaseReturns PurchaseReturn[] @relation("PurchaseReturnJournal")
+  creditNote      CreditNote?      @relation("CreditNoteJournal")
+  debitNote       DebitNote?       @relation("DebitNoteJournal")
 
   @@unique([organizationId, entryNo])
   @@index([organizationId, date, status])
@@ -702,6 +704,8 @@ model CreditNote {
   amount             Decimal           @default(0) @db.Decimal(18, 2)
   note               String?
   status             CreditNoteStatus  @default(DRAFT)
+  journalEntryId     String?           @unique
+  postedAt           DateTime?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
@@ -709,6 +713,7 @@ model CreditNote {
   salesReturn        SalesReturn?      @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
   customer           Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   sourceInvoice      SalesInvoice?     @relation(fields: [sourceInvoiceId], references: [id], onDelete: SetNull)
+  journalEntry       JournalEntry?     @relation("CreditNoteJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, number])
   @@index([organizationId, date])
@@ -999,6 +1004,8 @@ model DebitNote {
   amount             Decimal           @default(0) @db.Decimal(18, 2)
   note               String?
   status             DebitNoteStatus   @default(DRAFT)
+  journalEntryId     String?           @unique
+  postedAt           DateTime?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
@@ -1006,6 +1013,7 @@ model DebitNote {
   purchaseReturn     PurchaseReturn?   @relation(fields: [purchaseReturnId], references: [id], onDelete: SetNull)
   vendor             Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   sourceBill         Bill?             @relation(fields: [sourceBillId], references: [id], onDelete: SetNull)
+  journalEntry       JournalEntry?     @relation("DebitNoteJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, number])
   @@index([organizationId, date])
