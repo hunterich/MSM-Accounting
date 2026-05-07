@@ -228,8 +228,11 @@ export function requireAuth(req: NextRequest): { orgId: string; userId: string }
  */
 export function withHandler<TContext = unknown>(
   handler: (req: NextRequest, ctx: TContext) => Promise<NextResponse>,
-) {
-  return async (req: NextRequest, ctx?: TContext) => {
+): {
+  (req: NextRequest): Promise<NextResponse>;
+  (req: NextRequest, ctx: TContext): Promise<NextResponse>;
+} {
+  return (async (req: NextRequest, ctx?: TContext) => {
     try {
       return await handler(req, ctx as TContext);
     } catch (error) {
@@ -249,5 +252,8 @@ export function withHandler<TContext = unknown>(
       const message = error instanceof Error ? error.message : 'Internal error';
       return err(message, 500);
     }
+  }) as {
+    (req: NextRequest): Promise<NextResponse>;
+    (req: NextRequest, ctx: TContext): Promise<NextResponse>;
   };
 }
