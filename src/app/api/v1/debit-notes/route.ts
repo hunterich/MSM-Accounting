@@ -2,9 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
-import { postJournalEntry } from '@/lib/journal-posting';
-import { toNumber } from '@/lib/money';
+import { asMoney, toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -36,62 +34,26 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
+// POST creates a DRAFT debit note. The GL posting (DR AP / CR Purchase-Return)
+// is deferred to the DRAFT → APPLIED transition handled in `[id]/route.ts`,
+// so an unapproved draft never hits the ledger. Any client-supplied status
+// is ignored — applying happens through the PUT handler only.
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
 
   const debitNote = await prisma.$transaction(async (tx) => {
     const number = await nextNumber(tx, 'DebitNote', 'number', 'DBN');
-    const created = await tx.debitNote.create({
+    return tx.debitNote.create({
       data: {
         ...body,
         number,
         organizationId: orgId,
-        amount: Number(body.amount) || 0,
+        amount: asMoney(toNumber(body.amount)),
         date: new Date(body.date),
+        status: 'DRAFT',
       },
     });
-
-    // Post DR AP / CR Purchase Return for the debited amount.
-    // Note: schema stores a flat `amount` without explicit tax breakdown.
-    const amount = toNumber(created.amount);
-    if (amount > 0) {
-      const accounts = await tx.account.findMany({
-        where: { organizationId: orgId, isActive: true },
-        select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-      });
-      const settings = await loadOrgAccountDefaults(tx, orgId);
-      const apAccountId =
-        created.apAccountId
-        ?? resolveAccountDefaultId(accounts, settings, 'apControl');
-      const returnAccountId =
-        created.returnAccountId
-        ?? resolveAccountDefaultId(accounts, settings, 'apReturn');
-
-      if (apAccountId && returnAccountId) {
-        await postJournalEntry(tx, {
-          organizationId: orgId,
-          date: new Date(created.date),
-          memo: `Debit note: ${created.number}`,
-          lines: [
-            {
-              accountId: apAccountId,
-              description: `AP reduction - ${created.number}`,
-              debit: amount,
-              credit: 0,
-            },
-            {
-              accountId: returnAccountId,
-              description: `Purchase return - ${created.number}`,
-              debit: 0,
-              credit: amount,
-            },
-          ],
-        });
-      }
-    }
-
-    return created;
   });
 
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'DebitNote', entityId: debitNote.id, action: 'CREATE', payload: { number: debitNote.number } });
