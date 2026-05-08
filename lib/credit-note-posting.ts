@@ -1,18 +1,17 @@
 /**
  * GL posting for CreditNote applied transition.
  *
- * Mirrors `lib/sales-return-posting.ts` but covers only the AR side
- * (notes have no inventory leg). Books DR Sales-Return / CR AR for the
+ * Mirrors `lib/sales-return-posting.ts` — covers the AR side only (notes
+ * have no inventory leg). Books DR Sales-Return / CR AR for the
  * credit-note amount.
  *
- * Idempotency: the CreditNote schema does not have a `journalEntryId`
- * column, so callers must guard against double-posting at the status-
- * transition boundary. The convention is: only call this from a
- * DRAFT → APPLIED PUT, and forbid APPLIED → DRAFT in that handler so
- * the same note can never re-enter DRAFT and re-trigger the post.
+ * Idempotency: short-circuits when `creditNote.journalEntryId` is already
+ * set (DB-token, parity with sales-return-posting). The PUT handler
+ * additionally rejects any `* → DRAFT` transition once the note has left
+ * DRAFT, so a voided note can't be re-DRAFTed and re-applied. Belt and
+ * suspenders.
  *
- * Throws if account defaults are missing or amount is non-positive,
- * matching the failure mode of `postSalesReturnOnApproval`.
+ * Throws if account defaults are missing or amount is non-positive.
  */
 import type { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
@@ -35,9 +34,13 @@ export async function postCreditNoteOnApply(
       amount: true,
       returnAccountId: true,
       arAccountId: true,
+      journalEntryId: true,
     },
   });
   if (!cn) throw new Error(`CreditNote ${creditNoteId} not found`);
+
+  // Idempotency token — already posted, nothing to do.
+  if (cn.journalEntryId) return;
 
   const amount = toNumber(cn.amount);
   if (amount <= 0) {
@@ -60,7 +63,7 @@ export async function postCreditNoteOnApply(
     );
   }
 
-  await postJournalEntry(tx, {
+  const je = await postJournalEntry(tx, {
     organizationId: cn.organizationId,
     date: cn.date,
     memo: `Credit note: ${cn.number}`,
@@ -78,5 +81,10 @@ export async function postCreditNoteOnApply(
         credit: amount,
       },
     ],
+  });
+
+  await tx.creditNote.update({
+    where: { id: cn.id },
+    data: { journalEntryId: je.id, postedAt: new Date() },
   });
 }

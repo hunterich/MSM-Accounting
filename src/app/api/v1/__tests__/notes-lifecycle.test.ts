@@ -1,16 +1,18 @@
 /**
  * Credit-note and debit-note GL lifecycle tests.
  *
- * Bug being fixed: previously the POST handler immediately posted a journal
- * entry whenever amount > 0, regardless of the schema-default DRAFT status —
- * so an unapproved draft was already hitting the ledger and bypassing
- * approval. The fix moves the posting to the DRAFT → APPLIED transition in
- * the [id] PUT handler, mirroring the sales-return / purchase-return flow.
+ * Original fix (#22) moved the JE posting from POST to the DRAFT → APPLIED
+ * transition. Follow-up (this PR) adds DB-token idempotency now that
+ * CreditNote/DebitNote have `journalEntryId` columns, plus edit/delete
+ * guards on posted notes.
  *
- * The CreditNote / DebitNote schemas have no `journalEntryId` column, so
- * idempotency is enforced at the transition boundary: DRAFT → APPLIED posts
- * once, and APPLIED → DRAFT is rejected (so the same note can never re-enter
- * DRAFT and trigger a duplicate post).
+ * Lifecycle contract (mirrors sales-return / purchase-return now):
+ *   - POST always creates DRAFT, never books a JE
+ *   - PUT DRAFT → APPLIED books exactly one balanced JE and stamps
+ *     `journalEntryId` + `postedAt` on the note
+ *   - PUT * → DRAFT is rejected once the note has left DRAFT
+ *   - PUT on a posted note (any field beyond `status`) is rejected
+ *   - DELETE on a posted note is rejected — must be voided first
  *
  * These tests run against a mocked Prisma so no DB is needed.
  */
@@ -21,8 +23,13 @@ import { NextRequest } from 'next/server';
 
 const journalEntryCreates: Array<{ data: Record<string, unknown> }> = [];
 
-let creditNoteRow: { id: string; status: 'DRAFT' | 'APPLIED' | 'VOID' } | null = null;
-let debitNoteRow: { id: string; status: 'DRAFT' | 'APPLIED' | 'VOID' } | null = null;
+type NoteRow = {
+  id: string;
+  status: 'DRAFT' | 'APPLIED' | 'VOID';
+  journalEntryId: string | null;
+};
+let creditNoteRow: NoteRow | null = null;
+let debitNoteRow: NoteRow | null = null;
 
 const txStub = () => ({
   $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 50 }]),
@@ -38,9 +45,12 @@ const txStub = () => ({
       arAccountId: null,
     })),
     update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-      // Mutate the in-memory row so subsequent reads see the new status.
+      // Mutate the in-memory row so subsequent reads see the new state.
       if (creditNoteRow && typeof data.status === 'string') {
         creditNoteRow.status = data.status as 'DRAFT' | 'APPLIED' | 'VOID';
+      }
+      if (creditNoteRow && typeof data.journalEntryId === 'string') {
+        creditNoteRow.journalEntryId = data.journalEntryId;
       }
       return { id: 'cn-1', ...data };
     }),
@@ -53,6 +63,7 @@ const txStub = () => ({
       amount: 1000,
       returnAccountId: null,
       arAccountId: null,
+      journalEntryId: creditNoteRow?.journalEntryId ?? null,
     })),
   },
   debitNote: {
@@ -70,6 +81,9 @@ const txStub = () => ({
       if (debitNoteRow && typeof data.status === 'string') {
         debitNoteRow.status = data.status as 'DRAFT' | 'APPLIED' | 'VOID';
       }
+      if (debitNoteRow && typeof data.journalEntryId === 'string') {
+        debitNoteRow.journalEntryId = data.journalEntryId;
+      }
       return { id: 'dn-1', ...data };
     }),
     findFirst: vi.fn(async () => (debitNoteRow ? { ...debitNoteRow } : null)),
@@ -81,6 +95,7 @@ const txStub = () => ({
       amount: 500,
       apAccountId: null,
       returnAccountId: null,
+      journalEntryId: debitNoteRow?.journalEntryId ?? null,
     })),
   },
   journalEntry: {
@@ -99,10 +114,26 @@ const txStub = () => ({
   },
 });
 
+const deleteCalls = { creditNote: 0, debitNote: 0 };
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    creditNote: { findFirst: vi.fn(async () => (creditNoteRow ? { ...creditNoteRow } : null)) },
-    debitNote: { findFirst: vi.fn(async () => (debitNoteRow ? { ...debitNoteRow } : null)) },
+    creditNote: {
+      findFirst: vi.fn(async () => (creditNoteRow ? { ...creditNoteRow } : null)),
+      delete: vi.fn(async () => {
+        deleteCalls.creditNote++;
+        creditNoteRow = null;
+        return { id: 'cn-1' };
+      }),
+    },
+    debitNote: {
+      findFirst: vi.fn(async () => (debitNoteRow ? { ...debitNoteRow } : null)),
+      delete: vi.fn(async () => {
+        deleteCalls.debitNote++;
+        debitNoteRow = null;
+        return { id: 'dn-1' };
+      }),
+    },
     $transaction: vi.fn(async (cb: (tx: ReturnType<typeof txStub>) => Promise<unknown>) => cb(txStub())),
   },
 }));
@@ -142,9 +173,9 @@ vi.mock('@/lib/account-defaults', () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { POST as createCreditNote } from '../credit-notes/route';
-import { PUT as updateCreditNote } from '../credit-notes/[id]/route';
+import { PUT as updateCreditNote, DELETE as deleteCreditNote } from '../credit-notes/[id]/route';
 import { POST as createDebitNote } from '../debit-notes/route';
-import { PUT as updateDebitNote } from '../debit-notes/[id]/route';
+import { PUT as updateDebitNote, DELETE as deleteDebitNote } from '../debit-notes/[id]/route';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -164,10 +195,19 @@ function makePut(path: string, body: unknown): NextRequest {
   });
 }
 
+function makeDelete(path: string): NextRequest {
+  return new NextRequest(`http://localhost${path}`, {
+    method: 'DELETE',
+    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1' },
+  });
+}
+
 beforeEach(() => {
   journalEntryCreates.length = 0;
   creditNoteRow = null;
   debitNoteRow = null;
+  deleteCalls.creditNote = 0;
+  deleteCalls.debitNote = 0;
   vi.clearAllMocks();
 });
 
@@ -199,7 +239,7 @@ describe('credit notes — GL lifecycle', () => {
   });
 
   it('PUT DRAFT → APPLIED books exactly one balanced journal entry', async () => {
-    creditNoteRow = { id: 'cn-1', status: 'DRAFT' };
+    creditNoteRow = { id: 'cn-1', status: 'DRAFT', journalEntryId: null };
     const res = await updateCreditNote(
       makePut('/api/v1/credit-notes/cn-1', { status: 'APPLIED' }),
       { params: Promise.resolve({ id: 'cn-1' }) },
@@ -219,10 +259,10 @@ describe('credit notes — GL lifecycle', () => {
     expect(debits).toBe(credits);
   });
 
-  it('PUT APPLIED → APPLIED (re-PATCH with same status) does not duplicate the journal entry', async () => {
-    creditNoteRow = { id: 'cn-1', status: 'APPLIED' };
+  it('PUT APPLIED → APPLIED (status-only re-PATCH) does not duplicate the journal entry', async () => {
+    creditNoteRow = { id: 'cn-1', status: 'APPLIED', journalEntryId: 'je-1' };
     const res = await updateCreditNote(
-      makePut('/api/v1/credit-notes/cn-1', { status: 'APPLIED', note: 'updated' }),
+      makePut('/api/v1/credit-notes/cn-1', { status: 'APPLIED' }),
       { params: Promise.resolve({ id: 'cn-1' }) },
     );
 
@@ -231,7 +271,7 @@ describe('credit notes — GL lifecycle', () => {
   });
 
   it('PUT APPLIED → DRAFT is rejected so the note can never re-enter DRAFT and re-post', async () => {
-    creditNoteRow = { id: 'cn-1', status: 'APPLIED' };
+    creditNoteRow = { id: 'cn-1', status: 'APPLIED', journalEntryId: 'je-1' };
     const res = await updateCreditNote(
       makePut('/api/v1/credit-notes/cn-1', { status: 'DRAFT' }),
       { params: Promise.resolve({ id: 'cn-1' }) },
@@ -242,7 +282,7 @@ describe('credit notes — GL lifecycle', () => {
   });
 
   it('PUT DRAFT → VOID does not post a journal entry', async () => {
-    creditNoteRow = { id: 'cn-1', status: 'DRAFT' };
+    creditNoteRow = { id: 'cn-1', status: 'DRAFT', journalEntryId: null };
     await updateCreditNote(
       makePut('/api/v1/credit-notes/cn-1', { status: 'VOID' }),
       { params: Promise.resolve({ id: 'cn-1' }) },
@@ -280,7 +320,7 @@ describe('debit notes — GL lifecycle', () => {
   });
 
   it('PUT DRAFT → APPLIED books exactly one balanced journal entry', async () => {
-    debitNoteRow = { id: 'dn-1', status: 'DRAFT' };
+    debitNoteRow = { id: 'dn-1', status: 'DRAFT', journalEntryId: null };
     const res = await updateDebitNote(
       makePut('/api/v1/debit-notes/dn-1', { status: 'APPLIED' }),
       { params: Promise.resolve({ id: 'dn-1' }) },
@@ -300,10 +340,10 @@ describe('debit notes — GL lifecycle', () => {
     expect(debits).toBe(credits);
   });
 
-  it('PUT APPLIED → APPLIED does not duplicate the journal entry', async () => {
-    debitNoteRow = { id: 'dn-1', status: 'APPLIED' };
+  it('PUT APPLIED → APPLIED (status-only) does not duplicate the journal entry', async () => {
+    debitNoteRow = { id: 'dn-1', status: 'APPLIED', journalEntryId: 'je-1' };
     const res = await updateDebitNote(
-      makePut('/api/v1/debit-notes/dn-1', { status: 'APPLIED', note: 'still applied' }),
+      makePut('/api/v1/debit-notes/dn-1', { status: 'APPLIED' }),
       { params: Promise.resolve({ id: 'dn-1' }) },
     );
 
@@ -312,7 +352,7 @@ describe('debit notes — GL lifecycle', () => {
   });
 
   it('PUT APPLIED → DRAFT is rejected', async () => {
-    debitNoteRow = { id: 'dn-1', status: 'APPLIED' };
+    debitNoteRow = { id: 'dn-1', status: 'APPLIED', journalEntryId: 'je-1' };
     const res = await updateDebitNote(
       makePut('/api/v1/debit-notes/dn-1', { status: 'DRAFT' }),
       { params: Promise.resolve({ id: 'dn-1' }) },
@@ -320,5 +360,175 @@ describe('debit notes — GL lifecycle', () => {
 
     expect(res.status).toBe(422);
     expect(journalEntryCreates).toHaveLength(0);
+  });
+});
+
+// ── DB-token idempotency + edit/delete guards (this PR's new behavior) ───────
+
+describe('credit notes — DB-token idempotency and edit/delete guards', () => {
+  it('helper short-circuits when journalEntryId is already set: no second JE on a re-applied note', async () => {
+    // Simulate the unlikely case where two PUT DRAFT→APPLIED requests
+    // race past the status guard (e.g. concurrent transactions seeing
+    // prior.status='DRAFT'). The second-mover finds the JE token set
+    // and short-circuits inside the helper.
+    creditNoteRow = { id: 'cn-1', status: 'DRAFT', journalEntryId: 'je-already-posted' };
+    const res = await updateCreditNote(
+      makePut('/api/v1/credit-notes/cn-1', { status: 'APPLIED' }),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(res.status).toBe(200);
+    // The helper read journalEntryId and short-circuited — no new JE.
+    expect(journalEntryCreates).toHaveLength(0);
+  });
+
+  it('PUT on a posted note rejects edits to non-status fields with 422', async () => {
+    creditNoteRow = { id: 'cn-1', status: 'APPLIED', journalEntryId: 'je-1' };
+    const res = await updateCreditNote(
+      makePut('/api/v1/credit-notes/cn-1', { amount: 999, note: 'tampering' }),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/posted credit note/i);
+  });
+
+  it('PUT VOID → DRAFT is rejected (closes the VOID → DRAFT → APPLIED double-post gap)', async () => {
+    creditNoteRow = { id: 'cn-1', status: 'VOID', journalEntryId: 'je-1' };
+    const res = await updateCreditNote(
+      makePut('/api/v1/credit-notes/cn-1', { status: 'DRAFT' }),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(res.status).toBe(422);
+  });
+
+  it('legacy fallback: posted note with null journalEntryId still blocked from edit', async () => {
+    // No production data exists, but defense-in-depth: if some upstream
+    // path ever marks a note APPLIED without setting journalEntryId,
+    // the status check still triggers the edit guard.
+    creditNoteRow = { id: 'cn-1', status: 'APPLIED', journalEntryId: null };
+    const res = await updateCreditNote(
+      makePut('/api/v1/credit-notes/cn-1', { amount: 100 }),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(res.status).toBe(422);
+  });
+
+  it('DELETE on a DRAFT note succeeds', async () => {
+    creditNoteRow = { id: 'cn-1', status: 'DRAFT', journalEntryId: null };
+    const res = await deleteCreditNote(
+      makeDelete('/api/v1/credit-notes/cn-1'),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(deleteCalls.creditNote).toBe(1);
+  });
+
+  it('DELETE on a posted note returns 422 — must be voided first', async () => {
+    creditNoteRow = { id: 'cn-1', status: 'APPLIED', journalEntryId: 'je-1' };
+    const res = await deleteCreditNote(
+      makeDelete('/api/v1/credit-notes/cn-1'),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(res.status).toBe(422);
+    expect(deleteCalls.creditNote).toBe(0);
+  });
+
+  it('DRAFT note: PUT can edit amount and date freely', async () => {
+    creditNoteRow = { id: 'cn-1', status: 'DRAFT', journalEntryId: null };
+    const res = await updateCreditNote(
+      makePut('/api/v1/credit-notes/cn-1', { amount: 250, note: 'still drafting' }),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('debit notes — DB-token idempotency and edit/delete guards', () => {
+  it('helper short-circuits when journalEntryId is already set', async () => {
+    debitNoteRow = { id: 'dn-1', status: 'DRAFT', journalEntryId: 'je-already-posted' };
+    const res = await updateDebitNote(
+      makePut('/api/v1/debit-notes/dn-1', { status: 'APPLIED' }),
+      { params: Promise.resolve({ id: 'dn-1' }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(journalEntryCreates).toHaveLength(0);
+  });
+
+  it('PUT on a posted note rejects edits to non-status fields with 422', async () => {
+    debitNoteRow = { id: 'dn-1', status: 'APPLIED', journalEntryId: 'je-1' };
+    const res = await updateDebitNote(
+      makePut('/api/v1/debit-notes/dn-1', { amount: 999 }),
+      { params: Promise.resolve({ id: 'dn-1' }) },
+    );
+
+    expect(res.status).toBe(422);
+  });
+
+  it('PUT VOID → DRAFT is rejected', async () => {
+    debitNoteRow = { id: 'dn-1', status: 'VOID', journalEntryId: 'je-1' };
+    const res = await updateDebitNote(
+      makePut('/api/v1/debit-notes/dn-1', { status: 'DRAFT' }),
+      { params: Promise.resolve({ id: 'dn-1' }) },
+    );
+
+    expect(res.status).toBe(422);
+  });
+
+  it('DELETE on a posted note returns 422', async () => {
+    debitNoteRow = { id: 'dn-1', status: 'APPLIED', journalEntryId: 'je-1' };
+    const res = await deleteDebitNote(
+      makeDelete('/api/v1/debit-notes/dn-1'),
+      { params: Promise.resolve({ id: 'dn-1' }) },
+    );
+
+    expect(res.status).toBe(422);
+    expect(deleteCalls.debitNote).toBe(0);
+  });
+
+  it('DELETE on a DRAFT note succeeds', async () => {
+    debitNoteRow = { id: 'dn-1', status: 'DRAFT', journalEntryId: null };
+    const res = await deleteDebitNote(
+      makeDelete('/api/v1/debit-notes/dn-1'),
+      { params: Promise.resolve({ id: 'dn-1' }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(deleteCalls.debitNote).toBe(1);
+  });
+});
+
+describe('credit notes — DRAFT → APPLIED writes the journalEntryId token', () => {
+  it('after DRAFT → APPLIED, the in-memory note has journalEntryId set (idempotency token persisted)', async () => {
+    creditNoteRow = { id: 'cn-1', status: 'DRAFT', journalEntryId: null };
+    await updateCreditNote(
+      makePut('/api/v1/credit-notes/cn-1', { status: 'APPLIED' }),
+      { params: Promise.resolve({ id: 'cn-1' }) },
+    );
+
+    expect(journalEntryCreates).toHaveLength(1);
+    // The helper called `tx.creditNote.update({ data: { journalEntryId, postedAt } })`
+    // which our mock applied to the in-memory row.
+    expect(creditNoteRow!.journalEntryId).toBe('je-1');
+  });
+});
+
+describe('debit notes — DRAFT → APPLIED writes the journalEntryId token', () => {
+  it('after DRAFT → APPLIED, the in-memory note has journalEntryId set', async () => {
+    debitNoteRow = { id: 'dn-1', status: 'DRAFT', journalEntryId: null };
+    await updateDebitNote(
+      makePut('/api/v1/debit-notes/dn-1', { status: 'APPLIED' }),
+      { params: Promise.resolve({ id: 'dn-1' }) },
+    );
+
+    expect(journalEntryCreates).toHaveLength(1);
+    expect(debitNoteRow!.journalEntryId).toBe('je-1');
   });
 });
