@@ -9,13 +9,25 @@
  * set (DB-token, parity with purchase-return-posting). The PUT handler
  * additionally rejects any `* → DRAFT` transition once the note has left
  * DRAFT. Belt and suspenders.
+ *
+ * Concurrent-apply race: see `credit-note-posting.ts` — same handling.
  */
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { toNumber } from './money';
+import { ApiError } from './api-utils';
 
 type Tx = Prisma.TransactionClient;
+
+function isJournalEntryIdUniqueViolation(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== 'P2002') return false;
+  const target = (error.meta as { target?: unknown } | undefined)?.target;
+  if (Array.isArray(target)) return target.includes('journalEntryId');
+  if (typeof target === 'string') return target.includes('journalEntryId');
+  return false;
+}
 
 export async function postDebitNoteOnApply(
   tx: Tx,
@@ -80,8 +92,18 @@ export async function postDebitNoteOnApply(
     ],
   });
 
-  await tx.debitNote.update({
-    where: { id: dn.id },
-    data: { journalEntryId: je.id, postedAt: new Date() },
-  });
+  try {
+    await tx.debitNote.update({
+      where: { id: dn.id },
+      data: { journalEntryId: je.id, postedAt: new Date() },
+    });
+  } catch (error) {
+    if (isJournalEntryIdUniqueViolation(error)) {
+      throw new ApiError(
+        `DebitNote ${dn.number} has already been posted to the ledger`,
+        409,
+      );
+    }
+    throw error;
+  }
 }

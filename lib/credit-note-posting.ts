@@ -11,14 +11,29 @@
  * DRAFT, so a voided note can't be re-DRAFTed and re-applied. Belt and
  * suspenders.
  *
- * Throws if account defaults are missing or amount is non-positive.
+ * Concurrent-apply race: if two DRAFT → APPLIED requests both pass the
+ * up-front `journalEntryId` check, the second writer's `update` trips
+ * the `@unique` constraint on `journalEntryId` (P2002). We catch that
+ * specific case and rethrow as `ApiError(409)` so the route returns a
+ * clean 409 instead of a generic 500. The transaction rolls back the
+ * second writer's JE.create, so no duplicate entry persists.
  */
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { toNumber } from './money';
+import { ApiError } from './api-utils';
 
 type Tx = Prisma.TransactionClient;
+
+function isJournalEntryIdUniqueViolation(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== 'P2002') return false;
+  const target = (error.meta as { target?: unknown } | undefined)?.target;
+  if (Array.isArray(target)) return target.includes('journalEntryId');
+  if (typeof target === 'string') return target.includes('journalEntryId');
+  return false;
+}
 
 export async function postCreditNoteOnApply(
   tx: Tx,
@@ -83,8 +98,18 @@ export async function postCreditNoteOnApply(
     ],
   });
 
-  await tx.creditNote.update({
-    where: { id: cn.id },
-    data: { journalEntryId: je.id, postedAt: new Date() },
-  });
+  try {
+    await tx.creditNote.update({
+      where: { id: cn.id },
+      data: { journalEntryId: je.id, postedAt: new Date() },
+    });
+  } catch (error) {
+    if (isJournalEntryIdUniqueViolation(error)) {
+      throw new ApiError(
+        `CreditNote ${cn.number} has already been posted to the ledger`,
+        409,
+      );
+    }
+    throw error;
+  }
 }
