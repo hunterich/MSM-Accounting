@@ -194,7 +194,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                                 onChange={(e) => setEditingRole({ ...editingRole, isActive: e.target.checked })}
                                 className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
                             />
-                            Role is Active (Aktif)
+                            Role is Active
                         </label>
                     </div>
                 </div>
@@ -203,7 +203,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                 <div className="mb-6 p-4 bg-neutral-50 border border-neutral-200 rounded-lg">
                     <h4 className="text-sm font-semibold text-neutral-800 mb-3 flex items-center gap-2">
                         <Clock size={16} className="text-primary-600" />
-                        Pembatasan Akses (Access Restrictions — Time & Day)
+                        Access Restrictions (Time & Day)
                     </h4>
                     <div className="grid grid-cols-12 gap-5">
                         <div className="col-span-6">
@@ -275,12 +275,12 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                         <table className="w-full text-left border-collapse bg-white">
                             <thead className="bg-neutral-100 border-b border-neutral-200 sticky top-0">
                                 <tr>
-                                    <th className="p-3 text-sm font-semibold text-neutral-700">Hak Akses</th>
-                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Aktif</th>
-                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Buat</th>
-                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Ubah</th>
-                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Hapus</th>
-                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Lihat</th>
+                                    <th className="p-3 text-sm font-semibold text-neutral-700">Permission</th>
+                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Active</th>
+                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Create</th>
+                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Edit</th>
+                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Delete</th>
+                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">View</th>
                                 </tr>
                             </thead>
                             <tbody>

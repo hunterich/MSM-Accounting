@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid integration payload', issues: parsed.error.issues }, { status: 400 }));
     }
-    const { shopName, platform, status, importStatusFilter, customerId, holdingAccountId, itemMappings } = parsed.data;
+    const { shopName, platform, status, importStatusFilter, customerId, holdingAccountId, itemMappings, mappings } = parsed.data;
 
     await validateConnectionForeignKeys(orgId, customerId, holdingAccountId);
 
@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
         status: status as any,
         importStatusFilter,
         itemMappings,
+        mappings: mappings ? (mappings as Prisma.InputJsonValue) : Prisma.JsonNull,
       };
 
       return tx.ecommerceConnection.create({

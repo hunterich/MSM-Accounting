@@ -7,6 +7,7 @@ import type {
   EcommercePlatform,
   ConnectionStatus,
   ImportStatusFilter,
+  ShopMappings,
 } from '../types';
 
 export const INTEGRATION_KEYS = {
@@ -64,6 +65,7 @@ function normalizeConnection(raw: RawEcommerceConnection): EcommerceConnection {
     status: STATUS_DOWN[raw.status ?? ''] ?? 'Active',
     importStatusFilter: FILTER_DOWN[raw.importStatusFilter ?? ''] ?? 'Selesai',
     itemMappings: raw.itemMappings && typeof raw.itemMappings === 'object' ? raw.itemMappings : {},
+    mappings: raw.mappings && typeof raw.mappings === 'object' ? raw.mappings : null,
   };
 }
 
@@ -75,6 +77,7 @@ type ConnectionPayload = {
   status?: ConnectionStatus;
   importStatusFilter?: ImportStatusFilter;
   itemMappings?: Record<string, string>;
+  mappings?: ShopMappings | null;
 };
 
 function serializeConnectionPayload(body: ConnectionPayload) {
@@ -86,6 +89,7 @@ function serializeConnectionPayload(body: ConnectionPayload) {
     ...(body.status && { status: STATUS_UP[body.status] ?? body.status }),
     ...(body.importStatusFilter && { importStatusFilter: body.importStatusFilter }),
     ...(body.itemMappings !== undefined && { itemMappings: body.itemMappings }),
+    ...(body.mappings !== undefined && { mappings: body.mappings }),
   };
 }
 

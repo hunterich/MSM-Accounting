@@ -4,7 +4,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, ok, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { createCustomerInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -31,9 +31,9 @@ async function resolveCustomerCategoryId(orgId: string, categoryId?: string | nu
     where: { organizationId: orgId, name: categoryName },
     select: { id: true },
   });
-  if (!category) {
-    throw new ApiError('Customer category not found in organization', 404);
-  }
+  // A stale category name (legacy seed value that never made it to the DB)
+  // shouldn't block create — fall through with no category set.
+  if (!category) return null;
   return category.id;
 }
 

@@ -85,6 +85,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       ...(body.customerId !== undefined && { customerId: typeof body.customerId === 'string' && body.customerId.trim() ? body.customerId.trim() : null }),
       ...(body.holdingAccountId !== undefined && { holdingAccountId: typeof body.holdingAccountId === 'string' && body.holdingAccountId.trim() ? body.holdingAccountId.trim() : null }),
       ...(body.itemMappings !== undefined && { itemMappings: toMappings(body.itemMappings) }),
+      ...(body.mappings !== undefined && { mappings: body.mappings }),
     });
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid integration payload', issues: parsed.error.issues }, { status: 400 }));

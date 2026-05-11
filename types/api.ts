@@ -634,6 +634,60 @@ export const employeeInputSchema = z.object({
 
 export const updateEmployeeInputSchema = employeeInputSchema.omit({ organizationId: true }).partial();
 
+// Per-shop accounting mappings stored on EcommerceConnection.mappings (JSONB).
+// Account ids are nullable so an operator can save a partial draft.
+const accountIdField = z.string().trim().min(1).nullable().optional();
+
+const feesSchema = z.object({
+  sellerDiscountAccountId: accountIdField,
+  shippingVarianceAccountId: accountIdField,
+  platformFeeAccountId: accountIdField,
+  adjustmentAccountId: accountIdField,
+  affiliateFeeAccountId: accountIdField,
+}).partial();
+
+const shippingSchema = z.object({
+  buyerShippingRevenueAccountId: accountIdField,
+  actualShippingCostAccountId: accountIdField,
+  platformShippingSubsidyAccountId: accountIdField,
+  shippingInsuranceAccountId: accountIdField,
+  codFeeAccountId: accountIdField,
+}).partial();
+
+const othersSchema = z.object({
+  refundAccountId: accountIdField,
+  sellerVoucherAccountId: accountIdField,
+  platformVoucherAccountId: accountIdField,
+  coinCashbackAccountId: accountIdField,
+  withholdingTaxAccountId: accountIdField,
+  roundingAccountId: accountIdField,
+  notes: z.string().trim().max(2000).optional(),
+}).partial();
+
+export const shopMappingsSchema = z.object({
+  paymentMode: z.enum(['direct', 'settlement_import']).default('settlement_import'),
+  vatInclusive: z.boolean().default(false),
+  fees: feesSchema.optional(),
+  shipping: shippingSchema.optional(),
+  others: othersSchema.optional(),
+}).superRefine((val, ctx) => {
+  if (val.paymentMode !== 'settlement_import') return;
+  const required: Array<[keyof z.infer<typeof feesSchema>, string]> = [
+    ['sellerDiscountAccountId', 'Seller discount account is required when using settlement import.'],
+    ['shippingVarianceAccountId', 'Shipping variance account is required when using settlement import.'],
+    ['platformFeeAccountId', 'Platform fee account is required when using settlement import.'],
+    ['adjustmentAccountId', 'Adjustment account is required when using settlement import.'],
+    ['affiliateFeeAccountId', 'Affiliate fee account is required when using settlement import.'],
+  ];
+  for (const [field, message] of required) {
+    if (!val.fees?.[field]) {
+      ctx.addIssue({ code: 'custom', path: ['fees', field as string], message });
+    }
+  }
+});
+
+export type ShopMappings = z.infer<typeof shopMappingsSchema>;
+
 export const integrationInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   platform: z.enum(['SHOPEE', 'TIKTOK', 'TOKOPEDIA', 'LAZADA', 'OTHER']),
@@ -643,6 +697,7 @@ export const integrationInputSchema = z.object({
   status: z.enum(['ACTIVE', 'SYNCING', 'INACTIVE']).default('ACTIVE'),
   importStatusFilter: z.enum(['Selesai', 'All']).default('Selesai'),
   itemMappings: z.record(z.string().trim(), z.string().trim()).default({}),
+  mappings: shopMappingsSchema.optional(),
 });
 
 export const updateIntegrationInputSchema = integrationInputSchema.omit({ organizationId: true }).partial();
