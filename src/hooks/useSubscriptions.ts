@@ -20,6 +20,8 @@ export interface SubscriptionPlan {
   trialDays: number;
   features: string | string[];
   isActive: boolean;
+  // Allow shared `Table` component to accept this row type.
+  [key: string]: unknown;
 }
 
 export interface Subscription {
@@ -35,6 +37,8 @@ export interface Subscription {
   cancelledAt?: string | null;
   customer?: { id: string; name: string; code: string };
   plan?: SubscriptionPlan;
+  // Allow shared `Table` component to accept this row type.
+  [key: string]: unknown;
 }
 
 // ── Plans ────────────────────────────────────────────────────────────────────

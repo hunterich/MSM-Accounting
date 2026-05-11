@@ -54,7 +54,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     const payrollRuns = await prisma.payrollRun.findMany({
       where: {
         organizationId: orgId,
-        status: { in: ['COMPLETED', 'POSTED'] },
+        status: 'POSTED',
         periodStart: { lte: dateTo },
         periodEnd: { gte: dateFrom },
       },
@@ -122,7 +122,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
         const overtimePay = toNumber(line.overtimePay);
         const grossPay = basicSalary + totalAllowances + overtimePay;
 
-        const pph21 = toNumber(line.pph21Amount);
+        const pph21 = toNumber(line.pph21);
         const bpjsKesEmp = toNumber(line.bpjsKesEmployee);
         const bpjsKesEr = toNumber(line.bpjsKesEmployer);
         const bpjsJhtEmp = toNumber(line.bpjsJhtEmployee);

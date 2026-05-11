@@ -333,6 +333,8 @@ export interface BankReconciliationRow {
   unmatchedCount: number;
   unmatchedAmount: number;
   lastStatementDate: string | null;
+  // Allow shared `Table` component to accept this row type.
+  [key: string]: unknown;
 }
 
 export interface BankReconciliationSummary {

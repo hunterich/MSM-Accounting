@@ -1,9 +1,24 @@
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit } from '@/lib/api-utils';
 import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
+
+const ZERO = new Prisma.Decimal(0);
+const TOLERANCE = new Prisma.Decimal('0.005');
+
+function toDecimal(value: unknown): Prisma.Decimal {
+  if (value instanceof Prisma.Decimal) return value;
+  if (value === null || value === undefined || value === '') return ZERO;
+  try {
+    const d = new Prisma.Decimal(value as Prisma.Decimal.Value);
+    return d.isFinite() ? d : ZERO;
+  } catch {
+    return ZERO;
+  }
+}
 
 export const runtime = 'nodejs';
 
@@ -48,17 +63,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const lines = payload.lines.map((line, index) => ({
     accountId: line.accountId,
     description: line.description || null,
-    debit: Number(line.debit) || 0,
-    credit: Number(line.credit) || 0,
+    debit: toDecimal(line.debit),
+    credit: toDecimal(line.credit),
     lineNo: index + 1,
   }));
-  const totalDebit = lines.reduce((sum, line) => sum + line.debit, 0);
-  const totalCredit = lines.reduce((sum, line) => sum + line.credit, 0);
-  if (totalDebit <= 0 || totalCredit <= 0) {
+  const totalDebit = lines.reduce<Prisma.Decimal>((sum, line) => sum.plus(line.debit), ZERO);
+  const totalCredit = lines.reduce<Prisma.Decimal>((sum, line) => sum.plus(line.credit), ZERO);
+  if (totalDebit.lte(0) || totalCredit.lte(0)) {
     return err('Journal totals must be greater than zero', 422);
   }
-  if (Math.abs(totalDebit - totalCredit) > 0.0001) {
-    return err(`Unbalanced journal entry. totalDebit=${totalDebit} totalCredit=${totalCredit}`, 422);
+  if (totalDebit.minus(totalCredit).abs().gt(TOLERANCE)) {
+    return err(`Unbalanced journal entry. totalDebit=${totalDebit.toString()} totalCredit=${totalCredit.toString()}`, 422);
   }
 
   const accountIds = Array.from(new Set(lines.map((line) => line.accountId)));

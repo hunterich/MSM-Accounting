@@ -96,9 +96,10 @@ export function useChartOfAccounts(filters?: Record<string, unknown>) {
   return useQuery({
     queryKey: filters ? [...GL_KEYS.accounts, filters] : GL_KEYS.accounts,
     queryFn:  () =>
-      api.get<RawAccount[]>('/api/v1/accounts', filters).then((data) =>
-        Array.isArray(data) ? data.map(normalizeAccount) : []
-      ),
+      api.get<RawAccount[] | { data: RawAccount[] }>('/api/v1/accounts', filters).then((res) => {
+        const rows = Array.isArray(res) ? res : (res?.data ?? []);
+        return rows.map(normalizeAccount);
+      }),
   });
 }
 

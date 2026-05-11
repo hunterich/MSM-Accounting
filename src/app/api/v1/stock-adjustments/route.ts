@@ -1,8 +1,12 @@
 import { NextRequest } from 'next/server';
+import { InventoryDocumentType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { stockAdjustmentInputSchema } from '@/types/api';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
+import { postJournalEntry } from '@/lib/journal-posting';
+import { asMoney, toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -79,6 +83,76 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           totalValue: l.totalValue ?? ((Number(l.newQty) - Number(l.oldQty)) * Number(l.unitCost)),
         })),
       });
+
+      // Write the perpetual inventory ledger — currently no other route does
+      // this. Without these rows, stock-on-hand reports drift.
+      await tx.inventoryLedgerEntry.createMany({
+        data: lines.map((l) => {
+          const qtyDiff = toNumber(l.qtyDiff ?? Number(l.newQty) - Number(l.oldQty));
+          const unitCost = toNumber(l.unitCost);
+          return {
+            organizationId: orgId,
+            itemId: l.itemId,
+            warehouseId: warehouseId ?? null,
+            date: new Date(date),
+            documentType: InventoryDocumentType.ADJUSTMENT,
+            documentId: adj.id,
+            qtyIn: qtyDiff > 0 ? qtyDiff : 0,
+            qtyOut: qtyDiff < 0 ? -qtyDiff : 0,
+            unitCost,
+            valueChange: asMoney(qtyDiff * unitCost),
+          };
+        }),
+      });
+
+      // Net the value change across all lines and post one journal entry.
+      // Lines that decrease stock (qtyDiff < 0) credit Inventory and debit
+      // the variance expense; lines that increase stock do the reverse.
+      // Mixed-sign batches post the net only — InventoryLedgerEntry rows
+      // already capture per-line detail.
+      const netValueChange = lines.reduce((sum, l) => {
+        const qtyDiff = toNumber(l.qtyDiff ?? Number(l.newQty) - Number(l.oldQty));
+        return sum + qtyDiff * toNumber(l.unitCost);
+      }, 0);
+      const netRounded = asMoney(netValueChange);
+
+      if (Math.abs(netRounded) > 0) {
+        const accounts = await tx.account.findMany({
+          where: { organizationId: orgId, isActive: true },
+          select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+        });
+        const settings = await loadOrgAccountDefaults(tx, orgId);
+        const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+        const varianceAccountId =
+          resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment')
+          || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
+
+        if (inventoryAccountId && varianceAccountId) {
+          const memo = `Stock adjustment: ${adj.number}`;
+          if (netRounded > 0) {
+            await postJournalEntry(tx, {
+              organizationId: orgId,
+              date: new Date(date),
+              memo,
+              lines: [
+                { accountId: inventoryAccountId, description: `Inventory increase - ${adj.number}`, debit: netRounded, credit: 0 },
+                { accountId: varianceAccountId,  description: `Stock variance - ${adj.number}`,    debit: 0,           credit: netRounded },
+              ],
+            });
+          } else {
+            const amount = -netRounded;
+            await postJournalEntry(tx, {
+              organizationId: orgId,
+              date: new Date(date),
+              memo,
+              lines: [
+                { accountId: varianceAccountId,  description: `Stock variance - ${adj.number}`,    debit: amount, credit: 0 },
+                { accountId: inventoryAccountId, description: `Inventory decrease - ${adj.number}`, debit: 0,     credit: amount },
+              ],
+            });
+          }
+        }
+      }
     }
 
     return tx.stockAdjustment.findUnique({

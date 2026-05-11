@@ -138,6 +138,30 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredCodes: ['51'],
     keywords: ['hpp', 'harga pokok penjualan', 'cost of goods sold'],
   },
+  inventoryAdjustment: {
+    label: 'Inventory Adjustment / Variance',
+    description: 'Variance offset for stock adjustments (over/short counts).',
+    allowedTypes: ['Expense'],
+    preferredIds: ['COA-5190', 'COA-5150'],
+    preferredCodes: ['519', '515', '5190'],
+    keywords: ['selisih persediaan', 'inventory variance', 'penyesuaian persediaan', 'stock adjustment'],
+  },
+  roundingAccount: {
+    label: 'Rounding Difference',
+    description: 'Sub-rupiah rounding deltas on tax-inclusive invoice math.',
+    allowedTypes: ['Expense', 'Revenue'],
+    preferredIds: ['COA-8200', 'COA-4900'],
+    preferredCodes: ['82', '49', '7200'],
+    keywords: ['pembulatan', 'rounding', 'selisih pembulatan'],
+  },
+  salesDiscount: {
+    label: 'Sales Discount (Contra Revenue)',
+    description: 'Contra-revenue or expense for trade/cash discounts on sales invoices.',
+    allowedTypes: ['Revenue', 'Expense'],
+    preferredIds: ['COA-4120', 'COA-5300'],
+    preferredCodes: ['412', '413', '53'],
+    keywords: ['diskon penjualan', 'potongan penjualan', 'sales discount'],
+  },
 } satisfies Record<string, AccountDefaultSpec>;
 
 export type AccountDefaultKey = keyof typeof ACCOUNT_DEFAULT_SPECS;
@@ -215,6 +239,31 @@ export function resolveAccountDefaults(
     resolved[accountKey] = resolveAccountDefaultId(accounts, settings, accountKey);
     return resolved;
   }, { ...DEFAULT_ACCOUNT_DEFAULTS });
+}
+
+/**
+ * Load the org's user-configured account defaults from the database.
+ * Returns an empty object if the org has no overrides — `resolveAccountDefaultId`
+ * then falls back to auto-detection (preferredIds → preferredCodes → keywords).
+ *
+ * The whitelist on known keys defends against arbitrary JSON written historically.
+ */
+export async function loadOrgAccountDefaults(
+  tx: { organization: { findUnique: (args: any) => Promise<any> } },
+  orgId: string,
+): Promise<Partial<AccountDefaultsConfig>> {
+  const org = await tx.organization.findUnique({
+    where: { id: orgId },
+    select: { accountDefaults: true },
+  });
+  const raw = org?.accountDefaults;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Partial<AccountDefaultsConfig> = {};
+  for (const key of Object.keys(ACCOUNT_DEFAULT_SPECS) as AccountDefaultKey[]) {
+    const v = (raw as Record<string, unknown>)[key];
+    if (typeof v === 'string' && v.length > 0) out[key] = v;
+  }
+  return out;
 }
 
 export function resolveBankLinkedAssetAccountId(

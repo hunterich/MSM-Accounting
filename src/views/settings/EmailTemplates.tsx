@@ -250,7 +250,7 @@ const EmailTemplates: React.FC = () => {
 
       {/* Create/Edit Modal */}
       {modalOpen && (
-        <Modal title={editingId ? 'Edit Template' : 'New Template'} onClose={() => setModalOpen(false)} size="lg">
+        <Modal isOpen title={editingId ? 'Edit Template' : 'New Template'} onClose={() => setModalOpen(false)} size="lg">
           <div className="space-y-4 p-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -372,7 +372,7 @@ const EmailTemplates: React.FC = () => {
 
       {/* Preview Modal */}
       {previewOpen && (
-        <Modal title="Template Preview" onClose={() => setPreviewOpen(false)} size="lg">
+        <Modal isOpen title="Template Preview" onClose={() => setPreviewOpen(false)} size="lg">
           <div className="p-4">
             <div className="mb-4">
               <div className="text-xs font-semibold text-neutral-500 mb-1">Subject</div>

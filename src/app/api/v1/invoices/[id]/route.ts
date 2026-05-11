@@ -5,8 +5,9 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { calculateAndPostCOGS } from '@/lib/inventory-costing';
-import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { toNumber, asMoney } from '@/lib/money';
+import { postJournalEntry } from '@/lib/journal-posting';
 
 export const runtime = 'nodejs';
 
@@ -91,8 +92,111 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         });
       }
 
-      // Post COGS when invoice transitions DRAFT → SENT
+      // Post AR + COGS journals when invoice transitions DRAFT → SENT.
+      // The AR-side post (DR AR / CR Sales / CR Tax) runs for every invoice;
+      // the COGS post only runs when the org has a costing method and the
+      // invoice has inventory lines.
       if (existing.status === 'DRAFT' && header.status === 'SENT') {
+        const invoiceHeader = await tx.salesInvoice.findUnique({
+          where: { id },
+          select: {
+            number: true,
+            issueDate: true,
+            subtotal: true,
+            discountAmount: true,
+            totalAmount: true,
+            taxAmount: true,
+          },
+        });
+        const accounts = await tx.account.findMany({
+          where: { organizationId: existing.organizationId, isActive: true },
+          select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+        });
+        const settings = await loadOrgAccountDefaults(tx, existing.organizationId);
+
+        if (invoiceHeader) {
+          const totalAmount = toNumber(invoiceHeader.totalAmount);
+          const taxAmount = toNumber(invoiceHeader.taxAmount);
+          const discountAmount = toNumber(invoiceHeader.discountAmount);
+          // Revenue is gross of any discount line we post separately below;
+          // when we post a contra-revenue discount line, salesRevenue is
+          // credited at the larger pre-discount amount.
+          const baseRevenue = totalAmount - taxAmount;
+          const arAccountId = resolveAccountDefaultId(accounts, settings, 'arControl');
+          const salesAccountId = resolveAccountDefaultId(accounts, settings, 'salesRevenue');
+          const taxAccountId = taxAmount > 0
+            ? resolveAccountDefaultId(accounts, settings, 'arTax')
+            : null;
+          const salesDiscountAccountId =
+            discountAmount > 0
+              ? (resolveAccountDefaultId(accounts, settings, 'salesDiscount')
+                || resolveAccountDefaultId(accounts, settings, 'arDiscount'))
+              : null;
+          const roundingAccountId =
+            resolveAccountDefaultId(accounts, settings, 'roundingAccount')
+            || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
+          const arInvoiceDate = new Date(invoiceHeader.issueDate);
+
+          if (totalAmount > 0 && arAccountId && salesAccountId && (taxAmount === 0 || taxAccountId)) {
+            const splitDiscount = discountAmount > 0 && Boolean(salesDiscountAccountId);
+            const revenueCredit = splitDiscount
+              ? asMoney(baseRevenue + discountAmount)
+              : baseRevenue;
+            const arLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [
+              {
+                accountId: arAccountId,
+                description: `AR - ${invoiceHeader.number}`,
+                debit: totalAmount,
+                credit: 0,
+              },
+              {
+                accountId: salesAccountId,
+                description: `Sales - ${invoiceHeader.number}`,
+                debit: 0,
+                credit: revenueCredit,
+              },
+            ];
+            if (splitDiscount && salesDiscountAccountId) {
+              arLines.push({
+                accountId: salesDiscountAccountId,
+                description: `Sales discount - ${invoiceHeader.number}`,
+                debit: discountAmount,
+                credit: 0,
+              });
+            }
+            if (taxAmount > 0 && taxAccountId) {
+              arLines.push({
+                accountId: taxAccountId,
+                description: `Output tax - ${invoiceHeader.number}`,
+                debit: 0,
+                credit: taxAmount,
+              });
+            }
+
+            // Tax-inclusive math frequently leaves a sub-rupiah residual
+            // between totalAmount and (revenue - discount + tax). Book it to
+            // the rounding account so the entry balances exactly.
+            const sumDebits  = arLines.reduce((s, l) => s + l.debit, 0);
+            const sumCredits = arLines.reduce((s, l) => s + l.credit, 0);
+            const rounding = asMoney(sumDebits - sumCredits);
+            if (Math.abs(rounding) > 0 && roundingAccountId) {
+              arLines.push({
+                accountId: roundingAccountId,
+                description: `Rounding - ${invoiceHeader.number}`,
+                debit:  rounding < 0 ? -rounding : 0,
+                credit: rounding > 0 ?  rounding : 0,
+              });
+            }
+
+            await postJournalEntry(tx, {
+              organizationId: existing.organizationId,
+              date: arInvoiceDate,
+              memo: `Sales recognition: ${invoiceHeader.number}`,
+              lines: arLines,
+            });
+          }
+        }
+
         const organization = await tx.organization.findUnique({
           where: { id: existing.organizationId },
           select: { costingMethod: true },
@@ -129,8 +233,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
               });
 
-              const cogsAccountId = resolveAccountDefaultId(accounts, undefined, 'cogsExpense');
-              const inventoryAccountId = resolveAccountDefaultId(accounts, undefined, 'inventoryAsset');
+              const cogsAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
+              const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
               const invoiceDate = new Date(existing.issueDate);
 
               for (const line of linesWithInventory) {
@@ -149,45 +253,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 );
 
                 if (cogs > 0 && cogsAccountId && inventoryAccountId) {
-                  const cogsEntryRows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-                    SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-                    FROM "JournalEntry"
-                    WHERE "organizationId" = ${existing.organizationId}
-                      AND "entryNo" LIKE ${'JE-%'}
-                  `;
-                  const nextSeq = (Number(cogsEntryRows[0]?.max_seq ?? 0)) + 1;
-                  const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
-
-                  await tx.journalEntry.create({
-                    data: {
-                      organizationId: existing.organizationId,
-                      entryNo,
-                      date: invoiceDate,
-                      memo: `COGS auto-post: ${existing.number}`,
-                      source: 'SYSTEM',
-                      status: 'POSTED',
-                      postedAt: new Date(),
-                      totalDebit: asMoney(cogs),
-                      totalCredit: asMoney(cogs),
-                      lines: {
-                        create: [
-                          {
-                            lineNo: 1,
-                            accountId: cogsAccountId,
-                            description: `COGS - ${existing.number}`,
-                            debit: asMoney(cogs),
-                            credit: 0,
-                          },
-                          {
-                            lineNo: 2,
-                            accountId: inventoryAccountId,
-                            description: `Inventory reduction - ${existing.number}`,
-                            debit: 0,
-                            credit: asMoney(cogs),
-                          },
-                        ],
+                  await postJournalEntry(tx, {
+                    organizationId: existing.organizationId,
+                    date: invoiceDate,
+                    memo: `COGS auto-post: ${existing.number}`,
+                    lines: [
+                      {
+                        accountId: cogsAccountId,
+                        description: `COGS - ${existing.number}`,
+                        debit: cogs,
+                        credit: 0,
                       },
-                    },
+                      {
+                        accountId: inventoryAccountId,
+                        description: `Inventory reduction - ${existing.number}`,
+                        debit: 0,
+                        credit: cogs,
+                      },
+                    ],
                   });
                 }
               }

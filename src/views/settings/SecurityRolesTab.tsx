@@ -5,7 +5,7 @@ import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
 import { Save, Plus, Edit2, Clock, Shield, Check } from 'lucide-react';
 import Table, { TableColumn } from '../../components/UI/Table';
-import { useAccessStore, MODULE_KEYS, noPermissions } from '../../stores/useAccessStore';
+import { useAccessStore, MODULE_KEYS, MODULE_EXTRA_ACTIONS, noPermissions } from '../../stores/useAccessStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import type { AccessRole, AccessUser } from '../../stores/useAccessStore';
 
@@ -321,7 +321,8 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
 
                                 {/* Individual modules */}
                                 {activeModules.map((mod, idx) => (
-                                    <tr key={mod.key} className={idx !== activeModules.length - 1 ? 'border-b border-neutral-100' : ''}>
+                                    <React.Fragment key={mod.key}>
+                                    <tr className={idx !== activeModules.length - 1 || MODULE_EXTRA_ACTIONS[mod.key] ? 'border-b border-neutral-100' : ''}>
                                         <td className="p-3 pl-6 text-sm font-medium text-neutral-800">{mod.label}</td>
                                         {['view', 'create', 'edit', 'delete', 'view'].map((action, i) => {
                                             // Column order: Aktif(view), Buat(create), Ubah(edit), Hapus(delete), Lihat(view)
@@ -371,6 +372,31 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                                             );
                                         })}
                                     </tr>
+                                    {MODULE_EXTRA_ACTIONS[mod.key]?.map((extra, ei) => {
+                                        const isLastExtra = ei === MODULE_EXTRA_ACTIONS[mod.key].length - 1;
+                                        const isLastRow = idx === activeModules.length - 1 && isLastExtra;
+                                        const checked = editingRole.permissions[mod.key]?.[extra.key] === true;
+                                        return (
+                                            <tr key={`${mod.key}-${extra.key}`} className={!isLastRow ? 'border-b border-neutral-100' : ''}>
+                                                <td className="px-3 py-2 pl-12 text-[12px] text-neutral-600 italic">↳ {extra.label}</td>
+                                                <td colSpan={4} className="px-3 py-2 text-center align-middle">
+                                                    <label className="inline-flex items-center cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={checked}
+                                                            onChange={() => handleTogglePermission(mod.key, extra.key)}
+                                                            className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500 hidden peer"
+                                                        />
+                                                        <div className="w-5 h-5 rounded border border-neutral-300 peer-checked:bg-primary-500 peer-checked:border-primary-500 flex items-center justify-center transition-colors">
+                                                            {checked && <Check size={14} className="text-white" />}
+                                                        </div>
+                                                    </label>
+                                                </td>
+                                                <td className="px-3 py-2"></td>
+                                            </tr>
+                                        );
+                                    })}
+                                    </React.Fragment>
                                 ))}
                             </tbody>
                         </table>

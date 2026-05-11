@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { nextNumber, validateForeignKey } from '@/lib/api-utils';
 import type { BillInput } from '@/types/api';
 
@@ -12,6 +12,31 @@ type CreateBillOptions = {
 };
 
 type BillTransactionClient = Prisma.TransactionClient;
+
+const ZERO = new Prisma.Decimal(0);
+
+// Coerce a zod-validated input value (number, numeric string, or already a
+// Decimal) into a Prisma.Decimal. Returns ZERO for null/undefined/empty so
+// the caller doesn't have to guard each field.
+function toDecimal(value: unknown): Prisma.Decimal {
+  if (value instanceof Prisma.Decimal) return value;
+  if (value === null || value === undefined || value === '') return ZERO;
+  try {
+    const d = new Prisma.Decimal(value as Prisma.Decimal.Value);
+    return d.isFinite() ? d : ZERO;
+  } catch {
+    return ZERO;
+  }
+}
+
+// Compute lineTotal as a Decimal. Quantity is stored at 4dp in the DB and
+// price at 2dp; the product is rounded to 2dp to match BillLine.lineTotal's
+// column precision and prevent the DB driver from silently truncating.
+function computeLineTotal(quantity: unknown, price: unknown): Prisma.Decimal {
+  return toDecimal(quantity)
+    .mul(toDecimal(price))
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+}
 
 export async function createBillRecord(
   tx: BillTransactionClient,
@@ -48,7 +73,11 @@ export async function createBillRecord(
         lineNo: line.lineNo ?? index + 1,
         itemId: line.itemId || null,
         accountId: line.accountId || null,
-        lineTotal: line.lineTotal ?? (Number(line.quantity) * Number(line.price)),
+        quantity: toDecimal(line.quantity),
+        price: toDecimal(line.price).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
+        lineTotal: line.lineTotal != null
+          ? toDecimal(line.lineTotal).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
+          : computeLineTotal(line.quantity, line.price),
       })),
     });
   }

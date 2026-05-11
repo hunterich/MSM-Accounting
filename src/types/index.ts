@@ -230,6 +230,7 @@ export interface RawOrganizationSettings {
   costingMethodSetAt?: string | null;
   costingMethodSetById?: string | null;
   costingMethodEffectiveDate?: string | null;
+  accountDefaults?: Record<string, string> | null;
 }
 
 export type ShopPaymentMode = 'direct' | 'settlement_import';
@@ -366,6 +367,7 @@ export interface OrganizationSettings {
   costingMethodSetAt: string;
   costingMethodSetById: string;
   costingMethodEffectiveDate: string;
+  accountDefaults: Record<string, string>;
   needsInventoryValuationSetup: boolean;
 }
 
@@ -892,6 +894,7 @@ export interface RawInventoryItem {
   openingStock?: number | string | null;
   stockQty?: number | string | null;
   stock?: number | string | null;
+  currentStock?: number | string | null;
   cost?: number | string | null;
   costPrice?: number | string | null;
   price?: number | string | null;
@@ -921,6 +924,7 @@ export interface InventoryItem {
   category: string;
   categoryCode: string;
   stock: number;
+  currentStock: number;
   cost: number;
   price: number;
   unit: string;

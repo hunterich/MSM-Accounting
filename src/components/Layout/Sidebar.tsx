@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { useSettingsStore, type FeatureFlags } from '../../stores/useSettingsStore';
 
 interface SubItem {
     label: string;
@@ -42,45 +43,45 @@ const NAV_GROUPS: NavGroup[] = [
     {
         group: 'Sales',
         items: [
-            { label: 'Sales Orders',   path: '/ar/sales-orders',   icon: ShoppingBag },
-            { label: 'Invoices',       path: '/ar/invoices',       icon: Receipt, badgeKey: 'overdue_invoices' },
-            { label: 'Delivery Notes', path: '/ar/delivery-notes', icon: Truck },
-            { label: 'Payments',       path: '/ar/payments',       icon: Wallet },
-            { label: 'Returns & Credits', path: '/ar/credits',     icon: Receipt },
-            { label: 'Recurring',      path: '/ar/recurring',      icon: Receipt },
-            { label: 'Subscriptions',  path: '/ar/subscriptions',  icon: Receipt },
-            { label: 'Customers',      path: '/ar/customers',      icon: Users },
-            { label: 'Customer Categories', path: '/ar/categories', icon: Users },
-            { label: 'Approvals',      path: '/ar/approvals',      icon: CheckSquare, badgeKey: 'pending_approvals' },
-            { label: 'Shop Integrations', path: '/integrations',   icon: Building2 },
+            { label: 'Sales Orders',        path: '/ar/sales-orders',   icon: ShoppingBag },
+            { label: 'Invoices',            path: '/ar/invoices',       icon: Receipt, badgeKey: 'overdue_invoices' },
+            { label: 'Delivery Notes',      path: '/ar/delivery-notes', icon: Truck },
+            { label: 'Payments',            path: '/ar/payments',       icon: Wallet },
+            { label: 'Returns & Credits',   path: '/ar/credits',        icon: Receipt },
+            { label: 'Recurring',           path: '/ar/recurring',      icon: Receipt },
+            { label: 'Subscriptions',       path: '/ar/subscriptions',  icon: Receipt },
+            { label: 'Customers',           path: '/ar/customers',      icon: Users },
+            { label: 'Customer Categories', path: '/ar/categories',     icon: Users },
+            { label: 'Approvals',           path: '/ar/approvals',      icon: CheckSquare, badgeKey: 'pending_approvals' },
+            { label: 'Shop Integrations',   path: '/integrations',      icon: Building2 },
         ],
     },
     {
         group: 'Purchases',
         items: [
-            { label: 'Purchase Orders', path: '/ap/pos',      icon: ShoppingBag },
-            { label: 'Bills',           path: '/ap/bills',    icon: Receipt, badgeKey: 'overdue_bills' },
-            { label: 'Payments',        path: '/ap/payments', icon: Wallet },
-            { label: 'Returns & Debits',path: '/ap/debits',   icon: Receipt },
-            { label: 'Vendors',         path: '/ap/vendors',  icon: Building2 },
-            { label: 'Vendor Categories', path: '/ap/vendor-categories', icon: Building2 },
+            { label: 'Purchase Orders',    path: '/ap/pos',              icon: ShoppingBag },
+            { label: 'Bills',              path: '/ap/bills',            icon: Receipt, badgeKey: 'overdue_bills' },
+            { label: 'Payments',           path: '/ap/payments',         icon: Wallet },
+            { label: 'Returns & Debits',   path: '/ap/debits',           icon: Receipt },
+            { label: 'Vendors',            path: '/ap/vendors',          icon: Building2 },
+            { label: 'Vendor Categories',  path: '/ap/vendor-categories', icon: Building2 },
         ],
     },
     {
         group: 'Cash & Books',
         items: [
-            { label: 'Banking',         path: '/banking', icon: Landmark },
-            { label: 'General Ledger',  path: '/gl',      icon: BookOpen },
-            { label: 'Reports',         path: '/reports', icon: BarChart3 },
+            { label: 'Banking',        path: '/banking', icon: Landmark },
+            { label: 'General Ledger', path: '/gl',      icon: BookOpen },
+            { label: 'Reports',        path: '/reports', icon: BarChart3 },
         ],
     },
     {
         group: 'Operations',
         items: [
-            { label: 'Inventory',     path: '/inventory',  icon: Package },
-            { label: 'HR & Payroll',  path: '/hr',         icon: Users },
-            { label: 'Assets',        path: '/assets',     icon: Building2 },
-            { label: 'Settings',      path: '/settings',   icon: Settings },
+            { label: 'Inventory',    path: '/inventory', icon: Package },
+            { label: 'HR & Payroll', path: '/hr',        icon: Users },
+            { label: 'Assets',       path: '/assets',    icon: Building2 },
+            { label: 'Settings',     path: '/settings',  icon: Settings },
         ],
     },
 ];
@@ -105,15 +106,46 @@ const PARENT_LABEL_FOR: Record<string, string> = {
     '/settings': 'Settings',
 };
 
+/**
+ * Maps a sidebar sub-item path to a feature flag in useSettingsStore.features.
+ * When the flag is false, the item is hidden regardless of RBAC. Paths NOT in
+ * this map are always feature-allowed (gated only by RBAC).
+ */
+const SUBITEM_FEATURE_MAP: Record<string, keyof FeatureFlags> = {
+    '/ar/sales-orders':      'salesOrders',
+    '/ar/credits':           'salesReturns',
+    '/ar/recurring':         'recurringInvoices',
+    '/ar/subscriptions':     'subscriptions',
+    '/ar/delivery-notes':    'deliveryNotes',
+    '/ar/categories':        'customerCategories',
+    '/ar/approvals':         'approvals',
+    '/integrations':         'shopIntegrations',
+    '/ap/pos':               'purchaseOrders',
+    '/ap/vendor-categories': 'vendorCategories',
+    '/inventory/categories': 'itemCategories',
+    '/assets':               'fixedAssets',
+    '/hr':                   'hrPayroll',
+    '/hr/employees':         'hrPayroll',
+    '/hr/attendance':        'hrPayroll',
+    '/hr/payroll-run':       'hrPayroll',
+};
+
+const allGroupsCollapsed = (): Record<string, boolean> =>
+    NAV_GROUPS.reduce<Record<string, boolean>>((acc, g) => { acc[g.group] = true; return acc; }, {});
+
 const COLLAPSED_KEY = 'msm.sidebar.collapsed';
 
 const Sidebar = (): React.ReactElement => {
     const location = useLocation();
     const permissions = useAuthStore((s) => s.permissions);
     const hasPermission = useAuthStore((s) => s.hasPermission);
+    const features = useSettingsStore((s) => s.features);
     const [mobileOpen, setMobileOpen] = useState(false);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
-        try { return JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '{}'); } catch { return {}; }
+        try {
+            const raw = localStorage.getItem(COLLAPSED_KEY);
+            return raw ? JSON.parse(raw) : allGroupsCollapsed();
+        } catch { return allGroupsCollapsed(); }
     });
     const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -133,6 +165,11 @@ const Sidebar = (): React.ReactElement => {
     }, []);
 
     const canSeeSubItem = (path: string): boolean => {
+        // Feature-flag gate first — bail early if the org has the module off.
+        const featureKey = SUBITEM_FEATURE_MAP[path];
+        if (featureKey && features?.[featureKey] === false) return false;
+
+        // RBAC check (unchanged).
         const key = SUBITEM_PERMISSION_MAP[path];
         if (!key) {
             const parent = PARENT_LABEL_FOR[path];
@@ -149,10 +186,20 @@ const Sidebar = (): React.ReactElement => {
             items: g.items.filter(it => canSeeSubItem(it.path)),
         })).filter(g => g.items.length > 0),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [permissions],
+        [permissions, features],
     );
 
-    const toggleGroup = (g: string) => setCollapsedGroups(s => ({ ...s, [g]: !s[g] }));
+    const toggleGroup = (g: string) => setCollapsedGroups(s => {
+        // Accordion behavior: expanding a group collapses the others. Collapsing
+        // the open group leaves the rest collapsed (already are).
+        const isCurrentlyCollapsed = s[g] !== false;
+        if (isCurrentlyCollapsed) {
+            const next = allGroupsCollapsed();
+            next[g] = false;
+            return next;
+        }
+        return { ...s, [g]: true };
+    });
 
     const isItemActive = (path: string): boolean => {
         if (path === '/') return location.pathname === '/';

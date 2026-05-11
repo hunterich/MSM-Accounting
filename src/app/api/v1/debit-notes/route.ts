@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { asMoney, toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -33,6 +34,10 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
+// POST creates a DRAFT debit note. The GL posting (DR AP / CR Purchase-Return)
+// is deferred to the DRAFT → APPLIED transition handled in `[id]/route.ts`,
+// so an unapproved draft never hits the ledger. Any client-supplied status
+// is ignored — applying happens through the PUT handler only.
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
@@ -44,8 +49,9 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         ...body,
         number,
         organizationId: orgId,
-        amount: Number(body.amount) || 0,
+        amount: asMoney(toNumber(body.amount)),
         date: new Date(body.date),
+        status: 'DRAFT',
       },
     });
   });

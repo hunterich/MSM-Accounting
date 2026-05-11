@@ -6,6 +6,9 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler, ApiError, nextNumber } from '@/lib/api-utils';
 import { arPaymentInputSchema } from '@/types/api';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
+import { postJournalEntry } from '@/lib/journal-posting';
+import { toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -72,7 +75,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         }
       }
     }
-    return tx.aRPayment.create({
+    const created = await tx.aRPayment.create({
       data: {
         ...payload,
         organizationId: orgId,
@@ -85,6 +88,46 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       },
       include: { customer: { select: { id: true, name: true, code: true } }, allocations: true },
     });
+
+    // Post DR Bank / CR AR for the payment amount.
+    const amount = toNumber(created.totalAmount);
+    if (amount > 0) {
+      const accounts = await tx.account.findMany({
+        where: { organizationId: orgId, isActive: true },
+        select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+      });
+      const settings = await loadOrgAccountDefaults(tx, orgId);
+      const bankAccountId =
+        created.depositAccountId
+        ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
+      const arAccountId =
+        created.arAccountId
+        ?? resolveAccountDefaultId(accounts, settings, 'arControl');
+
+      if (bankAccountId && arAccountId) {
+        await postJournalEntry(tx, {
+          organizationId: orgId,
+          date: new Date(created.date),
+          memo: `AR receipt: ${created.number}`,
+          lines: [
+            {
+              accountId: bankAccountId,
+              description: `Bank deposit - ${created.number}`,
+              debit: amount,
+              credit: 0,
+            },
+            {
+              accountId: arAccountId,
+              description: `AR settlement - ${created.number}`,
+              debit: 0,
+              credit: amount,
+            },
+          ],
+        });
+      }
+    }
+
+    return created;
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ARPayment', entityId: payment.id, action: 'CREATE', payload: { number } });
   return ok(payment, 201);

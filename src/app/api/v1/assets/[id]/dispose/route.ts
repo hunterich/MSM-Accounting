@@ -5,7 +5,7 @@ import { ApiError, err, logAudit, ok, requireOrg, withHandler } from '@/lib/api-
 import { assetDisposalInputSchema } from '@/types/api';
 import { calculateDisposalGainLoss } from '@/lib/depreciation';
 import { toNumber, asMoney } from '@/lib/money';
-import { resolveAccountDefaultId } from '@/lib/account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 
 export const runtime = 'nodejs';
 
@@ -58,7 +58,8 @@ export const POST = withHandler(async function POST(
       select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
     });
 
-    const cashAccountId = resolveAccountDefaultId(accounts, undefined, 'bankAsset');
+    const settings = await loadOrgAccountDefaults(tx, orgId);
+    const cashAccountId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
     const accumDepAccountId = asset.category?.accumDepAccountId
       || findAccountByKeyword(accounts, ['akumulasi penyusutan', 'accumulated depreciation', 'akum. penyusutan'], 'Asset');
     const assetAccountId = asset.category?.assetAccountId

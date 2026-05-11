@@ -7,6 +7,9 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { nextNumber } from '@/lib/api-utils';
 import { apPaymentInputSchema } from '@/types/api';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
+import { postJournalEntry } from '@/lib/journal-posting';
+import { toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
 
@@ -73,7 +76,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         }
       }
     }
-    return tx.aPPayment.create({
+    const created = await tx.aPPayment.create({
       data: {
         ...payload,
         organizationId: orgId,
@@ -86,6 +89,46 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       },
       include: { vendor: { select: { id: true, name: true, code: true } }, allocations: true },
     });
+
+    // Post DR AP / CR Bank for the payment amount.
+    const amount = toNumber(created.totalAmount);
+    if (amount > 0) {
+      const accounts = await tx.account.findMany({
+        where: { organizationId: orgId, isActive: true },
+        select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+      });
+      const settings = await loadOrgAccountDefaults(tx, orgId);
+      const apAccountId =
+        created.apAccountId
+        ?? resolveAccountDefaultId(accounts, settings, 'apControl');
+      const bankAccountId =
+        created.cashAccountId
+        ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
+
+      if (apAccountId && bankAccountId) {
+        await postJournalEntry(tx, {
+          organizationId: orgId,
+          date: new Date(created.date),
+          memo: `AP payment: ${created.number}`,
+          lines: [
+            {
+              accountId: apAccountId,
+              description: `AP settlement - ${created.number}`,
+              debit: amount,
+              credit: 0,
+            },
+            {
+              accountId: bankAccountId,
+              description: `Bank disbursement - ${created.number}`,
+              debit: 0,
+              credit: amount,
+            },
+          ],
+        });
+      }
+    }
+
+    return created;
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'APPayment', entityId: payment.id, action: 'CREATE', payload: { number } });
   return ok(payment, 201);

@@ -349,6 +349,7 @@ export const updateOrganizationSettingsInputSchema = z.object({
   invoiceReminders: z.boolean().optional(),
   paymentAlerts: z.boolean().optional(),
   dailySummary: z.boolean().optional(),
+  accountDefaults: z.record(z.string().min(1), z.string()).optional(),
 });
 
 const documentLineSchema = z.object({
@@ -766,3 +767,118 @@ export type EmployeeInput = z.infer<typeof employeeInputSchema>;
 export type UpdateEmployeeInput = z.infer<typeof updateEmployeeInputSchema>;
 export type IntegrationInput = z.infer<typeof integrationInputSchema>;
 export type UpdateIntegrationInput = z.infer<typeof updateIntegrationInputSchema>;
+
+// ── HR: Attendance, Leave Types, Leave Requests, Payroll Runs ────────────────
+
+export const attendanceRecordInputSchema = z.object({
+  organizationId: z.string().min(1),
+  employeeId: z.string().min(1),
+  date: isoDateString,
+  status: z.enum(['PRESENT', 'ABSENT', 'SICK', 'LEAVE', 'LATE', 'HALF_DAY']).default('PRESENT'),
+  checkIn: z.string().optional(),
+  checkOut: z.string().optional(),
+  hoursWorked: z.coerce.number().min(0).optional(),
+  overtimeHours: z.coerce.number().min(0).default(0),
+  notes: z.string().optional(),
+});
+export const updateAttendanceRecordInputSchema = attendanceRecordInputSchema
+  .omit({ organizationId: true, employeeId: true, date: true })
+  .partial();
+
+export const leaveTypeInputSchema = z.object({
+  organizationId: z.string().min(1),
+  name: z.string().min(1, 'name is required'),
+  category: z.enum(['ANNUAL', 'SICK', 'MATERNITY', 'PATERNITY', 'UNPAID', 'OTHER']).default('ANNUAL'),
+  entitlementDays: z.coerce.number().int().min(0).default(12),
+  carryOver: z.boolean().default(false),
+  maxCarryDays: z.coerce.number().int().min(0).default(0),
+  isActive: z.boolean().default(true),
+});
+export const updateLeaveTypeInputSchema = leaveTypeInputSchema.omit({ organizationId: true }).partial();
+
+export const leaveRequestInputSchema = z.object({
+  organizationId: z.string().min(1),
+  employeeId: z.string().min(1),
+  leaveTypeId: z.string().min(1),
+  startDate: isoDateString,
+  endDate: isoDateString,
+  totalDays: z.coerce.number().int().min(1, 'totalDays must be at least 1'),
+  reason: z.string().optional(),
+});
+export const updateLeaveRequestInputSchema = leaveRequestInputSchema
+  .omit({ organizationId: true })
+  .partial()
+  .extend({
+    status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']).optional(),
+    reviewNote: z.string().optional(),
+  });
+
+export const payrollRunInputSchema = z.object({
+  organizationId: z.string().min(1),
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+  periodStart: isoDateString,
+  periodEnd: isoDateString,
+  notes: z.string().optional(),
+});
+
+// ── Asset Management ─────────────────────────────────────────────────────────
+
+const depreciationMethodEnum = z.enum(['STRAIGHT_LINE', 'DECLINING_BALANCE', 'DOUBLE_DECLINING']);
+
+export const assetCategoryInputSchema = z.object({
+  organizationId: z.string().min(1),
+  name: z.string().min(1, 'name is required'),
+  depreciationMethod: depreciationMethodEnum.default('STRAIGHT_LINE'),
+  usefulLifeMonths: z.coerce.number().int().min(1).default(60),
+  salvagePercent: z.coerce.number().min(0).max(100).default(0),
+  assetAccountId: z.string().optional().nullable(),
+  depExpenseAccountId: z.string().optional().nullable(),
+  accumDepAccountId: z.string().optional().nullable(),
+});
+export const updateAssetCategoryInputSchema = assetCategoryInputSchema.omit({ organizationId: true }).partial();
+
+export const assetInputSchema = z.object({
+  organizationId: z.string().min(1),
+  name: z.string().min(1, 'name is required'),
+  description: z.string().optional(),
+  categoryId: z.string().min(1, 'categoryId is required'),
+  acquisitionDate: isoDateString,
+  acquisitionCost: z.coerce.number().min(0, 'acquisitionCost must be >= 0'),
+  depreciationMethod: depreciationMethodEnum.default('STRAIGHT_LINE'),
+  usefulLifeMonths: z.coerce.number().int().min(1).default(60),
+  salvageValue: z.coerce.number().min(0).default(0),
+  location: z.string().optional(),
+  custodian: z.string().optional(),
+  department: z.string().optional(),
+  serialNumber: z.string().optional(),
+  vendor: z.string().optional(),
+});
+export const updateAssetInputSchema = assetInputSchema.omit({ organizationId: true }).partial();
+
+export const assetDisposalInputSchema = z.object({
+  disposalDate: isoDateString,
+  disposalAmount: z.coerce.number().min(0, 'disposalAmount must be >= 0'),
+  disposalMethod: z.string().min(1, 'disposalMethod is required'),
+  notes: z.string().optional(),
+});
+
+export const assetDepreciationRunInputSchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+});
+
+// Inferred types
+export type AttendanceRecordInput = z.infer<typeof attendanceRecordInputSchema>;
+export type UpdateAttendanceRecordInput = z.infer<typeof updateAttendanceRecordInputSchema>;
+export type LeaveTypeInput = z.infer<typeof leaveTypeInputSchema>;
+export type UpdateLeaveTypeInput = z.infer<typeof updateLeaveTypeInputSchema>;
+export type LeaveRequestInput = z.infer<typeof leaveRequestInputSchema>;
+export type UpdateLeaveRequestInput = z.infer<typeof updateLeaveRequestInputSchema>;
+export type PayrollRunInput = z.infer<typeof payrollRunInputSchema>;
+export type AssetCategoryInput = z.infer<typeof assetCategoryInputSchema>;
+export type UpdateAssetCategoryInput = z.infer<typeof updateAssetCategoryInputSchema>;
+export type AssetInput = z.infer<typeof assetInputSchema>;
+export type UpdateAssetInput = z.infer<typeof updateAssetInputSchema>;
+export type AssetDisposalInput = z.infer<typeof assetDisposalInputSchema>;
+export type AssetDepreciationRunInput = z.infer<typeof assetDepreciationRunInputSchema>;
