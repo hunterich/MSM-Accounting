@@ -702,6 +702,7 @@ model CreditNote {
   settlementAccountId String?
   applyTax           Boolean           @default(true)
   amount             Decimal           @default(0) @db.Decimal(18, 2)
+  taxAmount          Decimal           @default(0) @db.Decimal(18, 2)
   note               String?
   status             CreditNoteStatus  @default(DRAFT)
   journalEntryId     String?           @unique
@@ -1002,6 +1003,7 @@ model DebitNote {
   taxAccountId       String?
   applyTax           Boolean           @default(true)
   amount             Decimal           @default(0) @db.Decimal(18, 2)
+  taxAmount          Decimal           @default(0) @db.Decimal(18, 2)
   note               String?
   status             DebitNoteStatus   @default(DRAFT)
   journalEntryId     String?           @unique

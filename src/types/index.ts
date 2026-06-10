@@ -1176,6 +1176,7 @@ export interface RawCreditNote {
   settlementAccountId?: string | null;
   applyTax?: boolean | null;
   amount?: number | string | null;
+  taxAmount?: number | string | null;
   note?: string | null;
   status?: string | null;
 }
@@ -1201,6 +1202,7 @@ export interface CreditNote {
   settlementAccountId: string;
   applyTax: boolean;
   amount: number;
+  taxAmount: number;
   note: string;
   status: CreditNoteStatus;
 }
@@ -1225,6 +1227,7 @@ export interface RawDebitNote {
   settlementAccountId?: string | null;
   applyTax?: boolean | null;
   amount?: number | string | null;
+  taxAmount?: number | string | null;
   note?: string | null;
   status?: string | null;
 }
@@ -1250,6 +1253,7 @@ export interface DebitNote {
   settlementAccountId: string;
   applyTax: boolean;
   amount: number;
+  taxAmount: number;
   note: string;
   status: DebitNoteStatus;
 }

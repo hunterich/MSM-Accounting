@@ -2,8 +2,8 @@
  * GL posting for DebitNote applied transition.
  *
  * Mirrors `lib/purchase-return-posting.ts` — covers the AP side only
- * (notes have no inventory leg). Books DR AP / CR Purchase-Return for
- * the debit-note amount.
+ * (notes have no inventory leg). Books DR AP (gross) / CR Purchase-Return
+ * (net) / CR Input-Tax (taxAmount, when applyTax) for the debit-note amount.
  *
  * Idempotency: short-circuits when `debitNote.journalEntryId` is already
  * set (DB-token, parity with purchase-return-posting). The PUT handler
@@ -41,8 +41,11 @@ export async function postDebitNoteOnApply(
       organizationId: true,
       date: true,
       amount: true,
+      taxAmount: true,
+      applyTax: true,
       apAccountId: true,
       returnAccountId: true,
+      taxAccountId: true,
       journalEntryId: true,
     },
   });
@@ -54,6 +57,16 @@ export async function postDebitNoteOnApply(
   const amount = toNumber(dn.amount);
   if (amount <= 0) {
     throw new Error(`DebitNote ${dn.number}: amount must be > 0 to apply`);
+  }
+
+  // `amount` is the gross total debited against the vendor; `taxAmount` is
+  // the Input-Tax (PPN Masukan) portion inside it. It reverses the tax
+  // receivable claimed on the original bill.
+  const taxAmount = dn.applyTax ? toNumber(dn.taxAmount) : 0;
+  if (taxAmount < 0 || taxAmount >= amount) {
+    throw new Error(
+      `DebitNote ${dn.number}: taxAmount must be >= 0 and below the gross amount`,
+    );
   }
 
   const accounts = await tx.account.findMany({
@@ -72,6 +85,16 @@ export async function postDebitNoteOnApply(
     );
   }
 
+  const taxAccountId =
+    taxAmount > 0
+      ? dn.taxAccountId ?? resolveAccountDefaultId(accounts, settings, 'apTax')
+      : null;
+  if (taxAmount > 0 && !taxAccountId) {
+    throw new Error(
+      `DebitNote ${dn.number}: taxAmount is set but no Input Tax account is configured (apTax default)`,
+    );
+  }
+
   const je = await postJournalEntry(tx, {
     organizationId: dn.organizationId,
     date: dn.date,
@@ -87,8 +110,16 @@ export async function postDebitNoteOnApply(
         accountId: returnAccountId,
         description: `Purchase return - ${dn.number}`,
         debit: 0,
-        credit: amount,
+        credit: amount - taxAmount,
       },
+      ...(taxAmount > 0 && taxAccountId
+        ? [{
+            accountId: taxAccountId,
+            description: `Input tax reversal - ${dn.number}`,
+            debit: 0,
+            credit: taxAmount,
+          }]
+        : []),
     ],
   });
 

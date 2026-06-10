@@ -79,8 +79,8 @@
   - Stock Adjustment: writes `InventoryLedgerEntry` rows *plus* `DR Inventory / CR Variance` (or reverse) — perpetual ledger was unwritten before
   - Shared helper `lib/journal-posting.ts:postJournalEntry` enforces debits = credits on every post
   - Trial-balance smoke verified: `SUM(debit) − SUM(credit) = 0` across POSTED entries
-- [ ] Sales Returns / Purchase Returns GL posting (`/api/v1/sales-returns`, `/api/v1/purchase-returns` — different schemas from credit/debit notes; still unposted)
-- [ ] Tax-amount split on Credit / Debit Notes (schema currently stores flat `amount` only — needs migration to add `taxAmount` for proper Output/Input Tax reversal)
+- [x] Sales Returns / Purchase Returns GL posting — `lib/sales-return-posting.ts` / `lib/purchase-return-posting.ts` post inventory legs on approval; wired into both routes
+- [x] Tax-amount split on Credit / Debit Notes — `taxAmount` column added; posting splits DR/CR across arTax (Output Tax) / apTax (Input Tax) on apply; forms send the computed PPN portion
 - [ ] Account Defaults expansion (Accurate-style): split the flat list into 4 sub-tabs (Barang & Jasa / Perusahaan / Penjualan-Pembelian / Persediaan); add `inventoryAdjustment`, `stockVariance`, `roundingAccount`, `salesDiscount`, `purchaseDiscount`, `openingBalanceEquity`, `retainedEarnings`, `incomeTaxExpense` (today the new postings fall back to `cogsExpense` for unmatched cases)
 - [x] COGS auto-calculation on invoice line items — `calculateAndPostCOGS()` called per inventory line on DRAFT→SENT transition (CPA timing fix)
 - [x] Stock valuation report — `/api/v1/inventory/valuation` route + `StockValuation.tsx` view with category/warehouse filters and Excel export

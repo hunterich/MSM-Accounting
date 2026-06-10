@@ -379,6 +379,7 @@ const CreditNoteForm = () => {
             taxAccountId: formData.taxAccountId,
             settlementAccountId: formData.settlementAccountId,
             amount: totals.total || formData.amount,
+            taxAmount: formData.applyTax ? totals.taxAmount : 0,
             applyTax: formData.applyTax,
             status: 'Applied',
         };
