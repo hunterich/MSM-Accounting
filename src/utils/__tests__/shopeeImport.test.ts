@@ -394,4 +394,19 @@ describe('TikTok Shop export parsing', () => {
         expect(result.newInvoices[0].audit[0].action).toBe('Created (TikTok Import)');
         expect(result.payments[0].method).toBe('E-Wallet');
     });
+
+    it('maps "Bayar di tempat" (TikTok COD) to COD', () => {
+        const orders: ParsedShopeeOrder[] = [{
+            orderNumber: '583375886106133963',
+            orderDate: '2026-04-08', paymentDate: '2026-04-08', completionDate: '2026-04-08',
+            buyerUsername: 'b', recipientName: 'r', phone: '', shippingAddress: '',
+            city: '', province: '', paymentMethod: 'Bayar di tempat', trackingNumber: 'JX1',
+            totalPayment: 35848, totalProductAmount: 34493,
+            items: [{ productName: 'Shampo', variationName: '', priceAfterDiscount: 34493, quantity: 1, productTotal: 34493, parentSKU: 'CC247A', skuReference: '', sellerDiscount: 0, shopeeDiscount: 0 }],
+        }];
+        const result = transformOrdersToInvoices(orders, {
+            customerId: 'C', customerName: 'TikTok Sales', shopId: 'S', platform: 'TikTok',
+        }, []);
+        expect(result.payments[0].method).toBe('COD');
+    });
 });

@@ -804,7 +804,7 @@ export function computeStockDeficits(
 /** Map marketplace payment methods to app's method names */
 function mapPaymentMethod(rawMethod: string): string {
     const m = String(rawMethod).toLowerCase();
-    if (m.includes('cod')) return 'COD';
+    if (m.includes('cod') || m.includes('bayar di tempat')) return 'COD';
     if (m.includes('transfer')) return 'Bank Transfer';
     if (m.includes('kartu kredit') || m.includes('credit')) return 'Credit Card';
     if (m.includes('spaylater') || m.includes('shopee')) return 'SPayLater';
