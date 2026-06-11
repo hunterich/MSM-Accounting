@@ -1,14 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { List, Plus, X, User, MapPin, Clock3, History, Download } from 'lucide-react';
+import { User, MapPin, Clock3, History, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import FilterBar from '../../components/UI/FilterBar';
+import DocumentTabBar from '../../components/UI/DocumentTabBar';
+import PageHeader from '../../components/Layout/PageHeader';
 import { formatIDR } from '../../utils/formatters';
 import { useCustomers } from '../../hooks/useAR';
+import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
@@ -16,8 +19,6 @@ interface CustomerFilters {
     category: string;
     status: string;
 }
-
-const MAX_TABS_PER_ROW = 5;
 
 const Customers = () => {
     const navigate = useNavigate();
@@ -27,8 +28,14 @@ const Customers = () => {
     const customerList = cuResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<CustomerFilters>({ category: '', status: '' });
-    const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-    const [openCustomerIds, setOpenCustomerIds] = useState<string[]>([]);
+    const {
+        selectedId: selectedCustomerId,
+        openIds: openCustomerIds,
+        openTab,
+        closeTab: closeCustomerTab,
+        selectNone,
+        tabRows,
+    } = useDocumentTabs({ maxPerRow: 5 });
     const [detailTab, setDetailTab] = useState<string>('summary');
     const filteredData = useMemo(() => {
         return customerList.filter((item) => {
@@ -43,24 +50,8 @@ const Customers = () => {
     const selectedCustomer = customerList.find((c) => c.id === selectedCustomerId) || null;
 
     const openCustomerTab = (customerId: string) => {
-        setOpenCustomerIds((prev) => (prev.includes(customerId) ? prev : [...prev, customerId]));
-        setSelectedCustomerId(customerId);
+        openTab(customerId);
         setDetailTab('summary');
-    };
-
-    const closeCustomerTab = (customerId: string) => {
-        setOpenCustomerIds((prev) => {
-            const idx = prev.indexOf(customerId);
-            const next = prev.filter((id) => id !== customerId);
-            if (selectedCustomerId === customerId) {
-                if (next.length === 0) {
-                    setSelectedCustomerId('');
-                } else {
-                    setSelectedCustomerId(next[Math.max(0, idx - 1)] || next[0]);
-                }
-            }
-            return next;
-        });
     };
 
     const handleNewCustomer = () => {
@@ -102,80 +93,58 @@ const Customers = () => {
         { key: 'actions', label: '', render: (_: unknown, row: Record<string, unknown>) => <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleEditCustomer(row['id'] as string); }} /> }
     ];
 
-    const firstRowDynamicLimit = Math.max(0, MAX_TABS_PER_ROW - 2);
-    const firstRowIds = openCustomerIds.slice(0, firstRowDynamicLimit);
-    const remainingIds = openCustomerIds.slice(firstRowDynamicLimit);
-    const extraRows: string[][] = [];
-    for (let i = 0; i < remainingIds.length; i += MAX_TABS_PER_ROW) {
-        extraRows.push(remainingIds.slice(i, i + MAX_TABS_PER_ROW));
-    }
-
-    const renderCustomerTab = (customerId: string) => {
-        const customer = customerList.find((c) => c.id === customerId);
-        if (!customer) return null;
-        const isActive = selectedCustomerId === customerId;
-        return (
-            <button
-                key={customerId}
-                className={`border bg-neutral-100 text-neutral-800 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer ${isActive ? 'bg-neutral-0 border-neutral-300 border-b-neutral-0' : 'border-neutral-300'}`}
-                onClick={() => setSelectedCustomerId(customerId)}
-            >
-                {customer.name}
-                <span className="inline-flex items-center text-neutral-600" onClick={(e) => { e.stopPropagation(); closeCustomerTab(customerId); }}>
-                    <X size={14} />
-                </span>
-            </button>
-        );
+    const handleExportCsv = () => {
+        const rows = filteredData.map((c) => ({
+            code: c.id,
+            name: c.name,
+            category: c.category || '',
+            defaultDiscount: c.defaultDiscount || 0,
+            paymentTerms: c.paymentTerms === 0 ? 'Due on Receipt' : `Net ${c.paymentTerms}`,
+            balance: c.balance || 0,
+            status: c.status,
+        }));
+        exportToCsv('customers.csv', rows, [
+            { label: 'Code', key: 'code' },
+            { label: 'Name', key: 'name' },
+            { label: 'Category', key: 'category' },
+            { label: 'Discount', key: 'defaultDiscount' },
+            { label: 'Terms', key: 'paymentTerms' },
+            { label: 'Open Balance', key: 'balance' },
+            { label: 'Status', key: 'status' },
+        ]);
     };
 
     return (
-        <div className="max-w-full mx-auto">
-            <div className="flex flex-col gap-1.5 mb-2 relative z-[2]">
-                <div className="flex gap-1.5 flex-nowrap items-center">
-                    <button className="border border-[#b9ddff] bg-[#e8f4ff] text-primary-700 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer" onClick={() => setSelectedCustomerId('')}>
-                        <List size={16} />
-                        Catalog
-                    </button>
-                    <button className={`border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} onClick={handleNewCustomer} disabled={!canCreate}>
-                        <Plus size={16} />
-                        New Customer
-                    </button>
-                    <button
-                        className="btn btn-secondary flex items-center gap-1"
-                        title="Export CSV"
-                        onClick={() => {
-                            const rows = filteredData.map((c) => ({
-                                code: c.id,
-                                name: c.name,
-                                category: c.category || '',
-                                defaultDiscount: c.defaultDiscount || 0,
-                                paymentTerms: c.paymentTerms === 0 ? 'Due on Receipt' : `Net ${c.paymentTerms}`,
-                                balance: c.balance || 0,
-                                status: c.status,
-                            }));
-                            exportToCsv('customers.csv', rows, [
-                                { label: 'Code', key: 'code' },
-                                { label: 'Name', key: 'name' },
-                                { label: 'Category', key: 'category' },
-                                { label: 'Discount', key: 'defaultDiscount' },
-                                { label: 'Terms', key: 'paymentTerms' },
-                                { label: 'Open Balance', key: 'balance' },
-                                { label: 'Status', key: 'status' },
-                            ]);
-                        }}
-                    >
-                        <Download size={16} />
-                        <span className="hidden sm:inline">Export</span>
-                    </button>
-                    {firstRowIds.map((id) => renderCustomerTab(id))}
-                    <div className="ml-auto text-[0.82rem] text-neutral-600 font-semibold pr-1">Open tabs: {openCustomerIds.length}</div>
-                </div>
-                {extraRows.map((row, rowIdx) => (
-                    <div key={`customer-row-${rowIdx}`} className="flex gap-1.5 flex-nowrap items-center">
-                        {row.map((id) => renderCustomerTab(id))}
-                    </div>
-                ))}
-            </div>
+        <div className="container ar-module container-full-width">
+            <PageHeader
+                title="Customers"
+                subtitle="Customer master data, credit terms, and balances."
+                actions={
+                    <Button
+                        text="Export CSV"
+                        size="small"
+                        variant="secondary"
+                        icon={<Download size={16} />}
+                        onClick={handleExportCsv}
+                    />
+                }
+            />
+
+            <DocumentTabBar
+                openIds={openCustomerIds}
+                selectedId={selectedCustomerId}
+                tabRows={tabRows}
+                getLabel={(id) => customerList.find((c) => c.id === id)?.name || id}
+                onSelect={openCustomerTab}
+                onClose={closeCustomerTab}
+                newTabLabel="New Customer"
+                onNewTab={canCreate ? handleNewCustomer : undefined}
+                disableNew={!canCreate}
+                onCatalog={selectNone}
+                firstRowSuffix={
+                    <div className="workbench-tab-count">Open tabs: {openCustomerIds.length}</div>
+                }
+            />
 
             {!selectedCustomer && (
                 <>
