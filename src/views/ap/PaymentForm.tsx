@@ -36,6 +36,9 @@ interface StoredAPPayment extends APPayment {
 interface PaymentLocationState {
     mode?: 'create' | 'edit' | 'view';
     paymentId?: string;
+    /** Pre-select a vendor + bill when arriving from a bill's Pay button. */
+    vendorId?: string;
+    payBillId?: string;
 }
 
 interface SelectOption {
@@ -216,6 +219,18 @@ const PaymentForm = () => {
         const state = (location.state || {}) as PaymentLocationState;
         if (state.mode) setMode(state.mode);
 
+        if (state.payBillId) {
+            const bill = bills.find((b) => b.id === state.payBillId);
+            setPaymentNumberingMode('auto');
+            setPaymentData((prev) => ({
+                ...prev,
+                vendorId: state.vendorId || bill?.vendorId || prev.vendorId,
+                selectedBills: [state.payBillId as string],
+                totalAmount: Number(bill?.amount ?? prev.totalAmount ?? 0),
+            }));
+            return;
+        }
+
         if (state.paymentId) {
             const found = apPayments.find((p) => p.id === state.paymentId);
             if (!found) return;
@@ -242,7 +257,7 @@ const PaymentForm = () => {
         }
 
         setPaymentNumberingMode('auto');
-    }, [location.state, apPayments, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
+    }, [location.state, apPayments, bills, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
 
     useEffect(() => {
         let total = 0;

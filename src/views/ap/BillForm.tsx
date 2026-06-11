@@ -308,7 +308,26 @@ const BillForm = () => {
             isLoading={isPageLoading}
             actions={(
                 isViewMode ? (
-                    <Button text="Close" variant="primary" onClick={() => navigate('/ap/bills')} />
+                    <>
+                        {selectedBill?.status === 'Draft' && (
+                            <Button
+                                text={updateBill.isPending ? 'Approving...' : 'Approve'}
+                                variant="primary"
+                                disabled={updateBill.isPending}
+                                onClick={() => updateBill.mutate({ id: selectedBill._id || selectedBill.id, status: 'Unpaid' })}
+                            />
+                        )}
+                        {(selectedBill?.status === 'Unpaid' || selectedBill?.status === 'Overdue') && (
+                            <Button
+                                text="Pay"
+                                variant="primary"
+                                onClick={() => navigate('/ap/payments/new', {
+                                    state: { mode: 'create', vendorId: selectedBill.vendorId, payBillId: selectedBill.id },
+                                })}
+                            />
+                        )}
+                        <Button text="Close" variant="secondary" onClick={() => navigate('/ap/bills')} />
+                    </>
                 ) : (
                     <>
                         <Button text="Cancel" variant="secondary" onClick={() => navigate('/ap/bills')} />

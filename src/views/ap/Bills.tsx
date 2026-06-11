@@ -104,7 +104,7 @@ const Bills = () => {
         { key: 'amount', label: 'Amount', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Paid' ? 'Success' : (val as string)} label={val as string} /> },
         {
-            key: 'actions', label: '', render: (_: unknown, row: { id: string; _id?: string; status?: string }) => (
+            key: 'actions', label: '', render: (_: unknown, row: { id: string; _id?: string; status?: string; vendorId?: string }) => (
                 <div className="flex gap-1.5 justify-end">
                     {row.status === 'Draft' && (
                         <Button
@@ -113,6 +113,17 @@ const Bills = () => {
                             variant="primary"
                             disabled={!canEdit || updateBill.isPending}
                             onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleApprove(row._id || row.id); }}
+                        />
+                    )}
+                    {(row.status === 'Unpaid' || row.status === 'Overdue') && (
+                        <Button
+                            text="Pay"
+                            size="small"
+                            variant="primary"
+                            onClick={(event: React.MouseEvent) => {
+                                event.stopPropagation();
+                                navigate('/ap/payments/new', { state: { mode: 'create', vendorId: row.vendorId, payBillId: row.id } });
+                            }}
                         />
                     )}
                     <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/bills/new?billId=${row.id}&mode=view`); }} />
