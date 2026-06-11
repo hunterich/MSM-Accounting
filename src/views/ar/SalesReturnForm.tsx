@@ -49,6 +49,8 @@ type SalesReturnAccountField = 'arAccountId' | 'returnAccountId' | 'taxAccountId
 import StatusTag from '../../components/UI/StatusTag';
 import { formatIDR, formatDateID } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { useReturnStore } from '../../stores/useReturnStore';
 import { useCustomers, useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';
@@ -92,6 +94,8 @@ const SalesReturnForm = () => {
     const { data: productsData, isLoading: productsLoading } = useItems();
     const products = productsData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
+    const company = useSettingsStore((s) => s.companyInfo);
+    const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createSalesReturnMutation = useCreateSalesReturn();
     const updateSalesReturnMutation = useUpdateSalesReturn();
     const resolvedAccountDefaults = useMemo(
@@ -467,7 +471,7 @@ const SalesReturnForm = () => {
             isLoading={isPageLoading}
             actions={(
                 <>
-                    <Button text="Print" variant="secondary" onClick={() => {}} />
+                    <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
                     {!isView && <Button text="Save Draft" variant="secondary" onClick={() => handleSaveReturn(true)} />}
                     <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => handleSaveReturn(false)} />
                 </>
@@ -722,6 +726,31 @@ const SalesReturnForm = () => {
                     </div>
                 </div>
             </div>
+
+            <PrintPreviewModal
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+                title="Sales Return Print Preview"
+                documentTitle={`SalesReturn_${returnData.returnNumber || ''}`}
+            >
+                <NotePrintTemplate
+                    title="SALES RETURN"
+                    partyLabel="Customer"
+                    partyName={customers.find((c) => c.id === returnData.customerId)?.name}
+                    document={{
+                        number: returnData.returnNumber,
+                        date: returnData.returnDate,
+                        status: isView ? 'Posted' : 'Draft',
+                        reference: returnData.invoiceId,
+                        notes: returnData.reason,
+                    }}
+                    lineItems={returnData.lines}
+                    subtotal={totals.subtotal}
+                    taxAmount={totals.taxAmount}
+                    total={totals.total}
+                    company={company}
+                />
+            </PrintPreviewModal>
         </FormPage>
     );
 };

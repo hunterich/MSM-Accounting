@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatIDR, formatDateID, formatNumber } from '../formatters';
+import { formatIDR, formatDateID, formatNumber, numberToWordsID, terbilang } from '../formatters';
 
 describe('formatIDR', () => {
     it('formats a positive integer', () => {
@@ -78,5 +78,47 @@ describe('formatNumber', () => {
 
     it('formats string input', () => {
         expect(formatNumber('12345')).toBe('12.345');
+    });
+});
+
+describe('numberToWordsID', () => {
+    it('spells single digits and teens', () => {
+        expect(numberToWordsID(0)).toBe('nol');
+        expect(numberToWordsID(7)).toBe('tujuh');
+        expect(numberToWordsID(11)).toBe('sebelas');
+        expect(numberToWordsID(15)).toBe('lima belas');
+    });
+
+    it('spells tens and hundreds with Indonesian special cases', () => {
+        expect(numberToWordsID(21)).toBe('dua puluh satu');
+        expect(numberToWordsID(100)).toBe('seratus');
+        expect(numberToWordsID(250)).toBe('dua ratus lima puluh');
+    });
+
+    it('uses "seribu" for exactly one thousand but "… ribu" otherwise', () => {
+        expect(numberToWordsID(1000)).toBe('seribu');
+        expect(numberToWordsID(2000)).toBe('dua ribu');
+        expect(numberToWordsID(1500000)).toBe('satu juta lima ratus ribu');
+    });
+
+    it('spells millions and billions', () => {
+        expect(numberToWordsID(1000000)).toBe('satu juta');
+        expect(numberToWordsID(1234567)).toBe('satu juta dua ratus tiga puluh empat ribu lima ratus enam puluh tujuh');
+        expect(numberToWordsID(2000000000)).toBe('dua miliar');
+    });
+
+    it('handles negatives, strings, and truncates decimals', () => {
+        expect(numberToWordsID(-50)).toBe('minus lima puluh');
+        expect(numberToWordsID('1500000')).toBe('satu juta lima ratus ribu');
+        expect(numberToWordsID(1500.99)).toBe('seribu lima ratus');
+        expect(numberToWordsID(null)).toBe('nol');
+    });
+});
+
+describe('terbilang', () => {
+    it('appends "rupiah" and capitalises', () => {
+        expect(terbilang(1500000)).toBe('Satu juta lima ratus ribu rupiah');
+        expect(terbilang(0)).toBe('Nol rupiah');
+        expect(terbilang(1000)).toBe('Seribu rupiah');
     });
 });

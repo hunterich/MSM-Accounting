@@ -12,6 +12,9 @@ import { useDeliveryNotes, useCreateDeliveryNote, DeliveryNote, DeliveryNoteLine
 import { useSalesOrders } from '../../hooks/useAR';
 import { useWarehouses } from '../../hooks/useInventory';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import DeliveryNotePrintTemplate from '../../components/print/DeliveryNotePrintTemplate';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,6 +47,12 @@ const DeliveryNotes: React.FC = () => {
     // ── data ───────────────────────────────────────────────────────────────────
     const { data: dnResult, isLoading } = useDeliveryNotes({});
     const notes: DeliveryNote[] = dnResult?.data ?? [];
+
+    const company = useSettingsStore((s) => s.companyInfo);
+    const [printNoteId, setPrintNoteId] = useState<string>('');
+    const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
+    const queuePrintNote = (id: string) => { setPrintNoteId(id); setIsPrintOpen(true); };
+    const activePrintNote = notes.find((n) => n.id === printNoteId) || null;
 
     const { data: soResult } = useSalesOrders({ status: 'open', limit: 200 });
     const openSOs = soResult?.data ?? [];
@@ -128,6 +137,13 @@ const DeliveryNotes: React.FC = () => {
         { key: 'warehouseName', label: 'Warehouse' },
         { key: 'status', label: 'Status', render: (val) => <StatusTag status={dnStatusVariant(val as string)} label={val as string} /> },
         { key: 'lines', label: 'Items', align: 'right', render: (val) => Array.isArray(val) ? String(val.length) : '—' },
+        {
+            key: 'actions',
+            label: '',
+            render: (_, row) => (
+                <Button text="Print" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); queuePrintNote(row['id'] as string); }} />
+            ),
+        },
     ];
 
     return (
@@ -335,6 +351,18 @@ const DeliveryNotes: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+
+            <PrintPreviewModal
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+                title="Delivery Note Print Preview"
+                documentTitle={`DeliveryNote_${activePrintNote?.number || activePrintNote?.id || ''}`}
+            >
+                <DeliveryNotePrintTemplate
+                    deliveryNote={activePrintNote}
+                    company={company}
+                />
+            </PrintPreviewModal>
         </ListPage>
     );
 };

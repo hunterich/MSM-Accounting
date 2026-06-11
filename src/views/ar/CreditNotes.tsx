@@ -13,6 +13,9 @@ import { useCreditNotes, useSalesReturns, useWarehouses } from '../../hooks/useR
 import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 
 interface SelectedDoc {
     type: 'credit' | 'return';
@@ -51,8 +54,15 @@ const CreditNotes = () => {
     const { data: srData } = useSalesReturns();
     const salesReturns = srData?.data ?? [];
     const { data: warehouses = [] } = useWarehouses();
+    const company = useSettingsStore((s) => s.companyInfo);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<CreditFilters>({ settlementType: '' });
+    const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
+    const [printDoc, setPrintDoc] = useState<{
+        title: string; partyLabel: string; partyName?: string;
+        document: Record<string, unknown>; lineItems: ReturnLine[];
+        subtotal: number; taxAmount: number; total: number;
+    } | null>(null);
     const [activeCatalogTab, setActiveCatalogTab] = useState<string>('credits');
     const [detailTab, setDetailTab] = useState<string>('summary');
 
@@ -112,6 +122,38 @@ const CreditNotes = () => {
         return linkedReturn?.lines || [];
     }, [selectedCredit, salesReturns]);
 
+    // Build the print payload for either a credit note or its source sales return
+    const lineSubtotal = (lines: ReturnLine[]) =>
+        lines.reduce((sum, line) => sum + Number(line.qtyReturn || 0) * Number(line.price || 0), 0);
+
+    const queuePrintCredit = (id: string) => {
+        const credit = creditNotes.find((c) => c.id === id);
+        if (!credit) return;
+        const lines = ((salesReturns.find((ret) => ret.id === credit.returnId)?.lines) as ReturnLine[] | undefined) || [];
+        const subtotal = lineSubtotal(lines);
+        const total = Number(credit.amount || 0);
+        setPrintDoc({
+            title: 'CREDIT NOTE', partyLabel: 'Customer', partyName: credit.customerName,
+            document: { number: credit.id, date: credit.date, status: credit.status, reference: credit.sourceInvoiceId },
+            lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total,
+        });
+        setIsPrintOpen(true);
+    };
+
+    const queuePrintReturn = (id: string) => {
+        const ret = salesReturns.find((item) => item.id === id);
+        if (!ret) return;
+        const lines = (ret.lines as ReturnLine[] | undefined) || [];
+        const subtotal = lineSubtotal(lines);
+        const total = getReturnTotal(ret as unknown as Record<string, unknown>);
+        setPrintDoc({
+            title: 'SALES RETURN', partyLabel: 'Customer', partyName: ret.customerName,
+            document: { number: ret.id, date: ret.returnDate, status: ret.status, reference: ret.invoiceId },
+            lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total,
+        });
+        setIsPrintOpen(true);
+    };
+
     const creditColumns = [
         { key: 'id', label: 'Credit Note #' },
         { key: 'returnId', label: 'Sales Return #' },
@@ -131,6 +173,7 @@ const CreditNotes = () => {
             render: (_: unknown, row: Record<string, unknown>) => (
                 <div className="row-actions-end">
                     <Button text="View" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openDoc('credit', row['id'] as string); }} />
+                    <Button text="Print" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); queuePrintCredit(row['id'] as string); }} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(e: React.MouseEvent) => { e.stopPropagation(); navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: row['id'] as string } }); }} />
                 </div>
             )
@@ -285,7 +328,7 @@ const CreditNotes = () => {
                             <StatusTag status={selectedCredit.status === 'Applied' ? 'Success' : 'Info'} label={selectedCredit.status} />
                         </div>
                         <div className="detail-header-actions">
-                            <Button text="Print" size="small" variant="secondary" onClick={() => alert('Print is not connected yet.')} />
+                            <Button text="Print" size="small" variant="secondary" onClick={() => queuePrintCredit(selectedCredit.id)} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: selectedCredit.id } })} />
                         </div>
                     </div>
@@ -401,7 +444,7 @@ const CreditNotes = () => {
                             <StatusTag status={selectedReturn.status === 'Approved' ? 'Success' : 'Warning'} label={selectedReturn.status} />
                         </div>
                         <div className="detail-header-actions">
-                            <Button text="Print" size="small" variant="secondary" onClick={() => alert('Print is not connected yet.')} />
+                            <Button text="Print" size="small" variant="secondary" onClick={() => queuePrintReturn(selectedReturn.id)} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ar/returns/new', { state: { mode: 'edit', returnId: selectedReturn.id } })} />
                         </div>
                     </div>
@@ -506,6 +549,25 @@ const CreditNotes = () => {
                     </div>
                 </div>
             )}
+
+            <PrintPreviewModal
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+                title={`${printDoc?.title || 'Document'} Print Preview`}
+                documentTitle={`${(printDoc?.title || 'Document').replace(/\s+/g, '')}_${(printDoc?.document.number as string) || ''}`}
+            >
+                <NotePrintTemplate
+                    title={printDoc?.title || ''}
+                    partyLabel={printDoc?.partyLabel || ''}
+                    partyName={printDoc?.partyName}
+                    document={printDoc?.document}
+                    lineItems={printDoc?.lineItems}
+                    subtotal={printDoc?.subtotal}
+                    taxAmount={printDoc?.taxAmount}
+                    total={printDoc?.total}
+                    company={company}
+                />
+            </PrintPreviewModal>
         </div>
     );
 };

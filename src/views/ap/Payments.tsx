@@ -9,6 +9,9 @@ import { exportToCsv } from '../../utils/exportCsv';
 import { useAPPayments, useUpdateAPPayment } from '../../hooks/useAP';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import PaymentReceiptPrintTemplate from '../../components/print/PaymentReceiptPrintTemplate';
 
 interface PaymentFilters {
     status: string;
@@ -32,6 +35,12 @@ const Payments = () => {
     const { data: paymentsResult, isLoading } = useAPPayments();
     const updateAPPayment = useUpdateAPPayment();
     const payments = paymentsResult?.data ?? [];
+
+    const company = useSettingsStore((s) => s.companyInfo);
+    const [printPaymentId, setPrintPaymentId] = useState<string>('');
+    const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
+    const queuePrintPayment = (id: string) => { setPrintPaymentId(id); setIsPrintOpen(true); };
+    const activePrintPayment = payments.find((p) => p.id === printPaymentId) || null;
 
     const filteredData = useMemo(() => {
         return payments.filter((item) => {
@@ -108,7 +117,7 @@ const Payments = () => {
                     )}
                     <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); openPaymentTab(row['id'] as string); }} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate('/ap/payments/edit', { state: { mode: 'edit', paymentId: row['id'] as string } }); }} />
-                    <Button text="Print" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); window.alert('Print is not connected yet.'); }} />
+                    <Button text="Print" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); queuePrintPayment(row['id'] as string); }} />
                 </div>
             )
         }
@@ -252,7 +261,7 @@ const Payments = () => {
                             <StatusTag status={selectedPayment.status === 'Completed' ? 'Success' : 'Warning'} label={selectedPayment.status} />
                         </div>
                         <div className="detail-header-actions">
-                            <Button text="Print" size="small" variant="secondary" onClick={() => window.alert('Print is not connected yet.')} />
+                            <Button text="Print" size="small" variant="secondary" onClick={() => queuePrintPayment(selectedPayment.id)} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ap/payments/edit', { state: { mode: 'edit', paymentId: selectedPayment.id } })} />
                         </div>
                     </div>
@@ -331,6 +340,20 @@ const Payments = () => {
                     </div>
                 </div>
             ) : null}
+
+            <PrintPreviewModal
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+                title="Payment Receipt Preview"
+                documentTitle={`Receipt_${activePrintPayment?.number || activePrintPayment?.id || ''}`}
+            >
+                <PaymentReceiptPrintTemplate
+                    payment={activePrintPayment}
+                    direction="out"
+                    partyName={activePrintPayment?.vendorName}
+                    company={company}
+                />
+            </PrintPreviewModal>
         </div>
     );
 };
