@@ -349,7 +349,7 @@ const PaymentForm = () => {
         bankAccountsLoading ||
         chartOfAccountsLoading;
 
-    const handleSave = async () => {
+    const handleSave = async (saveAsDraft = false) => {
         if (!paymentData.customerId) {
             window.alert('Select a customer before saving payment.');
             return;
@@ -376,19 +376,33 @@ const PaymentForm = () => {
             return;
         }
 
+        // Allocations link the payment to its invoices so they age out as paid.
+        const allocations = paymentData.selectedInvoices
+            .map((invId) => {
+                const invoice = invoices.find((item) => item.id === invId);
+                if (!invoice) return null;
+                const adjustment = paymentData.adjustments[invId] || { discount: 0, penalty: 0 };
+                return {
+                    invoiceId: invoice.id,
+                    amountApplied: Number(invoice.amount || 0),
+                    discountAmount: Number(adjustment.discount || 0),
+                    penaltyAmount: Number(adjustment.penalty || 0),
+                };
+            })
+            .filter((row): row is NonNullable<typeof row> => row !== null);
+
         const newPayment = {
             customerId: paymentData.customerId,
-            customerName: customers.find((c) => c.id === paymentData.customerId)?.name || '',
             date: paymentData.date,
             method: paymentData.method,
-            bankId: paymentData.depositTo,
-            depositAccountId: paymentData.depositAccountId,
-            arAccountId: paymentData.arAccountId,
-            discountAccountId: paymentData.discountAccountId,
-            penaltyAccountId: paymentData.penaltyAccountId,
-            invoiceId: paymentData.selectedInvoices[0] || '',
+            ...(paymentData.depositTo && { bankAccountId: paymentData.depositTo }),
+            ...(paymentData.depositAccountId && { depositAccountId: paymentData.depositAccountId }),
+            ...(paymentData.arAccountId && { arAccountId: paymentData.arAccountId }),
+            ...(paymentData.discountAccountId && { discountAccountId: paymentData.discountAccountId }),
+            ...(paymentData.penaltyAccountId && { penaltyAccountId: paymentData.penaltyAccountId }),
             totalAmount: paymentData.totalAmount,
-            status: 'Completed',
+            allocations,
+            status: saveAsDraft ? 'Draft' : 'Completed',
         };
 
         try {
@@ -450,8 +464,8 @@ const PaymentForm = () => {
             isLoading={isPageLoading}
             actions={(
                 <>
-                    <Button text="Save Draft" variant="secondary" onClick={() => {}} disabled={isSaving} />
-                    <Button text={mode === 'view' ? 'Close' : (isSaving ? 'Saving...' : 'Save Payment')} variant="primary" onClick={mode === 'view' ? () => navigate('/ar/payments') : handleSave} disabled={mode !== 'view' && isSaving} />
+                    {mode !== 'view' && <Button text={isSaving ? 'Saving...' : 'Save Draft'} variant="secondary" onClick={() => { void handleSave(true); }} disabled={isSaving} />}
+                    <Button text={mode === 'view' ? 'Close' : (isSaving ? 'Saving...' : 'Save Payment')} variant="primary" onClick={mode === 'view' ? () => navigate('/ar/payments') : () => { void handleSave(false); }} disabled={mode !== 'view' && isSaving} />
                 </>
             )}
         >

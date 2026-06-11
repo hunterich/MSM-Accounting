@@ -118,3 +118,29 @@ describe('account-rules shared COA helpers', () => {
     expect(balances.totalsById['asset-root']).toBe(350);
   });
 });
+
+// ── Server-side enum casing (regression) ─────────────────────────────────────
+// Accounts read straight from Prisma carry uppercase enum types ('LIABILITY');
+// UI-normalised accounts carry 'Liability'. Resolution must accept both —
+// the exact-match version silently skipped GL posting for every payment.
+import { resolveAccountDefaultId } from '../account-defaults';
+
+describe('resolveAccountDefaultId with Prisma enum casing', () => {
+    const dbAccounts = [
+        { id: 'acc-ap', code: '2-1000', name: 'Accounts Payable', type: 'LIABILITY', isActive: true, isPostable: true },
+        { id: 'acc-bank', code: '1-1100', name: 'Bank BCA IDR', type: 'ASSET', isActive: true, isPostable: true },
+    ];
+
+    it('resolves apControl from uppercase LIABILITY accounts', () => {
+        expect(resolveAccountDefaultId(dbAccounts as never, {}, 'apControl')).toBe('acc-ap');
+    });
+
+    it('resolves bankAsset from uppercase ASSET accounts', () => {
+        expect(resolveAccountDefaultId(dbAccounts as never, {}, 'bankAsset')).toBe('acc-bank');
+    });
+
+    it('still resolves title-case UI-normalised accounts', () => {
+        const uiAccounts = dbAccounts.map((a) => ({ ...a, type: a.type === 'LIABILITY' ? 'Liability' : 'Asset' }));
+        expect(resolveAccountDefaultId(uiAccounts as never, {}, 'apControl')).toBe('acc-ap');
+    });
+});

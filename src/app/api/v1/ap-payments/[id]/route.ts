@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateApPaymentInputSchema } from '@/types/api';
+import { postApPaymentIfNeeded } from '@/lib/payment-posting';
 
 export const runtime = 'nodejs';
 
@@ -49,7 +50,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
       await tx.aPPayment.update({
         where: { id, organizationId: orgId },
-        data: { ...data, updatedAt: new Date() },
+        data: { ...data, ...(data.date && { date: new Date(data.date) }), updatedAt: new Date() },
       });
       if (allocations) {
         await tx.aPPaymentAllocation.deleteMany({ where: { paymentId: id } });
@@ -62,6 +63,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           });
         }
       }
+      // A DRAFT payment completed via this update posts to the GL now;
+      // already-posted payments are a no-op (journalEntryId token).
+      await postApPaymentIfNeeded(tx, orgId, id);
+
       return tx.aPPayment.findFirst({
         where: { id, organizationId: orgId },
         include: { vendor: true, allocations: true },

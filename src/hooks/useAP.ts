@@ -38,6 +38,11 @@ const BILL_STATUS_UP: Record<string, string> = {
     Paid: 'PAID', Overdue: 'OVERDUE', Void: 'VOID',
 };
 
+const PAYMENT_METHOD_UP: Record<string, string> = {
+    'Bank Transfer': 'BANK_TRANSFER', Check: 'CHECK', Cheque: 'CHECK',
+    'Credit Card': 'CREDIT_CARD', Cash: 'CASH', COD: 'OTHER', 'E-Wallet': 'OTHER',
+};
+const mapPaymentMethodUp = (m?: string) => (m ? (PAYMENT_METHOD_UP[m] ?? (/^[A-Z_]+$/.test(m) ? m : 'OTHER')) : undefined);
 const PAYMENT_STATUS_DOWN: Record<string, PaymentStatus> = { DRAFT: 'Draft', PROCESSING: 'Processing', COMPLETED: 'Completed', VOID: 'Void' };
 const PAYMENT_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Processing: 'PROCESSING', Completed: 'COMPLETED', Void: 'VOID' };
 
@@ -341,6 +346,7 @@ export function useCreateAPPayment() {
     return useMutation({
         mutationFn: (body: Partial<APPayment>) => api.post('/api/v1/ap-payments', {
             ...body,
+            ...(body.method && { method: mapPaymentMethodUp(body.method) }),
             status: PAYMENT_STATUS_UP[body.status ?? ''] ?? body.status ?? 'COMPLETED',
         }),
         onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.payments }),
@@ -352,6 +358,7 @@ export function useUpdateAPPayment() {
     return useMutation({
         mutationFn: ({ id, ...updates }: Partial<APPayment> & { id: string }) => api.put(`/api/v1/ap-payments/${id}`, {
             ...updates,
+            ...(updates.method && { method: mapPaymentMethodUp(updates.method) }),
             ...(updates.status && { status: PAYMENT_STATUS_UP[updates.status] ?? updates.status }),
         }),
         onSuccess: (_, vars) => {

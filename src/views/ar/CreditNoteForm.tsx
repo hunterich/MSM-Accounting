@@ -336,7 +336,7 @@ const CreditNoteForm = () => {
         );
     };
 
-    const handleSaveCredit = () => {
+    const handleSaveCredit = async (saveAsDraft = false) => {
         if (!formData.linkedReturnId || formData.lines.length === 0) {
             window.alert('Create credit note from a sales return draft or open an existing credit note.');
             return;
@@ -381,13 +381,24 @@ const CreditNoteForm = () => {
             amount: totals.total || formData.amount,
             taxAmount: formData.applyTax ? totals.taxAmount : 0,
             applyTax: formData.applyTax,
-            status: 'Applied',
+            status: saveAsDraft ? 'Draft' : 'Applied',
         };
 
-        if (mode === 'edit' && formData.creditNumber) {
-            updateCreditNoteMutation.mutate({ id: formData.creditNumber, ...notePayload } as any);
-        } else {
-            createCreditNote.mutate(notePayload as any);
+        try {
+            if (mode === 'edit' && formData.creditNumber) {
+                await updateCreditNoteMutation.mutateAsync({ id: formData.creditNumber, ...notePayload } as any);
+            } else {
+                // POST always creates a DRAFT (the API ignores client status);
+                // applying is a separate DRAFT -> APPLIED transition that
+                // triggers the GL posting.
+                const created = await createCreditNote.mutateAsync(notePayload as any) as { id?: string };
+                if (!saveAsDraft && created?.id) {
+                    await updateCreditNoteMutation.mutateAsync({ id: created.id, status: 'Applied' } as any);
+                }
+            }
+        } catch (err) {
+            window.alert(`Failed to save credit note: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            return;
         }
         navigate('/ar/credits');
     };
@@ -401,8 +412,8 @@ const CreditNoteForm = () => {
             actions={(
                 <>
                     <Button text="Print" variant="secondary" onClick={() => {}} />
-                    <Button text="Save Draft" variant="secondary" onClick={() => {}} />
-                    <Button text={isView ? 'Close' : 'Save Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : handleSaveCredit} />
+                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveCredit(true); }} />}
+                    <Button text={isView ? 'Close' : 'Save & Apply'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveCredit(false); }} />
                 </>
             )}
         >

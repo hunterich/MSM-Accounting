@@ -333,7 +333,7 @@ const DebitNoteForm = () => {
         );
     };
 
-    const handleSaveDebit = () => {
+    const handleSaveDebit = async (saveAsDraft = false) => {
         if (!formData.linkedReturnId || formData.lines.length === 0) {
             window.alert('Create debit note from a purchase return draft or open an existing debit note.');
             return;
@@ -372,13 +372,24 @@ const DebitNoteForm = () => {
             amount: totals.total || formData.amount,
             taxAmount: formData.applyTax ? totals.taxAmount : 0,
             applyTax: formData.applyTax,
-            status: 'Applied',
+            status: saveAsDraft ? 'Draft' : 'Applied',
         };
 
-        if (mode === 'edit' && formData.debitNumber) {
-            updateDebitNoteMutation.mutate({ id: formData.debitNumber, ...notePayload });
-        } else {
-            createDebitNote.mutate(notePayload);
+        try {
+            if (mode === 'edit' && formData.debitNumber) {
+                await updateDebitNoteMutation.mutateAsync({ id: formData.debitNumber, ...notePayload });
+            } else {
+                // POST always creates a DRAFT (the API ignores client status);
+                // applying is a separate DRAFT -> APPLIED transition that
+                // triggers the GL posting.
+                const created = await createDebitNote.mutateAsync(notePayload) as { id?: string };
+                if (!saveAsDraft && created?.id) {
+                    await updateDebitNoteMutation.mutateAsync({ id: created.id, status: 'Applied' });
+                }
+            }
+        } catch (err) {
+            window.alert(`Failed to save debit note: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            return;
         }
         navigate('/ap/debits');
     };
@@ -399,8 +410,8 @@ const DebitNoteForm = () => {
             actions={
                 <>
                     <Button text="Print" variant="secondary" />
-                    <Button text="Save Draft" variant="secondary" />
-                    <Button text={isView ? 'Close' : 'Save Debit Note'} variant="primary" onClick={isView ? () => navigate('/ap/debits') : handleSaveDebit} />
+                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveDebit(true); }} />}
+                    <Button text={isView ? 'Close' : 'Save & Apply'} variant="primary" onClick={isView ? () => navigate('/ap/debits') : () => { void handleSaveDebit(false); }} />
                 </>
             }
         >

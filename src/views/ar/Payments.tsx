@@ -9,7 +9,7 @@ import PageHeader from '../../components/Layout/PageHeader';
 import { Search, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
-import { useARPayments } from '../../hooks/useAR';
+import { useARPayments, useUpdateARPayment } from '../../hooks/useAR';
 import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
@@ -42,6 +42,7 @@ const Payments = () => {
     const [detailTab, setDetailTab] = useState<string>('summary');
 
     const { data: paymentsResult, isLoading } = useARPayments();
+    const updateARPayment = useUpdateARPayment();
     const payments = paymentsResult?.data ?? [];
 
     // Tab state managed by useDocumentTabs
@@ -77,6 +78,15 @@ const Payments = () => {
             label: '',
             render: (_: unknown, row: Record<string, unknown>) => (
                 <div className="row-actions-end">
+                    {row['status'] === 'Draft' && (
+                        <Button
+                            text="Complete"
+                            size="small"
+                            variant="primary"
+                            disabled={!canEdit || updateARPayment.isPending}
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); updateARPayment.mutate({ id: (row['_id'] || row['id']) as string, status: 'Completed' }); }}
+                        />
+                    )}
                     <Button text="View" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openPaymentTab(row['id'] as string); }} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(e: React.MouseEvent) => { e.stopPropagation(); navigate('/ar/payments/edit', { state: { mode: 'edit', paymentId: row['id'] as string } }); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); alert('Print is not connected yet.'); }} />
@@ -94,6 +104,7 @@ const Payments = () => {
             key: 'status',
             label: 'Filter by Status',
             options: [
+                { value: 'Draft', label: 'Draft' },
                 { value: 'Completed', label: 'Completed' },
                 { value: 'Processing', label: 'Processing' }
             ]

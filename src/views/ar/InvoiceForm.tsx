@@ -374,8 +374,11 @@ const InvoiceForm = () => {
     const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
     const isPageLoading = customersLoading || invoicesLoading || itemsLoading;
 
-    const handleApprove = async () => {
-        // Org-wide sales policy enforcement (role overrides bypass these checks)
+    const persistInvoice = async (saveAsDraft: boolean) => {
+        // Org-wide sales policy enforcement applies when approving; drafts are
+        // work-in-progress that can be parked without passing policy gates.
+        // (Role overrides bypass these checks.)
+        if (!saveAsDraft) {
         if (salesPolicy.requireSalesOrder && !formData.salesOrderId && !canBypassRequireSO) {
             window.alert('A Sales Order is required before creating an invoice. Link a Sales Order or ask an administrator to grant the "Create Invoice Without Sales Order" override.');
             return;
@@ -391,6 +394,7 @@ const InvoiceForm = () => {
                 return;
             }
         }
+        }
 
         let assignedNo = formData.number;
         if (numberingMode === 'auto') {
@@ -405,9 +409,15 @@ const InvoiceForm = () => {
             number: assignedNo,
             customerName,
             id: editingInvoiceId || (formData.id || `INV-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`),
-            status: editingInvoiceId
-                ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
-                : 'Draft'
+            // Save Draft keeps/creates Draft; Save & Approve moves a Draft (or a
+            // new invoice) to Sent, and leaves later statuses (Paid/Overdue) alone.
+            status: (() => {
+                const current = editingInvoiceId
+                    ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
+                    : 'Draft';
+                if (saveAsDraft) return current === 'Draft' || !editingInvoiceId ? 'Draft' : current;
+                return current === 'Draft' ? 'Sent' : current;
+            })()
         };
 
         try {
@@ -518,8 +528,8 @@ const InvoiceForm = () => {
                 <>
                     <Button text="Print" variant="secondary" icon={<Printer size={16} />} onClick={handlePrint} />
                     <div className="w-[1px] h-8 bg-neutral-200 mx-1" />
-                    <Button text="Save Draft" variant="secondary" onClick={() => {}} disabled={isSaving} />
-                    <Button text={isSaving ? 'Saving...' : 'Save & Approve'} variant="primary" icon={<Save size={16} />} onClick={handleApprove} disabled={isSaving} />
+                    <Button text={isSaving ? 'Saving...' : 'Save Draft'} variant="secondary" onClick={() => { void persistInvoice(true); }} disabled={isSaving} />
+                    <Button text={isSaving ? 'Saving...' : 'Save & Approve'} variant="primary" icon={<Save size={16} />} onClick={() => { void persistInvoice(false); }} disabled={isSaving} />
                 </>
             )}
         >

@@ -218,7 +218,7 @@ const POForm = () => {
 
     const totalAmount = taxSettings.enabled && !taxSettings.inclusive ? subtotal + taxAmount : subtotal;
 
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement> | React.MouseEvent<HTMLButtonElement>) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement> | React.MouseEvent<HTMLButtonElement>, saveAsDraft = false) => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/ap/pos');
@@ -237,7 +237,8 @@ const POForm = () => {
             date: formData.date,
             expectedDate: formData.expectedDate,
             amount: totalAmount,
-            status: mode === 'edit' ? selectedPO?.status : 'Approved' as const,
+            // Edits preserve current status; creates are Approved unless parked as Draft.
+            status: mode === 'edit' ? selectedPO?.status : (saveAsDraft ? ('Draft' as const) : ('Approved' as const)),
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
             notes: formData.notes
         };
@@ -269,11 +270,19 @@ const POForm = () => {
             actions={
                 <div className="flex gap-2">
                     <Button text="Cancel" variant="secondary" onClick={() => navigate('/ap/pos')} />
+                    {!isViewMode && mode !== 'edit' && (
+                        <Button
+                            text={isPending ? 'Saving...' : 'Save Draft'}
+                            variant="secondary"
+                            onClick={(e: React.MouseEvent<HTMLButtonElement>) => { void handleSubmit(e, true); }}
+                            disabled={isPending}
+                        />
+                    )}
                     {!isViewMode && (
                         <Button
-                            text={isPending ? 'Saving...' : 'Save Purchase Order'}
+                            text={isPending ? 'Saving...' : (mode === 'edit' ? 'Update Purchase Order' : 'Save & Approve')}
                             variant="primary"
-                            onClick={handleSubmit}
+                            onClick={(e: React.MouseEvent<HTMLButtonElement>) => { void handleSubmit(e, false); }}
                             disabled={isPending}
                         />
                     )}

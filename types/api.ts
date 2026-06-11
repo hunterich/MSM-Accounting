@@ -488,6 +488,7 @@ const paymentBaseSchema = z.object({
   method: z.enum(['BANK_TRANSFER', 'CHECK', 'CREDIT_CARD', 'CASH', 'OTHER']).default('BANK_TRANSFER'),
   bankAccountId: z.string().trim().optional(),
   depositAccountId: z.string().trim().optional(),
+  cashAccountId: z.string().trim().optional(),
   arAccountId: z.string().trim().optional(),
   apAccountId: z.string().trim().optional(),
   discountAccountId: z.string().trim().optional(),

@@ -182,7 +182,10 @@ const includesKeyword = (haystack: string, keywords: string[]) =>
 
 const byAllowedType = (account: AccountLike, key: AccountDefaultKey) => {
   const allowedTypes = ACCOUNT_DEFAULT_SPECS[key].allowedTypes as readonly AccountTypeValue[];
-  return allowedTypes.includes(account.type as AccountTypeValue);
+  // Case-insensitive: UI-normalised accounts carry 'Liability' while rows
+  // straight from Prisma carry the enum 'LIABILITY'.
+  const accountType = String(account.type || '').toLowerCase();
+  return allowedTypes.some((allowed) => allowed.toLowerCase() === accountType);
 };
 
 export const isSelectableAccount = (account: AccountLike | null | undefined) =>

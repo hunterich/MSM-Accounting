@@ -403,7 +403,7 @@ const PaymentForm = () => {
         );
     };
 
-    const handleSave = async () => {
+    const handleSave = async (saveAsDraft = false) => {
         if (!paymentData.vendorId) {
             window.alert('Select a vendor before saving payment.');
             return;
@@ -427,19 +427,34 @@ const PaymentForm = () => {
             return;
         }
 
+        // Allocations carry the bills' DB ids (row ids are display numbers).
+        const allocations = paymentData.selectedBills
+            .map((billId) => {
+                const bill = bills.find((item) => item.id === billId);
+                if (!bill) return null;
+                const adjustment = paymentData.adjustments[billId] || { discount: 0, penalty: 0 };
+                return {
+                    billId: bill._id || bill.id,
+                    amountApplied: Number(bill.amount || 0),
+                    discountAmount: Number(adjustment.discount || 0),
+                    penaltyAmount: Number(adjustment.penalty || 0),
+                };
+            })
+            .filter((row): row is NonNullable<typeof row> => row !== null);
+
         const newPayment = {
             vendorId: paymentData.vendorId,
-            vendorName: vendors.find((v) => v.id === paymentData.vendorId)?.name || '',
             date: paymentData.date,
             method: paymentData.method,
-            bankId: paymentData.payFrom,
-            depositAccountId: paymentData.cashAccountId,
-            apAccountId: paymentData.apAccountId,
-            discountAccountId: paymentData.discountAccountId,
-            penaltyAccountId: paymentData.penaltyAccountId,
-            billId: paymentData.selectedBills[0] || '',
-            amount: paymentData.totalAmount,
-            status: 'Completed' as const,
+            ...(paymentData.payFrom && { bankAccountId: paymentData.payFrom }),
+            ...(paymentData.cashAccountId && { cashAccountId: paymentData.cashAccountId }),
+            ...(paymentData.apAccountId && { apAccountId: paymentData.apAccountId }),
+            ...(paymentData.discountAccountId && { discountAccountId: paymentData.discountAccountId }),
+            ...(paymentData.penaltyAccountId && { penaltyAccountId: paymentData.penaltyAccountId }),
+            ...(paymentData.reference && { reference: paymentData.reference }),
+            totalAmount: paymentData.totalAmount,
+            allocations,
+            status: (saveAsDraft ? 'Draft' : 'Completed') as 'Draft' | 'Completed',
         };
 
         try {
@@ -470,11 +485,18 @@ const PaymentForm = () => {
             isLoading={isPageLoading}
             actions={
                 <>
-                    <Button text="Save Draft" variant="secondary" />
+                    {mode !== 'view' && (
+                        <Button
+                            text={isPending ? 'Saving...' : 'Save Draft'}
+                            variant="secondary"
+                            onClick={() => { void handleSave(true); }}
+                            disabled={isPending}
+                        />
+                    )}
                     <Button
                         text={mode === 'view' ? 'Close' : isPending ? 'Saving...' : 'Save Payment'}
                         variant="primary"
-                        onClick={mode === 'view' ? () => navigate('/ap/payments') : handleSave}
+                        onClick={mode === 'view' ? () => navigate('/ap/payments') : () => { void handleSave(false); }}
                         disabled={isPending}
                     />
                 </>

@@ -365,7 +365,7 @@ const SalesReturnForm = () => {
         });
     };
 
-    const handleSaveReturn = () => {
+    const handleSaveReturn = (saveAsDraft = false) => {
         if (!returnData.customerId) {
             window.alert('Select a customer before saving sales return.');
             return;
@@ -402,12 +402,18 @@ const SalesReturnForm = () => {
         const returnRecord = {
             ...(returnNumber && { id: returnNumber }),
             ...payload,
-            status: 'Pending Credit Note',
+            status: saveAsDraft ? 'Draft' : 'Pending Credit Note',
         };
         if (state.returnId) {
             updateSalesReturnMutation.mutate({ id: state.returnId, ...returnRecord } as any);
         } else {
             createSalesReturnMutation.mutate(returnRecord as any);
+        }
+
+        if (saveAsDraft) {
+            // Drafts park the return without spawning a credit note.
+            navigate('/ar/credits');
+            return;
         }
 
         navigate('/ar/credits/new', {
@@ -462,8 +468,8 @@ const SalesReturnForm = () => {
             actions={(
                 <>
                     <Button text="Print" variant="secondary" onClick={() => {}} />
-                    <Button text="Save Draft" variant="secondary" onClick={() => {}} />
-                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : handleSaveReturn} />
+                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => handleSaveReturn(true)} />}
+                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => handleSaveReturn(false)} />
                 </>
             )}
         >

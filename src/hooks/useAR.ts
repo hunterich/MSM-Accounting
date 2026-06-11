@@ -26,6 +26,11 @@ const CUSTOMER_STATUS_UP:   Record<string, string>         = { Active: 'ACTIVE',
 const INVOICE_STATUS_DOWN: Record<string, InvoiceStatus> = { DRAFT: 'Draft', SENT: 'Sent', PAID: 'Paid', OVERDUE: 'Overdue' };
 const INVOICE_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Sent: 'SENT', Paid: 'PAID', Overdue: 'OVERDUE' };
 
+const PAYMENT_METHOD_UP: Record<string, string> = {
+    'Bank Transfer': 'BANK_TRANSFER', Check: 'CHECK', Cheque: 'CHECK',
+    'Credit Card': 'CREDIT_CARD', Cash: 'CASH', COD: 'OTHER', 'E-Wallet': 'OTHER',
+};
+const mapPaymentMethodUp = (m?: string) => (m ? (PAYMENT_METHOD_UP[m] ?? (/^[A-Z_]+$/.test(m) ? m : 'OTHER')) : undefined);
 const PAYMENT_STATUS_DOWN: Record<string, PaymentStatus> = { DRAFT: 'Draft', PROCESSING: 'Processing', COMPLETED: 'Completed', VOID: 'Void' };
 const PAYMENT_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Processing: 'PROCESSING', Completed: 'COMPLETED', Void: 'VOID' };
 
@@ -245,6 +250,7 @@ export function useCreateARPayment() {
     return useMutation({
         mutationFn: (body: Partial<ARPayment> & Record<string, unknown>) => api.post('/api/v1/ar-payments', {
             ...body,
+            ...(typeof body.method === 'string' && { method: mapPaymentMethodUp(body.method) }),
             status: PAYMENT_STATUS_UP[body.status ?? ''] ?? body.status ?? 'COMPLETED',
         }),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.payments }),
@@ -256,6 +262,7 @@ export function useUpdateARPayment() {
     return useMutation({
         mutationFn: ({ id, ...updates }: { id: string } & Record<string, unknown>) => api.put(`/api/v1/ar-payments/${id}`, {
             ...updates,
+            ...(typeof updates.method === 'string' && { method: mapPaymentMethodUp(updates.method) }),
             ...(typeof updates.status === 'string' && { status: PAYMENT_STATUS_UP[updates.status] ?? updates.status }),
         }),
         onSuccess: (_, vars) => {

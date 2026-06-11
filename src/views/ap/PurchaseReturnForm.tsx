@@ -333,7 +333,7 @@ const PurchaseReturnForm = () => {
         );
     };
 
-    const handleSaveReturn = () => {
+    const handleSaveReturn = (saveAsDraft = false) => {
         if (!returnData.vendorId) {
             window.alert('Select a vendor before saving purchase return.');
             return;
@@ -369,12 +369,18 @@ const PurchaseReturnForm = () => {
         const returnRecord = {
             ...(returnNumber && { id: returnNumber }),
             ...payload,
-            status: 'Pending Debit Note',
+            status: saveAsDraft ? 'Draft' : 'Pending Debit Note',
         };
         if (state.returnId) {
             updatePurchaseReturnMutation.mutate({ id: state.returnId, ...returnRecord } as any);
         } else {
             createPurchaseReturnMutation.mutate(returnRecord as any);
+        }
+
+        if (saveAsDraft) {
+            // Drafts park the return without spawning a debit note.
+            navigate('/ap/debits');
+            return;
         }
 
         navigate('/ap/debits/new', {
@@ -402,11 +408,11 @@ const PurchaseReturnForm = () => {
             actions={
                 <>
                     <Button text="Print" variant="secondary" onClick={() => {}} />
-                    <Button text="Save Draft" variant="secondary" onClick={() => {}} />
+                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => handleSaveReturn(true)} />}
                     <Button
                         text={isView ? 'Close' : 'Save & Create Debit Note'}
                         variant="primary"
-                        onClick={isView ? () => navigate('/ap/debits') : handleSaveReturn}
+                        onClick={isView ? () => navigate('/ap/debits') : () => handleSaveReturn(false)}
                     />
                 </>
             }

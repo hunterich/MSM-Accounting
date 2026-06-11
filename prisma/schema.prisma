@@ -602,6 +602,8 @@ model ARPayment {
   reference         String?
   status            PaymentStatus @default(DRAFT)
   totalAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  /// Idempotency token: set once the DR/CR pair is posted to the GL.
+  journalEntryId String?  @unique
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -904,6 +906,8 @@ model APPayment {
   reference         String?
   status            PaymentStatus @default(DRAFT)
   totalAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  /// Idempotency token: set once the DR/CR pair is posted to the GL.
+  journalEntryId String?  @unique
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 

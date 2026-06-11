@@ -6,7 +6,7 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
-import { useAPPayments } from '../../hooks/useAP';
+import { useAPPayments, useUpdateAPPayment } from '../../hooks/useAP';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
@@ -30,6 +30,7 @@ const Payments = () => {
     const [selectedPaymentId, setSelectedPaymentId] = useState<string>('');
     const [detailTab, setDetailTab] = useState<string>('summary');
     const { data: paymentsResult, isLoading } = useAPPayments();
+    const updateAPPayment = useUpdateAPPayment();
     const payments = paymentsResult?.data ?? [];
 
     const filteredData = useMemo(() => {
@@ -96,6 +97,15 @@ const Payments = () => {
             label: '',
             render: (_: unknown, row: Record<string, unknown>) => (
                 <div className="row-actions-end">
+                    {row['status'] === 'Draft' && (
+                        <Button
+                            text="Complete"
+                            size="small"
+                            variant="primary"
+                            disabled={!canEdit || updateAPPayment.isPending}
+                            onClick={(event: React.MouseEvent) => { event.stopPropagation(); updateAPPayment.mutate({ id: (row['_id'] || row['id']) as string, status: 'Completed' }); }}
+                        />
+                    )}
                     <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); openPaymentTab(row['id'] as string); }} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate('/ap/payments/edit', { state: { mode: 'edit', paymentId: row['id'] as string } }); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); window.alert('Print is not connected yet.'); }} />
@@ -205,6 +215,7 @@ const Payments = () => {
                         <div className="payments-filter-field">
                             <select className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={filters.status} onChange={(event) => setFilters({ status: event.target.value })}>
                                 <option value="">Filter by Status</option>
+                                <option value="Draft">Draft</option>
                                 <option value="Completed">Completed</option>
                                 <option value="Processing">Processing</option>
                             </select>
