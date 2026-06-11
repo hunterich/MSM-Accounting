@@ -326,7 +326,9 @@
     }
 
     .sidebar-flyout-item {
-        display: block;
+        display: flex;
+        align-items: center;
+        gap: 10px;
         padding: 9px 16px;
         font-size: 0.875rem;
         color: #333d4d;
@@ -343,6 +345,21 @@
         background-color: #e01e2c;
         color: #ffffff;
         font-weight: 600;
+    }
+
+    /* ── Bottom user avatar in the rail ── */
+    .sidebar-avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 9999px;
+        background-color: #e01e2c;
+        color: #ffffff;
+        font-size: 0.72rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        letter-spacing: 0.02em;
     }
 }
 

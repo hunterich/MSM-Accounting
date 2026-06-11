@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard,
@@ -9,6 +9,8 @@ import {
     Users,
     CheckSquare,
     ShoppingBag,
+    ShoppingCart,
+    Boxes,
     Package,
     Landmark,
     BarChart3,
@@ -32,16 +34,19 @@ interface SubItem {
 }
 interface NavGroup {
     group: string;
+    groupIcon: LucideIcon;
     items: SubItem[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
     {
         group: 'Workspace',
+        groupIcon: LayoutDashboard,
         items: [{ label: 'Dashboard', path: '/', icon: LayoutDashboard }],
     },
     {
         group: 'Sales',
+        groupIcon: Receipt,
         items: [
             { label: 'Sales Orders',   path: '/ar/sales-orders',   icon: ShoppingBag },
             { label: 'Invoices',       path: '/ar/invoices',       icon: Receipt, badgeKey: 'overdue_invoices' },
@@ -57,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
     },
     {
         group: 'Purchases',
+        groupIcon: ShoppingCart,
         items: [
             { label: 'Purchase Orders', path: '/ap/pos',      icon: ShoppingBag },
             { label: 'Bills',           path: '/ap/bills',    icon: Receipt, badgeKey: 'overdue_bills' },
@@ -69,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
     },
     {
         group: 'Cash & Books',
+        groupIcon: Landmark,
         items: [
             { label: 'Banking',         path: '/banking', icon: Landmark },
             { label: 'General Ledger',  path: '/gl',      icon: BookOpen },
@@ -77,6 +84,7 @@ const NAV_GROUPS: NavGroup[] = [
     },
     {
         group: 'Operations',
+        groupIcon: Boxes,
         items: [
             { label: 'Inventory',     path: '/inventory',  icon: Package },
             { label: 'HR & Payroll',  path: '/hr',         icon: Users },
@@ -148,6 +156,9 @@ const Sidebar = (): React.ReactElement => {
         } catch { return allGroupsCollapsed(); }
     });
     const [paletteOpen, setPaletteOpen] = useState(false);
+    // Rail flyout: which group's pop-out panel is open (desktop icon rail). Only one at a time.
+    const [openGroup, setOpenGroup] = useState<string | null>(null);
+    const railRef = useRef<HTMLElement | null>(null);
 
     useEffect(() => {
         try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsedGroups)); } catch { /* noop */ }
@@ -159,10 +170,24 @@ const Sidebar = (): React.ReactElement => {
                 e.preventDefault();
                 setPaletteOpen(true);
             }
+            if (e.key === 'Escape') setOpenGroup(null);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, []);
+
+    // Close the rail flyout whenever the route changes (e.g. after clicking a flyout link).
+    useEffect(() => { setOpenGroup(null); }, [location.pathname]);
+
+    // Close the rail flyout on any click outside the rail.
+    useEffect(() => {
+        if (!openGroup) return;
+        const onDown = (e: MouseEvent) => {
+            if (railRef.current && !railRef.current.contains(e.target as Node)) setOpenGroup(null);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [openGroup]);
 
     const canSeeSubItem = (path: string): boolean => {
         // Feature-flag gate first — bail early if the org has the module off.
@@ -207,6 +232,91 @@ const Sidebar = (): React.ReactElement => {
         if (path === '/inventory') return location.pathname.startsWith('/inventory');
         return location.pathname.startsWith(path);
     };
+
+    const isGroupActive = (g: NavGroup): boolean =>
+        g.items.some(it => isItemActive(it.path));
+
+    // ── Desktop icon rail: logo + one icon per group, hover tooltip, click flyout ──
+    const RailBody = (
+        <nav ref={railRef} className="sidebar-rail hidden md:flex">
+            <div className="sidebar-logo">
+                <span className="sidebar-logo-text">M</span>
+            </div>
+
+            <div className="sidebar-icons">
+                <div className="sidebar-icon-wrapper">
+                    <button
+                        type="button"
+                        className="sidebar-icon-btn"
+                        onClick={() => setPaletteOpen(true)}
+                        aria-label="Search (⌘K)"
+                    >
+                        <Search size={18} strokeWidth={1.8} />
+                    </button>
+                    <span className="sidebar-tooltip">Search&nbsp;&nbsp;⌘K</span>
+                </div>
+
+                {visibleGroups.map(g => {
+                    const GroupIcon = g.groupIcon;
+                    const groupActive = isGroupActive(g);
+                    const isOpen = openGroup === g.group;
+                    const single = g.items.length === 1;
+
+                    return (
+                        <div key={g.group} className="sidebar-icon-wrapper">
+                            {single ? (
+                                <NavLink
+                                    to={g.items[0].path}
+                                    end={g.items[0].path === '/'}
+                                    className={`sidebar-icon-btn ${groupActive ? 'active' : ''}`}
+                                    aria-label={g.group}
+                                >
+                                    <GroupIcon size={18} strokeWidth={1.8} />
+                                </NavLink>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className={`sidebar-icon-btn ${groupActive || isOpen ? 'active' : ''}`}
+                                    onClick={() => setOpenGroup(prev => (prev === g.group ? null : g.group))}
+                                    aria-label={g.group}
+                                    aria-expanded={isOpen}
+                                    aria-haspopup="menu"
+                                >
+                                    <GroupIcon size={18} strokeWidth={1.8} />
+                                </button>
+                            )}
+
+                            {!isOpen && <span className="sidebar-tooltip">{g.group}</span>}
+
+                            {isOpen && !single && (
+                                <div className="sidebar-flyout" role="menu">
+                                    <div className="sidebar-flyout-title">{g.group}</div>
+                                    {g.items.map(it => {
+                                        const ItemIcon = it.icon;
+                                        const active = isItemActive(it.path);
+                                        return (
+                                            <NavLink
+                                                key={it.path}
+                                                to={it.path}
+                                                end={it.path === '/'}
+                                                role="menuitem"
+                                                className={`sidebar-flyout-item ${active ? 'active' : ''}`}
+                                            >
+                                                <ItemIcon size={16} strokeWidth={1.7} />
+                                                <span>{it.label}</span>
+                                            </NavLink>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            <RailFooter />
+        </nav>
+    );
 
     const SidebarBody = (
         <nav className="w-[240px] h-full bg-[#0e1730] flex flex-col text-white flex-shrink-0">
@@ -306,7 +416,7 @@ const Sidebar = (): React.ReactElement => {
                 </div>
             )}
 
-            <div className="hidden md:flex h-full">{SidebarBody}</div>
+            {RailBody}
 
             {paletteOpen && (
                 <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] bg-black/40" onClick={() => setPaletteOpen(false)}>
@@ -325,6 +435,21 @@ const Sidebar = (): React.ReactElement => {
         </>
     );
 };
+
+function RailFooter(): React.ReactElement {
+    const user = useAuthStore((s) => s.user);
+    const roleType = useAuthStore((s) => s.roleType);
+    const initials = (user?.fullName || user?.email || 'U')
+        .split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+    return (
+        <div className="sidebar-icon-wrapper" style={{ marginTop: 'auto', marginBottom: 4 }}>
+            <NavLink to="/settings" className="sidebar-icon-btn" aria-label={user?.fullName || 'Account'}>
+                <span className="sidebar-avatar">{initials}</span>
+            </NavLink>
+            <span className="sidebar-tooltip">{user?.fullName || user?.email || 'Account'}{roleType ? ` · ${roleType}` : ''}</span>
+        </div>
+    );
+}
 
 const UserFooter = (): React.ReactElement => {
     const user = useAuthStore((s) => s.user);
