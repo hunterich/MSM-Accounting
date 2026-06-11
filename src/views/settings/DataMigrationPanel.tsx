@@ -84,7 +84,7 @@ const MIGRATION_MAP: MigrationConfig[] = [
   },
   {
     key: 'msm-invoices',
-    label: 'Faktur Penjualan',
+    label: 'Sales Invoices',
     apiPath: '/api/v1/invoices',
     extract: (parsed) => (parsed as { state?: { invoices?: MigrationRecord[] } })?.state?.invoices ?? [],
     transform: (inv) => ({
@@ -155,7 +155,7 @@ const MIGRATION_MAP: MigrationConfig[] = [
   },
   {
     key: 'msm-po-storage',
-    label: 'Pesanan Pembelian',
+    label: 'Purchase Orders',
     apiPath: '/api/v1/purchase-orders',
     extract: (parsed) => {
       const s = (parsed as { state?: { orders?: MigrationRecord[]; purchaseOrders?: MigrationRecord[] } })?.state;
@@ -195,7 +195,7 @@ const MIGRATION_MAP: MigrationConfig[] = [
   },
   {
     key: 'msm-hr',
-    label: 'Karyawan',
+    label: 'Employees',
     apiPath: '/api/v1/employees',
     extract: (parsed) => (parsed as { state?: { employees?: MigrationRecord[] } })?.state?.employees ?? [],
     transform: (e) => ({
@@ -334,11 +334,11 @@ const DataMigrationPanel = () => {
       {results.length > 0 && (
         <>
           <div className="flex gap-4 mb-3 text-sm">
-            <span className="text-neutral-600">Ditemukan: <strong>{totalFound}</strong> record</span>
+            <span className="text-neutral-600">Found: <strong>{totalFound}</strong> records</span>
             {!dryRun && (
               <>
-                <span className="text-green-700">Berhasil: <strong>{totalMigrated}</strong></span>
-                <span className="text-red-700">Gagal: <strong>{totalErrors}</strong></span>
+                <span className="text-green-700">Migrated: <strong>{totalMigrated}</strong></span>
+                <span className="text-red-700">Failed: <strong>{totalErrors}</strong></span>
               </>
             )}
           </div>
@@ -347,12 +347,12 @@ const DataMigrationPanel = () => {
             <thead className="bg-neutral-50">
               <tr>
                 <th className="text-left px-3 py-2 font-medium">Store</th>
-                <th className="text-right px-3 py-2 font-medium">Record</th>
+                <th className="text-right px-3 py-2 font-medium">Records</th>
                 <th className="text-center px-3 py-2 font-medium">Status</th>
                 {!dryRun && (
                   <>
-                    <th className="text-right px-3 py-2 font-medium">Berhasil</th>
-                    <th className="text-right px-3 py-2 font-medium">Gagal</th>
+                    <th className="text-right px-3 py-2 font-medium">Migrated</th>
+                    <th className="text-right px-3 py-2 font-medium">Failed</th>
                   </>
                 )}
               </tr>
@@ -366,10 +366,10 @@ const DataMigrationPanel = () => {
                   </td>
                   <td className="text-right px-3 py-2">{r.count}</td>
                   <td className="text-center px-3 py-2">
-                    {r.status === 'pending' && <span className="text-neutral-400">Siap</span>}
-                    {r.status === 'running' && <span className="text-blue-600">Berjalan...</span>}
-                    {r.status === 'done' && <span className="text-green-700">Selesai</span>}
-                    {r.status === 'partial' && <span className="text-amber-600">Sebagian</span>}
+                    {r.status === 'pending' && <span className="text-neutral-400">Ready</span>}
+                    {r.status === 'running' && <span className="text-blue-600">Running...</span>}
+                    {r.status === 'done' && <span className="text-green-700">Done</span>}
+                    {r.status === 'partial' && <span className="text-amber-600">Partial</span>}
                   </td>
                   {!dryRun && (
                     <>
