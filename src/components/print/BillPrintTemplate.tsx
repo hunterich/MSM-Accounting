@@ -1,17 +1,8 @@
 import React from 'react';
 import { formatIDR } from '../../utils/formatters';
+import { CompanyBlock, PRINT_PAGE_STYLE } from './printShared';
 
-const mm = (value: number): string => `${value}mm`;
-
-const basePageStyle: React.CSSProperties = {
-    width: mm(210),
-    minHeight: mm(297),
-    padding: mm(20),
-    background: '#fff',
-    color: '#111827',
-    fontFamily: 'Inter, Arial, sans-serif',
-    fontSize: '12px',
-};
+const basePageStyle = PRINT_PAGE_STYLE;
 
 const formatLongDate = (value: string | null | undefined): string => {
     if (!value) return '-';
@@ -107,15 +98,7 @@ const BillPrintTemplate: React.FC<BillPrintTemplateProps> = ({ bill, lineItems =
     return (
         <div className="print-template" style={basePageStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '18px' }}>
-                <div>
-                    {company.logoUrl ? (
-                        <img src={company.logoUrl} alt="Company logo" style={{ width: '120px', maxHeight: '48px', marginBottom: '10px', objectFit: 'contain' }} />
-                    ) : null}
-                    <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>{company.companyName || 'PT. Internal Accounting'}</h1>
-                    <div>{company.address || '-'}</div>
-                    <div>{company.phone || '-'} | {company.email || '-'}</div>
-                    <div>NPWP: {company.npwp || '-'}</div>
-                </div>
+                <CompanyBlock company={company} />
                 <div style={{ textAlign: 'right' }}>
                     <h2 style={{ margin: 0, fontSize: '28px', letterSpacing: '0.04em' }}>BILL</h2>
                 </div>

@@ -25,6 +25,18 @@ export const formatNumber = (num: number | string | null | undefined): string =>
     return new Intl.NumberFormat('id-ID').format(value);
 };
 
+// Humanizes enum-style codes for display: BANK_TRANSFER → "Bank Transfer",
+// "e-wallet" → "E Wallet". Already-spaced values are title-cased word by word.
+export const humanizeLabel = (value: string | null | undefined): string => {
+    if (!value) return '';
+    return String(value)
+        .replace(/[_-]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+};
+
 const ONES = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas'];
 
 // Spells out a non-negative integer below 1000 in Indonesian (no scale suffix).

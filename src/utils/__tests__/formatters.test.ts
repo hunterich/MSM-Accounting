@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatIDR, formatDateID, formatNumber, numberToWordsID, terbilang } from '../formatters';
+import { formatIDR, formatDateID, formatNumber, numberToWordsID, terbilang, humanizeLabel } from '../formatters';
 
 describe('formatIDR', () => {
     it('formats a positive integer', () => {
@@ -120,5 +120,23 @@ describe('terbilang', () => {
         expect(terbilang(1500000)).toBe('Satu juta lima ratus ribu rupiah');
         expect(terbilang(0)).toBe('Nol rupiah');
         expect(terbilang(1000)).toBe('Seribu rupiah');
+    });
+});
+
+describe('humanizeLabel', () => {
+    it('converts enum codes to title case', () => {
+        expect(humanizeLabel('BANK_TRANSFER')).toBe('Bank Transfer');
+        expect(humanizeLabel('e-wallet')).toBe('E Wallet');
+        expect(humanizeLabel('CASH')).toBe('Cash');
+    });
+
+    it('title-cases already-spaced values', () => {
+        expect(humanizeLabel('bank transfer')).toBe('Bank Transfer');
+    });
+
+    it('returns empty string for falsy input', () => {
+        expect(humanizeLabel('')).toBe('');
+        expect(humanizeLabel(null)).toBe('');
+        expect(humanizeLabel(undefined)).toBe('');
     });
 });

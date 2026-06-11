@@ -1,17 +1,8 @@
 import React from 'react';
-import { formatIDR, terbilang } from '../../utils/formatters';
+import { formatIDR, terbilang, humanizeLabel } from '../../utils/formatters';
+import { CompanyBlock, PRINT_PAGE_STYLE } from './printShared';
 
-const mm = (value: number): string => `${value}mm`;
-
-const basePageStyle: React.CSSProperties = {
-    width: mm(210),
-    minHeight: mm(297),
-    padding: mm(20),
-    background: '#fff',
-    color: '#111827',
-    fontFamily: 'Inter, Arial, sans-serif',
-    fontSize: '12px',
-};
+const basePageStyle = PRINT_PAGE_STYLE;
 
 const formatLongDate = (value: string | null | undefined): string => {
     if (!value) return '-';
@@ -74,15 +65,7 @@ const PaymentReceiptPrintTemplate: React.FC<PaymentReceiptPrintTemplateProps> = 
     return (
         <div className="print-template" style={basePageStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
-                <div>
-                    {company.logoUrl ? (
-                        <img src={company.logoUrl} alt="Company logo" style={{ width: '120px', maxHeight: '48px', marginBottom: '10px', objectFit: 'contain' }} />
-                    ) : null}
-                    <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>{company.companyName || 'PT. Internal Accounting'}</h1>
-                    <div>{company.address || '-'}</div>
-                    <div>{company.phone || '-'} | {company.email || '-'}</div>
-                    <div>NPWP: {company.npwp || '-'}</div>
-                </div>
+                <CompanyBlock company={company} />
                 <div style={{ textAlign: 'right' }}>
                     <h2 style={{ margin: 0, fontSize: '24px', letterSpacing: '0.04em' }}>PAYMENT RECEIPT</h2>
                     <div style={{ fontSize: '13px', color: '#6b7280' }}>KWITANSI</div>
@@ -103,7 +86,7 @@ const PaymentReceiptPrintTemplate: React.FC<PaymentReceiptPrintTemplateProps> = 
                     </tr>
                     <tr>
                         <td style={labelCell}>Payment Method</td>
-                        <td style={valueCell}>{payment.method || '-'}</td>
+                        <td style={valueCell}>{humanizeLabel(payment.method) || '-'}</td>
                     </tr>
                     <tr>
                         <td style={labelCell}>{referenceLabel}</td>
