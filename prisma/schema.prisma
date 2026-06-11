@@ -73,6 +73,7 @@ model Organization {
   inventoryLots          InventoryLot[]
   bankStatements         BankStatement[]
   recurringInvoices      RecurringInvoice[]
+  recurringBills         RecurringBill[]
   approvalRequests       ApprovalRequest[]
   attendanceRecords      AttendanceRecord[]
   leaveTypes             LeaveType[]
@@ -329,6 +330,7 @@ model Vendor {
   vendorCategory   VendorCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   purchaseOrders   PurchaseOrder[]
   bills            Bill[]
+  recurringBills   RecurringBill[]
   apPayments       APPayment[]
   purchaseReturns  PurchaseReturn[]
   debitNotes       DebitNote[]
@@ -783,6 +785,7 @@ model Bill {
   taxAmount      Decimal     @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal     @default(0) @db.Decimal(18, 2)
   notes          String?
+  recurringBillId String?
   deletedAt      DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -790,6 +793,7 @@ model Bill {
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   vendor         Vendor         @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   purchaseOrder  PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: SetNull)
+  recurringBill  RecurringBill? @relation(fields: [recurringBillId], references: [id], onDelete: SetNull)
   lines          BillLine[]
   attachments    BillAttachment[]
   importSession  BillImportSession? @relation("ImportedBill")
@@ -1825,6 +1829,49 @@ model RecurringInvoiceLine {
   taxable     Boolean          @default(true)
 
   recurring   RecurringInvoice @relation(fields: [recurringId], references: [id], onDelete: Cascade)
+
+  @@unique([recurringId, lineNo])
+}
+
+model RecurringBill {
+  id             String             @id @default(cuid())
+  organizationId String
+  vendorId       String
+  title          String
+  frequency      RecurringFrequency
+  dayOfMonth     Int?
+  startDate      DateTime           @db.Date
+  endDate        DateTime?          @db.Date
+  nextRunDate    DateTime           @db.Date
+  status         RecurringStatus    @default(ACTIVE)
+  autoPost       Boolean            @default(false)
+  notes          String?
+  taxRate        Decimal            @default(0) @db.Decimal(5, 2)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor         Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  lines          RecurringBillLine[]
+  generatedBills Bill[]
+
+  @@index([organizationId, nextRunDate, status])
+}
+
+model RecurringBillLine {
+  id          String        @id @default(cuid())
+  recurringId String
+  lineNo      Int
+  itemId      String?
+  accountId   String?
+  description String
+  quantity    Decimal       @db.Decimal(15, 4)
+  unit        String?
+  price       Decimal       @db.Decimal(15, 2)
+  discountPct Decimal       @default(0) @db.Decimal(5, 2)
+  taxable     Boolean       @default(true)
+
+  recurring   RecurringBill @relation(fields: [recurringId], references: [id], onDelete: Cascade)
 
   @@unique([recurringId, lineNo])
 }

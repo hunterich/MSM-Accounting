@@ -444,8 +444,8 @@ const Settings = () => {
                         <h3 className="settings-section-title mt-4">Sales</h3>
                         <FeatureRow label="Sales Orders"           checked={features.salesOrders}        onChange={(v) => setFeatures({ ...features, salesOrders: v })} />
                         <FeatureRow label="Sales Returns"          checked={features.salesReturns}       onChange={(v) => setFeatures({ ...features, salesReturns: v })} />
-                        <FeatureRow label="Recurring Invoices"     checked={features.recurringInvoices}  onChange={(v) => setFeatures({ ...features, recurringInvoices: v })} />
-                        <FeatureRow label="Subscriptions"          checked={features.subscriptions}      onChange={(v) => setFeatures({ ...features, subscriptions: v })} />
+                        <FeatureRow label="Recurring Billing (customer invoices & subscriptions)" checked={features.recurringInvoices}  onChange={(v) => setFeatures({ ...features, recurringInvoices: v })} />
+                        <FeatureRow label="Recurring Expenses (vendor subscriptions you pay)"      checked={features.recurringExpenses ?? true} onChange={(v) => setFeatures({ ...features, recurringExpenses: v })} />
                         <FeatureRow label="Delivery Notes"         checked={features.deliveryNotes}      onChange={(v) => setFeatures({ ...features, deliveryNotes: v })} />
                         <FeatureRow label="Customer Categories"    checked={features.customerCategories} onChange={(v) => setFeatures({ ...features, customerCategories: v })} />
                         <FeatureRow label="Approvals"              checked={features.approvals}          onChange={(v) => setFeatures({ ...features, approvals: v })} />

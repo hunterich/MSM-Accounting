@@ -40,6 +40,7 @@ const VendorForm = lazy(() => import('./views/ap/VendorForm'))
 const APPayments = lazy(() => import('./views/ap/Payments'))
 const APPaymentForm = lazy(() => import('./views/ap/PaymentForm'))
 const APDebitNotes = lazy(() => import('./views/ap/DebitNotes'))
+const RecurringExpenses = lazy(() => import('./views/ap/RecurringExpenses'))
 const PurchaseReturnForm = lazy(() => import('./views/ap/PurchaseReturnForm'))
 const DebitNoteForm = lazy(() => import('./views/ap/DebitNoteForm'))
 
@@ -148,6 +149,7 @@ function App(): JSX.Element {
                     <Route path="ap/returns/new" element={withPermission(<PurchaseReturnForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/new" element={withPermission(<DebitNoteForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/edit" element={withPermission(<DebitNoteForm />, 'ap_debits', 'edit')} />
+                    <Route path="ap/recurring" element={withPermission(<RecurringExpenses />, 'ap_bills')} />
                     <Route path="ap/vendors" element={withPermission(<Vendors />, 'ap_vendors')} />
                     <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendor_categories')} />
                     <Route path="ap/vendors/new" element={withPermission(<VendorForm />, 'ap_vendors', 'create')} />

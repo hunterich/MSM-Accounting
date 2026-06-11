@@ -51,6 +51,7 @@ export interface FeatureFlags {
     salesReturns:       boolean;
     recurringInvoices:  boolean;
     subscriptions:      boolean;
+    recurringExpenses:  boolean;
     deliveryNotes:      boolean;
     customerCategories: boolean;
     approvals:          boolean;
@@ -147,6 +148,7 @@ const DEFAULT_FEATURES: FeatureFlags = {
     salesReturns: true,
     recurringInvoices: true,
     subscriptions: true,
+    recurringExpenses: true,
     deliveryNotes: true,
     customerCategories: true,
     approvals: true,
