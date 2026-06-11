@@ -30,7 +30,7 @@ const hashLockKey = (input: string): number => {
 
 const nextInvoiceNumber = async (tx: any, organizationId: string): Promise<string> => {
   const lockKey = hashLockKey(`invoice-seq:${organizationId}`);
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
   const rows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
     SELECT MAX(CAST(SUBSTRING("number" FROM '^INV-(\\d+)$') AS INTEGER)) AS max_seq
     FROM "SalesInvoice"

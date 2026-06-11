@@ -396,35 +396,98 @@ const InvoiceForm = () => {
         }
         }
 
-        let assignedNo = formData.number;
-        if (numberingMode === 'auto') {
-            assignedNo = buildAutoNumber(formData.issueDate);
-            setFormData(prev => ({ ...prev, number: assignedNo }));
-            setNextSequence(prev => prev + 1);
+        const cleanedItems = formData.items.filter((line) => String(line.description || '').trim());
+        if (!formData.customerId) { window.alert('Select a customer first.'); return; }
+        if (!formData.issueDate) { window.alert('Invoice date is required.'); return; }
+        if (cleanedItems.length === 0) { window.alert('Add at least one line item.'); return; }
+
+        const currentStatus = editingInvoiceId
+            ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
+            : 'Draft';
+        if (editingInvoiceId && currentStatus !== 'Draft') {
+            window.alert('Only Draft invoices can be edited. Sent/Paid invoices are locked.');
+            return;
         }
 
-        const customerName = customerList.find(c => c.id === formData.customerId)?.name || 'Unknown Customer';
-        const finalInvoiceData = {
-            ...formData,
-            number: assignedNo,
-            customerName,
-            id: editingInvoiceId || (formData.id || `INV-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`),
-            // Save Draft keeps/creates Draft; Save & Approve moves a Draft (or a
-            // new invoice) to Sent, and leaves later statuses (Paid/Overdue) alone.
-            status: (() => {
-                const current = editingInvoiceId
-                    ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
-                    : 'Draft';
-                if (saveAsDraft) return current === 'Draft' || !editingInvoiceId ? 'Draft' : current;
-                return current === 'Draft' ? 'Sent' : current;
-            })()
-        };
+        let savedInvoiceId = editingInvoiceId || '';
+        let savedNumber = formData.number;
 
         try {
             if (editingInvoiceId) {
-                await updateInvoiceMutation.mutateAsync({ ...finalInvoiceData, id: editingInvoiceId } as any);
+                // Full edits are only allowed while DRAFT (enforced server-side).
+                // Status transition to SENT in the same update triggers posting.
+                const subtotalAmt = calculateSubtotal();
+                const discountAmt = calculateDiscountAmount(subtotalAmt);
+                const netAmt = subtotalAmt - discountAmt;
+                const taxAmt = calculateTaxAmount(netAmt);
+                await updateInvoiceMutation.mutateAsync({
+                    id: editingInvoiceId,
+                    customerId: formData.customerId,
+                    invoiceType: formData.invoiceType || 'Sales Invoice',
+                    issueDate: new Date(formData.issueDate).toISOString(),
+                    dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : null,
+                    shippingDate: formData.shippingDate ? new Date(formData.shippingDate).toISOString() : null,
+                    poNumber: formData.poNumber || null,
+                    billingAddress: formData.billingAddress || null,
+                    shippingAddress: formData.shippingAddress || null,
+                    notes: formData.notes || null,
+                    taxEnabled: taxSettings.enabled,
+                    taxInclusive: taxSettings.inclusive,
+                    taxRate: taxSettings.rate,
+                    subtotal: subtotalAmt,
+                    discountPct: Number(formData.discount || 0),
+                    discountAmount: discountAmt,
+                    taxAmount: taxAmt,
+                    totalAmount: calculateTotal(),
+                    lines: cleanedItems.map((line, idx) => ({
+                        lineNo: idx + 1,
+                        itemId: line.productId || null,
+                        description: line.description,
+                        quantity: Number(line.quantity || 0),
+                        unit: line.unit || 'PCS',
+                        price: Number(line.price || 0),
+                        discountPct: Number(line.discount || 0),
+                        lineSubtotal: Math.round(Number(line.quantity || 0) * Number(line.price || 0) * (1 - Number(line.discount || 0) / 100) * 100) / 100,
+                    })),
+                    ...(saveAsDraft ? {} : { status: 'Sent' }),
+                } as any);
             } else {
-                await createInvoice.mutateAsync(finalInvoiceData as any);
+                // POST always creates a DRAFT (createInvoiceInputSchema shape;
+                // the server assigns the number and computes totals).
+                const created = await createInvoice.mutateAsync({
+                    customerId: formData.customerId,
+                    invoiceType: formData.invoiceType || 'Sales Invoice',
+                    issueDate: formData.issueDate,
+                    ...(formData.dueDate && { dueDate: formData.dueDate }),
+                    ...(formData.shippingDate && { shippingDate: formData.shippingDate }),
+                    ...(formData.poNumber && { poNumber: formData.poNumber }),
+                    ...(formData.billingAddress && { billingAddress: formData.billingAddress }),
+                    ...(formData.shippingAddress && { shippingAddress: formData.shippingAddress }),
+                    currency: 'IDR',
+                    discountPct: Number(formData.discount || 0),
+                    tax: {
+                        enabled: taxSettings.enabled,
+                        inclusive: taxSettings.inclusive,
+                        rate: taxSettings.rate,
+                    },
+                    ...(formData.notes && { notes: formData.notes }),
+                    lines: cleanedItems.map((line) => ({
+                        ...(line.productId && { itemId: line.productId }),
+                        ...(line.code && { code: line.code }),
+                        description: line.description,
+                        quantity: Number(line.quantity || 0),
+                        unit: line.unit || 'PCS',
+                        price: Number(line.price || 0),
+                        discountPct: Number(line.discount || 0),
+                    })),
+                }) as { id: string; number: string };
+                savedInvoiceId = created.id;
+                savedNumber = created.number;
+
+                // Approve = status-only DRAFT -> SENT transition (posts to GL).
+                if (!saveAsDraft) {
+                    await updateInvoiceMutation.mutateAsync({ id: created.id, status: 'Sent' });
+                }
             }
         } catch (err) {
             window.alert(`Failed to save invoice: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -432,7 +495,7 @@ const InvoiceForm = () => {
         }
 
         if (location.state?.returnToWorkbench) {
-            const targetInvoiceId = location.state?.openInvoiceId || finalInvoiceData.id;
+            const targetInvoiceId = location.state?.openInvoiceId || savedInvoiceId;
             const query = new URLSearchParams();
             const catalogState = location.state?.catalogState || {};
             if (catalogState.searchTerm) query.set('search', catalogState.searchTerm);
@@ -445,10 +508,13 @@ const InvoiceForm = () => {
                 state: {
                     invoiceId: targetInvoiceId,
                     catalogState,
-                    updatedNumber: assignedNo
+                    updatedNumber: savedNumber
                 }
             });
+            return;
         }
+
+        navigate('/ar/invoices');
     };
 
     const handlePrint = () => {

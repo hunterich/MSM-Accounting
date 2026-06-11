@@ -73,7 +73,7 @@ const nextJournalNumber = async (
   organizationId: string,
 ): Promise<string> => {
   const lockKey = hashLockKey(`journal-seq:${organizationId}`);
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
 
   const nextSequence = (await getCurrentJournalSequence(tx, organizationId)) + 1;
   return `${JOURNAL_PREFIX}-${String(nextSequence).padStart(JOURNAL_DIGITS, '0')}`;

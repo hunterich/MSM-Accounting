@@ -100,7 +100,9 @@ const nextInvoiceNumber = async (
   organizationId: string,
 ): Promise<string> => {
   const lockKey = hashLockKey(`invoice-seq:${organizationId}`);
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+  // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void, which
+  // $queryRaw cannot deserialize (it 500s every invoice create).
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
 
   const nextSequence = (await getCurrentInvoiceSequence(tx, organizationId)) + 1;
   return `${INVOICE_PREFIX}-${String(nextSequence).padStart(INVOICE_DIGITS, '0')}`;
