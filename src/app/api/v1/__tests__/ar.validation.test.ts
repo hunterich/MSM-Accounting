@@ -37,6 +37,7 @@ vi.mock('@/lib/prisma', () => ({
       account: { findMany: vi.fn() },
       journalEntry: { create: vi.fn() },
       $queryRaw: vi.fn(),
+      $executeRaw: vi.fn(),
     })),
   },
 }));
@@ -180,6 +181,7 @@ describe('POST /api/v1/invoices — validation', () => {
       account: { findMany: vi.fn(async () => []) },
       journalEntry: { create: vi.fn() },
       $queryRaw: vi.fn(async () => [{ max_seq: null }]),
+      $executeRaw: vi.fn(async () => 0),
     };
 
     vi.mocked(prisma.$transaction).mockImplementationOnce(
