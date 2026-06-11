@@ -57,6 +57,62 @@ const PO_STATUS_UP: Record<string, string> = {
     Closed: 'CLOSED', Cancelled: 'CANCELLED',
 };
 
+type LegacyDocumentLine = {
+    lineNo?: number;
+    itemId?: string | null;
+    accountId?: string | null;
+    description?: string | null;
+    quantity?: number | string | null;
+    qty?: number | string | null;
+    unit?: string | null;
+    price?: number | string | null;
+    lineTotal?: number | string | null;
+};
+
+type LegacyDocumentPayload = Record<string, unknown> & {
+    amount?: number | string | null;
+    totalAmount?: number | string | null;
+    lines?: LegacyDocumentLine[];
+    items?: LegacyDocumentLine[];
+    status?: string;
+};
+
+const toFiniteNumber = (value: unknown): number => {
+    const next = Number(value ?? 0);
+    return Number.isFinite(next) ? next : 0;
+};
+
+const serializeDocumentLines = (payload: LegacyDocumentPayload) => {
+    const source = payload.lines ?? payload.items ?? [];
+    return source
+        .filter((line) => String(line.description ?? '').trim())
+        .map((line, idx) => {
+            const quantity = toFiniteNumber(line.quantity ?? line.qty);
+            const price = toFiniteNumber(line.price);
+            return {
+                lineNo: line.lineNo ?? idx + 1,
+                ...(line.itemId && { itemId: line.itemId }),
+                ...(line.accountId && { accountId: line.accountId }),
+                description: String(line.description ?? '').trim(),
+                quantity,
+                unit: line.unit || 'PCS',
+                price,
+                lineTotal: line.lineTotal != null ? toFiniteNumber(line.lineTotal) : quantity * price,
+            };
+        });
+};
+
+const serializePayableDocument = (body: LegacyDocumentPayload, statusMap: Record<string, string>) => {
+    const { amount, items, ...rest } = body;
+    const lines = serializeDocumentLines(body);
+    return {
+        ...rest,
+        ...(body.totalAmount == null && amount != null ? { totalAmount: toFiniteNumber(amount) } : {}),
+        ...(body.status && { status: statusMap[body.status] ?? body.status }),
+        ...(lines.length > 0 ? { lines } : {}),
+    };
+};
+
 // ── Normalizers ───────────────────────────────────────────────────────────────
 
 function normalizeVendor(raw: RawVendor): Vendor {
@@ -297,8 +353,8 @@ export function useBill(id: string | undefined) {
 export function useCreateBill() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (body: Partial<Bill>) => api.post('/api/v1/bills', {
-            ...body,
+        mutationFn: (body: Partial<Bill> & LegacyDocumentPayload) => api.post('/api/v1/bills', {
+            ...serializePayableDocument(body, BILL_STATUS_UP),
             status: BILL_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
         }),
         onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.bills }),
@@ -308,10 +364,8 @@ export function useCreateBill() {
 export function useUpdateBill() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }: Partial<Bill> & { id: string }) => api.put(`/api/v1/bills/${id}`, {
-            ...updates,
-            ...(updates.status && { status: BILL_STATUS_UP[updates.status] ?? updates.status }),
-        }),
+        mutationFn: ({ id, ...updates }: Partial<Bill> & LegacyDocumentPayload & { id: string }) =>
+            api.put(`/api/v1/bills/${id}`, serializePayableDocument(updates, BILL_STATUS_UP)),
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AP_KEYS.bills });
             qc.invalidateQueries({ queryKey: AP_KEYS.bill(vars.id) });
@@ -395,8 +449,8 @@ export function usePurchaseOrder(id: string | undefined) {
 export function useCreatePurchaseOrder() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (body: Partial<PurchaseOrder>) => api.post('/api/v1/purchase-orders', {
-            ...body,
+        mutationFn: (body: Partial<PurchaseOrder> & LegacyDocumentPayload) => api.post('/api/v1/purchase-orders', {
+            ...serializePayableDocument(body, PO_STATUS_UP),
             status: PO_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
         }),
         onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.pos }),
@@ -406,10 +460,8 @@ export function useCreatePurchaseOrder() {
 export function useUpdatePurchaseOrder() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }: Partial<PurchaseOrder> & { id: string }) => api.put(`/api/v1/purchase-orders/${id}`, {
-            ...updates,
-            ...(updates.status && { status: PO_STATUS_UP[updates.status] ?? updates.status }),
-        }),
+        mutationFn: ({ id, ...updates }: Partial<PurchaseOrder> & LegacyDocumentPayload & { id: string }) =>
+            api.put(`/api/v1/purchase-orders/${id}`, serializePayableDocument(updates, PO_STATUS_UP)),
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AP_KEYS.pos });
             qc.invalidateQueries({ queryKey: AP_KEYS.po(vars.id) });

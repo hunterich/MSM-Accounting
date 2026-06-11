@@ -236,11 +236,22 @@ const POForm = () => {
             vendorId: formData.vendorId,
             date: formData.date,
             expectedDate: formData.expectedDate,
-            amount: totalAmount,
             // Edits preserve current status; creates are Approved unless parked as Draft.
             status: mode === 'edit' ? selectedPO?.status : (saveAsDraft ? ('Draft' as const) : ('Approved' as const)),
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
-            notes: formData.notes
+            subtotal,
+            taxAmount,
+            totalAmount,
+            notes: formData.notes,
+            lines: validItems.map((line, idx) => ({
+                lineNo: idx + 1,
+                ...(line.accountId && { accountId: line.accountId }),
+                description: line.description.trim(),
+                quantity: Number(line.qty || 0),
+                unit: line.unit || 'PCS',
+                price: Number(line.price || 0),
+                lineTotal: lineTotal(line),
+            })),
         };
 
         try {
