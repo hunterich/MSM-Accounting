@@ -267,6 +267,13 @@
         color: #ffffff;
     }
 
+    /* Visible keyboard focus on the dark rail (WCAG 2.4.7). */
+    .sidebar-icon-btn:focus-visible {
+        outline: 2px solid #ffffff;
+        outline-offset: -3px;
+        border-radius: 4px;
+    }
+
     /* ── Tooltip (simple label on hover) ── */
     .sidebar-tooltip {
         position: absolute;
@@ -298,7 +305,8 @@
         border-right: 5px solid #1a1a2e;
     }
 
-    .sidebar-icon-wrapper:hover .sidebar-tooltip {
+    .sidebar-icon-wrapper:hover .sidebar-tooltip,
+    .sidebar-icon-wrapper:focus-within .sidebar-tooltip {
         opacity: 1;
     }
 
@@ -322,18 +330,24 @@
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: #8895a7;
+        color: #5b6675;
     }
 
     .sidebar-flyout-item {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 9px 16px;
+        padding: 12px 16px;
         font-size: 0.875rem;
         color: #333d4d;
         text-decoration: none;
         transition: background-color 0.12s ease, color 0.12s ease;
+    }
+
+    /* Visible keyboard focus inside the white flyout (WCAG 2.4.7). */
+    .sidebar-flyout-item:focus-visible {
+        outline: 2px solid #001c53;
+        outline-offset: -2px;
     }
 
     .sidebar-flyout-item:hover {

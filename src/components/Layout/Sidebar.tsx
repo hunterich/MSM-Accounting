@@ -159,6 +159,13 @@ const Sidebar = (): React.ReactElement => {
     // Rail flyout: which group's pop-out panel is open (desktop icon rail). Only one at a time.
     const [openGroup, setOpenGroup] = useState<string | null>(null);
     const railRef = useRef<HTMLElement | null>(null);
+    // Trigger buttons by group, so we can restore focus to the trigger when its flyout closes.
+    const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+    const closeFlyout = (restoreGroup?: string): void => {
+        setOpenGroup(null);
+        if (restoreGroup) triggerRefs.current[restoreGroup]?.focus();
+    };
 
     useEffect(() => {
         try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsedGroups)); } catch { /* noop */ }
@@ -238,9 +245,9 @@ const Sidebar = (): React.ReactElement => {
 
     // ── Desktop icon rail: logo + one icon per group, hover tooltip, click flyout ──
     const RailBody = (
-        <nav ref={railRef} className="sidebar-rail hidden md:flex">
+        <nav ref={railRef} className="sidebar-rail hidden md:flex" aria-label="Primary">
             <div className="sidebar-logo">
-                <span className="sidebar-logo-text">M</span>
+                <span className="sidebar-logo-text" aria-hidden="true">M</span>
             </div>
 
             <div className="sidebar-icons">
@@ -276,11 +283,12 @@ const Sidebar = (): React.ReactElement => {
                             ) : (
                                 <button
                                     type="button"
+                                    ref={el => { triggerRefs.current[g.group] = el; }}
                                     className={`sidebar-icon-btn ${groupActive || isOpen ? 'active' : ''}`}
                                     onClick={() => setOpenGroup(prev => (prev === g.group ? null : g.group))}
                                     aria-label={g.group}
                                     aria-expanded={isOpen}
-                                    aria-haspopup="menu"
+                                    aria-haspopup="true"
                                 >
                                     <GroupIcon size={18} strokeWidth={1.8} />
                                 </button>
@@ -289,7 +297,11 @@ const Sidebar = (): React.ReactElement => {
                             {!isOpen && <span className="sidebar-tooltip">{g.group}</span>}
 
                             {isOpen && !single && (
-                                <div className="sidebar-flyout" role="menu">
+                                <div
+                                    className="sidebar-flyout"
+                                    aria-label={g.group}
+                                    onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeFlyout(g.group); } }}
+                                >
                                     <div className="sidebar-flyout-title">{g.group}</div>
                                     {g.items.map(it => {
                                         const ItemIcon = it.icon;
@@ -299,7 +311,6 @@ const Sidebar = (): React.ReactElement => {
                                                 key={it.path}
                                                 to={it.path}
                                                 end={it.path === '/'}
-                                                role="menuitem"
                                                 className={`sidebar-flyout-item ${active ? 'active' : ''}`}
                                             >
                                                 <ItemIcon size={16} strokeWidth={1.7} />
@@ -319,7 +330,7 @@ const Sidebar = (): React.ReactElement => {
     );
 
     const SidebarBody = (
-        <nav className="w-[240px] h-full bg-[#0e1730] flex flex-col text-white flex-shrink-0">
+        <nav className="w-[240px] h-full bg-[#0e1730] flex flex-col text-white flex-shrink-0" aria-label="Primary">
             <div className="h-[52px] px-4 flex items-center gap-2 border-b border-white/10 flex-shrink-0">
                 <div className="w-7 h-7 rounded-md bg-primary-700 flex items-center justify-center font-bold text-sm">M</div>
                 <div className="font-semibold text-[14px]">MSM Accounting</div>
