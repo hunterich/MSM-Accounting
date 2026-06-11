@@ -60,6 +60,9 @@ export async function createBillRecord(
   const created = await tx.bill.create({
     data: {
       ...header,
+      // zod validates YYYY-MM-DD strings; Prisma DateTime columns need Date objects.
+      issueDate: new Date(header.issueDate),
+      dueDate: header.dueDate ? new Date(header.dueDate) : null,
       organizationId: orgId,
       number,
     },

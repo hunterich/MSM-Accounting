@@ -3,17 +3,19 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { billSchema, zodToFormErrors } from '../../utils/formSchemas';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
-import { useBills, useCreateBill, useUpdateBill } from '../../hooks/useAP';
+import { useBills, useCreateBill, useUpdateBill, useVendors } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import type { Account, Bill } from '../../types';
+import type { Account, Bill, BillStatus } from '../../types';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
 
 type BillFormData = {
     vendor: string;
+    vendorId: string;
     poNumber: string;
     issueDate: string;
     dueDate: string;
@@ -46,6 +48,7 @@ const buildFormData = (bill: Bill | null, defaultApAccountId: string): BillFormD
     if (!bill) {
         return {
             vendor: '',
+            vendorId: '',
             poNumber: '',
             issueDate: '',
             dueDate: '',
@@ -57,6 +60,7 @@ const buildFormData = (bill: Bill | null, defaultApAccountId: string): BillFormD
 
     return {
         vendor: bill.vendor || '',
+        vendorId: bill.vendorId || '',
         poNumber: bill.poNumber || '',
         issueDate: bill.date || '',
         dueDate: bill.due || '',
@@ -95,6 +99,11 @@ const BillForm = () => {
 
     const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data || [];
+    const { data: vendorsData } = useVendors();
+    const vendorOptions = useMemo(
+        () => (vendorsData?.data ?? []).map((v) => ({ value: v.id, label: v.name })),
+        [vendorsData?.data],
+    );
 
     // Keep Zustand for print templates only
     const billItemTemplates = useBillStore((s) => s.billItemTemplates) as BillTemplateMap;
@@ -212,10 +221,11 @@ const BillForm = () => {
         }));
 
         if (taxSettings.enabled && taxAmount > 0 && !taxSettings.inclusive) {
+            const taxAccountId = resolvedAccountDefaults.apTax || '';
             debitLines.push({
                 side: 'DR',
-                accountId: 'TAX',
-                accountLabel: 'VAT Receivable (Input Tax)',
+                accountId: taxAccountId,
+                accountLabel: taxAccountId ? formatAccountOption(taxAccountId) : 'VAT Receivable (Input Tax)',
                 amount: taxAmount
             });
         }
@@ -228,7 +238,8 @@ const BillForm = () => {
         };
 
         return [...debitLines, creditLine];
-    }, [items, subtotal, formData.apAccountId, accountMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [items, subtotal, taxAmount, taxSettings.enabled, taxSettings.inclusive, formData.apAccountId, accountMap, resolvedAccountDefaults]);
 
     const legacyLineCount = useMemo(() => {
         return items.filter((line) => {
@@ -237,18 +248,17 @@ const BillForm = () => {
         }).length;
     }, [items, accountMap]);
 
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        if (isViewMode) {
-            navigate('/ap/bills');
-            return;
-        }
-
+    const saveBill = async (statusOverride?: BillStatus) => {
         const schemaResult = billSchema.safeParse({ ...formData, items });
         if (!schemaResult.success) { setErrors(zodToFormErrors(schemaResult.error)); return; }
+        if (!formData.vendorId) { setErrors({ vendor: 'Pick a vendor from the list.' }); return; }
+        if (!formData.issueDate) { setErrors({ issueDate: 'Issue date is required.' }); return; }
 
         const invalidPostingAccounts = postingPreview
-            .filter((line) => Number(line.amount || 0) > 0)
+            // Lines without a resolved account (e.g. the advisory tax line when
+            // no Input Tax default is configured) are posted server-side via
+            // the account-defaults pipeline — only flag real-but-unusable ids.
+            .filter((line) => Number(line.amount || 0) > 0 && line.accountId)
             .filter((line) => {
                 const account = accountMap[line.accountId];
                 return !account || !account.isActive || !account.isPostable;
@@ -262,16 +272,34 @@ const BillForm = () => {
         const newBillId = formData.billNumber || `BILL-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
         const finalBillId = isViewMode ? billId : newBillId;
 
+        // Payload uses the API's field names (billInputSchema): vendorId,
+        // issueDate/dueDate, totalAmount, lines. The hook maps UI status
+        // ('Draft'/'Unpaid') to the API enum.
         const finalBill = {
-            vendor: formData.vendor,
-            poNumber: formData.poNumber,
-            date: formData.issueDate,
-            due: formData.dueDate,
-            amount: totalAmount,
-            status: mode === 'edit' ? selectedBill?.status : 'Unpaid',
-            apAccountId: formData.apAccountId,
+            vendorId: formData.vendorId,
+            issueDate: formData.issueDate,
+            ...(formData.dueDate && { dueDate: formData.dueDate }),
+            // Edits preserve the bill's current status; creates default to
+            // Unpaid (payable) unless Save Draft was used.
+            status: mode === 'edit' ? selectedBill?.status : (statusOverride ?? 'Unpaid'),
+            ...(formData.apAccountId && { apAccountId: formData.apAccountId }),
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
-            notes: formData.notes
+            subtotal,
+            taxAmount,
+            totalAmount,
+            notes: [formData.billNumber && `Vendor bill #: ${formData.billNumber}`, formData.poNumber && `PO: ${formData.poNumber}`, formData.notes]
+                .filter(Boolean).join(' | '),
+            lines: items
+                .filter((line) => line.description.trim())
+                .map((line, idx) => ({
+                    lineNo: idx + 1,
+                    ...(line.accountId && { accountId: line.accountId }),
+                    description: line.description.trim(),
+                    quantity: Number(line.qty || 0),
+                    unit: line.unit || 'PCS',
+                    price: Number(line.price || 0),
+                    lineTotal: Number(line.qty || 0) * Number(line.price || 0),
+                })),
         };
 
         try {
@@ -288,6 +316,15 @@ const BillForm = () => {
             const message = err instanceof Error ? err.message : 'Unknown error';
             window.alert(`Failed to save bill: ${message}`);
         }
+    };
+
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        if (isViewMode) {
+            navigate('/ap/bills');
+            return;
+        }
+        await saveBill();
     };
 
     const isPending = createBill.isPending || updateBill.isPending;
@@ -331,8 +368,16 @@ const BillForm = () => {
                 ) : (
                     <>
                         <Button text="Cancel" variant="secondary" onClick={() => navigate('/ap/bills')} />
+                        {mode !== 'edit' && (
+                            <Button
+                                text={isPending ? 'Saving...' : 'Save Draft'}
+                                variant="secondary"
+                                disabled={isPending}
+                                onClick={() => { void saveBill('Draft'); }}
+                            />
+                        )}
                         <Button
-                            text={isPending ? 'Saving...' : (mode === 'edit' ? 'Update Bill' : 'Save Bill')}
+                            text={isPending ? 'Saving...' : (mode === 'edit' ? 'Update Bill' : 'Save & Approve')}
                             variant="primary"
                             type="submit"
                             form="bill-form-main"
@@ -356,15 +401,19 @@ const BillForm = () => {
                     <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-5 mt-4 border-t-3 border-t-primary-500">
                         <div className="grid grid-cols-12 gap-4">
                             <div className="col-span-6">
-                                <Input
+                                <SearchableSelect
                                     label="Vendor *"
-                                    name="vendor"
+                                    options={vendorOptions}
+                                    value={formData.vendorId}
+                                    onChange={(vendorId: string) => {
+                                        const picked = vendorOptions.find((v) => v.value === vendorId);
+                                        setFormData((prev) => ({ ...prev, vendorId, vendor: picked?.label || '' }));
+                                        setErrors((prev) => ({ ...prev, vendor: undefined }));
+                                    }}
                                     placeholder="Search vendor..."
-                                    value={formData.vendor}
-                                    onChange={handleChange}
-                                    error={errors.vendor}
                                     disabled={isViewMode}
                                 />
+                                {errors.vendor ? <div className="w-full -mt-2 mb-2 text-xs text-danger-500">{errors.vendor}</div> : null}
                             </div>
                             <div className="col-span-2">
                                 <Input label="Issue Date" name="issueDate" type="date" value={formData.issueDate} onChange={handleChange} disabled={isViewMode} />
