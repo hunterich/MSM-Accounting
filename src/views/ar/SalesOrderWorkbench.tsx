@@ -5,9 +5,14 @@ import SOCatalogPanel from '../../components/ar/salesorders/SOCatalogPanel';
 import SODetailTabs from '../../components/ar/salesorders/SODetailTabs';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import SalesOrderPrintTemplate from '../../components/print/SalesOrderPrintTemplate';
+import Button from '../../components/UI/Button';
+import DocumentTabBar from '../../components/UI/DocumentTabBar';
+import PageHeader from '../../components/Layout/PageHeader';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSalesOrders, useConvertSOToInvoice } from '../../hooks/useAR';
-import { List, X, Plus } from 'lucide-react';
+import { useDocumentTabs } from '../../hooks/useDocumentTabs';
+import { exportToCsv } from '../../utils/exportCsv';
+import { Download } from 'lucide-react';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 interface SOFilters {
@@ -35,11 +40,14 @@ const SalesOrderWorkbench = () => {
         dateFrom: searchParams.get('from') || '',
         dateTo: searchParams.get('to') || ''
     });
-    const [selectedSoId, setSelectedSoId] = useState<string>(searchParams.get('soId') || '');
-    const [openSoIds, setOpenSoIds] = useState<string[]>(() => {
-        const initial = searchParams.get('soId');
-        return initial ? [initial] : [];
-    });
+    const {
+        selectedId: selectedSoId,
+        openIds: openSoIds,
+        openTab,
+        closeTab: closeSoTab,
+        selectNone,
+        tabRows,
+    } = useDocumentTabs({ urlParam: 'soId', maxPerRow: 5 });
     const [detailMode, setDetailMode] = useState<string>(searchParams.get('mode') || 'view');
     const [mobileCatalogOpen, setMobileCatalogOpen] = useState<boolean>(false);
 
@@ -62,11 +70,11 @@ const SalesOrderWorkbench = () => {
         }
 
         if (targetSoId) {
-            setOpenSoIds((prev) => (prev.includes(targetSoId) ? prev : [...prev, targetSoId]));
-            setSelectedSoId(targetSoId);
+            openTab(targetSoId);
         }
 
         setDetailMode(targetMode);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.state, searchParams]);
 
     useEffect(() => {
@@ -101,8 +109,6 @@ const SalesOrderWorkbench = () => {
     const activePrintLines = activePrintSo ? (activePrintSo.items || []) : [];
 
 
-
-    const MAX_TABS_PER_ROW = 5;
 
     const catalogState = useMemo(() => ({
         searchTerm: filters.searchTerm,
@@ -147,64 +153,31 @@ const SalesOrderWorkbench = () => {
         }
     };
 
-    const renderSoTab = (soId: string) => {
-        const so = salesOrders.find((row) => row.id === soId);
-        if (!so) return null;
-
-        const isActive = soId === selectedSoId;
-
-        return (
-            <button
-                key={soId}
-                className={`workbench-doc-tab ${isActive ? 'active' : ''}`}
-                onClick={() => setSelectedSoId(soId)}
-            >
-                {so.id}
-                <span
-                    className="workbench-doc-tab-close"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        closeSoTab(soId);
-                    }}
-                >
-                    <X size={14} />
-                </span>
-            </button>
-        );
-    };
-
-    const firstRowDynamicLimit = Math.max(0, MAX_TABS_PER_ROW - 2);
-    const firstRowSoIds = openSoIds.slice(0, firstRowDynamicLimit);
-    const remainingSoIds = openSoIds.slice(firstRowDynamicLimit);
-    const extraRows: string[][] = [];
-
-    for (let i = 0; i < remainingSoIds.length; i += MAX_TABS_PER_ROW) {
-        extraRows.push(remainingSoIds.slice(i, i + MAX_TABS_PER_ROW));
-    }
-
     const openSoTab = (soId: string) => {
-        setOpenSoIds((prev) => (prev.includes(soId) ? prev : [...prev, soId]));
-        setSelectedSoId(soId);
+        openTab(soId);
         setDetailMode('view');
         setMobileCatalogOpen(false);
     };
 
-    const closeSoTab = (soId: string) => {
-        setOpenSoIds((prev) => {
-            const idx = prev.indexOf(soId);
-            const next = prev.filter((id) => id !== soId);
-
-            if (selectedSoId === soId) {
-                if (next.length === 0) {
-                    setSelectedSoId('');
-                } else {
-                    const fallback = next[Math.max(0, idx - 1)] || next[0];
-                    setSelectedSoId(fallback);
-                }
-            }
-
-            return next;
+    const handleExportCsv = () => {
+        const rows = filteredData.map((so) => {
+            const loose = so as unknown as { date?: string; amount?: number };
+            return {
+                id: so.number || so.id,
+                customerName: so.customerName || '',
+                date: loose.date || '',
+                amount: Number(loose.amount || 0),
+                status: so.status,
+            };
         });
+
+        exportToCsv('sales-orders.csv', rows, [
+            { label: 'SO #', key: 'id' },
+            { label: 'Customer', key: 'customerName' },
+            { label: 'Date', key: 'date' },
+            { label: 'Amount', key: 'amount' },
+            { label: 'Status', key: 'status' },
+        ]);
     };
 
     const catalog = (
@@ -243,39 +216,40 @@ const SalesOrderWorkbench = () => {
 
     return (
         <div className="container ar-module container-full-width">
-            <div className="workbench-doc-tabs">
-                <div className="workbench-doc-tab-row">
-                    <button
-                        className="workbench-doc-tab workbench-doc-tab-catalog"
-                        onClick={() => {
-                            setSelectedSoId('');
-                            navigate('/ar/sales-orders', {
-                                state: { catalogState },
-                            });
-                        }}
-                        title="Back to catalog"
-                    >
-                        <List size={16} />
-                        Catalog
-                    </button>
-                    <button
-                        className={`workbench-doc-tab workbench-doc-tab-new ${canCreate ? '' : 'opacity-60 cursor-not-allowed'}`}
-                        onClick={() => navigate('/ar/sales-orders/new')}
-                        disabled={!canCreate}
-                        title="New sales order"
-                    >
-                        <Plus size={16} />
-                        New Sales Order
-                    </button>
-                    {firstRowSoIds.map((soId) => renderSoTab(soId))}
-                    <div className="workbench-tab-count">Open tabs: {openSoIds.length}</div>
-                </div>
-                {extraRows.map((row, rowIndex) => (
-                    <div key={`extra-row-${rowIndex}`} className="workbench-doc-tab-row secondary-row">
-                        {row.map((soId) => renderSoTab(soId))}
+            <PageHeader
+                title="Sales Orders"
+                subtitle="Manage quotations and confirmed orders before invoicing."
+                actions={
+                    <Button
+                        text="Export CSV"
+                        size="small"
+                        variant="secondary"
+                        icon={<Download size={16} />}
+                        onClick={handleExportCsv}
+                    />
+                }
+            />
+
+            <DocumentTabBar
+                openIds={openSoIds}
+                selectedId={selectedSoId}
+                tabRows={tabRows}
+                getLabel={(id) => salesOrders.find((so) => so.id === id)?.number || id}
+                onSelect={openSoTab}
+                onClose={closeSoTab}
+                newTabLabel="New Sales Order"
+                onNewTab={canCreate ? () => navigate('/ar/sales-orders/new') : undefined}
+                disableNew={!canCreate}
+                onCatalog={() => {
+                    selectNone();
+                    navigate('/ar/sales-orders', { state: { catalogState } });
+                }}
+                firstRowSuffix={
+                    <div className="workbench-tab-count">
+                        Open tabs: {openSoIds.length}
                     </div>
-                ))}
-            </div>
+                }
+            />
 
             <InvoiceWorkbenchLayout
                 catalog={catalog}
