@@ -5,6 +5,7 @@ import InvoiceCatalogPanel from '../../components/ar/invoices/InvoiceCatalogPane
 import InvoiceDetailTabs from '../../components/ar/invoices/InvoiceDetailTabs';
 import Button from '../../components/UI/Button';
 import DocumentTabBar from '../../components/UI/DocumentTabBar';
+import PageHeader from '../../components/Layout/PageHeader';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import { useInvoiceStore } from '../../stores/useInvoiceStore';
@@ -197,24 +198,30 @@ const InvoiceWorkbench = () => {
 
     return (
         <div className="container ar-module container-full-width">
-            <div className="flex justify-end mb-2 gap-2">
-                {canCreate && (
-                    <Button
-                        text="Import"
-                        size="small"
-                        variant="secondary"
-                        icon={<Upload size={16} />}
-                        onClick={() => setIsImportOpen(true)}
-                    />
-                )}
-                <Button
-                    text="Export CSV"
-                    size="small"
-                    variant="secondary"
-                    icon={<Download size={16} />}
-                    onClick={handleExportCsv}
-                />
-            </div>
+            <PageHeader
+                title="Invoices"
+                subtitle="Create, send, and track customer invoices."
+                actions={
+                    <>
+                        {canCreate && (
+                            <Button
+                                text="Import"
+                                size="small"
+                                variant="secondary"
+                                icon={<Upload size={16} />}
+                                onClick={() => setIsImportOpen(true)}
+                            />
+                        )}
+                        <Button
+                            text="Export CSV"
+                            size="small"
+                            variant="secondary"
+                            icon={<Download size={16} />}
+                            onClick={handleExportCsv}
+                        />
+                    </>
+                }
+            />
 
             <DocumentTabBar
                 openIds={openInvoiceIds}

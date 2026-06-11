@@ -370,6 +370,7 @@ const DebitNoteForm = () => {
             returnAccountId: formData.returnAccountId,
             taxAccountId: formData.taxAccountId,
             amount: totals.total || formData.amount,
+            taxAmount: formData.applyTax ? totals.taxAmount : 0,
             applyTax: formData.applyTax,
             status: 'Applied',
         };

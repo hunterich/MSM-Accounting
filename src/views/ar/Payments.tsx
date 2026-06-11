@@ -5,6 +5,7 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import DocumentTabBar from '../../components/UI/DocumentTabBar';
+import PageHeader from '../../components/Layout/PageHeader';
 import { Search, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
@@ -99,8 +100,41 @@ const Payments = () => {
         }
     ];
 
+    const handleExportCsv = () => {
+        const rows = filteredData.map((p) => ({
+            id: p.id,
+            date: p.date,
+            customerName: p.customerName,
+            method: p.method,
+            amount: p.amount,
+            status: p.status,
+        }));
+        exportToCsv('ar-payments.csv', rows, [
+            { label: 'Number', key: 'id' },
+            { label: 'Date', key: 'date' },
+            { label: 'Customer', key: 'customerName' },
+            { label: 'Method', key: 'method' },
+            { label: 'Amount', key: 'amount' },
+            { label: 'Status', key: 'status' },
+        ]);
+    };
+
     return (
         <div className="container ar-module container-full-width">
+            <PageHeader
+                title="Customer Payments"
+                subtitle="Record and track incoming payments against invoices."
+                actions={
+                    <Button
+                        text="Export CSV"
+                        size="small"
+                        variant="secondary"
+                        icon={<Download size={16} />}
+                        onClick={handleExportCsv}
+                    />
+                }
+            />
+
             <DocumentTabBar
                 openIds={openPaymentIds}
                 selectedId={selectedPaymentId}
@@ -117,34 +151,7 @@ const Payments = () => {
                     setDateRange({ from: '', to: '' });
                 }}
                 firstRowSuffix={
-                    <div className="flex items-center gap-2">
-                        <button
-                            className="btn btn-secondary flex items-center gap-1"
-                            title="Export CSV"
-                            onClick={() => {
-                                const rows = filteredData.map((p) => ({
-                                    id: p.id,
-                                    date: p.date,
-                                    customerName: p.customerName,
-                                    method: p.method,
-                                    amount: p.amount,
-                                    status: p.status,
-                                }));
-                                exportToCsv('ar-payments.csv', rows, [
-                                    { label: 'Number', key: 'id' },
-                                    { label: 'Date', key: 'date' },
-                                    { label: 'Customer', key: 'customerName' },
-                                    { label: 'Method', key: 'method' },
-                                    { label: 'Amount', key: 'amount' },
-                                    { label: 'Status', key: 'status' },
-                                ]);
-                            }}
-                        >
-                            <Download size={16} />
-                            <span className="hidden sm:inline">Export</span>
-                        </button>
-                        <div className="workbench-tab-count">Open tabs: {openPaymentIds.length}</div>
-                    </div>
+                    <div className="workbench-tab-count">Open tabs: {openPaymentIds.length}</div>
                 }
             />
 

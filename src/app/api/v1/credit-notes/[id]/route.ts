@@ -86,6 +86,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         data: {
           ...body,
           ...(body.amount !== undefined && { amount: asMoney(toNumber(body.amount)) }),
+          ...(body.taxAmount !== undefined && { taxAmount: asMoney(toNumber(body.taxAmount)) }),
           ...(body.date && { date: new Date(body.date) }),
           updatedAt: new Date(),
         },

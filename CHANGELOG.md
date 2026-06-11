@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.0] — 2026-06-11
+
+### 🚑 Fixed
+- **Blank white page on boot** — `index.html` still pointed at `/src/main.jsx`, which was renamed to `main.tsx` during the TypeScript migration; the app rendered nothing
+- **Dev tooling guarded against stale agent worktrees** — Vite watcher and Vitest now ignore `**/.claude/**`, `dist`, `.next`; the test suite previously ran 19 duplicate copies of itself (2,880 tests instead of 167) with 56 phantom failures
+- **"Bayar di tempat" now maps to COD** for marketplace payment imports
+
+### ✨ Added
+- **TikTok Shop order import** — the marketplace import wizard (AR → Invoices → Import) now parses TikTok Shop "Semua pesanan" / OrderSKUList exports alongside Shopee reports: English headers aliased onto the shared parser, field-description row skipped, unit price derived from SKU subtotal ÷ quantity, DANA/OVO/GoPay mapped to E-Wallet; wizard copy follows the selected shop's platform. Validated against real Cultusia exports (5,390-row full export and weekly BALANCE file)
+- **PPN tax split on credit/debit notes** — new `taxAmount` column on `CreditNote`/`DebitNote`; applying a note now reverses Output Tax (DR arTax) / Input Tax (CR apTax) instead of burying the tax in the return expense; note-level `taxAccountId` overrides the org default
+- **Sales Orders: Export CSV** action (previously missing vs Invoices)
+
+### 🎨 Changed (UI consistency)
+- **Route-level code splitting** — all 66 views now lazy-load via `React.lazy`; first paint no longer pulls ~280 modules
+- **One workbench anatomy** — Sales Orders, Invoices, Payments, Returns & Credits, and Customers all share the same `PageHeader` (title + subtitle + actions) above the shared `DocumentTabBar`; three hand-rolled tab-bar copies removed
+- **Sales Order form rebuilt on the Invoice form's layout** — compact single-row header, Item Details / Logistics & Notes tabs, quick-search bar to add items, right-aligned totals card; data model and save logic unchanged
+- **Recurring Billing** — Recurring Invoices and Subscriptions merged into one page with Invoice Templates / Subscriptions / Plans tabs; `/ar/subscriptions` redirects to `/ar/recurring?tab=subscriptions`; sidebar trimmed by one entry
+
+---
+
 ## [1.0.0] — 2026-03-22
 
 ### 🎉 First Production-Ready Release — Phase 1.1 + 2.4 Complete

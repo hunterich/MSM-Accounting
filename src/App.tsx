@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { ErrorBoundary, PageErrorFallback } from './components/UI/ErrorBoundary'
 import Layout from './components/Layout/Layout'
@@ -5,69 +6,76 @@ import ProtectedRoute from './components/auth/ProtectedRoute'
 import PermissionRoute from './components/auth/PermissionRoute'
 import Login from './views/Login'
 import Forbidden from './views/Forbidden'
-import Dashboard from './views/Dashboard'
-import ChartOfAccounts from './views/gl/ChartOfAccounts'
-import JournalEntries from './views/gl/JournalEntries'
-import JournalEntryForm from './views/gl/JournalEntryForm'
-import Invoices from './views/ar/Invoices'
-import InvoiceWorkbench from './views/ar/InvoiceWorkbench'
-import InvoiceForm from './views/ar/InvoiceForm'
-import SalesOrderWorkbench from './views/ar/SalesOrderWorkbench'
-import Customers from './views/ar/Customers'
-import CustomerForm from './views/ar/CustomerForm'
-import CustomerCategories from './views/ar/CustomerCategories'
-import Payments from './views/ar/Payments'
-import PaymentForm from './views/ar/PaymentForm'
-import CreditNotes from './views/ar/CreditNotes'
-import CreditNoteForm from './views/ar/CreditNoteForm'
-import SalesReturnForm from './views/ar/SalesReturnForm'
-import RecurringInvoices from './views/ar/RecurringInvoices'
-import ApprovalInbox from './views/ar/ApprovalInbox'
-import SubscriptionsPage from './views/ar/Subscriptions'
-import SOForm from './components/ar/salesorders/SOForm'
-
-import Bills from './views/ap/Bills'
-import BillForm from './views/ap/BillForm'
-import BillImport from './views/ap/BillImport'
-import PurchaseOrders from './views/ap/PurchaseOrders'
-import POForm from './views/ap/POForm'
-import Vendors from './views/ap/Vendors'
-import VendorCategories from './views/ap/VendorCategories'
-import VendorForm from './views/ap/VendorForm'
-import APPayments from './views/ap/Payments'
-import APPaymentForm from './views/ap/PaymentForm'
-import APDebitNotes from './views/ap/DebitNotes'
-import PurchaseReturnForm from './views/ap/PurchaseReturnForm'
-import DebitNoteForm from './views/ap/DebitNoteForm'
-
-import Inventory from './views/inventory/Inventory'
-import InventoryForm from './views/inventory/InventoryForm'
-import ItemCategories from './views/inventory/ItemCategories'
-import InventoryAdjustments from './views/inventory/InventoryAdjustments'
-import AdjustmentForm from './views/inventory/AdjustmentForm'
-import StockValuation from './views/inventory/StockValuation'
-import DeliveryNotes from './views/ar/DeliveryNotes'
-import Banking from './views/banking/Banking'
-import BankingActionForm from './views/banking/BankingActionForm'
-import PaymentReconciliation from './views/banking/PaymentReconciliation'
-import Employees from './views/hr/Employees'
-import EmployeeForm from './views/hr/EmployeeForm'
-import Attendance from './views/hr/Attendance'
-import PayrollRun from './views/hr/PayrollRun'
-import LeaveManagement from './views/hr/LeaveManagement'
-
-import AssetRegister from './views/assets/AssetRegister'
-import AssetCategories from './views/assets/AssetCategories'
-import AssetForm from './views/assets/AssetForm'
-import AssetDetail from './views/assets/AssetDetail'
-import DepreciationRun from './views/assets/DepreciationRun'
-
-import Reports from './views/reports/Reports'
-import BankReconciliation from './views/reports/BankReconciliation'
-import Settings from './views/settings/Settings'
-import Integrations from './views/integrations/Integrations'
-import CompanySetup from './views/company/CompanySetup'
+import { TableSkeleton } from './components/UI/LoadingSkeleton'
 import type { JSX } from 'react'
+
+const Dashboard = lazy(() => import('./views/Dashboard'))
+const ChartOfAccounts = lazy(() => import('./views/gl/ChartOfAccounts'))
+const JournalEntries = lazy(() => import('./views/gl/JournalEntries'))
+const JournalEntryForm = lazy(() => import('./views/gl/JournalEntryForm'))
+const Invoices = lazy(() => import('./views/ar/Invoices'))
+const InvoiceWorkbench = lazy(() => import('./views/ar/InvoiceWorkbench'))
+const InvoiceForm = lazy(() => import('./views/ar/InvoiceForm'))
+const SalesOrderWorkbench = lazy(() => import('./views/ar/SalesOrderWorkbench'))
+const Customers = lazy(() => import('./views/ar/Customers'))
+const CustomerForm = lazy(() => import('./views/ar/CustomerForm'))
+const CustomerCategories = lazy(() => import('./views/ar/CustomerCategories'))
+const Payments = lazy(() => import('./views/ar/Payments'))
+const PaymentForm = lazy(() => import('./views/ar/PaymentForm'))
+const CreditNotes = lazy(() => import('./views/ar/CreditNotes'))
+const CreditNoteForm = lazy(() => import('./views/ar/CreditNoteForm'))
+const SalesReturnForm = lazy(() => import('./views/ar/SalesReturnForm'))
+const RecurringBilling = lazy(() => import('./views/ar/RecurringBilling'))
+const ApprovalInbox = lazy(() => import('./views/ar/ApprovalInbox'))
+const SOForm = lazy(() => import('./components/ar/salesorders/SOForm'))
+
+const Bills = lazy(() => import('./views/ap/Bills'))
+const BillForm = lazy(() => import('./views/ap/BillForm'))
+const BillImport = lazy(() => import('./views/ap/BillImport'))
+const PurchaseOrders = lazy(() => import('./views/ap/PurchaseOrders'))
+const POForm = lazy(() => import('./views/ap/POForm'))
+const Vendors = lazy(() => import('./views/ap/Vendors'))
+const VendorCategories = lazy(() => import('./views/ap/VendorCategories'))
+const VendorForm = lazy(() => import('./views/ap/VendorForm'))
+const APPayments = lazy(() => import('./views/ap/Payments'))
+const APPaymentForm = lazy(() => import('./views/ap/PaymentForm'))
+const APDebitNotes = lazy(() => import('./views/ap/DebitNotes'))
+const PurchaseReturnForm = lazy(() => import('./views/ap/PurchaseReturnForm'))
+const DebitNoteForm = lazy(() => import('./views/ap/DebitNoteForm'))
+
+const Inventory = lazy(() => import('./views/inventory/Inventory'))
+const InventoryForm = lazy(() => import('./views/inventory/InventoryForm'))
+const ItemCategories = lazy(() => import('./views/inventory/ItemCategories'))
+const InventoryAdjustments = lazy(() => import('./views/inventory/InventoryAdjustments'))
+const AdjustmentForm = lazy(() => import('./views/inventory/AdjustmentForm'))
+const StockValuation = lazy(() => import('./views/inventory/StockValuation'))
+const DeliveryNotes = lazy(() => import('./views/ar/DeliveryNotes'))
+const Banking = lazy(() => import('./views/banking/Banking'))
+const BankingActionForm = lazy(() => import('./views/banking/BankingActionForm'))
+const PaymentReconciliation = lazy(() => import('./views/banking/PaymentReconciliation'))
+const Employees = lazy(() => import('./views/hr/Employees'))
+const EmployeeForm = lazy(() => import('./views/hr/EmployeeForm'))
+const Attendance = lazy(() => import('./views/hr/Attendance'))
+const PayrollRun = lazy(() => import('./views/hr/PayrollRun'))
+const LeaveManagement = lazy(() => import('./views/hr/LeaveManagement'))
+
+const AssetRegister = lazy(() => import('./views/assets/AssetRegister'))
+const AssetCategories = lazy(() => import('./views/assets/AssetCategories'))
+const AssetForm = lazy(() => import('./views/assets/AssetForm'))
+const AssetDetail = lazy(() => import('./views/assets/AssetDetail'))
+const DepreciationRun = lazy(() => import('./views/assets/DepreciationRun'))
+
+const Reports = lazy(() => import('./views/reports/Reports'))
+const BankReconciliation = lazy(() => import('./views/reports/BankReconciliation'))
+const Settings = lazy(() => import('./views/settings/Settings'))
+const Integrations = lazy(() => import('./views/integrations/Integrations'))
+const CompanySetup = lazy(() => import('./views/company/CompanySetup'))
+
+const PageFallback = (): JSX.Element => (
+    <div className="p-6">
+        <TableSkeleton rowCount={8} />
+    </div>
+)
 
 function App(): JSX.Element {
     const withPermission = (element: JSX.Element, moduleKey: string, action = 'view') => (
@@ -79,6 +87,7 @@ function App(): JSX.Element {
     return (
         <ErrorBoundary fallback={PageErrorFallback}>
         <Router>
+            <Suspense fallback={<PageFallback />}>
             <Routes>
                 <Route path="/login" element={<Login />} />
 
@@ -119,9 +128,9 @@ function App(): JSX.Element {
                     <Route path="ar/credits/new" element={withPermission(<CreditNoteForm />, 'ar_credits', 'create')} />
                     <Route path="ar/credits/edit" element={withPermission(<CreditNoteForm />, 'ar_credits', 'edit')} />
                     <Route path="ar/returns/new" element={withPermission(<SalesReturnForm />, 'ar_credits', 'create')} />
-                    <Route path="ar/recurring" element={withPermission(<RecurringInvoices />, 'ar_invoices')} />
+                    <Route path="ar/recurring" element={withPermission(<RecurringBilling />, 'ar_invoices')} />
                     <Route path="ar/approvals" element={withPermission(<ApprovalInbox />, 'ar_invoices')} />
-                    <Route path="ar/subscriptions" element={withPermission(<SubscriptionsPage />, 'ar_invoices')} />
+                    <Route path="ar/subscriptions" element={<Navigate to="/ar/recurring?tab=subscriptions" replace />} />
 
                     {/* Accounts Payable */}
                     <Route path="ap" element={<Navigate to="/ap/bills" replace />} />
@@ -186,6 +195,7 @@ function App(): JSX.Element {
                     <Route path="settings" element={withPermission(<Settings />, 'settings')} />
                 </Route>
             </Routes>
+            </Suspense>
         </Router>
         </ErrorBoundary>
     )

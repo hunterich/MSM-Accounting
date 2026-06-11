@@ -50,6 +50,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         number,
         organizationId: orgId,
         amount: asMoney(toNumber(body.amount)),
+        taxAmount: asMoney(toNumber(body.taxAmount ?? 0)),
         date: new Date(body.date),
         status: 'DRAFT',
       },

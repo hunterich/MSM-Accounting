@@ -218,6 +218,8 @@ export interface TransformConfig {
     customerId: string;
     customerName: string;
     shopId: string;
+    /** Marketplace name used in invoice notes/audit (e.g. 'Shopee', 'TikTok'). */
+    platform?: string;
     invoiceStatus?: string;
     /** Which date field on a ParsedShopeeOrder to use as the invoice date. */
     dateField?: keyof Pick<ParsedShopeeOrder, 'completionDate' | 'paymentDate' | 'orderDate'>;
@@ -264,37 +266,43 @@ interface ColumnSpec {
 /** Column specifications. Each spec lists multiple accepted header names so
  *  that small format changes (renames, translations) do not silently break
  *  parsing. Fuzzy normalisation on top of this also catches case / punctuation
- *  / whitespace changes automatically. */
+ *  / whitespace changes automatically.
+ *
+ *  Covers both marketplace export formats:
+ *  - Shopee payment report (Indonesian headers, e.g. "No. Pesanan")
+ *  - TikTok Shop "Semua pesanan" / OrderSKUList export (English headers,
+ *    e.g. "Order ID"). TikTok has no unit-price-after-discount column, so
+ *    that value is derived from SKU subtotal ÷ quantity during parsing. */
 const COLUMN_SPECS: ColumnSpec[] = [
     // Required — parsing fails hard if any of these are missing.
-    { internalKey: 'orderNumber',      required: true,  aliases: ['No. Pesanan', 'Nomor Pesanan', 'Order No', 'Order Number'] },
+    { internalKey: 'orderNumber',      required: true,  aliases: ['No. Pesanan', 'Nomor Pesanan', 'Order No', 'Order Number', 'Order ID'] },
     { internalKey: 'productName',      required: true,  aliases: ['Nama Produk', 'Product Name'] },
-    { internalKey: 'productTotal',     required: true,  aliases: ['Total Harga Produk', 'Total Produk', 'Product Total'] },
+    { internalKey: 'productTotal',     required: true,  aliases: ['Total Harga Produk', 'Total Produk', 'Product Total', 'SKU Subtotal After Discount'] },
 
     // Optional — missing → warning, parser still succeeds.
     { internalKey: 'orderStatus',        required: false, aliases: ['Status Pesanan', 'Order Status'] },
-    { internalKey: 'orderCreatedTime',   required: false, aliases: ['Waktu Pesanan Dibuat', 'Order Created Time'] },
-    { internalKey: 'paymentTime',        required: false, aliases: ['Waktu Pembayaran Dilakukan', 'Payment Time'] },
-    { internalKey: 'orderCompletedTime', required: false, aliases: ['Waktu Pesanan Selesai', 'Order Completed Time'] },
-    { internalKey: 'parentSKU',          required: false, aliases: ['SKU Induk', 'Parent SKU'] },
-    { internalKey: 'skuReference',       required: false, aliases: ['Nomor Referensi SKU', 'SKU Reference No', 'SKU Reference'] },
-    { internalKey: 'variationName',      required: false, aliases: ['Nama Variasi', 'Variation Name'] },
-    { internalKey: 'originalPrice',      required: false, aliases: ['Harga Awal', 'Original Price'] },
+    { internalKey: 'orderCreatedTime',   required: false, aliases: ['Waktu Pesanan Dibuat', 'Order Created Time', 'Created Time'] },
+    { internalKey: 'paymentTime',        required: false, aliases: ['Waktu Pembayaran Dilakukan', 'Payment Time', 'Paid Time'] },
+    { internalKey: 'orderCompletedTime', required: false, aliases: ['Waktu Pesanan Selesai', 'Order Completed Time', 'Delivered Time'] },
+    { internalKey: 'parentSKU',          required: false, aliases: ['SKU Induk', 'Parent SKU', 'Seller SKU'] },
+    { internalKey: 'skuReference',       required: false, aliases: ['Nomor Referensi SKU', 'SKU Reference No', 'SKU Reference', 'SKU ID'] },
+    { internalKey: 'variationName',      required: false, aliases: ['Nama Variasi', 'Variation Name', 'Variation'] },
+    { internalKey: 'originalPrice',      required: false, aliases: ['Harga Awal', 'Original Price', 'SKU Unit Original Price'] },
     { internalKey: 'priceAfterDiscount', required: false, aliases: ['Harga Setelah Diskon', 'Price After Discount', 'Deal Price'] },
     { internalKey: 'quantity',           required: false, aliases: ['Jumlah', 'Quantity', 'Qty'] },
     { internalKey: 'totalDiscount',      required: false, aliases: ['Total Diskon', 'Total Discount'] },
-    { internalKey: 'sellerDiscount',     required: false, aliases: ['Diskon Dari Penjual', 'Seller Discount'] },
-    { internalKey: 'shopeeDiscount',     required: false, aliases: ['Diskon Dari Shopee', 'Shopee Discount'] },
-    { internalKey: 'buyerShippingCost',  required: false, aliases: ['Ongkos Kirim Dibayar oleh Pembeli', 'Buyer Paid Shipping Fee'] },
+    { internalKey: 'sellerDiscount',     required: false, aliases: ['Diskon Dari Penjual', 'Seller Discount', 'SKU Seller Discount'] },
+    { internalKey: 'shopeeDiscount',     required: false, aliases: ['Diskon Dari Shopee', 'Shopee Discount', 'SKU Platform Discount'] },
+    { internalKey: 'buyerShippingCost',  required: false, aliases: ['Ongkos Kirim Dibayar oleh Pembeli', 'Buyer Paid Shipping Fee', 'Shipping Fee After Discount'] },
     { internalKey: 'buyerUsername',      required: false, aliases: ['Username (Pembeli)', 'Buyer Username', 'Username'] },
-    { internalKey: 'recipientName',      required: false, aliases: ['Nama Penerima', 'Recipient Name'] },
+    { internalKey: 'recipientName',      required: false, aliases: ['Nama Penerima', 'Recipient Name', 'Recipient'] },
     { internalKey: 'phone',              required: false, aliases: ['No. Telepon', 'Nomor Telepon', 'Phone Number', 'Phone'] },
-    { internalKey: 'shippingAddress',    required: false, aliases: ['Alamat Pengiriman', 'Shipping Address'] },
-    { internalKey: 'city',               required: false, aliases: ['Kota/Kabupaten', 'Kota', 'City'] },
+    { internalKey: 'shippingAddress',    required: false, aliases: ['Alamat Pengiriman', 'Shipping Address', 'Detail Address'] },
+    { internalKey: 'city',               required: false, aliases: ['Kota/Kabupaten', 'Kota', 'City', 'Regency and City'] },
     { internalKey: 'province',           required: false, aliases: ['Provinsi', 'Province'] },
     { internalKey: 'paymentMethod',      required: false, aliases: ['Metode Pembayaran', 'Payment Method'] },
-    { internalKey: 'totalPayment',       required: false, aliases: ['Total Pembayaran', 'Total Payment'] },
-    { internalKey: 'trackingNumber',     required: false, aliases: ['No. Resi', 'Nomor Resi', 'Tracking Number', 'Tracking No'] },
+    { internalKey: 'totalPayment',       required: false, aliases: ['Total Pembayaran', 'Total Payment', 'Order Amount'] },
+    { internalKey: 'trackingNumber',     required: false, aliases: ['No. Resi', 'Nomor Resi', 'Tracking Number', 'Tracking No', 'Tracking ID'] },
 ];
 
 /** Normalise a header string for fuzzy matching.
@@ -465,14 +473,22 @@ export async function parseShopeeExcel(
     }
 
     // Map rows using the resolved header → internalKey assignments.
-    const mappedRows: MappedRow[] = rawRows.map((raw, idx) => {
-        const row = {} as MappedRow;
-        for (const [internalKey, actualHeader] of Object.entries(headerReport.resolvedHeaders)) {
-            row[internalKey] = raw[actualHeader] ?? '';
-        }
-        row._rowIndex = idx + 2; // 1-based, +1 for header
-        return row;
-    });
+    const mappedRows: MappedRow[] = rawRows
+        .map((raw, idx) => {
+            const row = {} as MappedRow;
+            for (const [internalKey, actualHeader] of Object.entries(headerReport.resolvedHeaders)) {
+                row[internalKey] = raw[actualHeader] ?? '';
+            }
+            row._rowIndex = idx + 2; // 1-based, +1 for header
+            return row;
+        })
+        // TikTok exports put a field-description row directly under the header
+        // (e.g. orderNumber = "Platform unique order ID."). Real order numbers
+        // on every platform always contain digits.
+        .filter((row) => {
+            const orderNum = String(row.orderNumber).trim();
+            return !(orderNum && !/\d/.test(orderNum));
+        });
 
     // Filter by status
     const filteredRows = mappedRows.filter((row) => {
@@ -504,12 +520,17 @@ export async function parseShopeeExcel(
     for (const [orderNumber, rows] of orderMap) {
         const first = rows[0];
         const items: ShopeeLineItem[] = rows.map((row) => {
+            const quantity = parseNum(row.quantity) || 1;
+            const productTotal = parseNum(row.productTotal);
+            // TikTok has no unit-price-after-discount column — derive it from
+            // the SKU subtotal so invoice line prices stay correct.
+            const priceAfterDiscount = parseNum(row.priceAfterDiscount) || (productTotal / quantity);
             const item: ShopeeLineItem = {
                 productName: String(row.productName).trim(),
                 variationName: String(row.variationName).trim(),
-                priceAfterDiscount: parseNum(row.priceAfterDiscount),
-                quantity: parseNum(row.quantity) || 1,
-                productTotal: parseNum(row.productTotal),
+                priceAfterDiscount,
+                quantity,
+                productTotal,
                 parentSKU: String(row.parentSKU).trim(),
                 skuReference: String(row.skuReference).trim(),
                 sellerDiscount: parseNum(row.sellerDiscount),
@@ -582,6 +603,7 @@ export function transformOrdersToInvoices(
         customerId,
         customerName,
         shopId,
+        platform = 'Shopee',
         invoiceStatus = 'Paid',
         dateField = 'completionDate',
         holdingAccount = '',
@@ -649,7 +671,7 @@ export function transformOrdersToInvoices(
         if (!existing) seq++;
 
         const address = [order.shippingAddress, order.city, order.province].filter(Boolean).join(', ');
-        const notes = `Shopee | Buyer: ${order.buyerUsername || order.recipientName} | Tracking: ${order.trackingNumber} | Method: ${order.paymentMethod}`;
+        const notes = `${platform} | Buyer: ${order.buyerUsername || order.recipientName} | Tracking: ${order.trackingNumber} | Method: ${order.paymentMethod}`;
 
         const invoiceData: ShopeeInvoice = {
             id: invoiceId,
@@ -673,7 +695,7 @@ export function transformOrdersToInvoices(
             audit: [{
                 id: 'A1',
                 date: new Date().toISOString().replace('T', ' ').slice(0, 16),
-                action: existing ? 'Updated (Shopee Import)' : 'Created (Shopee Import)',
+                action: existing ? `Updated (${platform} Import)` : `Created (${platform} Import)`,
                 user: 'Admin',
             }],
             journal: [],
@@ -779,12 +801,14 @@ export function computeStockDeficits(
     return deficits;
 }
 
-/** Map Shopee payment methods to app's method names */
-function mapPaymentMethod(shopeeMethod: string): string {
-    const m = String(shopeeMethod).toLowerCase();
-    if (m.includes('cod')) return 'COD';
+/** Map marketplace payment methods to app's method names */
+function mapPaymentMethod(rawMethod: string): string {
+    const m = String(rawMethod).toLowerCase();
+    if (m.includes('cod') || m.includes('bayar di tempat')) return 'COD';
     if (m.includes('transfer')) return 'Bank Transfer';
     if (m.includes('kartu kredit') || m.includes('credit')) return 'Credit Card';
     if (m.includes('spaylater') || m.includes('shopee')) return 'SPayLater';
+    if (m.includes('paylater')) return 'PayLater';
+    if (m.includes('dana') || m.includes('ovo') || m.includes('gopay') || m.includes('linkaja')) return 'E-Wallet';
     return 'Other';
 }

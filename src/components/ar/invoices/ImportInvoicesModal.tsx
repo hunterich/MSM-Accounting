@@ -105,6 +105,8 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         [shops, shopId],
     );
 
+    const platformName = selectedShop?.platform || 'Marketplace';
+
     const activeShops = useMemo<EcommerceConnection[]>(
         () => shops.filter((s) => s.status === 'Active'),
         [shops],
@@ -241,6 +243,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     customerId: shop.customer,
                     customerName: (cust as { name?: string } | undefined)?.name || 'Unknown',
                     shopId: shop.id,
+                    platform: shop.platform,
                     invoiceStatus,
                     dateField: dateField as 'completionDate' | 'paymentDate' | 'orderDate',
                     holdingAccount: shop.holdingAccount,
@@ -326,7 +329,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     <div className="border-2 border-dashed border-neutral-300 rounded-lg p-6 text-center">
                         <Upload size={32} className="mx-auto mb-2 text-neutral-400" />
                         <p className="text-sm text-neutral-500 mb-3">
-                            {file ? file.name : 'Select Shopee payment report file'}
+                            {file ? file.name : `Select ${platformName} order export file`}
                         </p>
                         <label className="inline-block">
                             <input
@@ -373,7 +376,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                                                 </details>
                                             )}
                                             <div className="text-red-600 italic">
-                                                If Shopee&rsquo;s export format has changed, please report the new column names so they can be added to the parser.
+                                                If {platformName}&rsquo;s export format has changed, please report the new column names so they can be added to the parser.
                                             </div>
                                         </div>
                                     )}
@@ -470,7 +473,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             </div>
 
             <div className="text-xs text-neutral-500">
-                Map Shopee products to your inventory items. Unmapped items will use the Shopee product name as-is.
+                Map {platformName} products to your inventory items. Unmapped items will use the {platformName} product name as-is.
             </div>
 
             <div className="flex flex-col gap-2" style={{ maxHeight: 380, overflowY: 'auto' }}>
@@ -521,6 +524,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 customerId: shop?.customer ?? '',
                 customerName: (cust as { name?: string } | undefined)?.name || 'Unknown',
                 shopId: shop?.id ?? '',
+                platform: shop?.platform,
                 invoiceStatus,
                 dateField: dateField as 'completionDate' | 'paymentDate' | 'orderDate',
                 holdingAccount: shop?.holdingAccount,
@@ -675,7 +679,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     return (
         <Modal
-            title={`Import Shopee Invoices — ${stepTitles[step] || ''}`}
+            title={`Import ${platformName} Invoices — ${stepTitles[step] || ''}`}
             isOpen={isOpen}
             onClose={step === 'importing' ? () => { /* blocked during import */ } : handleClose}
             size="lg"

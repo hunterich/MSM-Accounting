@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import FormPage from '../../../components/Layout/FormPage';
 import Input from '../../../components/UI/Input';
@@ -9,6 +9,7 @@ import { useCustomerStore } from '../../../stores/useCustomerStore';
 import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
 import { useCustomers } from '../../../hooks/useAR';
 import { useItems } from '../../../hooks/useInventory';
+import { Search, X, Package, Info, Save } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ interface InvItem {
     unit?: string;
     sellUnit?: string;
     price?: number;
+    currentStock?: number;
+    stock?: number;
     [key: string]: unknown;
 }
 
@@ -100,16 +103,7 @@ const emptyForm: SOFormData = {
 /** Fields that should stay as strings rather than be cast to numbers. */
 const textFields = new Set<string>(['productId', 'code', 'description', 'unit']);
 
-const newLine = (): LineItem => ({
-    id: `li-${Date.now()}-${Math.round(Math.random() * 1000)}`,
-    productId: '',
-    code: '',
-    description: '',
-    qty: 1,
-    unit: 'PCS',
-    price: 0,
-    discount: 0,
-});
+const makeLineId = (): string => `li-${Date.now()}-${Math.round(Math.random() * 1000)}`;
 
 /**
  * Deep-merge arrays of objects by `id`, with later groups winning on
@@ -199,14 +193,17 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
 
     const [formData, setFormData] = useState<SOFormData>(() => buildInitialForm(selectedSalesOrder as unknown as Record<string, unknown>));
     const [lineItems, setLineItems] = useState<LineItem[]>(() => {
-        if (!selectedSalesOrder) return [newLine()];
+        if (!selectedSalesOrder) return [];
         return (soItemTemplates[selectedSalesOrder.id] || []).map((line) => ({
             ...line,
-            id: (line as { id?: string }).id || `li-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+            id: (line as { id?: string }).id || makeLineId(),
         })) as LineItem[];
     });
     const [errors, setErrors] = useState<FormErrors>({});
-    const [activeLineId, setActiveLineId] = useState<string>('');
+    const [activeTab, setActiveTab] = useState<'items' | 'info'>('items');
+    const [itemSearchTerm, setItemSearchTerm] = useState<string>('');
+    const [showItemResults, setShowItemResults] = useState<boolean>(false);
+    const itemSearchRef = useRef<HTMLDivElement>(null);
 
     const customers = useMemo<CustomerRecord[]>(
         () => mergeById(seedCustomers, (customersResult?.data as unknown as CustomerRecord[]) || []),
@@ -223,15 +220,14 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
         if (selectedSalesOrder) {
             const lines = (soItemTemplates[selectedSalesOrder.id] || []).map((line) => ({
                 ...line,
-                id: (line as { id?: string }).id || `li-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+                id: (line as { id?: string }).id || makeLineId(),
             })) as LineItem[];
-            setLineItems(lines.length > 0 ? lines : [newLine()]);
+            setLineItems(lines);
         } else {
-            setLineItems([newLine()]);
+            setLineItems([]);
         }
 
         setErrors({});
-        setActiveLineId('');
     }, [selectedSalesOrder, soItemTemplates]);
 
     useEffect(() => {
@@ -258,13 +254,8 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
         [customers],
     );
 
-    const activeLine = useMemo<LineItem | null>(
-        () => lineItems.find((line) => line.id === activeLineId) || null,
-        [activeLineId, lineItems],
-    );
-
-    const matchingInventoryItems = useMemo<InvItem[]>(() => {
-        const term = normalizedValue(activeLine?.description);
+    const filteredProducts = useMemo<InvItem[]>(() => {
+        const term = normalizedValue(itemSearchTerm);
         if (!term) return [];
 
         return inventoryItems
@@ -276,7 +267,7 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
                     normalizedValue(item.description).includes(term),
             )
             .slice(0, 8);
-    }, [activeLine?.description, inventoryItems]);
+    }, [itemSearchTerm, inventoryItems]);
 
     const totalAmount = useMemo<number>(
         () => lineItems.reduce((sum, line) => sum + calculateLineTotal(line), 0),
@@ -300,68 +291,60 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
         setErrors((prev) => ({ ...prev, [key]: null }));
     };
 
-    const handleLineChange = (lineId: string, key: keyof LineItem, value: string): void => {
+    const handleLineChange = (lineId: string, key: keyof LineItem, value: string | number): void => {
         setLineItems((prev) =>
             prev.map((line) =>
                 line.id === lineId
                     ? {
                           ...line,
-                          [key]: textFields.has(key) ? value : Number(value || 0),
+                          [key]: textFields.has(key) ? String(value) : Number(value || 0),
                       }
                     : line,
             ),
         );
     };
 
-    const applyInventoryItemToLine = (lineId: string, item: InvItem): void => {
-        setLineItems((prev) =>
-            prev.map((line) =>
-                line.id === lineId
-                    ? {
-                          ...line,
-                          productId: item.id || '',
-                          code: item.code || item.sku || '',
-                          description: String(item.name || item.description || line.description || ''),
-                          unit: item.sellUnit || item.unit || line.unit || 'PCS',
-                          price: Number(item.price || 0),
-                      }
-                    : line,
-            ),
-        );
-        setActiveLineId('');
+    const selectProduct = (item: InvItem): void => {
+        setLineItems((prev) => [
+            ...prev,
+            {
+                id: makeLineId(),
+                productId: item.id || '',
+                code: item.code || item.sku || '',
+                description: String(item.name || item.description || ''),
+                qty: 1,
+                unit: item.sellUnit || item.unit || 'PCS',
+                price: Number(item.price || 0),
+                discount: 0,
+            },
+        ]);
+        setItemSearchTerm('');
+        setShowItemResults(false);
+        setErrors((prev) => ({ ...prev, lineItems: null }));
     };
 
-    const handleDescriptionBlur = (lineId: string, descriptionValue: string): void => {
-        window.setTimeout(() => {
-            const exactMatch = inventoryItems.find((item) => {
-                const lookup = normalizedValue(descriptionValue);
-                return (
-                    lookup &&
-                    (normalizedValue(item.name) === lookup ||
-                        normalizedValue(item.code) === lookup ||
-                        normalizedValue(item.sku) === lookup ||
-                        normalizedValue(item.description) === lookup)
-                );
-            });
-
-            if (exactMatch) {
-                applyInventoryItemToLine(lineId, exactMatch);
-                return;
-            }
-
-            setActiveLineId((prev) => (prev === lineId ? '' : prev));
-        }, 120);
-    };
-
-    const handleAddLine = (): void => {
-        setLineItems((prev) => [...prev, newLine()]);
+    const addCustomItem = (): void => {
+        if (!itemSearchTerm.trim()) return;
+        setLineItems((prev) => [
+            ...prev,
+            {
+                id: makeLineId(),
+                productId: '',
+                code: '',
+                description: itemSearchTerm.trim(),
+                qty: 1,
+                unit: 'PCS',
+                price: 0,
+                discount: 0,
+            },
+        ]);
+        setItemSearchTerm('');
+        setShowItemResults(false);
+        setErrors((prev) => ({ ...prev, lineItems: null }));
     };
 
     const handleRemoveLine = (lineId: string): void => {
-        setLineItems((prev) => {
-            const next = prev.filter((line) => line.id !== lineId);
-            return next.length > 0 ? next : [newLine()];
-        });
+        setLineItems((prev) => prev.filter((line) => line.id !== lineId));
     };
 
     const validate = (): FormErrors => {
@@ -387,6 +370,7 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
         const nextErrors = validate();
         if (Object.keys(nextErrors).length > 0) {
             setErrors(nextErrors);
+            if (nextErrors.lineItems) setActiveTab('items');
             return;
         }
 
@@ -430,225 +414,305 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
 
     const isEditMode = mode === 'edit';
 
+    const TabButton = ({ id, label, icon: Icon }: { id: 'items' | 'info'; label: string; icon: React.ComponentType<{ size?: number }> }) => (
+        <button
+            type="button"
+            className={`inline-flex items-center gap-2 py-2.5 px-3.5 border border-transparent border-b-2 bg-transparent font-semibold text-sm cursor-pointer transition-colors ${activeTab === id ? 'text-primary-700 border-b-primary-600' : 'text-neutral-600 border-b-transparent hover:text-neutral-900'}`}
+            onClick={() => setActiveTab(id)}
+        >
+            <span className="flex items-center"><Icon size={14} /></span>
+            {label}
+        </button>
+    );
+
     return (
         <FormPage
-            containerClassName="sales-order-form"
-            title={isEditMode ? `Edit Sales Order${soId ? ` ${soId}` : ''}` : 'New Sales Order'}
+            containerClassName="ar-module sales-order-form"
+            title={isEditMode ? `Edit Sales Order${soId ? ` ${soId}` : ''}` : 'Sales Order'}
             backTo="/ar/sales-orders"
-            backLabel="Back to Sales Orders"
+            backLabel="Back"
             actions={(
                 <>
                     <Button text="Cancel" variant="secondary" onClick={() => navigate('/ar/sales-orders')} />
-                    <Button text={isEditMode ? 'Update Sales Order' : 'Save Sales Order'} variant="primary" type="submit" form="sales-order-form-main" />
+                    <Button
+                        text={isEditMode ? 'Update Sales Order' : 'Save Sales Order'}
+                        variant="primary"
+                        icon={<Save size={16} />}
+                        type="submit"
+                        form="sales-order-form-main"
+                    />
                 </>
             )}
         >
-            <form id="sales-order-form-main" onSubmit={handleSubmit} className="grid grid-cols-12 gap-4">
+            <form id="sales-order-form-main" onSubmit={handleSubmit}>
                 {isEditMode && soId && !selectedSalesOrder ? (
-                    <div className="col-span-12">
-                        <div className="journal-warning-banner">
-                            Sales Order `{soId}` not found. Create a new order instead.
-                        </div>
+                    <div className="journal-warning-banner mt-4">
+                        Sales Order `{soId}` not found. Create a new order instead.
                     </div>
                 ) : null}
 
-                <div className="col-span-12">
-                    <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-5 mt-4 border-t-3 border-t-primary-500">
-                        <div className="grid grid-cols-12 gap-4">
-                            <div className="col-span-6">
-                                <SearchableSelect
-                                    label="Customer"
-                                    options={customerOptions}
-                                    value={formData.customerId}
-                                    onChange={handleCustomerChange}
-                                    placeholder="Select customer..."
-                                />
-                                {errors.customerId ? <div className="w-full -mt-2 mb-2 text-xs text-danger-500">{errors.customerId}</div> : null}
-                            </div>
-                            <div className="col-span-3">
-                                <Input
-                                    label="Order Date"
-                                    type="date"
-                                    value={formData.date}
-                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleChange('date', event.target.value)}
-                                    error={errors.date}
-                                />
-                            </div>
-                            <div className="col-span-3">
-                                <Input
-                                    label="Expected Delivery Date"
-                                    type="date"
-                                    value={formData.expectedDate}
-                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleChange('expectedDate', event.target.value)}
-                                    error={errors.expectedDate}
-                                />
-                            </div>
-                            <div className="col-span-3">
-                                <label className="block mb-2 text-sm font-medium text-neutral-700">Currency</label>
-                                <select
-                                    className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                                    value={formData.currency}
-                                    onChange={(event) => handleChange('currency', event.target.value)}
-                                >
-                                    <option value="IDR">IDR</option>
-                                </select>
-                            </div>
-                            <div className="col-span-3">
-                                <label className="block mb-2 text-sm font-medium text-neutral-700">Status</label>
-                                <select
-                                    className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                                    value={formData.status}
-                                    onChange={(event) => handleChange('status', event.target.value as SOStatus)}
-                                >
-                                    <option value="Draft">Draft</option>
-                                    <option value="Confirmed">Confirmed</option>
-                                    <option value="Delivered">Delivered</option>
-                                    <option value="Invoiced">Invoiced</option>
-                                    <option value="Closed">Closed</option>
-                                </select>
-                            </div>
-                            <div className="col-span-6">
-                                <label className="block mb-2 text-sm font-medium text-neutral-700">Notes</label>
-                                <textarea
-                                    className="block w-full px-3 py-2 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md transition-[border-color,box-shadow] duration-150 min-h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                                    rows={2}
-                                    value={formData.notes}
-                                    onChange={(event) => handleChange('notes', event.target.value)}
-                                />
-                            </div>
-                            <div className="col-span-6">
-                                <label className="block mb-2 text-sm font-medium text-neutral-700">Shipping Address</label>
-                                <textarea
-                                    className="block w-full px-3 py-2 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md transition-[border-color,box-shadow] duration-150 min-h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                                    rows={2}
-                                    value={formData.shippingAddress}
-                                    onChange={(event) => handleChange('shippingAddress', event.target.value)}
-                                />
-                            </div>
-                            <div className="col-span-6">
-                                <label className="block mb-2 text-sm font-medium text-neutral-700">Delivery Notes</label>
-                                <textarea
-                                    className="block w-full px-3 py-2 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md transition-[border-color,box-shadow] duration-150 min-h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                                    rows={2}
-                                    value={formData.deliveryNotes}
-                                    onChange={(event) => handleChange('deliveryNotes', event.target.value)}
-                                />
-                            </div>
+                {/* Header Section: compact single row */}
+                <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-4 border-t-3 border-t-primary-500 mb-4">
+                    <div className="grid grid-cols-12 gap-3">
+                        {/* Customer */}
+                        <div className="col-span-4">
+                            <SearchableSelect
+                                label="Customer *"
+                                options={customerOptions}
+                                value={formData.customerId}
+                                onChange={handleCustomerChange}
+                                placeholder="Search & Select Customer..."
+                            />
+                            {errors.customerId ? <div className="w-full -mt-2 mb-2 text-xs text-danger-500">{errors.customerId}</div> : null}
+                        </div>
+                        {/* Order Date */}
+                        <div className="col-span-2">
+                            <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Order Date *</label>
+                            <Input
+                                type="date"
+                                value={formData.date}
+                                onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleChange('date', event.target.value)}
+                                error={errors.date}
+                            />
+                        </div>
+                        {/* Expected Delivery */}
+                        <div className="col-span-2">
+                            <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Expected Delivery *</label>
+                            <Input
+                                type="date"
+                                value={formData.expectedDate}
+                                onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleChange('expectedDate', event.target.value)}
+                                error={errors.expectedDate}
+                            />
+                        </div>
+                        {/* Status */}
+                        <div className="col-span-2">
+                            <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Status</label>
+                            <select
+                                className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                                value={formData.status}
+                                onChange={(event) => handleChange('status', event.target.value as SOStatus)}
+                            >
+                                <option value="Draft">Draft</option>
+                                <option value="Confirmed">Confirmed</option>
+                                <option value="Delivered">Delivered</option>
+                                <option value="Invoiced">Invoiced</option>
+                                <option value="Closed">Closed</option>
+                            </select>
+                        </div>
+                        {/* Currency */}
+                        <div className="col-span-2">
+                            <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Currency</label>
+                            <select
+                                className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                                value={formData.currency}
+                                onChange={(event) => handleChange('currency', event.target.value)}
+                            >
+                                <option value="IDR">IDR</option>
+                            </select>
                         </div>
                     </div>
                 </div>
 
-                <div className="col-span-12">
-                    <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden">
-                        <div className="px-4 py-3 border-b border-neutral-200 flex items-center justify-between">
-                            <h3 className="text-base font-semibold text-neutral-800">Line Items</h3>
-                            <Button text="Add Line" size="small" variant="secondary" onClick={handleAddLine} />
-                        </div>
+                {/* TABS Navigation */}
+                <div className="flex gap-2 border-b border-neutral-200 bg-neutral-0 px-2">
+                    <TabButton id="items" label="Item Details" icon={Package} />
+                    <TabButton id="info" label="Logistics & Notes" icon={Info} />
+                </div>
 
-                        <div className="overflow-auto">
+                {/* TAB CONTENT: ITEMS */}
+                {activeTab === 'items' && (
+                    <>
+                        <div className="bg-neutral-0 border border-neutral-200 rounded-lg mt-4 mb-4">
+
+                            {/* QUICK ADD SEARCH BAR */}
+                            <div className="py-3 px-4 bg-neutral-50 border-b border-neutral-200 relative rounded-t-lg">
+                                <div className="relative flex items-center" ref={itemSearchRef}>
+                                    <Search size={18} className="absolute left-3 text-neutral-400" />
+                                    <input
+                                        className="w-full h-10 pl-10 pr-3 rounded-lg border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
+                                        placeholder="Type to search items or add custom line..."
+                                        value={itemSearchTerm}
+                                        onChange={(event) => {
+                                            setItemSearchTerm(event.target.value);
+                                            setShowItemResults(true);
+                                        }}
+                                        onFocus={() => setShowItemResults(true)}
+                                    />
+
+                                    {/* Autocomplete Dropdown */}
+                                    {showItemResults && itemSearchTerm && (
+                                        <div className="absolute top-full left-0 right-0 bg-neutral-0 border border-neutral-200 rounded-lg shadow-md mt-1 max-h-[300px] overflow-y-auto z-50">
+                                            {filteredProducts.length > 0 ? (
+                                                filteredProducts.map((p) => (
+                                                    <div
+                                                        key={p.id}
+                                                        onClick={() => selectProduct(p)}
+                                                        className="p-3 flex justify-between items-center cursor-pointer border-b border-neutral-100 hover:bg-neutral-50 last:border-0"
+                                                    >
+                                                        <div>
+                                                            <div className="font-semibold text-[0.95rem]">{p.name}</div>
+                                                            <div className="text-xs text-neutral-500">{p.code || p.sku} • Stock: {(p.currentStock ?? p.stock ?? 0).toLocaleString()}</div>
+                                                        </div>
+                                                        <div className="font-bold text-success-600">
+                                                            {formatIDR(p.price ?? 0)}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div
+                                                    onClick={addCustomItem}
+                                                    className="p-3 cursor-pointer text-primary-600 text-center hover:bg-primary-50"
+                                                >
+                                                    <b>+ Add &quot;{itemSearchTerm}&quot;</b> as a new line item
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
                             <table className="w-full border-collapse text-sm">
                                 <thead>
                                     <tr>
-                                        <th className="text-left p-2 border-b border-neutral-200 bg-neutral-50">Description</th>
-                                        <th className="text-right p-2 border-b border-neutral-200 bg-neutral-50 w-24">Qty</th>
-                                        <th className="text-left p-2 border-b border-neutral-200 bg-neutral-50 w-24">Unit</th>
-                                        <th className="text-right p-2 border-b border-neutral-200 bg-neutral-50 w-40">Price</th>
-                                        <th className="text-right p-2 border-b border-neutral-200 bg-neutral-50 w-24">Disc %</th>
-                                        <th className="text-right p-2 border-b border-neutral-200 bg-neutral-50 w-40">Line Total</th>
-                                        <th className="text-right p-2 border-b border-neutral-200 bg-neutral-50 w-24"></th>
+                                        <th className="p-2 border-b border-neutral-200 font-semibold text-neutral-600 text-left w-[36%]">Item Info</th>
+                                        <th className="p-2 border-b border-neutral-200 font-semibold text-neutral-600 text-center w-[12%]">Qty</th>
+                                        <th className="p-2 border-b border-neutral-200 font-semibold text-neutral-600 text-center w-[12%]">Unit</th>
+                                        <th className="p-2 border-b border-neutral-200 font-semibold text-neutral-600 text-right w-[14%]">Price</th>
+                                        <th className="p-2 border-b border-neutral-200 font-semibold text-neutral-600 text-right w-[10%]">Disc %</th>
+                                        <th className="p-2 border-b border-neutral-200 font-semibold text-neutral-600 text-right w-[12%]">Line Total</th>
+                                        <th className="p-2 border-b border-neutral-200 w-[4%]"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {lineItems.map((line) => (
-                                        <tr key={line.id}>
-                                            <td className="p-2 border-b border-neutral-200 relative">
+                                    {lineItems.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7} className="text-center p-8 border-b border-neutral-100">
+                                                <div className="text-neutral-500 font-medium mb-1">No items added</div>
+                                                <div className="text-neutral-400 text-xs">Use the search bar above to add products</div>
+                                            </td>
+                                        </tr>
+                                    ) : lineItems.map((line) => (
+                                        <tr key={line.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
+                                            <td className="p-2 align-top">
+                                                {line.code ? <div className="text-xs font-semibold text-neutral-600 mb-1">{line.code}</div> : null}
                                                 <input
-                                                    type="text"
-                                                    className="block w-full px-2 py-1 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
                                                     value={line.description}
-                                                    placeholder="Type item name or code"
-                                                    onChange={(event) => {
-                                                        handleLineChange(line.id, 'description', event.target.value);
-                                                        setActiveLineId(line.id);
-                                                    }}
-                                                    onFocus={() => setActiveLineId(line.id)}
-                                                    onBlur={(event) => handleDescriptionBlur(line.id, event.target.value)}
+                                                    onChange={(event) => handleLineChange(line.id, 'description', event.target.value)}
+                                                    className="w-full text-sm border-0 bg-transparent p-0 m-0 focus:ring-0 text-neutral-900 placeholder-neutral-400"
+                                                    placeholder="Description"
                                                 />
-                                                {activeLineId === line.id && line.description.trim() && matchingInventoryItems.length > 0 ? (
-                                                    <div className="absolute left-2 right-2 top-full mt-1 bg-neutral-0 border border-neutral-200 rounded-md shadow-lg z-20 max-h-56 overflow-y-auto">
-                                                        {matchingInventoryItems.map((item) => (
-                                                            <button
-                                                                key={item.id}
-                                                                type="button"
-                                                                className="w-full px-3 py-2 text-left border-0 border-b border-neutral-100 bg-neutral-0 hover:bg-neutral-50 last:border-b-0"
-                                                                onMouseDown={(event) => {
-                                                                    event.preventDefault();
-                                                                    applyInventoryItemToLine(line.id, item);
-                                                                }}
-                                                            >
-                                                                <div className="font-medium text-neutral-900">{item.name || item.description || item.code}</div>
-                                                                <div className="text-xs text-neutral-500">
-                                                                    {[item.code || item.sku, item.unit].filter(Boolean).join(' • ')}
-                                                                </div>
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                ) : null}
                                             </td>
-                                            <td className="p-2 border-b border-neutral-200 text-right">
-                                                <input
+                                            <td className="p-2 align-top">
+                                                <Input
                                                     type="number"
-                                                    className="block w-full px-2 py-1 text-sm leading-normal text-right text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
                                                     value={line.qty}
-                                                    min="0"
-                                                    onChange={(event) => handleLineChange(line.id, 'qty', event.target.value)}
+                                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleLineChange(line.id, 'qty', Number(event.target.value))}
+                                                    inputClassName="text-sm h-8 text-center"
                                                 />
                                             </td>
-                                            <td className="p-2 border-b border-neutral-200">
-                                                <input
+                                            <td className="p-2 align-top">
+                                                <Input
                                                     type="text"
-                                                    className="block w-full px-2 py-1 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
                                                     value={line.unit}
-                                                    onChange={(event) => handleLineChange(line.id, 'unit', event.target.value)}
+                                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleLineChange(line.id, 'unit', event.target.value)}
+                                                    inputClassName="text-sm h-8 text-center"
                                                 />
                                             </td>
-                                            <td className="p-2 border-b border-neutral-200 text-right">
-                                                <input
+                                            <td className="p-2 align-top">
+                                                <Input
                                                     type="number"
-                                                    className="block w-full px-2 py-1 text-sm leading-normal text-right text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
                                                     value={line.price}
-                                                    min="0"
-                                                    onChange={(event) => handleLineChange(line.id, 'price', event.target.value)}
+                                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleLineChange(line.id, 'price', Number(event.target.value))}
+                                                    inputClassName="text-sm h-8 text-right"
                                                 />
                                             </td>
-                                            <td className="p-2 border-b border-neutral-200 text-right">
-                                                <input
+                                            <td className="p-2 align-top">
+                                                <Input
                                                     type="number"
-                                                    className="block w-full px-2 py-1 text-sm leading-normal text-right text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
                                                     value={line.discount}
-                                                    min="0"
-                                                    max="100"
-                                                    onChange={(event) => handleLineChange(line.id, 'discount', event.target.value)}
+                                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => handleLineChange(line.id, 'discount', Number(event.target.value))}
+                                                    inputClassName="text-sm h-8 text-right"
                                                 />
                                             </td>
-                                            <td className="p-2 border-b border-neutral-200 text-right font-semibold">{formatIDR(calculateLineTotal(line))}</td>
-                                            <td className="p-2 border-b border-neutral-200 text-right">
-                                                <Button text="Del" size="small" variant="tertiary" onClick={() => handleRemoveLine(line.id)} />
+                                            <td className="p-2 align-top text-right font-bold text-neutral-800 pt-3.5">
+                                                {formatIDR(calculateLineTotal(line))}
+                                            </td>
+                                            <td className="p-2 align-top text-center pt-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveLine(line.id)}
+                                                    className="text-neutral-400 hover:text-danger-500 bg-transparent border-0 cursor-pointer"
+                                                    title="Remove Item"
+                                                >
+                                                    <X size={18} />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
+
+                            {errors.lineItems ? <div className="px-4 py-2 text-xs text-danger-500">{errors.lineItems}</div> : null}
                         </div>
 
-                        {errors.lineItems ? <div className="px-4 py-2 text-xs text-danger-500">{errors.lineItems}</div> : null}
+                        {/* Footer Section: Totals Aligned to Right */}
+                        <div className="flex justify-end mt-4">
+                            <div className="w-[320px]">
+                                <div className="bg-neutral-0 border border-neutral-200 rounded-lg shadow-sm flex flex-col h-full p-4">
+                                    <div className="flex justify-between items-center mb-2 text-sm text-neutral-600">
+                                        <span>Subtotal</span>
+                                        <span>{formatIDR(totalAmount)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center mt-3 pt-3 border-t border-neutral-200">
+                                        <span className="font-bold text-neutral-900 text-lg">Total</span>
+                                        <span className="font-bold text-primary-700 text-xl">{formatIDR(totalAmount)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
 
-                        <div className="px-4 py-3 border-t border-neutral-200 flex justify-end items-center gap-3">
-                            <span className="text-neutral-700">Total</span>
-                            <strong className="text-lg text-primary-700">{formatIDR(totalAmount)}</strong>
+                {/* TAB CONTENT: LOGISTICS & NOTES */}
+                {activeTab === 'info' && (
+                    <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-5 mt-4 mb-4">
+                        <div className="grid grid-cols-12 gap-5 mb-5">
+                            <div className="col-span-6">
+                                <label className="block mb-2 text-sm font-semibold text-neutral-700">Shipping Address</label>
+                                <textarea
+                                    className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
+                                    rows={4}
+                                    value={formData.shippingAddress}
+                                    onChange={(event) => handleChange('shippingAddress', event.target.value)}
+                                />
+                            </div>
+                            <div className="col-span-6">
+                                <label className="block mb-2 text-sm font-semibold text-neutral-700">Delivery Notes</label>
+                                <textarea
+                                    className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
+                                    rows={4}
+                                    value={formData.deliveryNotes}
+                                    onChange={(event) => handleChange('deliveryNotes', event.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="h-[1px] bg-neutral-200 my-6"></div>
+
+                        <div className="grid grid-cols-12 gap-4">
+                            <div className="col-span-12">
+                                <label className="form-label">Internal Notes</label>
+                                <textarea
+                                    className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] resize-y"
+                                    rows={2}
+                                    value={formData.notes}
+                                    onChange={(event) => handleChange('notes', event.target.value)}
+                                />
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
             </form>
         </FormPage>
     );

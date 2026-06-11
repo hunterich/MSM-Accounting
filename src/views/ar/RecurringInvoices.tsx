@@ -366,7 +366,7 @@ const RecurringInvoices: React.FC = () => {
     // ── Render ────────────────────────────────────────────────────────────────
 
     return (
-        <div className="container ar-module container-full-width">
+        <div>
             {/* Toast notifications */}
             <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
                 {toasts.map((t) => (
@@ -381,42 +381,34 @@ const RecurringInvoices: React.FC = () => {
                 ))}
             </div>
 
-            {/* Page header */}
-            <div className="flex items-center justify-between mb-4">
-                <div>
-                    <h1 className="text-xl font-semibold text-neutral-900">Recurring Invoices</h1>
-                    <p className="text-sm text-neutral-500 mt-0.5">
-                        Manage invoice templates that generate automatically on a schedule.
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        className="btn btn-secondary flex items-center gap-1"
-                        title="Export CSV"
-                        onClick={() => {
-                            const rows = recurringInvoices.map((ri) => ({
-                                title: ri.title,
-                                frequency: FREQUENCY_OPTIONS.find((o) => o.value === ri.frequency)?.label ?? ri.frequency,
-                                status: ri.status,
-                                nextRunDate: ri.nextRunDate,
-                            }));
-                            exportToCsv('recurring-invoices.csv', rows, [
-                                { label: 'Title', key: 'title' },
-                                { label: 'Frequency', key: 'frequency' },
-                                { label: 'Status', key: 'status' },
-                                { label: 'Next Run Date', key: 'nextRunDate' },
-                            ]);
-                        }}
-                    >
-                        <Download size={16} />
-                        <span className="hidden sm:inline">Export</span>
-                    </button>
-                    <Button
-                        text="New Recurring Invoice"
-                        icon={<Plus size={16} />}
-                        onClick={openCreate}
-                    />
-                </div>
+            {/* Toolbar */}
+            <div className="flex items-center justify-end gap-2 mb-4">
+                <Button
+                    text="Export CSV"
+                    size="small"
+                    variant="secondary"
+                    icon={<Download size={16} />}
+                    onClick={() => {
+                        const rows = recurringInvoices.map((ri) => ({
+                            title: ri.title,
+                            frequency: FREQUENCY_OPTIONS.find((o) => o.value === ri.frequency)?.label ?? ri.frequency,
+                            status: ri.status,
+                            nextRunDate: ri.nextRunDate,
+                        }));
+                        exportToCsv('recurring-invoices.csv', rows, [
+                            { label: 'Title', key: 'title' },
+                            { label: 'Frequency', key: 'frequency' },
+                            { label: 'Status', key: 'status' },
+                            { label: 'Next Run Date', key: 'nextRunDate' },
+                        ]);
+                    }}
+                />
+                <Button
+                    text="New Recurring Invoice"
+                    size="small"
+                    icon={<Plus size={16} />}
+                    onClick={openCreate}
+                />
             </div>
 
             {/* List table */}

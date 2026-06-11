@@ -79,8 +79,8 @@
   - Stock Adjustment: writes `InventoryLedgerEntry` rows *plus* `DR Inventory / CR Variance` (or reverse) — perpetual ledger was unwritten before
   - Shared helper `lib/journal-posting.ts:postJournalEntry` enforces debits = credits on every post
   - Trial-balance smoke verified: `SUM(debit) − SUM(credit) = 0` across POSTED entries
-- [ ] Sales Returns / Purchase Returns GL posting (`/api/v1/sales-returns`, `/api/v1/purchase-returns` — different schemas from credit/debit notes; still unposted)
-- [ ] Tax-amount split on Credit / Debit Notes (schema currently stores flat `amount` only — needs migration to add `taxAmount` for proper Output/Input Tax reversal)
+- [x] Sales Returns / Purchase Returns GL posting — `lib/sales-return-posting.ts` / `lib/purchase-return-posting.ts` post inventory legs on approval; wired into both routes
+- [x] Tax-amount split on Credit / Debit Notes — `taxAmount` column added; posting splits DR/CR across arTax (Output Tax) / apTax (Input Tax) on apply; forms send the computed PPN portion
 - [ ] Account Defaults expansion (Accurate-style): split the flat list into 4 sub-tabs (Barang & Jasa / Perusahaan / Penjualan-Pembelian / Persediaan); add `inventoryAdjustment`, `stockVariance`, `roundingAccount`, `salesDiscount`, `purchaseDiscount`, `openingBalanceEquity`, `retainedEarnings`, `incomeTaxExpense` (today the new postings fall back to `cogsExpense` for unmatched cases)
 - [x] COGS auto-calculation on invoice line items — `calculateAndPostCOGS()` called per inventory line on DRAFT→SENT transition (CPA timing fix)
 - [x] Stock valuation report — `/api/v1/inventory/valuation` route + `StockValuation.tsx` view with category/warehouse filters and Excel export
@@ -99,7 +99,7 @@
   - [x] Opening AR Invoices import — import old unpaid invoices with original dates, matched by customerName, created as POSTED
   - [x] Opening AP Bills import — import old unpaid bills with original dates, matched by vendorName, created as APPROVED
 - [x] CSV export for all list views — `exportToCsv` utility added to 18+ list pages (Customers, Vendors, Payments, POs, COA, Journal Entries, Inventory, Employees, etc.)
-- [~] Bulk invoice import from marketplace exports — Shopee 6-step wizard complete (`ImportInvoicesModal.jsx` + `shopeeImport.js` + `useIntegrationStore.js`); Tokopedia / TikTok Shop / Lazada not started
+- [~] Bulk invoice import from marketplace exports — Shopee + TikTok Shop done via the shared 6-step wizard (`ImportInvoicesModal.tsx` + multi-platform parser in `shopeeImport.ts`); Tokopedia / Lazada not started
 - [x] PDF bill import — upload supplier invoice PDF → extract text → auto-match vendor + items → review → create bill (`lib/bill-imports.ts` + `/api/v1/bill-imports/` routes)
 - [~] Faktur (purchase invoice) image import — OCR-based extraction from scanned faktur images to Accurate-style purchase invoice import format
   - [ ] Image upload endpoint (JPEG/PNG/TIFF) with size validation
@@ -259,7 +259,7 @@
 
 ### 3.5 E-Commerce Auto-Posting
 - [~] Shop connections + per-shop settings in `useIntegrationStore.js`; Integrations.jsx manages shop list
-- [~] Auto-import orders: Shopee done (6-step import wizard, Excel parse, item mapping, upsert); Tokopedia / TikTok / Lazada not started
+- [~] Auto-import orders: Shopee + TikTok Shop done (shared 6-step wizard, Excel parse, item mapping, upsert by Order ID); Tokopedia / Lazada not started
 - [ ] Auto-create invoices from marketplace orders
 - [ ] Marketplace fee auto-posting (commission, shipping subsidy, voucher)
 - [ ] Platform wallet balance tracking

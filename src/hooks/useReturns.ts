@@ -142,6 +142,7 @@ function normalizeCreditNote(raw: RawCreditNote): CreditNote {
     settlementAccountId: raw.settlementAccountId || '',
     applyTax:            raw.applyTax ?? true,
     amount:              Number(raw.amount ?? 0),
+    taxAmount:           Number(raw.taxAmount ?? 0),
     note:                raw.note || '',
     status:              CN_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as CreditNoteStatus) ?? 'Draft',
   };
@@ -169,6 +170,7 @@ function normalizeDebitNote(raw: RawDebitNote): DebitNote {
     settlementAccountId: raw.settlementAccountId || '',
     applyTax:            raw.applyTax ?? true,
     amount:              Number(raw.amount ?? 0),
+    taxAmount:           Number(raw.taxAmount ?? 0),
     note:                raw.note || '',
     status:              DN_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as DebitNoteStatus) ?? 'Draft',
   };

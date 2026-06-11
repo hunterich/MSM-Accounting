@@ -47,8 +47,12 @@ interface SubFormState {
   startDate: string;
 }
 
-const SubscriptionsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'subscriptions' | 'plans'>('subscriptions');
+interface SubscriptionsPageProps {
+  /** Which section to render — controlled by the Recurring Billing page tabs. */
+  tab?: 'subscriptions' | 'plans';
+}
+
+const SubscriptionsPage: React.FC<SubscriptionsPageProps> = ({ tab: activeTab = 'subscriptions' }) => {
 
   // ── Plans ──────────────────────────────────────────────────────────────────
   const { data: plansData, isLoading: plansLoading } = useSubscriptionPlans();
@@ -231,31 +235,7 @@ const SubscriptionsPage: React.FC = () => {
   ];
 
   return (
-    <div className="container max-w-[1200px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold text-neutral-900">Subscriptions</h1>
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex gap-1 mb-4 border-b border-neutral-200">
-        <button
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
-            activeTab === 'subscriptions' ? 'border-primary-500 text-primary-600' : 'border-transparent text-neutral-500 hover:text-neutral-700'
-          }`}
-          onClick={() => setActiveTab('subscriptions')}
-        >
-          Subscriptions
-        </button>
-        <button
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
-            activeTab === 'plans' ? 'border-primary-500 text-primary-600' : 'border-transparent text-neutral-500 hover:text-neutral-700'
-          }`}
-          onClick={() => setActiveTab('plans')}
-        >
-          Plans
-        </button>
-      </div>
-
+    <div>
       {activeTab === 'subscriptions' && (
         <>
           <div className="flex items-center justify-between mb-4">
