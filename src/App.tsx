@@ -25,9 +25,8 @@ const PaymentForm = lazy(() => import('./views/ar/PaymentForm'))
 const CreditNotes = lazy(() => import('./views/ar/CreditNotes'))
 const CreditNoteForm = lazy(() => import('./views/ar/CreditNoteForm'))
 const SalesReturnForm = lazy(() => import('./views/ar/SalesReturnForm'))
-const RecurringInvoices = lazy(() => import('./views/ar/RecurringInvoices'))
+const RecurringBilling = lazy(() => import('./views/ar/RecurringBilling'))
 const ApprovalInbox = lazy(() => import('./views/ar/ApprovalInbox'))
-const SubscriptionsPage = lazy(() => import('./views/ar/Subscriptions'))
 const SOForm = lazy(() => import('./components/ar/salesorders/SOForm'))
 
 const Bills = lazy(() => import('./views/ap/Bills'))
@@ -129,9 +128,9 @@ function App(): JSX.Element {
                     <Route path="ar/credits/new" element={withPermission(<CreditNoteForm />, 'ar_credits', 'create')} />
                     <Route path="ar/credits/edit" element={withPermission(<CreditNoteForm />, 'ar_credits', 'edit')} />
                     <Route path="ar/returns/new" element={withPermission(<SalesReturnForm />, 'ar_credits', 'create')} />
-                    <Route path="ar/recurring" element={withPermission(<RecurringInvoices />, 'ar_invoices')} />
+                    <Route path="ar/recurring" element={withPermission(<RecurringBilling />, 'ar_invoices')} />
                     <Route path="ar/approvals" element={withPermission(<ApprovalInbox />, 'ar_invoices')} />
-                    <Route path="ar/subscriptions" element={withPermission(<SubscriptionsPage />, 'ar_invoices')} />
+                    <Route path="ar/subscriptions" element={<Navigate to="/ar/recurring?tab=subscriptions" replace />} />
 
                     {/* Accounts Payable */}
                     <Route path="ap" element={<Navigate to="/ap/bills" replace />} />
