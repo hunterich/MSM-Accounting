@@ -55,10 +55,11 @@ function normalizeTxn(raw: RawBankTransaction): BankTransaction {
     type,
     accountId:   raw.bankAccountId || raw.accountId || '',
     reference:   raw.reference || '',
-    status:      raw.status || 'Unmatched',
+    // API enum MATCHED/UNMATCHED → UI title case
+    status:      raw.status === 'MATCHED' ? 'Matched' : 'Unmatched',
     notes:       raw.notes || '',
     costCenter:  raw.costCenter || '',
-    taxType:     raw.taxType || 'none',
+    taxType:     (raw.taxType || 'none').toLowerCase(),
     taxRate:     Number(raw.taxRate ?? 0),
     bankAccount: raw.bankAccount || null,
     toAccountId:      raw.toAccountId || '',
@@ -145,9 +146,9 @@ function buildTxnPayload(action: TxnType, formData: BankTxnFormData) {
     reference:   formData.reference,
     notes:       formData.notes,
     costCenter:  formData.costCenter,
-    taxType:     formData.taxType,
+    taxType:     (formData.taxType || 'none').toUpperCase(),
     taxRate:     formData.taxType !== 'none' ? Number(formData.taxRate) : 0,
-    status:      'Unmatched',
+    // status omitted — API schema only accepts MATCHED/UNMATCHED and defaults to UNMATCHED
     ...(action === 'transfer' ? { toAccountId:      formData.toAccountId }      : {}),
     ...(action === 'expense'  ? { payee:             formData.payee,
                                   expenseAccountId:  formData.expenseAccountId } : {}),
@@ -200,6 +201,8 @@ export interface BankStatementLine {
   amount: number;
   status: 'Matched' | 'Unmatched';
   matchedTxnId?: string;
+  // Allow shared `Table` component to accept this row type.
+  [key: string]: unknown;
 }
 
 export interface BankStatement {
@@ -207,25 +210,79 @@ export interface BankStatement {
   bankAccountId: string;
   fileName?: string;
   importedAt?: string;
-  lines: BankStatementLine[];
+  totalLines?: number;
+  matchedCount?: number;
+}
+
+interface RawStatementSummary {
+  id: string;
+  bankAccountId: string;
+  filename?: string;
+  importedAt?: string;
+  totalLines?: number;
+  matchedCount?: number;
+}
+
+interface RawStatementLine {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  matchStatus: 'MATCHED' | 'UNMATCHED';
+  matchedTxId?: string | null;
+}
+
+function normalizeStatement(raw: RawStatementSummary): BankStatement {
+  return {
+    id:           raw.id,
+    bankAccountId: raw.bankAccountId,
+    fileName:     raw.filename || '',
+    importedAt:   raw.importedAt || '',
+    totalLines:   raw.totalLines ?? 0,
+    matchedCount: raw.matchedCount ?? 0,
+  };
+}
+
+function normalizeStatementLine(raw: RawStatementLine): BankStatementLine {
+  return {
+    id:          raw.id,
+    // Keep the full ISO timestamp — lines are stored as local-midnight dates,
+    // so slicing the UTC date string would shift them back a day
+    date:        raw.date ? String(raw.date) : '',
+    description: raw.description || '',
+    amount:      Number(raw.amount ?? 0),
+    status:      raw.matchStatus === 'MATCHED' ? 'Matched' : 'Unmatched',
+    matchedTxnId: raw.matchedTxId || undefined,
+  };
 }
 
 export function useBankStatements(bankAccountId?: string) {
   return useQuery({
     queryKey: BANK_KEYS.statements(bankAccountId),
-    queryFn:  () => api.get<{ data?: BankStatement[] } | BankStatement[]>(
+    queryFn:  () => api.get<{ data?: RawStatementSummary[] }>(
       '/api/v1/bank-statements',
       bankAccountId ? { bankAccountId } : undefined
     ),
-    select: (res) => (Array.isArray(res) ? res : (res.data ?? [])),
+    select: (res) => (res.data ?? []).map(normalizeStatement),
     staleTime: 30_000,
+  });
+}
+
+export function useBankStatementLines(statementId?: string) {
+  return useQuery({
+    queryKey: ['bankStatements', 'lines', statementId ?? ''],
+    queryFn:  () => api.get<RawStatementSummary & { lines: RawStatementLine[] }>(
+      '/api/v1/bank-statements', { statementId }
+    ),
+    select: (res) => (res.lines ?? []).map(normalizeStatementLine),
+    enabled: !!statementId,
   });
 }
 
 export function useImportBankStatement() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (formData: FormData) => api.postForm<BankStatement>('/api/v1/bank-statements', formData),
+    mutationFn: (formData: FormData) => api.postForm<RawStatementSummary>('/api/v1/bank-statements', formData),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['bankStatements'] }),
   });
 }
@@ -245,7 +302,7 @@ export function useManualMatch() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ statementLineId, txnId }: { statementLineId: string; txnId: string }) =>
-      api.post('/api/v1/bank-statements/manual-match', { statementLineId, txnId }),
+      api.put(`/api/v1/bank-statements/${statementLineId}`, { action: 'match', matchedTxId: txnId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bankStatements'] });
       qc.invalidateQueries({ queryKey: ['bankTransactions'] });

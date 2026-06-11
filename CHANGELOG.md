@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### 🎨 Changed (UI consistency)
+- **Banking rebuilt on the standard workbench anatomy** — full-width `PageHeader` (single Export CSV action), `DocumentTabBar` with a **New Transaction ▾** dropdown (Transfer / Expense / Income), and an in-page dense detail view (Summary / Audit tabs) matching Payments/Invoices; account cards remain as account filters with a dashed "+ Add Account" ghost card; standalone filter card gains a date-range filter and the table a record count
+- **Bank statement import & line matching moved to the Reconciliation page** — rendered with the shared `Table`; manual matching is now a `SearchableSelect` over unmatched transactions (same-amount suggestions first) instead of a free-text transaction-ID input
+- **`DocumentTabBar`** supports an optional `newTabMenu` prop (dropdown on the "New" button)
+
+### 🚑 Fixed
+- **Bank statement matching was silently broken** — UI compared statuses against `Matched`/`Unmatched` while the API returns enum `MATCHED`/`UNMATCHED`, so Match buttons and the unmatched banner never appeared; statuses now normalized in `useBanking`
+- **Creating bank transactions failed validation** — the form sent lowercase `status`/`taxType` values rejected by the API's zod enums
+- **Manual match called a nonexistent endpoint** — now uses the real `PUT /bank-statements/:lineId`; `GET /bank-statements` no longer requires `bankAccountId` and gains a `?statementId=` mode that returns a statement with its lines (the UI previously expected lines the API never returned)
+- **Statement line dates shifted back a day** across timezones — full ISO timestamps now preserved
+- **Banking RBAC** — viewing a transaction no longer requires create permission
+
+---
+
 ## [1.1.0] — 2026-06-11
 
 ### 🚑 Fixed
