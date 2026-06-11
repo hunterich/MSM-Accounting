@@ -8,7 +8,7 @@ import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import BillPrintTemplate from '../../components/print/BillPrintTemplate';
 import { Plus, Search, List, Download, FileUp } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
-import { useBills } from '../../hooks/useAP';
+import { useBills, useUpdateBill } from '../../hooks/useAP';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
@@ -27,7 +27,13 @@ const Bills = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('ap_bills');
     const { data: billsResult, isLoading } = useBills();
+    const updateBill = useUpdateBill();
     const bills = billsResult?.data ?? [];
+
+    const handleApprove = (billId: string) => {
+        // Draft → Unpaid (OPEN): the bill enters AP aging and becomes payable.
+        updateBill.mutate({ id: billId, status: 'Unpaid' });
+    };
     // billItemTemplates stays in the local store (used for print until API supports line fetch)
     const billItemTemplates = useBillStore((s) => s.billItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
@@ -98,8 +104,17 @@ const Bills = () => {
         { key: 'amount', label: 'Amount', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Paid' ? 'Success' : (val as string)} label={val as string} /> },
         {
-            key: 'actions', label: '', render: (_: unknown, row: { id: string }) => (
+            key: 'actions', label: '', render: (_: unknown, row: { id: string; _id?: string; status?: string }) => (
                 <div className="flex gap-1.5 justify-end">
+                    {row.status === 'Draft' && (
+                        <Button
+                            text="Approve"
+                            size="small"
+                            variant="primary"
+                            disabled={!canEdit || updateBill.isPending}
+                            onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleApprove(row._id || row.id); }}
+                        />
+                    )}
                     <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/bills/new?billId=${row.id}&mode=view`); }} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/bills/edit?billId=${row.id}&mode=edit`); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); queuePrintBill(row.id); }} />
