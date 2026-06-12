@@ -67,6 +67,8 @@ const baseHeader: Omit<BillInput, 'lines'> = {
   issueDate: '2026-05-08',
   status: 'DRAFT',
   taxRate: 0,
+  taxable: false,
+  taxInclusive: false,
   subtotal: 0,
   taxAmount: 0,
   totalAmount: 0,

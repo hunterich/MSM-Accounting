@@ -160,7 +160,9 @@ const POForm = () => {
     const [taxSettings, setTaxSettings] = useState({
         enabled: globalTaxSettings.enabled,
         inclusive: globalTaxSettings.inclusiveByDefault,
-        rate: globalTaxSettings.defaultRate
+        rate: globalTaxSettings.defaultRate,
+        taxable: globalTaxSettings.enabled,
+        taxInclusive: globalTaxSettings.inclusiveByDefault,
     });
 
     useEffect(() => {
@@ -239,6 +241,8 @@ const POForm = () => {
             // Edits preserve current status; creates are Approved unless parked as Draft.
             status: mode === 'edit' ? selectedPO?.status : (saveAsDraft ? ('Draft' as const) : ('Approved' as const)),
             taxRate: taxSettings.enabled ? taxSettings.rate : 0,
+            taxable: taxSettings.taxable,
+            taxInclusive: taxSettings.taxInclusive,
             subtotal,
             taxAmount,
             totalAmount,
@@ -489,6 +493,20 @@ const POForm = () => {
                                         className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
                                     />
                                     Include default global Tax ({taxSettings.rate}%)
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
+                                    <input type="checkbox" checked={taxSettings.taxable}
+                                        onChange={(e) => setTaxSettings(p => ({ ...p, taxable: e.target.checked }))}
+                                        disabled={isViewMode}
+                                        className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500" />
+                                    Kena Pajak (taxable)
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
+                                    <input type="checkbox" checked={taxSettings.taxInclusive}
+                                        onChange={(e) => setTaxSettings(p => ({ ...p, taxInclusive: e.target.checked }))}
+                                        disabled={isViewMode}
+                                        className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500" />
+                                    Total termasuk Pajak (tax inclusive)
                                 </label>
                             </div>
                             <div className="flex justify-between items-center mb-2.5">

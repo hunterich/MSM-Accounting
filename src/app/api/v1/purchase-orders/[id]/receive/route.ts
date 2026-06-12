@@ -2,9 +2,15 @@
 // Body: { lines: [{ purchaseOrderLineId, qtyReceived }], notes? }
 // Creates a draft Bill pre-filled with the received lines. Returns { billId }.
 import { NextRequest } from 'next/server';
+import { InventoryDocumentType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, requireOrg, nextNumber, withHandler } from '@/lib/api-utils';
+import { asMoney, toNumber } from '@/lib/money';
+import { addCostLayer } from '@/lib/inventory-costing';
+import { postJournalEntry } from '@/lib/journal-posting';
+import { ensureGrIrAccount } from '@/lib/grir';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 
 export const runtime = 'nodejs';
 
@@ -36,6 +42,8 @@ export const POST = withHandler(async function POST(
   if (!['APPROVED', 'PARTIAL_RECEIVED'].includes(po.status)) {
     return err('PO must be APPROVED or PARTIAL_RECEIVED to receive goods', 422);
   }
+
+  const rate = po.taxable ? Number(po.taxRate) / 100 : 0;
 
   const billNumber = await nextNumber(prisma, 'Bill', 'number', 'BILL');
 
@@ -76,10 +84,19 @@ export const POST = withHandler(async function POST(
         issueDate: new Date(),
         status: 'DRAFT',
         taxRate: Number(po.taxRate),
+        taxable: po.taxable,
+        taxInclusive: po.taxInclusive,
         notes: notes ?? `Goods received from PO ${po.number}`,
-        subtotal: billLinesData.reduce((s, l) => s + l.lineTotal, 0),
-        taxAmount: 0,
-        totalAmount: billLinesData.reduce((s, l) => s + l.lineTotal, 0),
+        subtotal: asMoney(billLinesData.reduce((s, l) => s + (po.taxInclusive ? l.lineTotal / (1 + rate) : l.lineTotal), 0)),
+        taxAmount: asMoney(billLinesData.reduce((s, l) => {
+          const net = po.taxInclusive ? l.lineTotal / (1 + rate) : l.lineTotal;
+          return s + (!po.taxable ? 0 : po.taxInclusive ? (l.lineTotal - net) : net * rate);
+        }, 0)),
+        totalAmount: asMoney(billLinesData.reduce((s, l) => {
+          const net = po.taxInclusive ? l.lineTotal / (1 + rate) : l.lineTotal;
+          const tax = !po.taxable ? 0 : po.taxInclusive ? (l.lineTotal - net) : net * rate;
+          return s + (po.taxInclusive ? l.lineTotal : net + tax);
+        }, 0)),
         lines: {
           create: billLinesData,
         },
@@ -106,6 +123,41 @@ export const POST = withHandler(async function POST(
       where: { id },
       data: { status: newStatus as any },
     });
+
+    // --- Inventory + GR/IR at receipt (net cost) ---
+    const recvItemIds = billLinesData.map((l) => l.itemId).filter((x): x is string => Boolean(x));
+    const invItems = recvItemIds.length
+      ? await tx.item.findMany({ where: { id: { in: recvItemIds }, organizationId: orgId, type: { in: ['PRODUCT', 'RAW_MATERIAL'] } }, select: { id: true } })
+      : [];
+    const invItemIds = new Set(invItems.map((i) => i.id));
+    const receiptDate = new Date();
+    let grirNet = 0;
+    for (const l of billLinesData) {
+      if (!l.itemId || !invItemIds.has(l.itemId)) continue;
+      const qty = toNumber(l.quantity);
+      if (qty <= 0) continue;
+      const net = po.taxInclusive ? asMoney(l.lineTotal / (1 + rate)) : l.lineTotal;
+      grirNet += net;
+      await addCostLayer(tx, orgId, l.itemId, null, qty, asMoney(net / qty), InventoryDocumentType.PURCHASE, created.id, receiptDate);
+    }
+    grirNet = asMoney(grirNet);
+    if (grirNet > 0) {
+      const accounts = await tx.account.findMany({ where: { organizationId: orgId, isActive: true }, select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true } });
+      const settings = await loadOrgAccountDefaults(tx, orgId);
+      const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+      const grirAccountId = await ensureGrIrAccount(tx, orgId);
+      if (inventoryAccountId) {
+        await postJournalEntry(tx, {
+          organizationId: orgId,
+          date: receiptDate,
+          memo: `Goods receipt: PO ${po.number}`,
+          lines: [
+            { accountId: inventoryAccountId, description: `Inventory - PO ${po.number}`, debit: grirNet, credit: 0 },
+            { accountId: grirAccountId, description: `GR/IR clearing - PO ${po.number}`, debit: 0, credit: grirNet },
+          ],
+        });
+      }
+    }
 
     return created;
   });

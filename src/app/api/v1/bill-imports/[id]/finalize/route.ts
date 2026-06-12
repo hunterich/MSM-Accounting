@@ -142,6 +142,8 @@ export async function POST(
         status: 'DRAFT',
         apAccountId: vendor.defaultApAccountId || undefined,
         taxRate: Number(reviewData.taxRate || 0),
+        taxable: false,
+        taxInclusive: false,
         subtotal,
         taxAmount,
         totalAmount,
