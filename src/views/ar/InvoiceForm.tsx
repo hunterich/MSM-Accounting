@@ -75,10 +75,11 @@ import SearchableSelect from '../../components/UI/SearchableSelect';
 import { Printer, Save, Search, Info, Package, Paperclip, FileText, X, AlertTriangle } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
+import DocumentActionBar from '../../components/UI/DocumentActionBar';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useExtraAction } from '../../hooks/useModulePermissions';
-import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice } from '../../hooks/useAR';
+import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
 
 class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
@@ -120,6 +121,7 @@ const InvoiceForm = () => {
     const products = (itemsData?.data || []) as ProductLike[];
     const createInvoice = useCreateInvoice();
     const updateInvoiceMutation = useUpdateInvoice();
+    const deleteInvoice = useDeleteInvoice();
 
     // Sales policy enforcement (org-wide rules + role overrides)
     const salesPolicy = useSettingsStore((s) => s.salesPolicy);
@@ -590,13 +592,21 @@ const InvoiceForm = () => {
             title="Sales Invoice"
             onBack={handleBack}
             isLoading={isPageLoading}
+            sticky
             actions={(
-                <>
-                    <Button text="Print" variant="secondary" icon={<Printer size={16} />} onClick={handlePrint} />
-                    <div className="w-[1px] h-8 bg-neutral-200 mx-1" />
-                    <Button text={isSaving ? 'Saving...' : 'Save Draft'} variant="secondary" onClick={() => { void persistInvoice(true); }} disabled={isSaving} />
-                    <Button text={isSaving ? 'Saving...' : 'Save & Approve'} variant="primary" icon={<Save size={16} />} onClick={() => { void persistInvoice(false); }} disabled={isSaving} />
-                </>
+                <DocumentActionBar
+                    entityType="SalesInvoice"
+                    entityId={editingInvoiceId ?? undefined}
+                    isSaving={isSaving}
+                    saveLabel="Save & Approve"
+                    onSave={() => { void persistInvoice(false); }}
+                    onSaveDraft={() => { void persistInvoice(true); }}
+                    onPrint={handlePrint}
+                    onDelete={editingInvoiceId && invoices.find(inv => inv.id === editingInvoiceId)?.status === 'Draft'
+                        ? () => { void (async () => { try { await deleteInvoice.mutateAsync(editingInvoiceId); handleBack(); } catch (e) { window.alert(`Failed to delete: ${e instanceof Error ? e.message : 'error'}`); } })(); }
+                        : undefined}
+                    canDelete={Boolean(editingInvoiceId) && invoices.find(inv => inv.id === editingInvoiceId)?.status === 'Draft'}
+                />
             )}
         >
             <form onSubmit={(e) => e.preventDefault()}>

@@ -9,7 +9,8 @@ import { useCustomerStore } from '../../../stores/useCustomerStore';
 import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
 import { useCustomers } from '../../../hooks/useAR';
 import { useItems } from '../../../hooks/useInventory';
-import { Search, X, Package, Info, Save } from 'lucide-react';
+import { Search, X, Package, Info } from 'lucide-react';
+import DocumentActionBar from '../../UI/DocumentActionBar';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -431,17 +432,14 @@ const SOForm: React.FC<SOFormProps> = ({ mode = 'create' }) => {
             title={isEditMode ? `Edit Sales Order${soId ? ` ${soId}` : ''}` : 'Sales Order'}
             backTo="/ar/sales-orders"
             backLabel="Back"
+            sticky
             actions={(
-                <>
-                    <Button text="Cancel" variant="secondary" onClick={() => navigate('/ar/sales-orders')} />
-                    <Button
-                        text={isEditMode ? 'Update Sales Order' : 'Save Sales Order'}
-                        variant="primary"
-                        icon={<Save size={16} />}
-                        type="submit"
-                        form="sales-order-form-main"
-                    />
-                </>
+                <DocumentActionBar
+                    entityType="SalesOrder"
+                    entityId={isEditMode ? ((selectedSalesOrder as { _id?: string } | null)?._id || soId) : undefined}
+                    saveLabel={isEditMode ? 'Update Sales Order' : 'Save Sales Order'}
+                    onSave={() => { (document.getElementById('sales-order-form-main') as HTMLFormElement | null)?.requestSubmit(); }}
+                />
             )}
         >
             <form id="sales-order-form-main" onSubmit={handleSubmit}>
