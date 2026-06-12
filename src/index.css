@@ -258,12 +258,12 @@
     }
 
     .sidebar-icon-btn:hover {
-        background-color: #e01e2c;
+        background-color: #228be6;
         color: #ffffff;
     }
 
     .sidebar-icon-btn.active {
-        background-color: #e01e2c;
+        background-color: #228be6;
         color: #ffffff;
     }
 
@@ -356,7 +356,7 @@
     }
 
     .sidebar-flyout-item.active {
-        background-color: #e01e2c;
+        background-color: #1864ab;
         color: #ffffff;
         font-weight: 600;
     }
@@ -366,7 +366,7 @@
         width: 30px;
         height: 30px;
         border-radius: 9999px;
-        background-color: #e01e2c;
+        background-color: #3a4a63;
         color: #ffffff;
         font-size: 0.72rem;
         font-weight: 700;
