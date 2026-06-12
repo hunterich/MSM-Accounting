@@ -5,15 +5,10 @@ import { withCors } from '@/lib/cors';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { AccessError } from '@/lib/document-access';
 import { CreditLimitError } from '@/lib/credit-limit';
+import { ApiError } from '@/lib/errors';
 
-export class ApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
-}
+// Re-exported so existing `import { ApiError } from '@/lib/api-utils'` keeps working.
+export { ApiError };
 
 export function ok(data: unknown, status = 200) {
   return withCors(NextResponse.json(data, { status }));

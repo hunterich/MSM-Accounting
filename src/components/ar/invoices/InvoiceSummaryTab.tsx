@@ -21,33 +21,33 @@ interface InvoiceSummaryTabProps {
 
 const InvoiceSummaryTab: React.FC<InvoiceSummaryTabProps> = ({ invoice }) => {
     return (
-        <div className="grid grid-cols-2 gap-3">
-            <div className="border border-neutral-200 rounded-lg p-2.5">
-                <label className="block text-[0.78rem] text-neutral-600 mb-1">Invoice #</label>
+        <div className="detail-grid">
+            <div className="detail-field">
+                <label>Invoice #</label>
                 <strong>{invoice.number || invoice.id}</strong>
             </div>
-            <div className="border border-neutral-200 rounded-lg p-2.5">
-                <label className="block text-[0.78rem] text-neutral-600 mb-1">Status</label>
+            <div className="detail-field">
+                <label>Status</label>
                 <StatusTag status={invoice.status} />
             </div>
-            <div className="border border-neutral-200 rounded-lg p-2.5">
-                <label className="block text-[0.78rem] text-neutral-600 mb-1">Customer</label>
+            <div className="detail-field">
+                <label>Customer</label>
                 <strong>{invoice.customerName}</strong>
             </div>
-            <div className="border border-neutral-200 rounded-lg p-2.5">
-                <label className="block text-[0.78rem] text-neutral-600 mb-1">Issue Date</label>
+            <div className="detail-field">
+                <label>Issue Date</label>
                 <strong>{formatDateID(invoice.issueDate || invoice.date)}</strong>
             </div>
-            <div className="border border-neutral-200 rounded-lg p-2.5">
-                <label className="block text-[0.78rem] text-neutral-600 mb-1">Due Date</label>
+            <div className="detail-field">
+                <label>Due Date</label>
                 <strong>{formatDateID(invoice.dueDate)}</strong>
             </div>
-            <div className="border border-neutral-200 rounded-lg p-2.5">
-                <label className="block text-[0.78rem] text-neutral-600 mb-1">Currency</label>
+            <div className="detail-field">
+                <label>Currency</label>
                 <strong>{invoice.currency || 'IDR'}</strong>
             </div>
-            <div className="border border-neutral-200 rounded-lg p-2.5 col-span-2">
-                <label className="block text-[0.78rem] text-neutral-600 mb-1">Total</label>
+            <div className="detail-field span-2">
+                <label>Total</label>
                 <strong className="text-primary-500">{formatIDR(invoice.amount)}</strong>
             </div>
         </div>

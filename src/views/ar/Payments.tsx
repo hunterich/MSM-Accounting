@@ -56,7 +56,7 @@ const Payments = () => {
     const activePrintPayment = payments.find((p) => p.id === printPaymentId) || null;
 
     // Tab state managed by useDocumentTabs
-    const { selectedId: selectedPaymentId, openIds: openPaymentIds, openTab: openPaymentTab, closeTab: closePaymentTab, tabRows } = useDocumentTabs({ urlParam: 'paymentId' });
+    const { selectedId: selectedPaymentId, openIds: openPaymentIds, openTab: openPaymentTab, closeTab: closePaymentTab, selectNone: selectNonePayment, tabRows } = useDocumentTabs({ urlParam: 'paymentId' });
 
     const filteredData = useMemo(() => {
         return payments.filter(item => {
@@ -167,6 +167,7 @@ const Payments = () => {
                 onNewTab={canCreate ? () => navigate('/ar/payments/new', { state: { mode: 'create' } }) : undefined}
                 disableNew={!canCreate}
                 onCatalog={() => {
+                    selectNonePayment();
                     setSearchTerm('');
                     setFilters({ status: '' });
                     setDateRange({ from: '', to: '' });

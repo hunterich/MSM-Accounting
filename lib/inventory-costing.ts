@@ -1,6 +1,65 @@
 import type { Prisma } from '@prisma/client'
 import { InventoryDocumentType } from '@prisma/client'
 import { toNumber, asMoney } from './money'
+import { ApiError } from './errors'
+
+const QTY_EPSILON = 1e-6
+
+/**
+ * Total on-hand quantity for an item (optionally scoped to a warehouse),
+ * summed from open cost layers.
+ */
+async function getAvailableQty(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  itemId: string,
+  warehouseId: string | null,
+): Promise<number> {
+  const lots = await tx.inventoryLot.findMany({
+    where: {
+      organizationId: orgId,
+      itemId,
+      ...(warehouseId ? { warehouseId } : {}),
+      qtyBalance: { gt: 0 },
+    },
+    select: { qtyBalance: true },
+  })
+  return lots.reduce((sum, lot) => sum + toNumber(lot.qtyBalance), 0)
+}
+
+/**
+ * Guard against overselling. Throws unless the org has opted into negative
+ * stock. Without this, an outbound movement that exceeds on-hand silently
+ * falls back to `item.costPrice`, producing negative real stock and a
+ * guessed COGS — quietly misstating both the inventory asset and margin.
+ */
+async function assertSufficientStock(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  itemId: string,
+  warehouseId: string | null,
+  qty: number,
+): Promise<void> {
+  const org = await tx.organization.findUnique({
+    where: { id: orgId },
+    select: { allowNegativeStock: true },
+  })
+  if (org?.allowNegativeStock) return
+
+  const available = await getAvailableQty(tx, orgId, itemId, warehouseId)
+  if (qty > available + QTY_EPSILON) {
+    const item = await tx.item.findUnique({
+      where: { id: itemId },
+      select: { sku: true, name: true },
+    })
+    const label = item ? `${item.sku} — ${item.name}` : itemId
+    throw new ApiError(
+      `Insufficient stock for ${label}: requested ${qty}, available ${available}. ` +
+        `Receive more stock or enable "allow negative stock" in Settings.`,
+      422,
+    )
+  }
+}
 
 /**
  * Get the costing method configured for an organisation.
@@ -187,6 +246,8 @@ export async function calculateAndPostCOGS(
   docId: string,
   date: Date
 ): Promise<number> {
+  await assertSufficientStock(tx, orgId, itemId, warehouseId, qty)
+
   const method = await getOrgCostingMethod(tx, orgId)
 
   let totalCost: number
