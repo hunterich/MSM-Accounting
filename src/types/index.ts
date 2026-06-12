@@ -225,6 +225,12 @@ export interface RawOrganizationSettings {
   npwp?: string | null;
   isPkp?: boolean | null;
   baseCurrency?: string | null;
+  timezone?: string | null;
+  locale?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  companyEmail?: string | null;
+  logoUrl?: string | null;
   fiscalYearStart?: string | null;
   costingMethod?: 'FIFO' | 'WEIGHTED_AVERAGE' | null;
   costingMethodSetAt?: string | null;
@@ -362,6 +368,12 @@ export interface OrganizationSettings {
   npwp: string;
   isPkp: boolean;
   baseCurrency: string;
+  timezone: string;
+  locale: string;
+  address: string;
+  phone: string;
+  companyEmail: string;
+  logoUrl: string;
   fiscalYearStart: string;
   costingMethod: InventoryCostingMethod | '';
   costingMethodSetAt: string;
