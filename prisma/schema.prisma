@@ -734,6 +734,8 @@ model PurchaseOrder {
   expectedDate   DateTime?
   status         PurchaseOrderStatus @default(DRAFT)
   taxRate        Decimal             @default(0) @db.Decimal(5, 2)
+  taxable        Boolean             @default(false)
+  taxInclusive   Boolean             @default(false)
   subtotal       Decimal             @default(0) @db.Decimal(18, 2)
   taxAmount      Decimal             @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal             @default(0) @db.Decimal(18, 2)
@@ -783,6 +785,8 @@ model Bill {
   status         BillStatus  @default(DRAFT)
   apAccountId    String?
   taxRate        Decimal     @default(0) @db.Decimal(5, 2)
+  taxable        Boolean     @default(false)
+  taxInclusive   Boolean     @default(false)
   subtotal       Decimal     @default(0) @db.Decimal(18, 2)
   taxAmount      Decimal     @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal     @default(0) @db.Decimal(18, 2)
