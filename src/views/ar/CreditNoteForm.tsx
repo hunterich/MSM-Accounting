@@ -42,6 +42,8 @@ import { useCreditNotes, useSalesReturns, useCreateCreditNote, useUpdateCreditNo
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 const buildCreditNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -75,6 +77,9 @@ const CreditNoteForm = () => {
     const { data: srData, isLoading: salesReturnsLoading } = useSalesReturns();
     const salesReturns = srData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
+    const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
+    const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createCreditNote = useCreateCreditNote();
     const updateCreditNoteMutation = useUpdateCreditNote();
     const state = (location.state || {}) as { mode?: string; returnDraft?: any; creditId?: string };
@@ -411,7 +416,7 @@ const CreditNoteForm = () => {
             isLoading={isPageLoading}
             actions={(
                 <>
-                    <Button text="Print" variant="secondary" onClick={() => {}} />
+                    <Button text="Print" variant="secondary" disabled={formData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
                     {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveCredit(true); }} />}
                     <Button text={isView ? 'Close' : 'Save & Apply'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveCredit(false); }} />
                 </>
@@ -616,6 +621,33 @@ const CreditNoteForm = () => {
                     </div>
                 </div>
             </div>
+
+            <PrintPreviewModal
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+                title="Credit Note Print Preview"
+                documentTitle={`CreditNote_${formData.creditNumber || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
+            >
+                <NotePrintTemplate
+                    title="CREDIT NOTE"
+                    partyLabel="Customer"
+                    partyName={formData.customerName}
+                    document={{
+                        number: formData.creditNumber,
+                        date: formData.creditDate,
+                        status: isView ? 'Posted' : 'Draft',
+                        reference: formData.sourceInvoiceId,
+                        notes: formData.note,
+                    }}
+                    lineItems={formData.lines}
+                    subtotal={totals.subtotal}
+                    taxAmount={totals.taxAmount}
+                    total={totals.total}
+                    company={company}
+                    options={printSettings}
+                />
+            </PrintPreviewModal>
         </FormPage>
     );
 };

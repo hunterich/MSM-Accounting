@@ -42,6 +42,8 @@ import { useDebitNotes, usePurchaseReturns, useCreateDebitNote, useUpdateDebitNo
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 
 interface DebitNoteLocationState {
@@ -103,6 +105,9 @@ const DebitNoteForm = () => {
     const { data: prData, isLoading: purchaseReturnsLoading } = usePurchaseReturns();
     const purchaseReturns = prData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
+    const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
+    const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
     const state = (location.state || {}) as DebitNoteLocationState;
@@ -409,7 +414,7 @@ const DebitNoteForm = () => {
             isLoading={isPageLoading}
             actions={
                 <>
-                    <Button text="Print" variant="secondary" />
+                    <Button text="Print" variant="secondary" disabled={formData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
                     {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveDebit(true); }} />}
                     <Button text={isView ? 'Close' : 'Save & Apply'} variant="primary" onClick={isView ? () => navigate('/ap/debits') : () => { void handleSaveDebit(false); }} />
                 </>
@@ -589,6 +594,33 @@ const DebitNoteForm = () => {
                     </div>
                 </div>
             </div>
+
+            <PrintPreviewModal
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+                title="Debit Note Print Preview"
+                documentTitle={`DebitNote_${formData.debitNumber || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
+            >
+                <NotePrintTemplate
+                    title="DEBIT NOTE"
+                    partyLabel="Vendor"
+                    partyName={formData.vendorName}
+                    document={{
+                        number: formData.debitNumber,
+                        date: formData.debitDate,
+                        status: isView ? 'Posted' : 'Draft',
+                        reference: formData.sourceBillId,
+                        notes: formData.note,
+                    }}
+                    lineItems={formData.lines}
+                    subtotal={totals.subtotal}
+                    taxAmount={totals.taxAmount}
+                    total={totals.total}
+                    company={company}
+                    options={printSettings}
+                />
+            </PrintPreviewModal>
         </FormPage>
     );
 };

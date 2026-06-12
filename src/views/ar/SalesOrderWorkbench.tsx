@@ -33,6 +33,7 @@ const SalesOrderWorkbench = () => {
     const salesOrders = soResult?.data ?? [];
     const convertSOToInvoice = useConvertSOToInvoice();
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
 
     const [filters, setFilters] = useState<SOFilters>({
         searchTerm: searchParams.get('search') || '',
@@ -264,6 +265,7 @@ const SalesOrderWorkbench = () => {
                 onClose={() => setIsPreviewOpen(false)}
                 title="Sales Order Print Preview"
                 documentTitle={`SalesOrder_${activePrintSo?.id || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 {activePrintSo && (
                     // casts: SalesOrder/SalesOrderItem/CompanyInfo lack index signatures required by print template
@@ -271,6 +273,7 @@ const SalesOrderWorkbench = () => {
                         salesOrder={activePrintSo as unknown as Record<string, unknown>}
                         lineItems={activePrintLines as unknown as Record<string, unknown>[]}
                         company={company as unknown as Record<string, unknown>}
+                        options={printSettings}
                     />
                 )}
             </PrintPreviewModal>

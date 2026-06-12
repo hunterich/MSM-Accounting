@@ -1,17 +1,10 @@
 import React from 'react';
 import { formatIDR } from '../../utils/formatters';
-
-const mm = (value: number): string => `${value}mm`;
-
-const basePageStyle: React.CSSProperties = {
-    width: mm(210),
-    minHeight: mm(297),
-    padding: mm(20),
-    background: '#fff',
-    color: '#111827',
-    fontFamily: 'Inter, Arial, sans-serif',
-    fontSize: '12px',
-};
+import {
+    CompanyBlock, Letterhead, DocumentFooter, SignatureBlock,
+    pageStyle, cellStyle, cellRightStyle, titleStyle, tableHeadCellStyle, totalAccent,
+    DEFAULT_PRINT_OPTIONS, type PrintOptions,
+} from './printShared';
 
 const formatLongDate = (value: string | null | undefined): string => {
     if (!value) return '-';
@@ -50,6 +43,7 @@ interface NormalizedLine {
     qty: number;
     unit: string;
     price: number;
+    discount: number;
     total: number;
 }
 
@@ -60,8 +54,7 @@ const normalizeLine = (line: RawLineItem, index: number): NormalizedLine => {
     const price = toNumber(line.price);
     const discount = toNumber(line.discount ?? line.discountPct);
     const gross = qty * price;
-    const discountAmount = gross * (discount / 100);
-    const total = gross - discountAmount;
+    const total = gross - gross * (discount / 100);
 
     return {
         id: line.id || `${description}-${index + 1}`,
@@ -70,6 +63,7 @@ const normalizeLine = (line: RawLineItem, index: number): NormalizedLine => {
         qty,
         unit,
         price,
+        discount,
         total,
     };
 };
@@ -99,33 +93,30 @@ interface SalesOrderPrintTemplateProps {
     salesOrder?: SalesOrderRecord | null;
     lineItems?: RawLineItem[];
     company?: CompanyInfo;
+    options?: PrintOptions;
 }
 
-const SalesOrderPrintTemplate: React.FC<SalesOrderPrintTemplateProps> = ({ salesOrder, lineItems = [], company = {} }) => {
+const SalesOrderPrintTemplate: React.FC<SalesOrderPrintTemplateProps> = ({ salesOrder, lineItems = [], company = {}, options = DEFAULT_PRINT_OPTIONS }) => {
     if (!salesOrder) {
-        return <div className="print-template" style={basePageStyle}>No sales order selected.</div>;
+        return <div className="print-template" style={pageStyle(options)}>No sales order selected.</div>;
     }
 
     const rows = lineItems.map(normalizeLine);
     const subtotalFromRows = rows.reduce((sum, row) => sum + row.total, 0);
     const totalAmount = subtotalFromRows > 0 ? subtotalFromRows : toNumber(salesOrder.amount);
+    const showUnit = options.showUnitColumn;
+    const showDiscount = options.showDiscountColumn;
+    const colSpan = 4 + (showUnit ? 1 : 0) + (showDiscount ? 1 : 0);
 
     return (
-        <div className="print-template" style={basePageStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '18px' }}>
-                <div>
-                    {company.logoUrl ? (
-                        <img src={company.logoUrl} alt="Company logo" style={{ width: '120px', maxHeight: '48px', marginBottom: '10px', objectFit: 'contain' }} />
-                    ) : null}
-                    <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>{company.companyName || 'PT. Internal Accounting'}</h1>
-                    <div>{company.address || '-'}</div>
-                    <div>{company.phone || '-'} | {company.email || '-'}</div>
-                    <div>NPWP: {company.npwp || '-'}</div>
-                </div>
+        <div className="print-template" style={pageStyle(options)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <CompanyBlock company={company} showLogo={options.showLogo} />
                 <div style={{ textAlign: 'right' }}>
-                    <h2 style={{ margin: 0, fontSize: '28px', letterSpacing: '0.04em' }}>SALES ORDER</h2>
+                    <h2 style={titleStyle(options)}>SALES ORDER</h2>
                 </div>
             </div>
+            <Letterhead options={options} />
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #d1d5db', marginBottom: '14px' }}>
                 <div style={{ padding: '10px', borderRight: '1px solid #d1d5db' }}>
@@ -143,34 +134,36 @@ const SalesOrderPrintTemplate: React.FC<SalesOrderPrintTemplateProps> = ({ sales
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '14px' }}>
                 <thead>
                     <tr>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'left' }}>#</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'left' }}>Description</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>Qty</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'left' }}>Unit</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>Price</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>Total</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>#</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>Description</th>
+                        <th style={tableHeadCellStyle(options, 'right')}>Qty</th>
+                        {showUnit ? <th style={tableHeadCellStyle(options, 'left')}>Unit</th> : null}
+                        <th style={tableHeadCellStyle(options, 'right')}>Price</th>
+                        {showDiscount ? <th style={tableHeadCellStyle(options, 'right')}>Disc %</th> : null}
+                        <th style={tableHeadCellStyle(options, 'right')}>Total</th>
                     </tr>
                 </thead>
                 <tbody>
                     {rows.length === 0 ? (
                         <tr>
-                            <td colSpan={6} style={{ border: '1px solid #d1d5db', padding: '10px', textAlign: 'center' }}>No line items.</td>
+                            <td colSpan={colSpan} style={{ ...cellStyle(options), textAlign: 'center', padding: '10px' }}>No line items.</td>
                         </tr>
                     ) : rows.map((row) => (
                         <tr key={row.id}>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px' }}>{row.no}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px' }}>{row.description}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>{row.qty}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px' }}>{row.unit}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>{formatIDR(row.price)}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>{formatIDR(row.total)}</td>
+                            <td style={cellStyle(options)}>{row.no}</td>
+                            <td style={cellStyle(options)}>{row.description}</td>
+                            <td style={cellRightStyle(options)}>{row.qty}</td>
+                            {showUnit ? <td style={cellStyle(options)}>{row.unit}</td> : null}
+                            <td style={cellRightStyle(options)}>{formatIDR(row.price)}</td>
+                            {showDiscount ? <td style={cellRightStyle(options)}>{row.discount ? `${row.discount}%` : '-'}</td> : null}
+                            <td style={cellRightStyle(options)}>{formatIDR(row.total)}</td>
                         </tr>
                     ))}
                 </tbody>
             </table>
 
             <div style={{ marginLeft: 'auto', width: '320px', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #d1d5db', fontSize: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: `2px solid ${totalAccent(options)}`, fontSize: '14px', color: totalAccent(options) }}>
                     <span>TOTAL</span>
                     <strong>{formatIDR(totalAmount)}</strong>
                 </div>
@@ -179,6 +172,9 @@ const SalesOrderPrintTemplate: React.FC<SalesOrderPrintTemplateProps> = ({ sales
             <div style={{ borderTop: '1px solid #d1d5db', paddingTop: '10px' }}>
                 <strong>Notes:</strong> {salesOrder.notes || '-'}
             </div>
+
+            <DocumentFooter options={options} />
+            <SignatureBlock options={options} />
         </div>
     );
 };

@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
+import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import SecurityRolesTab from './SecurityRolesTab';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from './DataMigrationPanel';
@@ -85,6 +86,8 @@ const Settings = () => {
     const storeFeatures = useSettingsStore(s => s.features);
     const storeApprovalRequirements = useSettingsStore(s => s.approvalRequirements);
     const storeAccountDefaults = useSettingsStore(s => s.accountDefaults ?? DEFAULT_ACCOUNT_DEFAULTS);
+    const storePrintSettings = useSettingsStore(s => s.printSettings);
+    const updatePrintSettings = useSettingsStore(s => s.updatePrintSettings);
     const updateCompanyInfo = useSettingsStore(s => s.updateCompanyInfo);
     const updateTaxSettings = useSettingsStore(s => s.updateTaxSettings);
     const updateCustomerCreditSettings = useSettingsStore(s => s.updateCustomerCreditSettings);
@@ -109,6 +112,10 @@ const Settings = () => {
     const [features, setFeatures] = useState(storeFeatures);
     const [approvalRequirements, setApprovalRequirements] = useState(storeApprovalRequirements);
     const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
+    const [printForm, setPrintForm] = useState(storePrintSettings);
+
+    // Keep the Print tab form in sync once org-backed print settings hydrate.
+    useEffect(() => { setPrintForm(storePrintSettings); }, [storePrintSettings]);
 
     // Hydrate from server-of-truth (DB) when org settings load. Falls back to
     // Zustand cache for first paint to avoid flicker. Server values overwrite
@@ -138,6 +145,7 @@ const Settings = () => {
         { id: 'restrictions', label: 'Restrictions', icon: Lock },
         { id: 'approvals', label: 'Approval Rules', icon: ClipboardCheck },
         { id: 'accounts', label: 'Account Defaults', icon: Briefcase },
+        { id: 'print', label: 'Print Settings', icon: Printer },
         { id: 'numbering', label: 'Document Numbering', icon: Hash },
         { id: 'security', label: 'Security & Roles', icon: Shield },
         { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -175,6 +183,23 @@ const Settings = () => {
             }
             if (generalSettings.email && !generalSettings.email.includes('@')) {
                 window.alert('Company email format is invalid.');
+                return;
+            }
+            // Persist company identity to the organization record (DB is the source
+            // of truth, shared across devices), then mirror into the local store.
+            try {
+                await updateOrgSettings.mutateAsync({
+                    displayName: generalSettings.companyName.trim(),
+                    npwp: generalSettings.npwp?.trim() || null,
+                    address: generalSettings.address?.trim() || null,
+                    phone: generalSettings.phone?.trim() || null,
+                    companyEmail: generalSettings.email?.trim() || null,
+                    logoUrl: generalSettings.logoUrl?.trim() || null,
+                    timezone: generalSettings.timezone,
+                    locale: generalSettings.locale,
+                } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+            } catch (e) {
+                window.alert(`Failed to save company info: ${e instanceof Error ? e.message : 'Unknown error'}`);
                 return;
             }
             updateCompanyInfo(generalSettings);
@@ -218,6 +243,18 @@ const Settings = () => {
                 updateAccountDefaults(accountDefaults);
             } catch (e) {
                 window.alert(`Failed to save account defaults: ${e instanceof Error ? e.message : 'Unknown error'}`);
+                return;
+            }
+        }
+
+        if (sectionId === 'print') {
+            // Print settings live on the org (DB is source of truth, shared across
+            // devices), then mirror into the local store for instant rendering.
+            try {
+                await updateOrgSettings.mutateAsync({ printSettings: printForm } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+                updatePrintSettings(printForm);
+            } catch (e) {
+                window.alert(`Failed to save print settings: ${e instanceof Error ? e.message : 'Unknown error'}`);
                 return;
             }
         }
@@ -652,6 +689,94 @@ const Settings = () => {
                         </div>
                         <div className="settings-save-wrap">
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('accounts')} />
+                        </div>
+                    </Card>
+                )}
+
+                {activeTab === 'print' && (
+                    <Card title="Print Settings">
+                        <p className="settings-muted">Customize how printed documents (invoices, receipts, delivery notes, etc.) look. Changes preview live and apply to every document.</p>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* ── Controls ─────────────────────────────────── */}
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="form-label">Brand accent color</label>
+                                    <div className="flex items-center gap-3">
+                                        <input type="color" value={printForm.accentColor} onChange={(e) => setPrintForm((p) => ({ ...p, accentColor: e.target.value }))} className="h-10 w-14 rounded border border-neutral-300 bg-neutral-0 p-1" />
+                                        <Input value={printForm.accentColor} onChange={(e) => setPrintForm((p) => ({ ...p, accentColor: e.target.value }))} />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="form-label">Density</label>
+                                        <select className="block w-full px-3 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0" value={printForm.density} onChange={(e) => setPrintForm((p) => ({ ...p, density: e.target.value as typeof p.density }))}>
+                                            <option value="compact">Compact</option>
+                                            <option value="comfortable">Comfortable</option>
+                                            <option value="spacious">Spacious</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="form-label">Default paper size</label>
+                                        <select className="block w-full px-3 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0" value={printForm.defaultPaperSize} onChange={(e) => setPrintForm((p) => ({ ...p, defaultPaperSize: e.target.value as typeof p.defaultPaperSize }))}>
+                                            <option value="A4">A4</option>
+                                            <option value="A5">A5</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <label className="settings-checkbox-label"><input type="checkbox" className="settings-checkbox-input" checked={printForm.showLogo} onChange={(e) => setPrintForm((p) => ({ ...p, showLogo: e.target.checked }))} /><span className="settings-label-strong">Show logo</span></label>
+                                    <label className="settings-checkbox-label"><input type="checkbox" className="settings-checkbox-input" checked={printForm.showLetterhead} onChange={(e) => setPrintForm((p) => ({ ...p, showLetterhead: e.target.checked }))} /><span className="settings-label-strong">Letterhead band</span></label>
+                                    <label className="settings-checkbox-label"><input type="checkbox" className="settings-checkbox-input" checked={printForm.showUnitColumn} onChange={(e) => setPrintForm((p) => ({ ...p, showUnitColumn: e.target.checked }))} /><span className="settings-label-strong">Unit column</span></label>
+                                    <label className="settings-checkbox-label"><input type="checkbox" className="settings-checkbox-input" checked={printForm.showDiscountColumn} onChange={(e) => setPrintForm((p) => ({ ...p, showDiscountColumn: e.target.checked }))} /><span className="settings-label-strong">Discount column</span></label>
+                                    <label className="settings-checkbox-label"><input type="checkbox" className="settings-checkbox-input" checked={printForm.showSignature} onChange={(e) => setPrintForm((p) => ({ ...p, showSignature: e.target.checked }))} /><span className="settings-label-strong">Signature block</span></label>
+                                </div>
+
+                                {printForm.showSignature && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="form-label">Signature label</label>
+                                            <Input value={printForm.signatureLabel} placeholder="Hormat kami," onChange={(e) => setPrintForm((p) => ({ ...p, signatureLabel: e.target.value }))} />
+                                        </div>
+                                        <div>
+                                            <label className="form-label">Signer name</label>
+                                            <Input value={printForm.signerName} placeholder="(optional)" onChange={(e) => setPrintForm((p) => ({ ...p, signerName: e.target.value }))} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label className="form-label">Terms &amp; conditions</label>
+                                    <textarea className="block w-full px-3 py-2 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0" rows={2} value={printForm.termsText} placeholder="e.g. Pembayaran dalam 30 hari. Barang yang sudah dibeli tidak dapat dikembalikan." onChange={(e) => setPrintForm((p) => ({ ...p, termsText: e.target.value }))} />
+                                </div>
+                                <div>
+                                    <label className="form-label">Footer line</label>
+                                    <Input value={printForm.footerText} placeholder="e.g. Terima kasih atas kepercayaan Anda." onChange={(e) => setPrintForm((p) => ({ ...p, footerText: e.target.value }))} />
+                                </div>
+                            </div>
+
+                            {/* ── Live preview ─────────────────────────────── */}
+                            <div>
+                                <div className="form-label mb-2">Live preview</div>
+                                <div style={{ position: 'relative', width: '100%', height: 560, overflow: 'hidden', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f3f4f6' }}>
+                                    <div style={{ position: 'absolute', top: 12, left: 12, width: '210mm', transform: 'scale(0.46)', transformOrigin: 'top left', boxShadow: '0 1px 6px rgba(0,0,0,0.12)' }}>
+                                        <InvoicePrintTemplate
+                                            invoice={{ number: 'INV-2026-00001', customerName: 'PT. Contoh Pelanggan', issueDate: '2026-06-12', dueDate: '2026-07-12', status: 'Unpaid', notes: 'Terima kasih atas kepercayaan Anda.' }}
+                                            lineItems={[
+                                                { description: 'Jasa Konsultasi', qty: 2, unit: 'JAM', price: 500000, discount: 0 },
+                                                { description: 'Lisensi Software', qty: 1, unit: 'PCS', price: 1500000, discount: 10 },
+                                            ]}
+                                            company={storeCompanyInfo as unknown as Record<string, unknown>}
+                                            taxRate={storeTaxSettings.defaultRate}
+                                            options={printForm}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('print')} />
                         </div>
                     </Card>
                 )}

@@ -39,6 +39,7 @@ const PurchaseOrders = () => {
     // poItemTemplates stays in local store (for print until API supports line fetch)
     const poItemTemplates = usePurchaseOrderStore((s) => s.poItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
 
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<POFilters>({ status: '' });
@@ -393,6 +394,7 @@ const PurchaseOrders = () => {
                 onClose={() => setIsPreviewOpen(false)}
                 title="Purchase Order Print Preview"
                 documentTitle={`PurchaseOrder_${activePrintPo?.id || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 {activePrintPo && (
                     // casts: PurchaseOrder/POItem/CompanyInfo lack index signatures required by print template
@@ -401,6 +403,7 @@ const PurchaseOrders = () => {
                         lineItems={activePrintLines as unknown as Record<string, unknown>[]}
                         vendorName={activeVendorName}
                         company={company as unknown as Record<string, unknown>}
+                        options={printSettings}
                     />
                 )}
             </PrintPreviewModal>

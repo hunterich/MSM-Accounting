@@ -218,13 +218,50 @@ export interface RawPurchaseOrder {
   lines?: RawPOLine[] | null;
 }
 
+export interface PrintOptions {
+  showLogo: boolean;
+  showLetterhead: boolean;
+  accentColor: string;
+  density: 'compact' | 'comfortable' | 'spacious';
+  defaultPaperSize: 'A4' | 'A5';
+  showUnitColumn: boolean;
+  showDiscountColumn: boolean;
+  footerText: string;
+  termsText: string;
+  showSignature: boolean;
+  signatureLabel: string;
+  signerName: string;
+}
+
+export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
+  showLogo: true,
+  showLetterhead: false,
+  accentColor: '#111827',
+  density: 'comfortable',
+  defaultPaperSize: 'A4',
+  showUnitColumn: true,
+  showDiscountColumn: false,
+  footerText: '',
+  termsText: '',
+  showSignature: false,
+  signatureLabel: '',
+  signerName: '',
+};
+
 export interface RawOrganizationSettings {
   id: string;
   legalName?: string | null;
+  printSettings?: Partial<PrintOptions> | null;
   displayName?: string | null;
   npwp?: string | null;
   isPkp?: boolean | null;
   baseCurrency?: string | null;
+  timezone?: string | null;
+  locale?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  companyEmail?: string | null;
+  logoUrl?: string | null;
   fiscalYearStart?: string | null;
   costingMethod?: 'FIFO' | 'WEIGHTED_AVERAGE' | null;
   costingMethodSetAt?: string | null;
@@ -362,6 +399,13 @@ export interface OrganizationSettings {
   npwp: string;
   isPkp: boolean;
   baseCurrency: string;
+  timezone: string;
+  locale: string;
+  address: string;
+  phone: string;
+  companyEmail: string;
+  logoUrl: string;
+  printSettings: PrintOptions;
   fiscalYearStart: string;
   costingMethod: InventoryCostingMethod | '';
   costingMethodSetAt: string;

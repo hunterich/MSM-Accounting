@@ -19,12 +19,53 @@ type OrganizationSettingsRecord = {
   npwp: string | null;
   isPkp: boolean;
   baseCurrency: string;
+  address: string | null;
+  phone: string | null;
+  companyEmail: string | null;
+  logoUrl: string | null;
   fiscalYearStart: Date | null;
   costingMethod: string | null;
   costingMethodSetAt: Date | null;
   costingMethodSetById: string | null;
   costingMethodEffectiveDate: Date | null;
   accountDefaults: unknown;
+  printSettings: unknown;
+};
+
+const DEFAULT_PRINT_SETTINGS = {
+  showLogo: true,
+  showLetterhead: false,
+  accentColor: '#111827',
+  density: 'comfortable' as const,
+  defaultPaperSize: 'A4' as const,
+  showUnitColumn: true,
+  showDiscountColumn: false,
+  footerText: '',
+  termsText: '',
+  showSignature: false,
+  signatureLabel: '',
+  signerName: '',
+};
+
+const normalizePrintSettings = (raw: unknown): typeof DEFAULT_PRINT_SETTINGS => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEFAULT_PRINT_SETTINGS };
+  const o = raw as Record<string, unknown>;
+  const str = (v: unknown, fallback: string) => (typeof v === 'string' ? v : fallback);
+  const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
+  return {
+    showLogo: bool(o.showLogo, DEFAULT_PRINT_SETTINGS.showLogo),
+    showLetterhead: bool(o.showLetterhead, DEFAULT_PRINT_SETTINGS.showLetterhead),
+    accentColor: /^#[0-9A-Fa-f]{6}$/.test(String(o.accentColor)) ? String(o.accentColor) : DEFAULT_PRINT_SETTINGS.accentColor,
+    density: (['compact', 'comfortable', 'spacious'].includes(String(o.density)) ? o.density : DEFAULT_PRINT_SETTINGS.density) as typeof DEFAULT_PRINT_SETTINGS.density,
+    defaultPaperSize: (['A4', 'A5'].includes(String(o.defaultPaperSize)) ? o.defaultPaperSize : DEFAULT_PRINT_SETTINGS.defaultPaperSize) as typeof DEFAULT_PRINT_SETTINGS.defaultPaperSize,
+    showUnitColumn: bool(o.showUnitColumn, DEFAULT_PRINT_SETTINGS.showUnitColumn),
+    showDiscountColumn: bool(o.showDiscountColumn, DEFAULT_PRINT_SETTINGS.showDiscountColumn),
+    footerText: str(o.footerText, ''),
+    termsText: str(o.termsText, ''),
+    showSignature: bool(o.showSignature, DEFAULT_PRINT_SETTINGS.showSignature),
+    signatureLabel: str(o.signatureLabel, ''),
+    signerName: str(o.signerName, ''),
+  };
 };
 
 const toDateOrNull = (value: unknown): Date | null => {
@@ -61,6 +102,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return ok({
     ...organization,
     accountDefaults: normalizeAccountDefaults(organization.accountDefaults),
+    printSettings: normalizePrintSettings(organization.printSettings),
     needsInventoryValuationSetup: !organization.costingMethod,
   });
 });
@@ -86,6 +128,10 @@ export const PUT = withHandler(async function PUT(req: NextRequest) {
   if (parsed.data.baseCurrency !== undefined) updateData.baseCurrency = parsed.data.baseCurrency;
   if (parsed.data.timezone !== undefined) updateData.timezone = parsed.data.timezone;
   if (parsed.data.locale !== undefined) updateData.locale = parsed.data.locale;
+  if (parsed.data.address !== undefined) updateData.address = parsed.data.address?.trim() || null;
+  if (parsed.data.phone !== undefined) updateData.phone = parsed.data.phone?.trim() || null;
+  if (parsed.data.companyEmail !== undefined) updateData.companyEmail = parsed.data.companyEmail?.trim() || null;
+  if (parsed.data.logoUrl !== undefined) updateData.logoUrl = parsed.data.logoUrl?.trim() || null;
   if (parsed.data.defaultCreditLimit !== undefined) updateData.defaultCreditLimit = parsed.data.defaultCreditLimit;
   if (parsed.data.enforceCreditLimit !== undefined) updateData.enforceCreditLimit = parsed.data.enforceCreditLimit;
   if (parsed.data.taxEnabled !== undefined) updateData.taxEnabled = parsed.data.taxEnabled;
@@ -163,6 +209,17 @@ export const PUT = withHandler(async function PUT(req: NextRequest) {
     updateData.accountDefaults = merged;
   }
 
+  if (parsed.data.printSettings !== undefined) {
+    const existing = normalizePrintSettings(
+      ((await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { printSettings: true },
+      })) as unknown as { printSettings: unknown } | null)?.printSettings,
+    );
+    // Merge incoming over existing, then normalize to drop anything invalid.
+    updateData.printSettings = normalizePrintSettings({ ...existing, ...parsed.data.printSettings });
+  }
+
   if (Object.keys(updateData).length === 0) {
     return err('No changes provided', 400);
   }
@@ -190,6 +247,7 @@ export const PUT = withHandler(async function PUT(req: NextRequest) {
   return ok({
     ...updated,
     accountDefaults: normalizeAccountDefaults(updated.accountDefaults),
+    printSettings: normalizePrintSettings(updated.printSettings),
     needsInventoryValuationSetup: !updated.costingMethod,
   });
 });

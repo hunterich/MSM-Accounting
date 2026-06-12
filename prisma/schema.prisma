@@ -26,6 +26,10 @@ model Organization {
   taxEnabled             Boolean  @default(true)
   taxDefaultRate         Decimal  @default(11) @db.Decimal(5, 2)
   taxInclusiveByDefault  Boolean  @default(false)
+  address                String?
+  phone                  String?
+  companyEmail           String?
+  logoUrl                String?
   financeEmail           String?
   invoiceReminders       Boolean  @default(true)
   paymentAlerts          Boolean  @default(true)
@@ -33,6 +37,7 @@ model Organization {
   emailFromName          String?
   emailFromDomain        String?
   accountDefaults        Json?
+  printSettings          Json?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

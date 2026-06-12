@@ -25,11 +25,13 @@ const toNumber = (value: unknown): number => {
 interface RawLineItem {
     id?: string;
     description?: string;
+    itemName?: string;
+    name?: string;
     qty?: number | string;
     quantity?: number | string;
+    qtyReturn?: number | string;
     unit?: string;
     price?: number | string;
-    [key: string]: unknown;
 }
 
 interface NormalizedLine {
@@ -43,57 +45,77 @@ interface NormalizedLine {
 }
 
 const normalizeLine = (line: RawLineItem, index: number): NormalizedLine => {
-    const qty = toNumber(line.qty ?? line.quantity);
+    const description = line.description || line.itemName || line.name || '-';
+    const qty = toNumber(line.qtyReturn ?? line.qty ?? line.quantity);
     const unit = line.unit || 'PCS';
     const price = toNumber(line.price);
-    const total = qty * price;
-
     return {
-        id: line.id || `${line.description || 'item'}-${index + 1}`,
+        id: line.id || `${description}-${index + 1}`,
         no: index + 1,
-        description: line.description || '-',
+        description,
         qty,
         unit,
         price,
-        total,
+        total: qty * price,
     };
 };
 
-interface PurchaseOrderRecord {
+interface NoteDocument {
     id?: string;
+    number?: string;
     date?: string;
-    expectedDate?: string;
     status?: string;
-    amount?: number | string;
+    reference?: string;
+    reason?: string;
     notes?: string;
     [key: string]: unknown;
 }
 
 interface CompanyInfo {
+    logoUrl?: string;
     companyName?: string;
     address?: string;
     phone?: string;
     email?: string;
     npwp?: string;
-    [key: string]: unknown;
 }
 
-interface PurchaseOrderPrintTemplateProps {
-    purchaseOrder?: PurchaseOrderRecord | null;
+interface NotePrintTemplateProps {
+    title: string;          // e.g. "CREDIT NOTE", "SALES RETURN"
+    partyLabel: string;     // "Customer" | "Vendor"
+    partyName?: string;
+    document?: NoteDocument | null;
     lineItems?: RawLineItem[];
-    vendorName?: string;
+    subtotal?: number;
+    taxAmount?: number;
+    total?: number;
     company?: CompanyInfo;
     options?: PrintOptions;
 }
 
-const PurchaseOrderPrintTemplate: React.FC<PurchaseOrderPrintTemplateProps> = ({ purchaseOrder, lineItems = [], vendorName = '-', company = {}, options = DEFAULT_PRINT_OPTIONS }) => {
-    if (!purchaseOrder) {
-        return <div className="print-template" style={pageStyle(options)}>No purchase order selected.</div>;
+const NotePrintTemplate: React.FC<NotePrintTemplateProps> = ({
+    title,
+    partyLabel,
+    partyName,
+    document,
+    lineItems = [],
+    subtotal,
+    taxAmount,
+    total,
+    company = {},
+    options = DEFAULT_PRINT_OPTIONS,
+}) => {
+    if (!document) {
+        return <div className="print-template" style={pageStyle(options)}>No document selected.</div>;
     }
 
     const rows = lineItems.map(normalizeLine);
-    const subtotal = rows.reduce((sum, row) => sum + row.total, 0);
-    const totalAmount = subtotal > 0 ? subtotal : toNumber(purchaseOrder.amount);
+    const computedSubtotal = rows.reduce((sum, row) => sum + row.total, 0);
+    const resolvedSubtotal = subtotal ?? computedSubtotal;
+    const resolvedTax = taxAmount ?? 0;
+    const resolvedTotal = total ?? resolvedSubtotal + resolvedTax;
+
+    const docNo = document.number || document.id || '-';
     const showUnit = options.showUnitColumn;
     const colSpan = 4 + (showUnit ? 1 : 0);
 
@@ -102,21 +124,21 @@ const PurchaseOrderPrintTemplate: React.FC<PurchaseOrderPrintTemplateProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
                 <CompanyBlock company={company} showLogo={options.showLogo} />
                 <div style={{ textAlign: 'right' }}>
-                    <h2 style={titleStyle(options)}>PURCHASE ORDER</h2>
+                    <h2 style={titleStyle(options)}>{title}</h2>
                 </div>
             </div>
             <Letterhead options={options} />
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #d1d5db', marginBottom: '14px' }}>
                 <div style={{ padding: '10px', borderRight: '1px solid #d1d5db' }}>
-                    <div style={{ fontWeight: 600, marginBottom: '6px' }}>Vendor:</div>
-                    <div>{vendorName}</div>
+                    <div style={{ fontWeight: 600, marginBottom: '6px' }}>{partyLabel}:</div>
+                    <div>{partyName || '-'}</div>
                 </div>
                 <div style={{ padding: '10px' }}>
-                    <div><strong>PO #:</strong> {purchaseOrder.id}</div>
-                    <div><strong>Date:</strong> {formatLongDate(purchaseOrder.date)}</div>
-                    <div><strong>Expected:</strong> {formatLongDate(purchaseOrder.expectedDate)}</div>
-                    <div><strong>Status:</strong> {purchaseOrder.status || '-'}</div>
+                    <div><strong>No:</strong> {docNo}</div>
+                    <div><strong>Date:</strong> {formatLongDate(document.date)}</div>
+                    {document.reference ? <div><strong>Reference:</strong> {String(document.reference)}</div> : null}
+                    <div><strong>Status:</strong> {document.status || '-'}</div>
                 </div>
             </div>
 
@@ -133,9 +155,7 @@ const PurchaseOrderPrintTemplate: React.FC<PurchaseOrderPrintTemplateProps> = ({
                 </thead>
                 <tbody>
                     {rows.length === 0 ? (
-                        <tr>
-                            <td colSpan={colSpan} style={{ ...cellStyle(options), textAlign: 'center', padding: '10px' }}>No line items.</td>
-                        </tr>
+                        <tr><td colSpan={colSpan} style={{ ...cellStyle(options), textAlign: 'center', padding: '10px' }}>No line items.</td></tr>
                     ) : rows.map((row) => (
                         <tr key={row.id}>
                             <td style={cellStyle(options)}>{row.no}</td>
@@ -150,14 +170,22 @@ const PurchaseOrderPrintTemplate: React.FC<PurchaseOrderPrintTemplateProps> = ({
             </table>
 
             <div style={{ marginLeft: 'auto', width: '320px', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                    <span>Subtotal</span>
+                    <strong>{formatIDR(resolvedSubtotal)}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                    <span>PPN</span>
+                    <strong>{formatIDR(resolvedTax)}</strong>
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: `2px solid ${totalAccent(options)}`, fontSize: '14px', color: totalAccent(options) }}>
                     <span>TOTAL</span>
-                    <strong>{formatIDR(totalAmount)}</strong>
+                    <strong>{formatIDR(resolvedTotal)}</strong>
                 </div>
             </div>
 
             <div style={{ borderTop: '1px solid #d1d5db', paddingTop: '10px' }}>
-                <strong>Notes:</strong> {purchaseOrder.notes || '-'}
+                <strong>Notes:</strong> {document.reason || document.notes || '-'}
             </div>
 
             <DocumentFooter options={options} />
@@ -166,4 +194,4 @@ const PurchaseOrderPrintTemplate: React.FC<PurchaseOrderPrintTemplateProps> = ({
     );
 };
 
-export default PurchaseOrderPrintTemplate;
+export default NotePrintTemplate;
