@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateBillInputSchema } from '@/types/api';
+import { postBillToLedger } from '@/lib/bill-posting';
 
 export const runtime = 'nodejs';
 
@@ -60,6 +61,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             billId: id,
             itemId: l.itemId || null,
             accountId: l.accountId || null,
+            purchaseOrderLineId: l.purchaseOrderLineId || null,
             lineNo: l.lineNo ?? idx + 1,
             description: l.description,
             quantity: l.quantity,
@@ -68,6 +70,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             lineTotal: l.lineTotal ?? (Number(l.quantity) * Number(l.price)),
           })),
         });
+      }
+      // Recognize GL + inventory when the bill is finalized (DRAFT -> OPEN).
+      if (existing.status === 'DRAFT' && header.status === 'OPEN') {
+        const finalized = await tx.bill.findFirst({
+          where: { id, organizationId: orgId },
+          include: { lines: true },
+        });
+        if (finalized) await postBillToLedger(tx, orgId, finalized as any);
       }
       return tx.bill.findFirst({
         where: { id, organizationId: orgId },
