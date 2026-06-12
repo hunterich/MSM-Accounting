@@ -763,6 +763,7 @@ model PurchaseOrderLine {
   quantity        Decimal  @default(0) @db.Decimal(18, 4)
   unit            String   @default("PCS")
   price           Decimal  @default(0) @db.Decimal(18, 2)
+  discountPct     Decimal  @default(0) @db.Decimal(5, 2)
   lineTotal       Decimal  @default(0) @db.Decimal(18, 2)
   receivedQty     Decimal  @default(0) @db.Decimal(15, 4)
 
@@ -822,6 +823,7 @@ model BillLine {
   quantity             Decimal  @default(0) @db.Decimal(18, 4)
   unit                 String   @default("PCS")
   price                Decimal  @default(0) @db.Decimal(18, 2)
+  discountPct          Decimal  @default(0) @db.Decimal(5, 2)
   lineTotal            Decimal  @default(0) @db.Decimal(18, 2)
   purchaseOrderLineId  String?
 

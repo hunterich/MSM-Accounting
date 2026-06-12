@@ -361,6 +361,7 @@ const documentLineSchema = z.object({
   quantity: positiveDecimal.default(0),
   unit: z.string().trim().min(1).default('PCS'),
   price: positiveDecimal.default(0),
+  discountPct: positiveDecimal.max(100).optional(),
   lineTotal: positiveDecimal.optional(),
 });
 

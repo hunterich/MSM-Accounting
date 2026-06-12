@@ -54,7 +54,7 @@ export const POST = withHandler(async function POST(
       const { purchaseOrderLineId, qtyReceived } = lines[i];
       const poLine = await tx.purchaseOrderLine.findUnique({
         where: { id: purchaseOrderLineId },
-        select: { id: true, quantity: true, receivedQty: true, purchaseOrderId: true, description: true, price: true, unit: true, itemId: true },
+        select: { id: true, quantity: true, receivedQty: true, purchaseOrderId: true, description: true, price: true, discountPct: true, unit: true, itemId: true },
       });
       if (!poLine) throw new ApiError(`PO line ${purchaseOrderLineId} not found`, 422);
       if (poLine.purchaseOrderId !== id) throw new ApiError('PO line does not belong to this PO', 422);
@@ -62,6 +62,10 @@ export const POST = withHandler(async function POST(
       if (qtyReceived > remaining + 0.0001) {
         throw new ApiError(`Over-receiving: only ${remaining.toFixed(4)} units remaining on line`, 422);
       }
+      // Carry the PO line's discount onto the bill line; lineTotal is net of
+      // discount so the GR/IR inventory cost basis reflects the discounted price.
+      const disc = Number(poLine.discountPct) || 0;
+      const lineTotal = Math.round(qtyReceived * Number(poLine.price) * (1 - disc / 100) * 100) / 100;
       billLinesData.push({
         lineNo: i + 1,
         itemId: poLine.itemId ?? null,
@@ -69,7 +73,8 @@ export const POST = withHandler(async function POST(
         quantity: qtyReceived,
         unit: poLine.unit ?? 'PCS',
         price: Number(poLine.price),
-        lineTotal: qtyReceived * Number(poLine.price),
+        discountPct: disc,
+        lineTotal,
         purchaseOrderLineId,
       });
     }
