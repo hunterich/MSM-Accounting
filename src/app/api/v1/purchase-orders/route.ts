@@ -69,11 +69,26 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     });
     if (lines && lines.length > 0) {
       await tx.purchaseOrderLine.createMany({
-        data: lines.map((l: any, idx: number) => ({
-          ...l,
-          purchaseOrderId: created.id,
-          lineNo: l.lineNo ?? idx + 1,
-        })),
+        // Map explicitly (not ...l) — documentLineSchema carries bill-only
+        // fields like purchaseOrderLineId that aren't columns on PurchaseOrderLine.
+        data: lines.map((l: any, idx: number) => {
+          const qty = Number(l.quantity) || 0;
+          const price = Number(l.price) || 0;
+          const disc = Number(l.discountPct) || 0;
+          const netTotal = Math.round(qty * price * (1 - disc / 100) * 100) / 100;
+          return {
+            purchaseOrderId: created.id,
+            lineNo: l.lineNo ?? idx + 1,
+            itemId: l.itemId || null,
+            accountId: l.accountId || null,
+            description: l.description,
+            quantity: l.quantity,
+            unit: l.unit,
+            price: l.price,
+            discountPct: disc,
+            lineTotal: l.lineTotal != null ? l.lineTotal : netTotal,
+          };
+        }),
       });
     }
     return tx.purchaseOrder.findUnique({

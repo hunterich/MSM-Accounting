@@ -108,6 +108,18 @@ describe('createBillRecord — Decimal arithmetic', () => {
     expect(String(line.lineTotal)).toBe('0.02');
   });
 
+  it('computes lineTotal net of a per-line discount percent (10 × 1000 less 10% = 9000)', async () => {
+    const { tx, calls } = makeTx();
+    await createBillRecord(tx as never, 'org-1', {
+      ...baseHeader,
+      lines: [{ description: 'Discounted', quantity: 10, price: 1000, discountPct: 10, unit: 'PCS' }],
+    });
+
+    const [line] = lastLines(calls);
+    expect(String(line.discountPct)).toBe('10');
+    expect(String(line.lineTotal)).toBe('9000');
+  });
+
   it('rounds half-up at the 2nd decimal place (1.005 → 1.01)', async () => {
     const { tx, calls } = makeTx();
     await createBillRecord(tx as never, 'org-1', {

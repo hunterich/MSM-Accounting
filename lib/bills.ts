@@ -29,12 +29,15 @@ function toDecimal(value: unknown): Prisma.Decimal {
   }
 }
 
-// Compute lineTotal as a Decimal. Quantity is stored at 4dp in the DB and
-// price at 2dp; the product is rounded to 2dp to match BillLine.lineTotal's
-// column precision and prevent the DB driver from silently truncating.
-function computeLineTotal(quantity: unknown, price: unknown): Prisma.Decimal {
+// Compute lineTotal as a Decimal, net of any per-line discount percent.
+// Quantity is stored at 4dp in the DB and price at 2dp; the result is rounded
+// to 2dp to match BillLine.lineTotal's column precision. lineTotal is the
+// net-of-discount value the GR/IR posting uses as the inventory cost basis.
+function computeLineTotal(quantity: unknown, price: unknown, discountPct: unknown = 0): Prisma.Decimal {
+  const factor = new Prisma.Decimal(1).minus(toDecimal(discountPct).dividedBy(100));
   return toDecimal(quantity)
     .mul(toDecimal(price))
+    .mul(factor)
     .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 }
 
@@ -78,9 +81,10 @@ export async function createBillRecord(
         accountId: line.accountId || null,
         quantity: toDecimal(line.quantity),
         price: toDecimal(line.price).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
+        discountPct: toDecimal(line.discountPct).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
         lineTotal: line.lineTotal != null
           ? toDecimal(line.lineTotal).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
-          : computeLineTotal(line.quantity, line.price),
+          : computeLineTotal(line.quantity, line.price, line.discountPct),
       })),
     });
   }

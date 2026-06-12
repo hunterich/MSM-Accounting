@@ -81,7 +81,8 @@ export const billLineItemSchema = z.object({
 
 export const billSchema = z.object({
     vendor:      z.string().min(1, 'Vendor is required.'),
-    apAccountId: z.string().min(1, 'A/P account is required.'),
+    // Optional: the server defaults the A/P control account from settings when omitted.
+    apAccountId: z.string().optional(),
     poNumber:    z.string().optional(),
     issueDate:   z.string().optional(),
     dueDate:     z.string().optional(),
