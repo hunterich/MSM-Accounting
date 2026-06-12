@@ -15,8 +15,11 @@ interface DocumentActionBarProps {
     isSaving?: boolean;
     canSave?: boolean;
     saveLabel?: string;
-    onSave: () => void;
+    /** Omit (e.g. read-only view mode) to hide the Save button. */
+    onSave?: () => void;
     onSaveDraft?: () => void;
+    /** Extra buttons (e.g. Approve / Pay in view mode) rendered before Save. */
+    extraActions?: React.ReactNode;
     /** Omit to hide the Print button; triggers the host form's print flow. */
     onPrint?: () => void;
     /** Omit to hide Delete; called after the user confirms. */
@@ -39,6 +42,7 @@ const DocumentActionBar = ({
     saveLabel = 'Save',
     onSave,
     onSaveDraft,
+    extraActions,
     onPrint,
     onDelete,
     canDelete = false,
@@ -54,6 +58,7 @@ const DocumentActionBar = ({
         hasSaveDraft: Boolean(onSaveDraft),
         hasDelete: Boolean(onDelete),
     });
+    const hasRightCluster = Boolean(extraActions) || st.showSaveDraft || Boolean(onSave);
 
     return (
         <>
@@ -68,11 +73,14 @@ const DocumentActionBar = ({
                     <Button variant="danger" size="md" icon={<Trash2 size={15} />} text="Delete"
                         disabled={!st.deleteEnabled} onClick={() => setConfirmDelete(true)} />
                 )}
-                <span className="w-px h-6 bg-neutral-200 mx-1" aria-hidden />
+                {hasRightCluster && <span className="w-px h-6 bg-neutral-200 mx-1" aria-hidden />}
+                {extraActions}
                 {st.showSaveDraft && (
                     <Button variant="secondary" size="md" text="Save Draft" disabled={isSaving} onClick={onSaveDraft} />
                 )}
-                <Button variant="primary" size="md" text={saveLabel} loading={isSaving} disabled={!st.saveEnabled} onClick={onSave} />
+                {onSave && (
+                    <Button variant="primary" size="md" text={saveLabel} loading={isSaving} disabled={!st.saveEnabled} onClick={onSave} />
+                )}
             </div>
 
             <Modal isOpen={historyOpen} onClose={() => setHistoryOpen(false)} title="History" size="lg">
