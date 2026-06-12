@@ -3,16 +3,12 @@
 // BillLine fields: billId, lineNo, description, quantity, unit, price, lineTotal
 // Unique: @@unique([organizationId, number])
 import { NextRequest } from 'next/server';
-import { InventoryDocumentType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
-import { addCostLayer } from '@/lib/inventory-costing';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
-import { toNumber, asMoney } from '@/lib/money';
-import { postJournalEntry } from '@/lib/journal-posting';
+import { postBillToLedger } from '@/lib/bill-posting';
 
 export const runtime = 'nodejs';
 
@@ -122,139 +118,11 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       }
     }
 
-    // Add cost layers when bill status is APPROVED or OPEN (treated as approved/ready)
-    // Cast to string for forward-compatibility in case APPROVED is added to the enum later
+    // Post inventory + GL when the bill is created already finalized.
     const billStatus = parsed.data.status as string;
     if ((billStatus === 'APPROVED' || billStatus === 'OPEN') && createdBill) {
-      const organization = await tx.organization.findUnique({
-        where: { id: orgId },
-        select: { costingMethod: true },
-      });
-
-      if (organization?.costingMethod) {
-        const billLines = createdBill.lines ?? [];
-        const itemIds = billLines
-          .map((l: any) => l.itemId)
-          .filter((id: string | null) => Boolean(id)) as string[];
-
-        const inventoryItems = itemIds.length > 0
-          ? await tx.item.findMany({
-              where: {
-                id: { in: itemIds },
-                organizationId: orgId,
-                type: { in: ['PRODUCT', 'RAW_MATERIAL'] },
-              },
-              select: { id: true },
-            })
-          : [];
-        const inventoryItemIds = new Set(inventoryItems.map((i: any) => i.id));
-
-        const inventoryLines = billLines.filter(
-          (l: any) => l.itemId && inventoryItemIds.has(l.itemId),
-        );
-
-        if (billLines.length > 0) {
-            // Resolve account IDs once
-            const accounts = await tx.account.findMany({
-              where: { organizationId: orgId, isActive: true },
-              select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-            });
-
-            const settings = await loadOrgAccountDefaults(tx, orgId);
-            const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-            const apAccountId =
-              (createdBill.apAccountId as string | null | undefined)
-              ?? resolveAccountDefaultId(accounts, settings, 'apControl');
-            const inputTaxAccountId = resolveAccountDefaultId(accounts, settings, 'apTax');
-            // Service-line catch-all expense — no per-category mapping yet,
-            // so use cogsExpense until a Settings field is added for it.
-            const expenseAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
-
-            const billDate = createdBill.issueDate
-              ? new Date(createdBill.issueDate)
-              : new Date();
-
-            // Add inventory cost layers for inventory lines (unchanged behavior).
-            for (const line of inventoryLines) {
-              const qty = toNumber(line.quantity);
-              const unitCost = toNumber(line.price);
-              if (qty <= 0 || !line.itemId) continue;
-              await addCostLayer(
-                tx,
-                orgId,
-                line.itemId as string,
-                null,
-                qty,
-                unitCost,
-                InventoryDocumentType.PURCHASE,
-                createdBill.id,
-                billDate,
-              );
-            }
-
-            // Post one balanced journal entry for the whole bill.
-            const inventorySubtotal = inventoryLines.reduce(
-              (sum: number, line: any) => sum + toNumber(line.lineTotal ?? toNumber(line.quantity) * toNumber(line.price)),
-              0,
-            );
-            const serviceLines = billLines.filter(
-              (l: any) => !l.itemId || !inventoryItemIds.has(l.itemId),
-            );
-            const serviceSubtotal = serviceLines.reduce(
-              (sum: number, line: any) => sum + toNumber(line.lineTotal ?? toNumber(line.quantity) * toNumber(line.price)),
-              0,
-            );
-            const taxAmount = toNumber(createdBill.taxAmount);
-            const totalAmount = toNumber(createdBill.totalAmount);
-
-            const journalLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [];
-            if (inventorySubtotal > 0 && inventoryAccountId) {
-              journalLines.push({
-                accountId: inventoryAccountId,
-                description: `Inventory - ${createdBill.number}`,
-                debit: asMoney(inventorySubtotal),
-                credit: 0,
-              });
-            }
-            if (serviceSubtotal > 0 && expenseAccountId) {
-              journalLines.push({
-                accountId: expenseAccountId,
-                description: `Expense - ${createdBill.number}`,
-                debit: asMoney(serviceSubtotal),
-                credit: 0,
-              });
-            }
-            if (taxAmount > 0 && inputTaxAccountId) {
-              journalLines.push({
-                accountId: inputTaxAccountId,
-                description: `Input tax - ${createdBill.number}`,
-                debit: asMoney(taxAmount),
-                credit: 0,
-              });
-            }
-            if (totalAmount > 0 && apAccountId) {
-              journalLines.push({
-                accountId: apAccountId,
-                description: `AP - ${createdBill.number}`,
-                debit: 0,
-                credit: asMoney(totalAmount),
-              });
-            }
-
-            // Only post when we have at least one debit and the credit side.
-            const hasDebit = journalLines.some((l) => l.debit > 0);
-            const hasCredit = journalLines.some((l) => l.credit > 0);
-            if (hasDebit && hasCredit) {
-              await postJournalEntry(tx, {
-                organizationId: orgId,
-                date: billDate,
-                memo: `Bill: ${createdBill.number}`,
-                lines: journalLines,
-              });
-            }
-          }
-        }
-      }
+      await postBillToLedger(tx, orgId, createdBill as any);
+    }
     return createdBill;
   });
 
