@@ -138,6 +138,7 @@ function App(): JSX.Element {
                     <Route path="ap/pos" element={withPermission(<PurchaseOrders />, 'ap_pos')} />
                     <Route path="ap/pos/new" element={withPermission(<POForm />, 'ap_pos', 'create')} />
                     <Route path="ap/pos/edit" element={withPermission(<POForm />, 'ap_pos', 'edit')} />
+                    <Route path="ap/receiving" element={withPermission(<PurchaseOrders receivingMode />, 'ap_pos')} />
                     <Route path="ap/bills" element={withPermission(<Bills />, 'ap_bills')} />
                     <Route path="ap/bills/import" element={withPermission(<BillImport />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/new" element={withPermission(<BillForm />, 'ap_bills', 'create')} />

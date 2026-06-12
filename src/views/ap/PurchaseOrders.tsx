@@ -30,7 +30,12 @@ interface ReceiveLine {
     qtyReceived: number;
 }
 
-const PurchaseOrders = () => {
+interface PurchaseOrdersProps {
+    /** When true, render a focused "Receive Goods" list limited to receivable POs. */
+    receivingMode?: boolean;
+}
+
+const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { canCreate, canEdit } = useModulePermissions('ap_pos');
@@ -70,14 +75,18 @@ const PurchaseOrders = () => {
                 (item.id || '').toLowerCase().includes(keyword) ||
                 (item.vendorName || '').toLowerCase().includes(keyword);
             const matchesStatus = filters.status ? item.status === filters.status : true;
+            // In receiving mode, only show POs that can actually be received.
+            const matchesReceivable = receivingMode
+                ? (item.status === 'Approved' || item.status === 'Billed')
+                : true;
 
             let matchesDate = true;
             if (dateRange.from) matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
             if (dateRange.to)   matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
 
-            return matchesSearch && matchesStatus && matchesDate;
+            return matchesSearch && matchesStatus && matchesReceivable && matchesDate;
         });
-    }, [purchaseOrders, searchTerm, filters.status, dateRange.from, dateRange.to]);
+    }, [purchaseOrders, searchTerm, filters.status, dateRange.from, dateRange.to, receivingMode]);
 
     const activePrintPo = filteredData.find((po) => po.id === printPoId)
         || purchaseOrders.find((po) => po.id === printPoId)
@@ -278,8 +287,18 @@ const PurchaseOrders = () => {
                 </div>
             )}
 
+            {receivingMode && (
+                <div className="mb-4">
+                    <h1 className="text-xl font-semibold text-neutral-900">Receive Goods</h1>
+                    <p className="text-sm text-neutral-500 mt-0.5">
+                        Approved purchase orders awaiting receipt. Click <span className="font-medium">Receive</span> to record quantities received and generate a draft bill.
+                    </p>
+                </div>
+            )}
+
             <div className="flex flex-col gap-1.5 mb-2 relative z-[2]">
                 <div className="flex gap-1.5 flex-nowrap items-center">
+                    {!receivingMode && (
                     <button
                         className="border border-[#b9ddff] bg-[#e8f4ff] text-primary-700 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
                         onClick={() => {
@@ -291,6 +310,8 @@ const PurchaseOrders = () => {
                         <List size={16} />
                         Catalog
                     </button>
+                    )}
+                    {!receivingMode && (
                     <button
                         className={`border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                         onClick={() => navigate('/ap/pos/new')}
@@ -299,6 +320,7 @@ const PurchaseOrders = () => {
                         <Plus size={16} />
                         New PO
                     </button>
+                    )}
                     <button
                         className="btn btn-secondary flex items-center gap-1"
                         title="Export CSV"
