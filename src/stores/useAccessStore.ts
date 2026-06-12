@@ -144,6 +144,7 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/ar/customers':          'ar_customers',
     '/ar/categories':         'ar_customer_categories',
     '/ap/pos':                'ap_pos',
+    '/ap/receiving':          'ap_pos',
     '/ap/bills':              'ap_bills',
     '/ap/payments':           'ap_payments',
     '/ap/debits':             'ap_debits',
