@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, softDelete, validateForeignKey } from '@/lib/api-utils';
 import { updateItemInputSchema } from '@/types/api';
+import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 
 export const runtime = 'nodejs';
 
@@ -75,10 +76,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (Object.keys(updateData).length === 1) return err('No changes provided', 400);
 
-    const item = await prisma.item.update({
-      where: { id, organizationId: orgId },
-      data: updateData,
-      include: { category: { select: { id: true, name: true, code: true } } },
+    const item = await prisma.$transaction(async (tx) => {
+      const updated = await tx.item.update({
+        where: { id, organizationId: orgId },
+        data: updateData,
+        include: { category: { select: { id: true, name: true, code: true } } },
+      });
+      // If opening stock was (re)set, post it once as a cost layer + opening JE.
+      // Idempotent — a no-op if opening stock was already booked.
+      if (parsed.data.openingStock !== undefined) {
+        await postOpeningStockIfNeeded(tx, orgId, id, new Date());
+      }
+      return updated;
     });
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Item', entityId: id, action: 'UPDATE', payload: updateData });
     return ok(item);

@@ -57,16 +57,16 @@ const InvoiceItemsTab: React.FC<InvoiceItemsTabProps> = ({ invoice }) => {
 
     return (
         <div>
-            <div className="max-h-[300px] overflow-auto border border-neutral-200 rounded-lg">
-                <table className="w-full border-collapse text-[0.9rem]">
+            <div className="workbench-scroll-table">
+                <table className="invoice-workbench-table">
                     <thead>
                         <tr>
-                            <th className="py-[9px] px-2.5 text-left font-semibold text-neutral-700 border-b border-neutral-200 bg-neutral-100 sticky top-0 z-[1]">Item</th>
-                            <th className="py-[9px] px-2.5 text-right font-semibold text-neutral-700 border-b border-neutral-200 bg-neutral-100 sticky top-0 z-[1]">Qty</th>
-                            <th className="py-[9px] px-2.5 text-left font-semibold text-neutral-700 border-b border-neutral-200 bg-neutral-100 sticky top-0 z-[1]">Unit</th>
-                            <th className="py-[9px] px-2.5 text-right font-semibold text-neutral-700 border-b border-neutral-200 bg-neutral-100 sticky top-0 z-[1]">Price</th>
-                            <th className="py-[9px] px-2.5 text-right font-semibold text-neutral-700 border-b border-neutral-200 bg-neutral-100 sticky top-0 z-[1]">Disc %</th>
-                            <th className="py-[9px] px-2.5 text-right font-semibold text-neutral-700 border-b border-neutral-200 bg-neutral-100 sticky top-0 z-[1]">Line Total</th>
+                            <th>Item</th>
+                            <th className="text-right">Qty</th>
+                            <th>Unit</th>
+                            <th className="text-right">Price</th>
+                            <th className="text-right">Disc %</th>
+                            <th className="text-right">Line Total</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -83,12 +83,12 @@ const InvoiceItemsTab: React.FC<InvoiceItemsTabProps> = ({ invoice }) => {
                             const total = gross - disc;
                             return (
                                 <tr key={line.id}>
-                                    <td className="py-[9px] px-2.5 border-b border-neutral-200">{line.description}</td>
-                                    <td className="py-[9px] px-2.5 border-b border-neutral-200 text-right">{line.quantity}</td>
-                                    <td className="py-[9px] px-2.5 border-b border-neutral-200">{line.unit}</td>
-                                    <td className="py-[9px] px-2.5 border-b border-neutral-200 text-right">{formatIDR(line.price)}</td>
-                                    <td className="py-[9px] px-2.5 border-b border-neutral-200 text-right">{line.discount || 0}</td>
-                                    <td className="py-[9px] px-2.5 border-b border-neutral-200 text-right">{formatIDR(total)}</td>
+                                    <td>{line.description}</td>
+                                    <td className="text-right">{line.quantity}</td>
+                                    <td>{line.unit}</td>
+                                    <td className="text-right">{formatIDR(line.price)}</td>
+                                    <td className="text-right">{line.discount || 0}</td>
+                                    <td className="text-right">{formatIDR(total)}</td>
                                 </tr>
                             );
                         })}

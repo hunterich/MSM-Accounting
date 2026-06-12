@@ -10,18 +10,22 @@ import { NextRequest } from 'next/server';
 
 // ── Prisma mock ──────────────────────────────────────────────────────────────
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
+vi.mock('@/lib/prisma', () => {
+  const prisma: Record<string, unknown> = {
     customer:         { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
     vendor:           { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
-    item:             { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
+    item:             { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn(), updateMany: vi.fn() },
     bill:             { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     account:          { findFirst: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
     journalLine:      { count: vi.fn() },
     bankAccount:      { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     bankTransaction:  { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
-  },
-}));
+    // Item create/update are now transactional (opening-stock posting); run the
+    // callback against the same mock so the update/create assertions still hold.
+    $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(prisma)),
+  };
+  return { prisma };
+});
 
 // Minimal CORS passthrough so we can check res.status directly
 vi.mock('@/lib/cors', () => ({

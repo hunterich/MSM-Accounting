@@ -9,6 +9,7 @@ import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requi
 import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -121,6 +122,12 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     // Post inventory + GL when the bill is created already finalized.
     const billStatus = parsed.data.status as string;
     if ((billStatus === 'APPROVED' || billStatus === 'OPEN') && createdBill) {
+      // Refuse to post into a closed/locked accounting period.
+      await assertPeriodOpen(
+        tx,
+        orgId,
+        createdBill.issueDate ? new Date(createdBill.issueDate) : new Date(),
+      );
       await postBillToLedger(tx, orgId, createdBill as any);
     }
     return createdBill;

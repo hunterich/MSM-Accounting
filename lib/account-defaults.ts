@@ -145,6 +145,14 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredCodes: ['51'],
     keywords: ['hpp', 'harga pokok penjualan', 'cost of goods sold'],
   },
+  openingBalanceEquity: {
+    label: 'Opening Balance Equity',
+    description: 'Equity offset for opening inventory and other onboarding balances.',
+    allowedTypes: ['Equity'],
+    preferredIds: ['COA-3900', 'COA-3100'],
+    preferredCodes: ['3-9000', '39', '3-1000', '31'],
+    keywords: ['opening balance equity', 'saldo awal', 'modal awal', 'modal', 'retained earnings', 'laba ditahan', 'equity', 'ekuitas'],
+  },
   inventoryAdjustment: {
     label: 'Inventory Adjustment / Variance',
     description: 'Variance offset for stock adjustments (over/short counts).',

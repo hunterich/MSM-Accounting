@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { InventoryDocumentType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { ApiError, logAudit } from '@/lib/api-utils';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
+import { assertPeriodOpen } from '@/lib/period-guard';
 import { calculateAndPostCOGS } from '@/lib/inventory-costing';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { toNumber, asMoney } from '@/lib/money';
@@ -97,6 +98,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       // the COGS post only runs when the org has a costing method and the
       // invoice has inventory lines.
       if (existing.status === 'DRAFT' && header.status === 'SENT') {
+        // Refuse to post into a closed/locked accounting period.
+        await assertPeriodOpen(tx, existing.organizationId, new Date(existing.issueDate));
+
         const invoiceHeader = await tx.salesInvoice.findUnique({
           where: { id },
           select: {
@@ -237,6 +241,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
               const invoiceDate = new Date(existing.issueDate);
 
+              // Never relieve inventory without booking COGS. If the accounts
+              // can't be resolved, block the SEND so revenue is not recognised
+              // while the inventory asset is left overstated on the books.
+              if (!cogsAccountId || !inventoryAccountId) {
+                throw new ApiError(
+                  `Cannot post COGS for ${existing.number}: no Inventory Asset / COGS account is configured. Map default accounts in Settings before sending invoices with stocked items.`,
+                  422,
+                );
+              }
+
               for (const line of linesWithInventory) {
                 const qty = toNumber(line.quantity);
                 if (qty <= 0 || !line.itemId) continue;
@@ -252,7 +266,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                   invoiceDate,
                 );
 
-                if (cogs > 0 && cogsAccountId && inventoryAccountId) {
+                if (cogs > 0) {
                   await postJournalEntry(tx, {
                     organizationId: existing.organizationId,
                     date: invoiceDate,
@@ -291,7 +305,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'SalesInvoice', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(updated));
   } catch (error) {
-    if (error instanceof AccessError) {
+    if (error instanceof AccessError || error instanceof ApiError) {
       return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
     }
 
