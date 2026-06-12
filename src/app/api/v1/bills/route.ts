@@ -71,7 +71,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
 
     // --- PO line qty tracking ---
     if (parsed.data.lines && parsed.data.lines.length > 0) {
-      const linesWithPO = (parsed.data.lines as any[]).filter(l => l.purchaseOrderLineId);
+      const linesWithPO = parsed.data.lines.filter(l => l.purchaseOrderLineId);
       if (linesWithPO.length > 0) {
         // Validate: no over-receiving
         for (const line of linesWithPO) {
