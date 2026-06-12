@@ -354,6 +354,20 @@ export const updateOrganizationSettingsInputSchema = z.object({
   paymentAlerts: z.boolean().optional(),
   dailySummary: z.boolean().optional(),
   accountDefaults: z.record(z.string().min(1), z.string()).optional(),
+  printSettings: z.object({
+    showLogo: z.boolean().optional(),
+    showLetterhead: z.boolean().optional(),
+    accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Accent color must be a hex value like #1A2B3C').optional(),
+    density: z.enum(['compact', 'comfortable', 'spacious']).optional(),
+    defaultPaperSize: z.enum(['A4', 'A5']).optional(),
+    showUnitColumn: z.boolean().optional(),
+    showDiscountColumn: z.boolean().optional(),
+    footerText: z.string().max(500).optional(),
+    termsText: z.string().max(2000).optional(),
+    showSignature: z.boolean().optional(),
+    signatureLabel: z.string().max(120).optional(),
+    signerName: z.string().max(120).optional(),
+  }).optional(),
 });
 
 const documentLineSchema = z.object({

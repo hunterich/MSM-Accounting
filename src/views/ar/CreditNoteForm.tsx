@@ -78,6 +78,7 @@ const CreditNoteForm = () => {
     const salesReturns = srData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createCreditNote = useCreateCreditNote();
     const updateCreditNoteMutation = useUpdateCreditNote();
@@ -626,6 +627,7 @@ const CreditNoteForm = () => {
                 onClose={() => setIsPrintOpen(false)}
                 title="Credit Note Print Preview"
                 documentTitle={`CreditNote_${formData.creditNumber || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <NotePrintTemplate
                     title="CREDIT NOTE"
@@ -643,6 +645,7 @@ const CreditNoteForm = () => {
                     taxAmount={totals.taxAmount}
                     total={totals.total}
                     company={company}
+                    options={printSettings}
                 />
             </PrintPreviewModal>
         </FormPage>

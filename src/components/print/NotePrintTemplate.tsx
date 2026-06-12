@@ -1,8 +1,10 @@
 import React from 'react';
 import { formatIDR } from '../../utils/formatters';
-import { CompanyBlock, PRINT_PAGE_STYLE } from './printShared';
-
-const basePageStyle = PRINT_PAGE_STYLE;
+import {
+    CompanyBlock, Letterhead, DocumentFooter, SignatureBlock,
+    pageStyle, cellStyle, cellRightStyle, titleStyle, tableHeadCellStyle, totalAccent,
+    DEFAULT_PRINT_OPTIONS, type PrintOptions,
+} from './printShared';
 
 const formatLongDate = (value: string | null | undefined): string => {
     if (!value) return '-';
@@ -88,10 +90,8 @@ interface NotePrintTemplateProps {
     taxAmount?: number;
     total?: number;
     company?: CompanyInfo;
+    options?: PrintOptions;
 }
-
-const cell: React.CSSProperties = { border: '1px solid #d1d5db', padding: '6px' };
-const cellRight: React.CSSProperties = { ...cell, textAlign: 'right' };
 
 const NotePrintTemplate: React.FC<NotePrintTemplateProps> = ({
     title,
@@ -103,9 +103,10 @@ const NotePrintTemplate: React.FC<NotePrintTemplateProps> = ({
     taxAmount,
     total,
     company = {},
+    options = DEFAULT_PRINT_OPTIONS,
 }) => {
     if (!document) {
-        return <div className="print-template" style={basePageStyle}>No document selected.</div>;
+        return <div className="print-template" style={pageStyle(options)}>No document selected.</div>;
     }
 
     const rows = lineItems.map(normalizeLine);
@@ -115,15 +116,18 @@ const NotePrintTemplate: React.FC<NotePrintTemplateProps> = ({
     const resolvedTotal = total ?? resolvedSubtotal + resolvedTax;
 
     const docNo = document.number || document.id || '-';
+    const showUnit = options.showUnitColumn;
+    const colSpan = 4 + (showUnit ? 1 : 0);
 
     return (
-        <div className="print-template" style={basePageStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '18px' }}>
-                <CompanyBlock company={company} />
+        <div className="print-template" style={pageStyle(options)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <CompanyBlock company={company} showLogo={options.showLogo} />
                 <div style={{ textAlign: 'right' }}>
-                    <h2 style={{ margin: 0, fontSize: '26px', letterSpacing: '0.04em' }}>{title}</h2>
+                    <h2 style={titleStyle(options)}>{title}</h2>
                 </div>
             </div>
+            <Letterhead options={options} />
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #d1d5db', marginBottom: '14px' }}>
                 <div style={{ padding: '10px', borderRight: '1px solid #d1d5db' }}>
@@ -141,25 +145,25 @@ const NotePrintTemplate: React.FC<NotePrintTemplateProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '14px' }}>
                 <thead>
                     <tr>
-                        <th style={{ ...cell, textAlign: 'left' }}>#</th>
-                        <th style={{ ...cell, textAlign: 'left' }}>Description</th>
-                        <th style={cellRight}>Qty</th>
-                        <th style={{ ...cell, textAlign: 'left' }}>Unit</th>
-                        <th style={cellRight}>Price</th>
-                        <th style={cellRight}>Total</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>#</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>Description</th>
+                        <th style={tableHeadCellStyle(options, 'right')}>Qty</th>
+                        {showUnit ? <th style={tableHeadCellStyle(options, 'left')}>Unit</th> : null}
+                        <th style={tableHeadCellStyle(options, 'right')}>Price</th>
+                        <th style={tableHeadCellStyle(options, 'right')}>Total</th>
                     </tr>
                 </thead>
                 <tbody>
                     {rows.length === 0 ? (
-                        <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', padding: '10px' }}>No line items.</td></tr>
+                        <tr><td colSpan={colSpan} style={{ ...cellStyle(options), textAlign: 'center', padding: '10px' }}>No line items.</td></tr>
                     ) : rows.map((row) => (
                         <tr key={row.id}>
-                            <td style={cell}>{row.no}</td>
-                            <td style={cell}>{row.description}</td>
-                            <td style={cellRight}>{row.qty}</td>
-                            <td style={cell}>{row.unit}</td>
-                            <td style={cellRight}>{formatIDR(row.price)}</td>
-                            <td style={cellRight}>{formatIDR(row.total)}</td>
+                            <td style={cellStyle(options)}>{row.no}</td>
+                            <td style={cellStyle(options)}>{row.description}</td>
+                            <td style={cellRightStyle(options)}>{row.qty}</td>
+                            {showUnit ? <td style={cellStyle(options)}>{row.unit}</td> : null}
+                            <td style={cellRightStyle(options)}>{formatIDR(row.price)}</td>
+                            <td style={cellRightStyle(options)}>{formatIDR(row.total)}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -174,7 +178,7 @@ const NotePrintTemplate: React.FC<NotePrintTemplateProps> = ({
                     <span>PPN</span>
                     <strong>{formatIDR(resolvedTax)}</strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #d1d5db', fontSize: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: `2px solid ${totalAccent(options)}`, fontSize: '14px', color: totalAccent(options) }}>
                     <span>TOTAL</span>
                     <strong>{formatIDR(resolvedTotal)}</strong>
                 </div>
@@ -183,6 +187,9 @@ const NotePrintTemplate: React.FC<NotePrintTemplateProps> = ({
             <div style={{ borderTop: '1px solid #d1d5db', paddingTop: '10px' }}>
                 <strong>Notes:</strong> {document.reason || document.notes || '-'}
             </div>
+
+            <DocumentFooter options={options} />
+            <SignatureBlock options={options} />
         </div>
     );
 };

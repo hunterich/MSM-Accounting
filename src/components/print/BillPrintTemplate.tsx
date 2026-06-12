@@ -1,8 +1,10 @@
 import React from 'react';
 import { formatIDR } from '../../utils/formatters';
-import { CompanyBlock, PRINT_PAGE_STYLE } from './printShared';
-
-const basePageStyle = PRINT_PAGE_STYLE;
+import {
+    CompanyBlock, Letterhead, DocumentFooter, SignatureBlock,
+    pageStyle, cellStyle, cellRightStyle, titleStyle, tableHeadCellStyle, totalAccent,
+    DEFAULT_PRINT_OPTIONS, type PrintOptions,
+} from './printShared';
 
 const formatLongDate = (value: string | null | undefined): string => {
     if (!value) return '-';
@@ -84,25 +86,29 @@ interface BillPrintTemplateProps {
     bill?: BillRecord | null;
     lineItems?: RawLineItem[];
     company?: CompanyInfo;
+    options?: PrintOptions;
 }
 
-const BillPrintTemplate: React.FC<BillPrintTemplateProps> = ({ bill, lineItems = [], company = {} }) => {
+const BillPrintTemplate: React.FC<BillPrintTemplateProps> = ({ bill, lineItems = [], company = {}, options = DEFAULT_PRINT_OPTIONS }) => {
     if (!bill) {
-        return <div className="print-template" style={basePageStyle}>No bill selected.</div>;
+        return <div className="print-template" style={pageStyle(options)}>No bill selected.</div>;
     }
 
     const rows = lineItems.map(normalizeLine);
     const subtotal = rows.reduce((sum, row) => sum + row.total, 0);
     const totalAmount = subtotal > 0 ? subtotal : toNumber(bill.amount);
+    const showUnit = options.showUnitColumn;
+    const colSpan = 4 + (showUnit ? 1 : 0);
 
     return (
-        <div className="print-template" style={basePageStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '18px' }}>
-                <CompanyBlock company={company} />
+        <div className="print-template" style={pageStyle(options)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <CompanyBlock company={company} showLogo={options.showLogo} />
                 <div style={{ textAlign: 'right' }}>
-                    <h2 style={{ margin: 0, fontSize: '28px', letterSpacing: '0.04em' }}>BILL</h2>
+                    <h2 style={titleStyle(options)}>BILL</h2>
                 </div>
             </div>
+            <Letterhead options={options} />
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #d1d5db', marginBottom: '14px' }}>
                 <div style={{ padding: '10px', borderRight: '1px solid #d1d5db' }}>
@@ -121,34 +127,34 @@ const BillPrintTemplate: React.FC<BillPrintTemplateProps> = ({ bill, lineItems =
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '14px' }}>
                 <thead>
                     <tr>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'left' }}>#</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'left' }}>Description</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>Qty</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'left' }}>Unit</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>Price</th>
-                        <th style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>Total</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>#</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>Description</th>
+                        <th style={tableHeadCellStyle(options, 'right')}>Qty</th>
+                        {showUnit ? <th style={tableHeadCellStyle(options, 'left')}>Unit</th> : null}
+                        <th style={tableHeadCellStyle(options, 'right')}>Price</th>
+                        <th style={tableHeadCellStyle(options, 'right')}>Total</th>
                     </tr>
                 </thead>
                 <tbody>
                     {rows.length === 0 ? (
                         <tr>
-                            <td colSpan={6} style={{ border: '1px solid #d1d5db', padding: '10px', textAlign: 'center' }}>No line items.</td>
+                            <td colSpan={colSpan} style={{ ...cellStyle(options), textAlign: 'center', padding: '10px' }}>No line items.</td>
                         </tr>
                     ) : rows.map((row) => (
                         <tr key={row.id}>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px' }}>{row.no}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px' }}>{row.description}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>{row.qty}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px' }}>{row.unit}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>{formatIDR(row.price)}</td>
-                            <td style={{ border: '1px solid #d1d5db', padding: '6px', textAlign: 'right' }}>{formatIDR(row.total)}</td>
+                            <td style={cellStyle(options)}>{row.no}</td>
+                            <td style={cellStyle(options)}>{row.description}</td>
+                            <td style={cellRightStyle(options)}>{row.qty}</td>
+                            {showUnit ? <td style={cellStyle(options)}>{row.unit}</td> : null}
+                            <td style={cellRightStyle(options)}>{formatIDR(row.price)}</td>
+                            <td style={cellRightStyle(options)}>{formatIDR(row.total)}</td>
                         </tr>
                     ))}
                 </tbody>
             </table>
 
             <div style={{ marginLeft: 'auto', width: '320px', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #d1d5db', fontSize: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: `2px solid ${totalAccent(options)}`, fontSize: '14px', color: totalAccent(options) }}>
                     <span>TOTAL</span>
                     <strong>{formatIDR(totalAmount)}</strong>
                 </div>
@@ -157,6 +163,9 @@ const BillPrintTemplate: React.FC<BillPrintTemplateProps> = ({ bill, lineItems =
             <div style={{ borderTop: '1px solid #d1d5db', paddingTop: '10px' }}>
                 <strong>Notes:</strong> {bill.notes || '-'}
             </div>
+
+            <DocumentFooter options={options} />
+            <SignatureBlock options={options} />
         </div>
     );
 };

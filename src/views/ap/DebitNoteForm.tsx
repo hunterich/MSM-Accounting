@@ -106,6 +106,7 @@ const DebitNoteForm = () => {
     const purchaseReturns = prData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
@@ -599,6 +600,7 @@ const DebitNoteForm = () => {
                 onClose={() => setIsPrintOpen(false)}
                 title="Debit Note Print Preview"
                 documentTitle={`DebitNote_${formData.debitNumber || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <NotePrintTemplate
                     title="DEBIT NOTE"
@@ -616,6 +618,7 @@ const DebitNoteForm = () => {
                     taxAmount={totals.taxAmount}
                     total={totals.total}
                     company={company}
+                    options={printSettings}
                 />
             </PrintPreviewModal>
         </FormPage>

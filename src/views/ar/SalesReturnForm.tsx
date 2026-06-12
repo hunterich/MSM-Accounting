@@ -95,6 +95,7 @@ const SalesReturnForm = () => {
     const products = productsData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createSalesReturnMutation = useCreateSalesReturn();
     const updateSalesReturnMutation = useUpdateSalesReturn();
@@ -732,6 +733,7 @@ const SalesReturnForm = () => {
                 onClose={() => setIsPrintOpen(false)}
                 title="Sales Return Print Preview"
                 documentTitle={`SalesReturn_${returnData.returnNumber || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <NotePrintTemplate
                     title="SALES RETURN"
@@ -749,6 +751,7 @@ const SalesReturnForm = () => {
                     taxAmount={totals.taxAmount}
                     total={totals.total}
                     company={company}
+                    options={printSettings}
                 />
             </PrintPreviewModal>
         </FormPage>

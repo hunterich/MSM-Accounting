@@ -1,4 +1,8 @@
 import React from 'react';
+import { DEFAULT_PRINT_OPTIONS, type PrintOptions } from '../../types';
+
+export type { PrintOptions } from '../../types';
+export { DEFAULT_PRINT_OPTIONS } from '../../types';
 
 export interface PrintCompanyInfo {
     logoUrl?: string;
@@ -9,18 +13,77 @@ export interface PrintCompanyInfo {
     npwp?: string;
 }
 
+// ── Density → spacing/typography ──────────────────────────────────────────────
+const DENSITY: Record<PrintOptions['density'], { fontSize: string; cellPad: string; titleSize: string }> = {
+    compact: { fontSize: '11px', cellPad: '4px 6px', titleSize: '24px' },
+    comfortable: { fontSize: '12px', cellPad: '6px', titleSize: '28px' },
+    spacious: { fontSize: '13px', cellPad: '9px', titleSize: '32px' },
+};
+
+// Mix a hex color toward white by `ratio` (0..1) — used for subtle accent tints.
+const tint = (hex: string, ratio: number): string => {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return '#f3f4f6';
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+    const mix = (c: number) => Math.round(c + (255 - c) * ratio);
+    return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
+};
+
+/** Outer page style — density controls font size; fluid width lets the modal pick A4/A5. */
+export function pageStyle(options: PrintOptions = DEFAULT_PRINT_OPTIONS): React.CSSProperties {
+    return {
+        width: '100%',
+        minHeight: '100%',
+        padding: '20mm',
+        boxSizing: 'border-box',
+        background: '#fff',
+        color: '#111827',
+        fontFamily: 'Inter, Arial, sans-serif',
+        fontSize: DENSITY[options.density].fontSize,
+    };
+}
+
+/** Back-compat constant (comfortable density). */
+export const PRINT_PAGE_STYLE = pageStyle(DEFAULT_PRINT_OPTIONS);
+
+export function cellStyle(options: PrintOptions = DEFAULT_PRINT_OPTIONS): React.CSSProperties {
+    return { border: '1px solid #d1d5db', padding: DENSITY[options.density].cellPad, textAlign: 'left' };
+}
+export function cellRightStyle(options: PrintOptions = DEFAULT_PRINT_OPTIONS): React.CSSProperties {
+    return { ...cellStyle(options), textAlign: 'right' };
+}
+
+/** Document title (e.g. "INVOICE") — tinted with the accent color. */
+export function titleStyle(options: PrintOptions = DEFAULT_PRINT_OPTIONS): React.CSSProperties {
+    return { margin: 0, fontSize: DENSITY[options.density].titleSize, letterSpacing: '0.04em', color: options.accentColor };
+}
+
+/** Table header cell — subtle accent-tinted background + accent bottom border. */
+export function tableHeadCellStyle(options: PrintOptions = DEFAULT_PRINT_OPTIONS, align: 'left' | 'right' = 'left'): React.CSSProperties {
+    return {
+        ...cellStyle(options),
+        textAlign: align,
+        background: tint(options.accentColor, 0.88),
+        borderBottom: `2px solid ${options.accentColor}`,
+        fontWeight: 600,
+    };
+}
+
+/** Accent color for the TOTAL row. */
+export function totalAccent(options: PrintOptions = DEFAULT_PRINT_OPTIONS): string {
+    return options.accentColor;
+}
+
 /**
- * Company identity block shared by every print template.
- *
- * The company name falls back to a placeholder, but the contact lines
- * (address / phone+email / NPWP) are omitted entirely when blank — so an
- * org with a partial profile prints a clean header instead of bare dashes.
+ * Company identity block. Honors `showLogo`; omits blank contact lines so a
+ * partial profile prints clean (no bare dashes).
  */
-export const CompanyBlock: React.FC<{ company?: PrintCompanyInfo }> = ({ company = {} }) => {
+export const CompanyBlock: React.FC<{ company?: PrintCompanyInfo; showLogo?: boolean }> = ({ company = {}, showLogo = true }) => {
     const contactLine = [company.phone, company.email].filter(Boolean).join(' | ');
     return (
         <div>
-            {company.logoUrl ? (
+            {showLogo && company.logoUrl ? (
                 <img
                     src={company.logoUrl}
                     alt="Company logo"
@@ -37,18 +100,42 @@ export const CompanyBlock: React.FC<{ company?: PrintCompanyInfo }> = ({ company
     );
 };
 
-/**
- * Outer page style for print templates. Width is fluid (100%) so the
- * PrintPreviewModal's A4/A5 container controls the actual paper dimensions;
- * border-box keeps the 20mm padding inside that width.
- */
-export const PRINT_PAGE_STYLE: React.CSSProperties = {
-    width: '100%',
-    minHeight: '100%',
-    padding: '20mm',
-    boxSizing: 'border-box',
-    background: '#fff',
-    color: '#111827',
-    fontFamily: 'Inter, Arial, sans-serif',
-    fontSize: '12px',
+/** Thin accent band rendered under the company header when enabled. */
+export const Letterhead: React.FC<{ options?: PrintOptions }> = ({ options = DEFAULT_PRINT_OPTIONS }) => {
+    if (!options.showLetterhead) return null;
+    return <div style={{ height: '4px', background: options.accentColor, margin: '0 0 14px' }} />;
+};
+
+/** Terms block + centered footer line, shown only when text is configured. */
+export const DocumentFooter: React.FC<{ options?: PrintOptions }> = ({ options = DEFAULT_PRINT_OPTIONS }) => {
+    if (!options.termsText && !options.footerText) return null;
+    return (
+        <div style={{ marginTop: '18px', borderTop: '1px solid #d1d5db', paddingTop: '10px' }}>
+            {options.termsText ? (
+                <div style={{ whiteSpace: 'pre-wrap', color: '#374151', marginBottom: options.footerText ? '10px' : 0 }}>
+                    <strong>Terms &amp; Conditions:</strong>
+                    <div>{options.termsText}</div>
+                </div>
+            ) : null}
+            {options.footerText ? (
+                <div style={{ textAlign: 'center', color: '#6b7280' }}>{options.footerText}</div>
+            ) : null}
+        </div>
+    );
+};
+
+/** Signature block for money documents (label + line + optional signer name). */
+export const SignatureBlock: React.FC<{ options?: PrintOptions }> = ({ options = DEFAULT_PRINT_OPTIONS }) => {
+    if (!options.showSignature) return null;
+    return (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '32px' }}>
+            <div style={{ width: '220px', textAlign: 'center' }}>
+                <div style={{ marginBottom: '4px' }}>{options.signatureLabel || 'Hormat kami,'}</div>
+                <div style={{ height: '52px' }} />
+                <div style={{ borderTop: '1px solid #111827', paddingTop: '4px' }}>
+                    {options.signerName || '(        )'}
+                </div>
+            </div>
+        </div>
+    );
 };

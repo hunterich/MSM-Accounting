@@ -80,6 +80,7 @@ const PurchaseReturnForm = () => {
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createPurchaseReturnMutation = useCreatePurchaseReturn();
     const updatePurchaseReturnMutation = useUpdatePurchaseReturn();
@@ -588,6 +589,7 @@ const PurchaseReturnForm = () => {
                 onClose={() => setIsPrintOpen(false)}
                 title="Purchase Return Print Preview"
                 documentTitle={`PurchaseReturn_${returnData.returnNumber || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <NotePrintTemplate
                     title="PURCHASE RETURN"
@@ -605,6 +607,7 @@ const PurchaseReturnForm = () => {
                     taxAmount={totals.taxAmount}
                     total={totals.total}
                     company={company}
+                    options={printSettings}
                 />
             </PrintPreviewModal>
         </FormPage>

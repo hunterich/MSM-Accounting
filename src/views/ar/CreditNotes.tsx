@@ -55,6 +55,7 @@ const CreditNotes = () => {
     const salesReturns = srData?.data ?? [];
     const { data: warehouses = [] } = useWarehouses();
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<CreditFilters>({ settlementType: '' });
     const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
@@ -555,6 +556,7 @@ const CreditNotes = () => {
                 onClose={() => setIsPrintOpen(false)}
                 title={`${printDoc?.title || 'Document'} Print Preview`}
                 documentTitle={`${(printDoc?.title || 'Document').replace(/\s+/g, '')}_${(printDoc?.document.number as string) || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <NotePrintTemplate
                     title={printDoc?.title || ''}
@@ -566,6 +568,7 @@ const CreditNotes = () => {
                     taxAmount={printDoc?.taxAmount}
                     total={printDoc?.total}
                     company={company}
+                    options={printSettings}
                 />
             </PrintPreviewModal>
         </div>

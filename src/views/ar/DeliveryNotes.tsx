@@ -49,6 +49,7 @@ const DeliveryNotes: React.FC = () => {
     const notes: DeliveryNote[] = dnResult?.data ?? [];
 
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const [printNoteId, setPrintNoteId] = useState<string>('');
     const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
     const queuePrintNote = (id: string) => { setPrintNoteId(id); setIsPrintOpen(true); };
@@ -357,10 +358,12 @@ const DeliveryNotes: React.FC = () => {
                 onClose={() => setIsPrintOpen(false)}
                 title="Delivery Note Print Preview"
                 documentTitle={`DeliveryNote_${activePrintNote?.number || activePrintNote?.id || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <DeliveryNotePrintTemplate
                     deliveryNote={activePrintNote}
                     company={company}
+                    options={printSettings}
                 />
             </PrintPreviewModal>
         </ListPage>

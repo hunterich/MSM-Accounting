@@ -1,7 +1,9 @@
 import React from 'react';
-import { CompanyBlock, PRINT_PAGE_STYLE } from './printShared';
-
-const basePageStyle = PRINT_PAGE_STYLE;
+import {
+    CompanyBlock, Letterhead, DocumentFooter,
+    pageStyle, cellStyle, cellRightStyle, titleStyle, tableHeadCellStyle,
+    DEFAULT_PRINT_OPTIONS, type PrintOptions,
+} from './printShared';
 
 const formatLongDate = (value: string | null | undefined): string => {
     if (!value) return '-';
@@ -53,36 +55,38 @@ interface CompanyInfo {
 interface DeliveryNotePrintTemplateProps {
     deliveryNote?: DeliveryNoteRecord | null;
     company?: CompanyInfo;
+    options?: PrintOptions;
 }
 
-const cell: React.CSSProperties = { border: '1px solid #d1d5db', padding: '6px' };
-const cellRight: React.CSSProperties = { ...cell, textAlign: 'right' };
-
-const SignatureBlock: React.FC<{ label: string }> = ({ label }) => (
+// A delivery note (surat jalan) always carries delivered-by / received-by signatures.
+const PartySignature: React.FC<{ label: string }> = ({ label }) => (
     <div style={{ width: '180px', textAlign: 'center' }}>
         <div style={{ marginBottom: '48px' }}>{label}</div>
         <div style={{ borderTop: '1px solid #111827', paddingTop: '4px' }}>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
     </div>
 );
 
-const DeliveryNotePrintTemplate: React.FC<DeliveryNotePrintTemplateProps> = ({ deliveryNote, company = {} }) => {
+const DeliveryNotePrintTemplate: React.FC<DeliveryNotePrintTemplateProps> = ({ deliveryNote, company = {}, options = DEFAULT_PRINT_OPTIONS }) => {
     if (!deliveryNote) {
-        return <div className="print-template" style={basePageStyle}>No delivery note selected.</div>;
+        return <div className="print-template" style={pageStyle(options)}>No delivery note selected.</div>;
     }
 
     const lines = deliveryNote.lines || [];
     const docNo = deliveryNote.number || deliveryNote.id || '-';
     const soRef = deliveryNote.salesOrderNumber || deliveryNote.salesOrderId || '-';
+    const showUnit = options.showUnitColumn;
+    const colSpan = 4 + (showUnit ? 1 : 0);
 
     return (
-        <div className="print-template" style={basePageStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '18px' }}>
-                <CompanyBlock company={company} />
+        <div className="print-template" style={pageStyle(options)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <CompanyBlock company={company} showLogo={options.showLogo} />
                 <div style={{ textAlign: 'right' }}>
-                    <h2 style={{ margin: 0, fontSize: '24px', letterSpacing: '0.04em' }}>DELIVERY NOTE</h2>
+                    <h2 style={titleStyle(options)}>DELIVERY NOTE</h2>
                     <div style={{ fontSize: '13px', color: '#6b7280' }}>SURAT JALAN</div>
                 </div>
             </div>
+            <Letterhead options={options} />
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #d1d5db', marginBottom: '14px' }}>
                 <div style={{ padding: '10px', borderRight: '1px solid #d1d5db' }}>
@@ -101,23 +105,23 @@ const DeliveryNotePrintTemplate: React.FC<DeliveryNotePrintTemplateProps> = ({ d
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '24px' }}>
                 <thead>
                     <tr>
-                        <th style={{ ...cell, textAlign: 'left' }}>#</th>
-                        <th style={{ ...cell, textAlign: 'left' }}>Description</th>
-                        <th style={cellRight}>Qty Ordered</th>
-                        <th style={cellRight}>Qty Delivered</th>
-                        <th style={{ ...cell, textAlign: 'left' }}>Unit</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>#</th>
+                        <th style={tableHeadCellStyle(options, 'left')}>Description</th>
+                        <th style={tableHeadCellStyle(options, 'right')}>Qty Ordered</th>
+                        <th style={tableHeadCellStyle(options, 'right')}>Qty Delivered</th>
+                        {showUnit ? <th style={tableHeadCellStyle(options, 'left')}>Unit</th> : null}
                     </tr>
                 </thead>
                 <tbody>
                     {lines.length === 0 ? (
-                        <tr><td colSpan={5} style={{ ...cell, textAlign: 'center', padding: '10px' }}>No line items.</td></tr>
+                        <tr><td colSpan={colSpan} style={{ ...cellStyle(options), textAlign: 'center', padding: '10px' }}>No line items.</td></tr>
                     ) : lines.map((line, index) => (
                         <tr key={line.itemId || `${line.description}-${index}`}>
-                            <td style={cell}>{index + 1}</td>
-                            <td style={cell}>{line.description || line.itemName || '-'}</td>
-                            <td style={cellRight}>{toNumber(line.qtyOrdered)}</td>
-                            <td style={cellRight}>{toNumber(line.qtyToDeliver)}</td>
-                            <td style={cell}>{line.unit || 'PCS'}</td>
+                            <td style={cellStyle(options)}>{index + 1}</td>
+                            <td style={cellStyle(options)}>{line.description || line.itemName || '-'}</td>
+                            <td style={cellRightStyle(options)}>{toNumber(line.qtyOrdered)}</td>
+                            <td style={cellRightStyle(options)}>{toNumber(line.qtyToDeliver)}</td>
+                            {showUnit ? <td style={cellStyle(options)}>{line.unit || 'PCS'}</td> : null}
                         </tr>
                     ))}
                 </tbody>
@@ -129,9 +133,11 @@ const DeliveryNotePrintTemplate: React.FC<DeliveryNotePrintTemplateProps> = ({ d
                 </div>
             ) : null}
 
+            <DocumentFooter options={options} />
+
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '40px' }}>
-                <SignatureBlock label="Delivered By" />
-                <SignatureBlock label="Received By" />
+                <PartySignature label="Delivered By" />
+                <PartySignature label="Received By" />
             </div>
         </div>
     );

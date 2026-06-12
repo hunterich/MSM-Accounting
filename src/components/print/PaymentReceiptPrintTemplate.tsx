@@ -1,8 +1,10 @@
 import React from 'react';
 import { formatIDR, terbilang, humanizeLabel } from '../../utils/formatters';
-import { CompanyBlock, PRINT_PAGE_STYLE } from './printShared';
-
-const basePageStyle = PRINT_PAGE_STYLE;
+import {
+    CompanyBlock, Letterhead, DocumentFooter,
+    pageStyle, titleStyle, totalAccent,
+    DEFAULT_PRINT_OPTIONS, type PrintOptions,
+} from './printShared';
 
 const formatLongDate = (value: string | null | undefined): string => {
     if (!value) return '-';
@@ -45,14 +47,15 @@ interface PaymentReceiptPrintTemplateProps {
     direction: 'in' | 'out';   // in = received from customer (AR); out = paid to vendor (AP)
     partyName?: string;
     company?: CompanyInfo;
+    options?: PrintOptions;
 }
 
 const labelCell: React.CSSProperties = { padding: '6px 10px', border: '1px solid #d1d5db', fontWeight: 600, width: '160px', background: '#f9fafb' };
 const valueCell: React.CSSProperties = { padding: '6px 10px', border: '1px solid #d1d5db' };
 
-const PaymentReceiptPrintTemplate: React.FC<PaymentReceiptPrintTemplateProps> = ({ payment, direction, partyName, company = {} }) => {
+const PaymentReceiptPrintTemplate: React.FC<PaymentReceiptPrintTemplateProps> = ({ payment, direction, partyName, company = {}, options = DEFAULT_PRINT_OPTIONS }) => {
     if (!payment) {
-        return <div className="print-template" style={basePageStyle}>No payment selected.</div>;
+        return <div className="print-template" style={pageStyle(options)}>No payment selected.</div>;
     }
 
     const amount = toNumber(payment.amount);
@@ -60,19 +63,21 @@ const PaymentReceiptPrintTemplate: React.FC<PaymentReceiptPrintTemplateProps> = 
     const partyHeading = direction === 'in' ? 'Received From' : 'Paid To';
     const reference = payment.invoiceId || payment.billId || '-';
     const referenceLabel = direction === 'in' ? 'Invoice Ref' : 'Bill Ref';
-    const signatureLabel = direction === 'in' ? 'Recipient' : 'Authorised By';
+    const signatureLabel = options.signatureLabel || (direction === 'in' ? 'Recipient' : 'Authorised By');
+    const accent = totalAccent(options);
 
     return (
-        <div className="print-template" style={basePageStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
-                <CompanyBlock company={company} />
+        <div className="print-template" style={pageStyle(options)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '18px' }}>
+                <CompanyBlock company={company} showLogo={options.showLogo} />
                 <div style={{ textAlign: 'right' }}>
-                    <h2 style={{ margin: 0, fontSize: '24px', letterSpacing: '0.04em' }}>PAYMENT RECEIPT</h2>
+                    <h2 style={titleStyle(options)}>PAYMENT RECEIPT</h2>
                     <div style={{ fontSize: '13px', color: '#6b7280' }}>KWITANSI</div>
                     <div style={{ marginTop: '8px' }}><strong>No:</strong> {receiptNo}</div>
                     <div><strong>Date:</strong> {formatLongDate(payment.date)}</div>
                 </div>
             </div>
+            <Letterhead options={options} />
 
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '18px' }}>
                 <tbody>
@@ -95,17 +100,19 @@ const PaymentReceiptPrintTemplate: React.FC<PaymentReceiptPrintTemplateProps> = 
                 </tbody>
             </table>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '40px' }}>
-                <div style={{ border: '2px solid #111827', borderRadius: '6px', padding: '12px 20px', fontSize: '20px', fontWeight: 700 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '32px' }}>
+                <div style={{ border: `2px solid ${accent}`, borderRadius: '6px', padding: '12px 20px', fontSize: '20px', fontWeight: 700, color: accent }}>
                     {formatIDR(amount)}
                 </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '40px' }}>
+            <DocumentFooter options={options} />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '32px' }}>
                 <div style={{ width: '200px', textAlign: 'center' }}>
                     <div style={{ marginBottom: '4px' }}>{company.companyName || 'PT. Internal Accounting'}</div>
                     <div style={{ marginBottom: '48px', color: '#6b7280' }}>{signatureLabel}</div>
-                    <div style={{ borderTop: '1px solid #111827', paddingTop: '4px' }}>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                    <div style={{ borderTop: '1px solid #111827', paddingTop: '4px' }}>{options.signerName || '(        )'}</div>
                 </div>
             </div>
         </div>

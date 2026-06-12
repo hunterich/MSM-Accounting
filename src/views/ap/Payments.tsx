@@ -37,6 +37,7 @@ const Payments = () => {
     const payments = paymentsResult?.data ?? [];
 
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const [printPaymentId, setPrintPaymentId] = useState<string>('');
     const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
     const queuePrintPayment = (id: string) => { setPrintPaymentId(id); setIsPrintOpen(true); };
@@ -346,12 +347,14 @@ const Payments = () => {
                 onClose={() => setIsPrintOpen(false)}
                 title="Payment Receipt Preview"
                 documentTitle={`Receipt_${activePrintPayment?.number || activePrintPayment?.id || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <PaymentReceiptPrintTemplate
                     payment={activePrintPayment}
                     direction="out"
                     partyName={activePrintPayment?.vendorName}
                     company={company}
+                    options={printSettings}
                 />
             </PrintPreviewModal>
         </div>

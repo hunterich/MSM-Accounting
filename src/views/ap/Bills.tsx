@@ -37,6 +37,7 @@ const Bills = () => {
     // billItemTemplates stays in the local store (used for print until API supports line fetch)
     const billItemTemplates = useBillStore((s) => s.billItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
 
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<BillFilters>({ status: '' });
@@ -243,6 +244,7 @@ const Bills = () => {
                 onClose={() => setIsPreviewOpen(false)}
                 title="Bill Print Preview"
                 documentTitle={`Bill_${activePrintBill?.id || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 {/* casts: local Bill/CompanyInfo lack index signatures required by print template */}
                 {activePrintBill && (
@@ -250,6 +252,7 @@ const Bills = () => {
                         bill={activePrintBill as unknown as Record<string, unknown>}
                         lineItems={activePrintLines}
                         company={company as unknown as Record<string, unknown>}
+                        options={printSettings}
                     />
                 )}
             </PrintPreviewModal>

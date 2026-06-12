@@ -34,6 +34,7 @@ const InvoiceWorkbench = () => {
     const invoices = invoicesResult?.data ?? [];
     const invoiceItemTemplates = useInvoiceStore((s) => s.invoiceItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
     const taxRate = useSettingsStore((s) => s.taxSettings.defaultRate);
 
     const [filters, setFilters] = useState<InvoiceFilters>({
@@ -256,6 +257,7 @@ const InvoiceWorkbench = () => {
                 onClose={() => setIsPreviewOpen(false)}
                 title="Invoice Print Preview"
                 documentTitle={`Invoice_${activePrintInvoice?.number || activePrintInvoice?.id || ''}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
             >
                 {activePrintInvoice && (
                     // casts: Invoice/CompanyInfo lack index signatures required by print template
@@ -263,6 +265,7 @@ const InvoiceWorkbench = () => {
                         invoice={activePrintInvoice as unknown as Record<string, unknown>}
                         lineItems={activePrintLines as unknown as Record<string, unknown>[]}
                         company={company as unknown as Record<string, unknown>}
+                        options={printSettings}
                         taxRate={taxRate}
                     />
                 )}

@@ -5,6 +5,7 @@ import {
     DEFAULT_ACCOUNT_DEFAULTS,
     type AccountDefaultsConfig,
 } from '../../lib/account-defaults';
+import { DEFAULT_PRINT_OPTIONS, type PrintOptions } from '../types';
 
 interface DocNumberingConfig {
     prefix:      string;
@@ -91,6 +92,7 @@ interface SettingsStore {
     features:                 FeatureFlags;
     approvalRequirements:     ApprovalRequirements;
     accountDefaults:          AccountDefaultsConfig;
+    printSettings:            PrintOptions;
     documentNumbering:        Record<string, DocNumberingConfig>;
     dashboardConfig:          Record<string, string[]>;
     setCompanyInfo:           (fields: Partial<CompanyInfo>) => void;
@@ -101,6 +103,7 @@ interface SettingsStore {
     updateFeatures:           (updates: Partial<FeatureFlags>) => void;
     updateApprovalRequirements:(updates: Partial<ApprovalRequirements>) => void;
     updateAccountDefaults:    (updates: Partial<AccountDefaultsConfig>) => void;
+    updatePrintSettings:      (updates: Partial<PrintOptions>) => void;
     updateDocumentNumbering:  (docType: string, updates: Partial<DocNumberingConfig>) => void;
     getDashboardWidgets:      (userId: string) => string[];
     setDashboardWidgets:      (userId: string, widgetIds: string[]) => void;
@@ -181,6 +184,7 @@ interface PersistedSettingsState {
     features?: Partial<FeatureFlags>;
     approvalRequirements?: Partial<ApprovalRequirements>;
     accountDefaults?: Partial<AccountDefaultsConfig>;
+    printSettings?: Partial<PrintOptions>;
     documentNumbering?: Record<string, Partial<DocNumberingConfig>>;
     dashboardConfig?: Record<string, string[]>;
 }
@@ -195,6 +199,7 @@ export const useSettingsStore = create<SettingsStore>()(
             features: DEFAULT_FEATURES,
             approvalRequirements: DEFAULT_APPROVAL_REQUIREMENTS,
             accountDefaults: DEFAULT_ACCOUNT_DEFAULTS,
+            printSettings: DEFAULT_PRINT_OPTIONS,
             documentNumbering: DEFAULT_DOCUMENT_NUMBERING,
             dashboardConfig: {}, // Record<userId, widgetId[]>
 
@@ -238,6 +243,11 @@ export const useSettingsStore = create<SettingsStore>()(
                     accountDefaults: { ...state.accountDefaults, ...updates }
                 }));
             },
+            updatePrintSettings: (updates) => {
+                set((state) => ({
+                    printSettings: { ...state.printSettings, ...updates }
+                }));
+            },
             updateDocumentNumbering: (docType, updates) => set(state => ({
                 documentNumbering: {
                     ...state.documentNumbering,
@@ -255,7 +265,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: 'msm-settings',
-            version: 8,
+            version: 9,
             migrate: (persistedState) => ({
                 ...(persistedState as PersistedSettingsState | undefined),
                 companyInfo: {
@@ -285,6 +295,10 @@ export const useSettingsStore = create<SettingsStore>()(
                 accountDefaults: {
                     ...DEFAULT_ACCOUNT_DEFAULTS,
                     ...((persistedState as PersistedSettingsState | undefined)?.accountDefaults || {}),
+                },
+                printSettings: {
+                    ...DEFAULT_PRINT_OPTIONS,
+                    ...((persistedState as PersistedSettingsState | undefined)?.printSettings || {}),
                 },
                 documentNumbering: {
                     ...DEFAULT_DOCUMENT_NUMBERING,

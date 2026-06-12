@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
 import type { OrganizationSettings, RawOrganizationSettings } from '../types';
+import { DEFAULT_PRINT_OPTIONS } from '../types';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export const ORG_SETTINGS_KEY = ['organizationSettings'] as const;
@@ -33,6 +34,7 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
     costingMethodSetById: raw.costingMethodSetById || '',
     costingMethodEffectiveDate: raw.costingMethodEffectiveDate ? String(raw.costingMethodEffectiveDate).slice(0, 10) : '',
     accountDefaults,
+    printSettings: { ...DEFAULT_PRINT_OPTIONS, ...(raw.printSettings || {}) },
     needsInventoryValuationSetup: raw.needsInventoryValuationSetup === true || !raw.costingMethod,
   };
 }
@@ -66,6 +68,7 @@ export function useUpdateOrganizationSettings() {
  */
 export function useHydrateCompanyInfoFromOrg(enabled = true) {
   const setCompanyInfo = useSettingsStore((s) => s.setCompanyInfo);
+  const updatePrintSettings = useSettingsStore((s) => s.updatePrintSettings);
   const { data } = useQuery({
     queryKey: ORG_SETTINGS_KEY,
     queryFn: () => api.get<RawOrganizationSettings & { needsInventoryValuationSetup?: boolean }>('/api/v1/organization/settings'),
@@ -86,7 +89,8 @@ export function useHydrateCompanyInfoFromOrg(enabled = true) {
       timezone: data.timezone,
       locale: data.locale,
     });
-  }, [data, setCompanyInfo]);
+    updatePrintSettings(data.printSettings);
+  }, [data, setCompanyInfo, updatePrintSettings]);
 }
 
 /** Convenience hook returning just the org's account-defaults map. */

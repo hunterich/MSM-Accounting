@@ -37,6 +37,7 @@ model Organization {
   emailFromName          String?
   emailFromDomain        String?
   accountDefaults        Json?
+  printSettings          Json?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
