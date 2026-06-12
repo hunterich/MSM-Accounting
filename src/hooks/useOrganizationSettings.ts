@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
 import type { OrganizationSettings, RawOrganizationSettings } from '../types';
+import { useSettingsStore } from '../stores/useSettingsStore';
 
 export const ORG_SETTINGS_KEY = ['organizationSettings'] as const;
 
@@ -19,6 +21,12 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
     npwp: raw.npwp || '',
     isPkp: raw.isPkp === true,
     baseCurrency: raw.baseCurrency || 'IDR',
+    timezone: raw.timezone || 'Asia/Jakarta',
+    locale: raw.locale || 'id-ID',
+    address: raw.address || '',
+    phone: raw.phone || '',
+    companyEmail: raw.companyEmail || '',
+    logoUrl: raw.logoUrl || '',
     fiscalYearStart: raw.fiscalYearStart ? String(raw.fiscalYearStart).slice(0, 10) : '',
     costingMethod: raw.costingMethod || '',
     costingMethodSetAt: raw.costingMethodSetAt ? String(raw.costingMethodSetAt) : '',
@@ -48,6 +56,37 @@ export function useUpdateOrganizationSettings() {
       qc.invalidateQueries({ queryKey: ORG_SETTINGS_KEY });
     },
   });
+}
+
+/**
+ * Hydrates the local settings store's `companyInfo` from the organization
+ * record so the print header (and Settings form) reflect the database — the
+ * org is the source of truth, consistent across devices. Call once inside the
+ * authenticated tree; pass `enabled` to defer the fetch until logged in.
+ */
+export function useHydrateCompanyInfoFromOrg(enabled = true) {
+  const setCompanyInfo = useSettingsStore((s) => s.setCompanyInfo);
+  const { data } = useQuery({
+    queryKey: ORG_SETTINGS_KEY,
+    queryFn: () => api.get<RawOrganizationSettings & { needsInventoryValuationSetup?: boolean }>('/api/v1/organization/settings'),
+    select: normalizeOrganizationSettings,
+    enabled,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!data) return;
+    setCompanyInfo({
+      companyName: data.displayName,
+      npwp: data.npwp,
+      address: data.address,
+      phone: data.phone,
+      email: data.companyEmail,
+      logoUrl: data.logoUrl,
+      timezone: data.timezone,
+      locale: data.locale,
+    });
+  }, [data, setCompanyInfo]);
 }
 
 /** Convenience hook returning just the org's account-defaults map. */

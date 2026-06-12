@@ -19,6 +19,10 @@ type OrganizationSettingsRecord = {
   npwp: string | null;
   isPkp: boolean;
   baseCurrency: string;
+  address: string | null;
+  phone: string | null;
+  companyEmail: string | null;
+  logoUrl: string | null;
   fiscalYearStart: Date | null;
   costingMethod: string | null;
   costingMethodSetAt: Date | null;
@@ -86,6 +90,10 @@ export const PUT = withHandler(async function PUT(req: NextRequest) {
   if (parsed.data.baseCurrency !== undefined) updateData.baseCurrency = parsed.data.baseCurrency;
   if (parsed.data.timezone !== undefined) updateData.timezone = parsed.data.timezone;
   if (parsed.data.locale !== undefined) updateData.locale = parsed.data.locale;
+  if (parsed.data.address !== undefined) updateData.address = parsed.data.address?.trim() || null;
+  if (parsed.data.phone !== undefined) updateData.phone = parsed.data.phone?.trim() || null;
+  if (parsed.data.companyEmail !== undefined) updateData.companyEmail = parsed.data.companyEmail?.trim() || null;
+  if (parsed.data.logoUrl !== undefined) updateData.logoUrl = parsed.data.logoUrl?.trim() || null;
   if (parsed.data.defaultCreditLimit !== undefined) updateData.defaultCreditLimit = parsed.data.defaultCreditLimit;
   if (parsed.data.enforceCreditLimit !== undefined) updateData.enforceCreditLimit = parsed.data.enforceCreditLimit;
   if (parsed.data.taxEnabled !== undefined) updateData.taxEnabled = parsed.data.taxEnabled;

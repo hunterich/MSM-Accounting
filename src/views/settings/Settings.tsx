@@ -177,6 +177,23 @@ const Settings = () => {
                 window.alert('Company email format is invalid.');
                 return;
             }
+            // Persist company identity to the organization record (DB is the source
+            // of truth, shared across devices), then mirror into the local store.
+            try {
+                await updateOrgSettings.mutateAsync({
+                    displayName: generalSettings.companyName.trim(),
+                    npwp: generalSettings.npwp?.trim() || null,
+                    address: generalSettings.address?.trim() || null,
+                    phone: generalSettings.phone?.trim() || null,
+                    companyEmail: generalSettings.email?.trim() || null,
+                    logoUrl: generalSettings.logoUrl?.trim() || null,
+                    timezone: generalSettings.timezone,
+                    locale: generalSettings.locale,
+                } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+            } catch (e) {
+                window.alert(`Failed to save company info: ${e instanceof Error ? e.message : 'Unknown error'}`);
+                return;
+            }
             updateCompanyInfo(generalSettings);
             updateTaxSettings(taxData);
         }
