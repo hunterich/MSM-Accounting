@@ -149,6 +149,8 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   const hasDebit = journalLines.some((l) => l.debit > 0);
   const hasCredit = journalLines.some((l) => l.credit > 0);
   if (hasDebit && hasCredit) {
-    await postJournalEntry(tx, { organizationId: orgId, date: billDate, memo: `Bill: ${bill.number}`, lines: journalLines });
+    const je = await postJournalEntry(tx, { organizationId: orgId, date: billDate, memo: `Bill: ${bill.number}`, lines: journalLines });
+    // Remember the posting entry so the bill can be voided (reversed) later.
+    await tx.bill.update({ where: { id: bill.id }, data: { journalEntryId: je.id } });
   }
 }

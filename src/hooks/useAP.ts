@@ -385,6 +385,17 @@ export function useDeleteBill() {
     });
 }
 
+export function useVoidBill() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/bills/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.bills });
+            qc.invalidateQueries({ queryKey: AP_KEYS.bill(id) });
+        },
+    });
+}
+
 // ── AP Payments ───────────────────────────────────────────────────────────────
 
 export function useAPPayments(filters: Record<string, unknown> = {}) {

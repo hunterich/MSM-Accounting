@@ -23,6 +23,7 @@ function makeTx(receiptLotCount = 0) {
     account: { findMany: vi.fn(async () => ACCOUNTS), findFirst: vi.fn(), create: vi.fn() },
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) }, // item-1 is inventory
     inventoryLot: { count: vi.fn(async () => receiptLotCount) },
+    bill: { update: vi.fn(async () => ({})) },
   };
 }
 
@@ -61,6 +62,15 @@ describe('postBillToLedger', () => {
     const je = (postJournalEntry as any).mock.calls[0][1];
     expect(je.lines.find((l: any) => l.accountId === 'acc-grir').debit).toBe(10000);
     expect(je.lines.some((l: any) => l.accountId === 'acc-inv')).toBe(false);
+  });
+
+  it('records the posting journal-entry id on the bill (so it can be voided)', async () => {
+    const tx = makeTx();
+    await postBillToLedger(tx as any, 'org-a', bill());
+    expect(tx.bill.update).toHaveBeenCalledTimes(1);
+    const arg = (tx.bill.update as any).mock.calls[0][0];
+    expect(arg.where).toMatchObject({ id: 'bill-1' });
+    expect(arg.data).toMatchObject({ journalEntryId: 'je-1' });
   });
 
   it('manual (no PO link) inventory line -> Dr Inventory + cost layer', async () => {

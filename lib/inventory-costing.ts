@@ -124,6 +124,56 @@ export async function addCostLayer(
 }
 
 /**
+ * Reverse the PURCHASE cost layers a document booked (e.g. when voiding the bill
+ * that created them). Only whole, untouched layers can be removed: if any layer
+ * has been drawn down (consumed/sold), reversal is impossible without
+ * reconstructing FIFO history, so it throws and the caller must block the void.
+ *
+ * On success each layer is deleted and a contra `InventoryLedgerEntry`
+ * (ADJUSTMENT, negative valueChange) is appended for the audit trail.
+ */
+export async function reversePurchaseLayers(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  documentId: string,
+  date: Date,
+): Promise<void> {
+  const lots = await tx.inventoryLot.findMany({
+    where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId },
+  })
+  if (lots.length === 0) return
+
+  for (const lot of lots) {
+    if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
+      throw new ApiError(
+        'Cannot void: inventory received on this bill has already been consumed or sold. Reverse the dependent transactions first.',
+        422,
+      )
+    }
+  }
+
+  for (const lot of lots) {
+    const qty = toNumber(lot.qtyIn)
+    const unitCost = toNumber(lot.unitCost)
+    await tx.inventoryLedgerEntry.create({
+      data: {
+        organizationId: orgId,
+        itemId: lot.itemId,
+        warehouseId: lot.warehouseId ?? null,
+        date,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        qtyIn: 0,
+        qtyOut: qty,
+        unitCost,
+        valueChange: -asMoney(qty * unitCost),
+      },
+    })
+    await tx.inventoryLot.delete({ where: { id: lot.id } })
+  }
+}
+
+/**
  * FIFO consumption: consumes cost layers oldest-first and returns total cost and
  * average COGS per unit for the outbound movement.
  */

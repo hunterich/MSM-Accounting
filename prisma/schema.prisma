@@ -799,6 +799,8 @@ model Bill {
   totalAmount    Decimal     @default(0) @db.Decimal(18, 2)
   notes          String?
   recurringBillId String?
+  journalEntryId String?
+  voidedAt       DateTime?
   deletedAt      DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
