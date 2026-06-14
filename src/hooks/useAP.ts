@@ -67,6 +67,7 @@ type LegacyDocumentLine = {
     unit?: string | null;
     price?: number | string | null;
     lineTotal?: number | string | null;
+    purchaseOrderLineId?: string | null;
 };
 
 type LegacyDocumentPayload = Record<string, unknown> & {
@@ -93,6 +94,9 @@ const serializeDocumentLines = (payload: LegacyDocumentPayload) => {
                 lineNo: line.lineNo ?? idx + 1,
                 ...(line.itemId && { itemId: line.itemId }),
                 ...(line.accountId && { accountId: line.accountId }),
+                // Preserve the PO link so editing a goods-receipt bill doesn't
+                // strip it and double-count inventory on finalize.
+                ...(line.purchaseOrderLineId && { purchaseOrderLineId: line.purchaseOrderLineId }),
                 description: String(line.description ?? '').trim(),
                 quantity,
                 unit: line.unit || 'PCS',

@@ -17,6 +17,7 @@ const tx = () => ({
   organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO' })) },
   account: { findMany: vi.fn(async () => ACCOUNTS), findFirst: vi.fn(), create: vi.fn() },
   item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
+  inventoryLot: { count: vi.fn(async () => 0) },
 });
 const billFor = (flags: any) => ({
   id: 'b', number: 'BILL-0001', issueDate: new Date('2026-06-01'), apAccountId: null, ...flags,

@@ -4,6 +4,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateBillInputSchema } from '@/types/api';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -77,7 +78,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           where: { id, organizationId: orgId },
           include: { lines: true },
         });
-        if (finalized) await postBillToLedger(tx, orgId, finalized as any);
+        if (finalized) {
+          // Refuse to post into a closed/locked accounting period.
+          await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date());
+          await postBillToLedger(tx, orgId, finalized as any);
+        }
       }
       return tx.bill.findFirst({
         where: { id, organizationId: orgId },

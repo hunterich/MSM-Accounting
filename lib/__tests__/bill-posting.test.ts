@@ -13,13 +13,16 @@ const ACCOUNTS = [
   { id: 'acc-ap', code: '21', name: 'Hutang Usaha', type: 'Liability', isActive: true, isPostable: true },
   { id: 'acc-tax', code: '121', name: 'PPN Masukan', type: 'Asset', isActive: true, isPostable: true },
   { id: 'acc-exp', code: '51', name: 'HPP', type: 'Expense', isActive: true, isPostable: true },
+  { id: 'acc-rent', code: '52', name: 'Beban Sewa', type: 'Expense', isActive: true, isPostable: true },
+  { id: 'acc-prepaid', code: '141', name: 'Sewa Dibayar Dimuka', type: 'Asset', isActive: true, isPostable: true },
 ];
 
-function makeTx() {
+function makeTx(receiptLotCount = 0) {
   return {
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO', accountDefaults: null })) },
     account: { findMany: vi.fn(async () => ACCOUNTS), findFirst: vi.fn(), create: vi.fn() },
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) }, // item-1 is inventory
+    inventoryLot: { count: vi.fn(async () => receiptLotCount) },
   };
 }
 
@@ -49,6 +52,17 @@ describe('postBillToLedger', () => {
     expect(ap.credit).toBe(10000);
   });
 
+  it('inventory line whose PO link was stripped on edit still clears GR/IR (no double-count) when a receipt layer already exists', async () => {
+    const tx = makeTx(1); // a goods-receipt cost layer already exists for this bill
+    const b = bill({ lines: [{ id: 'bl-1', itemId: 'item-1', quantity: 10, price: 1000, lineTotal: 10000, purchaseOrderLineId: null }] });
+    await postBillToLedger(tx as any, 'org-a', b);
+    // Must NOT re-book inventory or add a second cost layer.
+    expect(addCostLayer).not.toHaveBeenCalled();
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    expect(je.lines.find((l: any) => l.accountId === 'acc-grir').debit).toBe(10000);
+    expect(je.lines.some((l: any) => l.accountId === 'acc-inv')).toBe(false);
+  });
+
   it('manual (no PO link) inventory line -> Dr Inventory + cost layer', async () => {
     const tx = makeTx();
     const b = bill({ lines: [{ id: 'bl-1', itemId: 'item-1', quantity: 10, price: 1000, lineTotal: 10000, purchaseOrderLineId: null }] });
@@ -56,6 +70,63 @@ describe('postBillToLedger', () => {
     expect(addCostLayer).toHaveBeenCalledTimes(1);
     const je = (postJournalEntry as any).mock.calls[0][1];
     expect(je.lines.find((l: any) => l.accountId === 'acc-inv').debit).toBe(10000);
+  });
+
+  it('expense lines post to their own per-line accountId, not one COGS bucket', async () => {
+    const tx = makeTx();
+    const b = bill({ lines: [
+      { id: 'e1', itemId: null, accountId: 'acc-rent', quantity: 1, price: 5000, lineTotal: 5000, purchaseOrderLineId: null },
+      { id: 'e2', itemId: null, accountId: 'acc-exp', quantity: 1, price: 3000, lineTotal: 3000, purchaseOrderLineId: null },
+    ] });
+    await postBillToLedger(tx as any, 'org-a', b);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(5000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(3000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(8000);
+  });
+
+  it('honors a per-line asset account (capex / prepaid), not COGS', async () => {
+    const tx = makeTx();
+    const b = bill({ lines: [
+      { id: 'e1', itemId: null, accountId: 'acc-prepaid', quantity: 1, price: 12000, lineTotal: 12000, purchaseOrderLineId: null },
+    ] });
+    await postBillToLedger(tx as any, 'org-a', b);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    expect(je.lines.find((l: any) => l.accountId === 'acc-prepaid').debit).toBe(12000);
+    expect(je.lines.some((l: any) => l.accountId === 'acc-exp')).toBe(false);
+  });
+
+  it('merges multiple lines coded to the same account into one debit', async () => {
+    const tx = makeTx();
+    const b = bill({ lines: [
+      { id: 'e1', itemId: null, accountId: 'acc-rent', quantity: 1, price: 5000, lineTotal: 5000, purchaseOrderLineId: null },
+      { id: 'e2', itemId: null, accountId: 'acc-rent', quantity: 1, price: 2000, lineTotal: 2000, purchaseOrderLineId: null },
+    ] });
+    await postBillToLedger(tx as any, 'org-a', b);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    const rentLines = je.lines.filter((l: any) => l.accountId === 'acc-rent');
+    expect(rentLines).toHaveLength(1);
+    expect(rentLines[0].debit).toBe(7000);
+  });
+
+  it('expense line with no accountId falls back to the cogsExpense default', async () => {
+    const tx = makeTx();
+    const b = bill({ lines: [
+      { id: 'e1', itemId: null, accountId: null, quantity: 1, price: 5000, lineTotal: 5000, purchaseOrderLineId: null },
+    ] });
+    await postBillToLedger(tx as any, 'org-a', b);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(5000);
+  });
+
+  it('expense line coded to an unknown account falls back to the default (safety)', async () => {
+    const tx = makeTx();
+    const b = bill({ lines: [
+      { id: 'e1', itemId: null, accountId: 'acc-bogus', quantity: 1, price: 5000, lineTotal: 5000, purchaseOrderLineId: null },
+    ] });
+    await postBillToLedger(tx as any, 'org-a', b);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(5000);
   });
 
   it('VAT-inclusive received line values GR/IR at net and adds input tax', async () => {

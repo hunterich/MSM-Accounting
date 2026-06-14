@@ -2,15 +2,12 @@
 // Body: { lines: [{ purchaseOrderLineId, qtyReceived }], notes? }
 // Creates a draft Bill pre-filled with the received lines. Returns { billId }.
 import { NextRequest } from 'next/server';
-import { InventoryDocumentType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, requireOrg, nextNumber, withHandler } from '@/lib/api-utils';
-import { asMoney, toNumber } from '@/lib/money';
-import { addCostLayer } from '@/lib/inventory-costing';
-import { postJournalEntry } from '@/lib/journal-posting';
-import { ensureGrIrAccount } from '@/lib/grir';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
+import { asMoney } from '@/lib/money';
+import { postGoodsReceiptToLedger } from '@/lib/goods-receipt-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -47,7 +44,12 @@ export const POST = withHandler(async function POST(
 
   const billNumber = await nextNumber(prisma, 'Bill', 'number', 'BILL');
 
+  const receiptDate = new Date();
+
   const bill = await prisma.$transaction(async (tx) => {
+    // Refuse to receive into a closed/locked accounting period.
+    await assertPeriodOpen(tx, orgId, receiptDate);
+
     // Validate and build bill lines
     const billLinesData: any[] = [];
     for (let i = 0; i < lines.length; i++) {
@@ -86,7 +88,7 @@ export const POST = withHandler(async function POST(
         number: billNumber,
         vendorId: po.vendorId,
         poId: po.id,
-        issueDate: new Date(),
+        issueDate: receiptDate,
         status: 'DRAFT',
         taxRate: Number(po.taxRate),
         taxable: po.taxable,
@@ -129,40 +131,16 @@ export const POST = withHandler(async function POST(
       data: { status: newStatus as any },
     });
 
-    // --- Inventory + GR/IR at receipt (net cost) ---
-    const recvItemIds = billLinesData.map((l) => l.itemId).filter((x): x is string => Boolean(x));
-    const invItems = recvItemIds.length
-      ? await tx.item.findMany({ where: { id: { in: recvItemIds }, organizationId: orgId, type: { in: ['PRODUCT', 'RAW_MATERIAL'] } }, select: { id: true } })
-      : [];
-    const invItemIds = new Set(invItems.map((i) => i.id));
-    const receiptDate = new Date();
-    let grirNet = 0;
-    for (const l of billLinesData) {
-      if (!l.itemId || !invItemIds.has(l.itemId)) continue;
-      const qty = toNumber(l.quantity);
-      if (qty <= 0) continue;
-      const net = po.taxInclusive ? asMoney(l.lineTotal / (1 + rate)) : l.lineTotal;
-      grirNet += net;
-      await addCostLayer(tx, orgId, l.itemId, null, qty, asMoney(net / qty), InventoryDocumentType.PURCHASE, created.id, receiptDate);
-    }
-    grirNet = asMoney(grirNet);
-    if (grirNet > 0) {
-      const accounts = await tx.account.findMany({ where: { organizationId: orgId, isActive: true }, select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true } });
-      const settings = await loadOrgAccountDefaults(tx, orgId);
-      const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-      const grirAccountId = await ensureGrIrAccount(tx, orgId);
-      if (inventoryAccountId) {
-        await postJournalEntry(tx, {
-          organizationId: orgId,
-          date: receiptDate,
-          memo: `Goods receipt: PO ${po.number}`,
-          lines: [
-            { accountId: inventoryAccountId, description: `Inventory - PO ${po.number}`, debit: grirNet, credit: 0 },
-            { accountId: grirAccountId, description: `GR/IR clearing - PO ${po.number}`, debit: 0, credit: grirNet },
-          ],
-        });
-      }
-    }
+    // Inventory + GR/IR at receipt (net cost). Fails loud if the inventory
+    // account is unconfigured, so cost layers and the GL never diverge.
+    await postGoodsReceiptToLedger(tx, orgId, {
+      billId: created.id,
+      poNumber: po.number,
+      date: receiptDate,
+      taxInclusive: po.taxInclusive,
+      taxRate: Number(po.taxRate),
+      lines: billLinesData.map((l) => ({ itemId: l.itemId, quantity: l.quantity, lineTotal: l.lineTotal })),
+    });
 
     return created;
   });
