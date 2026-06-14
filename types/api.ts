@@ -375,6 +375,10 @@ const documentLineSchema = z.object({
   itemId: z.string().trim().optional(),
   accountId: z.string().trim().optional(),
   purchaseOrderLineId: z.string().trim().optional(),
+  // Transient (not a BillLine column): set on lines pulled from an existing
+  // goods receipt so the bill bills already-received stock without re-incrementing
+  // PurchaseOrderLine.receivedQty (which the receipt already did).
+  alreadyReceived: z.boolean().optional(),
   description: z.string().trim().min(1, 'Description is required'),
   quantity: positiveDecimal.default(0),
   unit: z.string().trim().min(1).default('PCS'),
@@ -386,6 +390,7 @@ const documentLineSchema = z.object({
 export const billInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   vendorId: z.string().trim().min(1, 'Vendor is required'),
+  vendorInvoiceNo: z.string().trim().optional(),
   poId: z.string().trim().optional(),
   issueDate: isoDateString,
   dueDate: isoDateString.optional(),
@@ -403,6 +408,7 @@ export const billInputSchema = z.object({
 
 export const updateBillInputSchema = z.object({
   vendorId: z.string().trim().min(1).optional(),
+  vendorInvoiceNo: z.string().trim().optional(),
   poId: z.string().trim().optional(),
   issueDate: isoDateString.optional(),
   dueDate: isoDateString.optional(),

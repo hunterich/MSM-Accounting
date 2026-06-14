@@ -66,19 +66,26 @@ export async function createBillRecord(
       // zod validates YYYY-MM-DD strings; Prisma DateTime columns need Date objects.
       issueDate: new Date(header.issueDate),
       dueDate: header.dueDate ? new Date(header.dueDate) : null,
+      // Empty supplier-invoice numbers must store as NULL so the per-vendor unique
+      // index allows multiple bills without a faktur # (Postgres unique ignores NULLs).
+      vendorInvoiceNo: header.vendorInvoiceNo && header.vendorInvoiceNo.length > 0 ? header.vendorInvoiceNo : null,
       organizationId: orgId,
       number,
     },
   });
 
   if (lines && lines.length > 0) {
+    // Explicit field mapping (no spread): keeps transient inputs like
+    // `alreadyReceived` out of the BillLine insert.
     await tx.billLine.createMany({
       data: lines.map((line, index) => ({
-        ...line,
         billId: created.id,
         lineNo: line.lineNo ?? index + 1,
         itemId: line.itemId || null,
         accountId: line.accountId || null,
+        purchaseOrderLineId: line.purchaseOrderLineId || null,
+        description: line.description,
+        unit: line.unit || 'PCS',
         quantity: toDecimal(line.quantity),
         price: toDecimal(line.price).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
         discountPct: toDecimal(line.discountPct).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),

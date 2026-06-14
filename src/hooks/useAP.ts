@@ -61,11 +61,15 @@ type LegacyDocumentLine = {
     lineNo?: number;
     itemId?: string | null;
     accountId?: string | null;
+    purchaseOrderLineId?: string | null;
+    alreadyReceived?: boolean;
     description?: string | null;
     quantity?: number | string | null;
     qty?: number | string | null;
     unit?: string | null;
     price?: number | string | null;
+    discount?: number | string | null;
+    discountPct?: number | string | null;
     lineTotal?: number | string | null;
 };
 
@@ -89,14 +93,18 @@ const serializeDocumentLines = (payload: LegacyDocumentPayload) => {
         .map((line, idx) => {
             const quantity = toFiniteNumber(line.quantity ?? line.qty);
             const price = toFiniteNumber(line.price);
+            const discountPct = line.discountPct ?? line.discount;
             return {
                 lineNo: line.lineNo ?? idx + 1,
                 ...(line.itemId && { itemId: line.itemId }),
                 ...(line.accountId && { accountId: line.accountId }),
+                ...(line.purchaseOrderLineId && { purchaseOrderLineId: line.purchaseOrderLineId }),
+                ...(line.alreadyReceived && { alreadyReceived: true }),
                 description: String(line.description ?? '').trim(),
                 quantity,
                 unit: line.unit || 'PCS',
                 price,
+                ...(discountPct != null && discountPct !== '' && { discountPct: toFiniteNumber(discountPct) }),
                 lineTotal: line.lineTotal != null ? toFiniteNumber(line.lineTotal) : quantity * price,
             };
         });
@@ -481,6 +489,59 @@ export function useAPReport(params: Record<string, unknown>) {
 }
 
 // ── PO Actions ────────────────────────────────────────────────────────────────
+
+export type BillablePoLine = {
+    poId: string;
+    poNumber: string;
+    poLineId: string;
+    itemId: string | null;
+    sku: string;
+    description: string;
+    unit: string;
+    price: number;
+    discountPct: number;
+    receivedQty: number;
+    billedQty: number;
+    billableQty: number;
+};
+
+/** Received-but-not-yet-billed PO lines for a vendor (Accurate's "Ambil"). */
+export function useBillablePoLines(vendorId: string | undefined) {
+    return useQuery({
+        queryKey: ['billablePoLines', vendorId ?? ''],
+        queryFn: () => api.get<BillablePoLine[]>('/api/v1/purchase-orders/billable-lines', { vendorId }),
+        enabled: Boolean(vendorId),
+        staleTime: 10_000,
+    });
+}
+
+export type JournalDetail = {
+    id: string;
+    entryNo: string;
+    date: string;
+    memo: string;
+    status: string;
+    totalDebit: number;
+    totalCredit: number;
+    lines: Array<{
+        lineNo: number;
+        accountCode: string;
+        accountName: string;
+        description: string;
+        debit: number;
+        credit: number;
+    }>;
+};
+
+/** The GL journal posted for a bill ("Rincian Jurnal"); null if not yet posted. */
+export function useBillJournal(billId: string | undefined, enabled = true) {
+    return useQuery({
+        queryKey: ['billJournal', billId ?? ''],
+        queryFn: () => api.get<JournalDetail | null>(`/api/v1/bills/${billId}/journal`),
+        enabled: Boolean(billId) && enabled,
+        staleTime: 10_000,
+    });
+}
 
 export function useReceiveGoods() {
     const qc = useQueryClient();

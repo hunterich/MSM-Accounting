@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { bankTransactionInputSchema } from '@/types/api';
+import { postBankTransactionIfNeeded } from '@/lib/bank-transaction-posting';
 
 export const runtime = 'nodejs';
 
@@ -57,6 +58,8 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         data: { currentBalance: { increment: delta } },
       });
     }
+    // Post Dr Expense / [Dr Input Tax] / Cr Bank for direct expenses (no-op for INCOME/TRANSFER).
+    await postBankTransactionIfNeeded(tx, orgId, txn.id);
     return txn;
   });
 
