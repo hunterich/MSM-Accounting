@@ -437,6 +437,18 @@ export function useUpdateAPPayment() {
     });
 }
 
+export function useVoidAPPayment() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/ap-payments/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.payments });
+            qc.invalidateQueries({ queryKey: AP_KEYS.payment(id) });
+            qc.invalidateQueries({ queryKey: AP_KEYS.bills }); // settled bills revert
+        },
+    });
+}
+
 // ── Purchase Orders ───────────────────────────────────────────────────────────
 
 export function usePurchaseOrders(filters: Record<string, unknown> = {}) {

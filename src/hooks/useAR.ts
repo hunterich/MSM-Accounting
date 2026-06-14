@@ -280,6 +280,18 @@ export function useDeleteARPayment() {
     });
 }
 
+export function useVoidARPayment() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/ar-payments/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AR_KEYS.payments });
+            qc.invalidateQueries({ queryKey: AR_KEYS.payment(id) });
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoices }); // settled invoices revert
+        },
+    });
+}
+
 // ── Sales Orders ──────────────────────────────────────────────────────────────
 
 const SO_KEYS = { all: ['salesOrders'] as const };
