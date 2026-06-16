@@ -19,17 +19,19 @@ function makeTx(lots: any[]) {
 const DATE = new Date('2026-06-14');
 
 describe('reversePurchaseLayers', () => {
-  it('deletes an unconsumed layer and appends a contra ledger entry', async () => {
+  it('deletes unconsumed layers, appends contra ledger entries, and returns the value removed', async () => {
     const tx = makeTx([
       { id: 'lot-1', itemId: 'item-1', warehouseId: null, qtyIn: 10, qtyOut: 0, qtyBalance: 10, unitCost: 1000 },
+      { id: 'lot-2', itemId: 'item-2', warehouseId: null, qtyIn: 4, qtyOut: 0, qtyBalance: 4, unitCost: 250 },
     ]);
-    await reversePurchaseLayers(tx as never, 'org-a', 'bill-1', DATE);
+    const removed = await reversePurchaseLayers(tx as never, 'org-a', 'bill-1', DATE);
 
     expect(tx.inventoryLot.delete).toHaveBeenCalledWith({ where: { id: 'lot-1' } });
     const led = (tx.inventoryLedgerEntry.create as any).mock.calls[0][0].data;
     expect(led.qtyOut).toBe(10);
     expect(led.valueChange).toBe(-10000);
     expect(led.documentId).toBe('bill-1');
+    expect(removed).toBe(11000); // 10×1000 + 4×250
   });
 
   it('throws and deletes nothing when a layer has been consumed', async () => {

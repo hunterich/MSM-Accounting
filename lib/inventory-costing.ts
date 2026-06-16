@@ -130,18 +130,19 @@ export async function addCostLayer(
  * reconstructing FIFO history, so it throws and the caller must block the void.
  *
  * On success each layer is deleted and a contra `InventoryLedgerEntry`
- * (ADJUSTMENT, negative valueChange) is appended for the audit trail.
+ * (ADJUSTMENT, negative valueChange) is appended for the audit trail. Returns
+ * the total cost value removed (so callers can post the balancing GL contra).
  */
 export async function reversePurchaseLayers(
   tx: Prisma.TransactionClient,
   orgId: string,
   documentId: string,
   date: Date,
-): Promise<void> {
+): Promise<number> {
   const lots = await tx.inventoryLot.findMany({
     where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId },
   })
-  if (lots.length === 0) return
+  if (lots.length === 0) return 0
 
   for (const lot of lots) {
     if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
@@ -152,9 +153,12 @@ export async function reversePurchaseLayers(
     }
   }
 
+  let valueRemoved = 0
   for (const lot of lots) {
     const qty = toNumber(lot.qtyIn)
     const unitCost = toNumber(lot.unitCost)
+    const value = asMoney(qty * unitCost)
+    valueRemoved += value
     await tx.inventoryLedgerEntry.create({
       data: {
         organizationId: orgId,
@@ -166,11 +170,12 @@ export async function reversePurchaseLayers(
         qtyIn: 0,
         qtyOut: qty,
         unitCost,
-        valueChange: -asMoney(qty * unitCost),
+        valueChange: -value,
       },
     })
     await tx.inventoryLot.delete({ where: { id: lot.id } })
   }
+  return asMoney(valueRemoved)
 }
 
 /**

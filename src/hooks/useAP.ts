@@ -396,6 +396,18 @@ export function useVoidBill() {
     });
 }
 
+export function useUnreceiveBill() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/bills/${id}/unreceive`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.bills });
+            qc.invalidateQueries({ queryKey: AP_KEYS.bill(id) });
+            qc.invalidateQueries({ queryKey: AP_KEYS.pos }); // PO receivedQty/status rolled back
+        },
+    });
+}
+
 // ── AP Payments ───────────────────────────────────────────────────────────────
 
 export function useAPPayments(filters: Record<string, unknown> = {}) {
