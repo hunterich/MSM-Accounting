@@ -30,13 +30,20 @@ function ppnTaxOf(base: number, taxType: string, taxRate: unknown): number {
   return asMoney(base * (toNumber(taxRate) / 100));
 }
 
-/** Post Dr Expense / [Dr Input Tax] / Cr Bank for a direct bank EXPENSE, once. */
-export async function postBankTransactionIfNeeded(tx: Tx, orgId: string, txnId: string): Promise<void> {
+/**
+ * Post Dr Expense / [Dr Input Tax] / Cr Bank for a direct bank EXPENSE, once.
+ *
+ * Returns the cash actually credited to the bank GL (base + recognised PPN), so
+ * the caller can move the denormalised `bankAccount.currentBalance` by the exact
+ * same amount and keep the cached balance in lockstep with the ledger. Returns 0
+ * when nothing was posted (non-expense, already posted, or accounts unresolved).
+ */
+export async function postBankTransactionIfNeeded(tx: Tx, orgId: string, txnId: string): Promise<number> {
   const txn = await tx.bankTransaction.findFirst({ where: { id: txnId, organizationId: orgId } });
-  if (!txn || txn.journalEntryId || txn.type !== 'EXPENSE') return;
+  if (!txn || txn.journalEntryId || txn.type !== 'EXPENSE') return 0;
 
   const base = toNumber(txn.amount);
-  if (base <= 0) return;
+  if (base <= 0) return 0;
 
   await assertPeriodOpen(tx, orgId, new Date(txn.date));
 
@@ -60,7 +67,7 @@ export async function postBankTransactionIfNeeded(tx: Tx, orgId: string, txnId: 
   const bankGlId = resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, txn.bankAccountId);
   const expenseId = txn.expenseAccountId ?? resolveAccountDefaultId(accounts, settings, 'cogsExpense');
   const inputTaxId = resolveAccountDefaultId(accounts, settings, 'apTax');
-  if (!bankGlId || !expenseId) return;
+  if (!bankGlId || !expenseId) return 0;
 
   const tax = ppnTaxOf(base, txn.taxType, txn.taxRate);
   const ref = txn.number ?? txn.reference ?? txn.id;
@@ -85,4 +92,6 @@ export async function postBankTransactionIfNeeded(tx: Tx, orgId: string, txnId: 
   });
 
   await tx.bankTransaction.update({ where: { id: txn.id }, data: { journalEntryId: je.id } });
+
+  return bankCredit;
 }
