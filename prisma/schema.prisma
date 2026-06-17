@@ -235,6 +235,7 @@ model JournalEntry {
   purchaseReturns PurchaseReturn[] @relation("PurchaseReturnJournal")
   creditNote      CreditNote?      @relation("CreditNoteJournal")
   debitNote       DebitNote?       @relation("DebitNoteJournal")
+  bankTransaction BankTransaction? @relation("BankTxnJournal")
 
   @@unique([organizationId, entryNo])
   @@index([organizationId, date, status])
@@ -786,6 +787,7 @@ model Bill {
   organizationId String
   number         String
   vendorId       String
+  vendorInvoiceNo String?
   poId           String?
   issueDate      DateTime
   dueDate        DateTime?
@@ -815,6 +817,7 @@ model Bill {
   debitNotes     DebitNote[]
 
   @@unique([organizationId, number])
+  @@unique([organizationId, vendorId, vendorInvoiceNo])
   @@index([organizationId, issueDate, status])
   @@index([vendorId])
 }
@@ -1147,11 +1150,13 @@ model BankTransaction {
   receivedFrom     String?
   expenseAccountId String?
   incomeAccountId  String?
+  journalEntryId   String?        @unique
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   bankAccount      BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  journalEntry     JournalEntry? @relation("BankTxnJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, date])
   @@index([bankAccountId, status])

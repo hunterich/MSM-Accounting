@@ -3,6 +3,7 @@
 // BillLine fields: billId, lineNo, description, quantity, unit, price, lineTotal
 // Unique: @@unique([organizationId, number])
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
@@ -12,6 +13,17 @@ import { postBillToLedger } from '@/lib/bill-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
+
+// A bill must carry a supplier invoice # (No. Faktur) before it can post, so the
+// same physical supplier invoice can't be billed twice (enforced by the
+// per-vendor unique index on vendorInvoiceNo).
+const POSTING_STATUSES = new Set(['APPROVED', 'OPEN']);
+
+function isFakturDuplicate(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  return Array.isArray(target) ? target.includes('vendorInvoiceNo') : String(target ?? '').includes('vendorInvoiceNo');
+}
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -63,12 +75,21 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     return err(parsed.error.issues[0]?.message || 'Invalid bill payload', 400);
   }
 
-  const bill = await prisma.$transaction(async (tx: any) => {
+  if (POSTING_STATUSES.has(parsed.data.status as string) && !parsed.data.vendorInvoiceNo) {
+    return err('Supplier invoice # (No. Faktur) is required to approve a bill.', 400);
+  }
+
+  let bill;
+  try {
+    bill = await prisma.$transaction(async (tx: any) => {
     const createdBill = await createBillRecord(tx, orgId, parsed.data);
 
     // --- PO line qty tracking ---
+    // Lines pulled from an existing goods receipt (alreadyReceived) bill stock that
+    // was already received — they must NOT re-increment receivedQty. Only lines that
+    // both link a PO and represent a fresh receipt update receivedQty here.
     if (parsed.data.lines && parsed.data.lines.length > 0) {
-      const linesWithPO = parsed.data.lines.filter(l => l.purchaseOrderLineId);
+      const linesWithPO = parsed.data.lines.filter(l => l.purchaseOrderLineId && !l.alreadyReceived);
       if (linesWithPO.length > 0) {
         // Validate: no over-receiving
         for (const line of linesWithPO) {
@@ -131,7 +152,13 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       await postBillToLedger(tx, orgId, createdBill as any);
     }
     return createdBill;
-  });
+    });
+  } catch (error) {
+    if (isFakturDuplicate(error)) {
+      return err(`Supplier invoice # "${parsed.data.vendorInvoiceNo}" is already recorded for this vendor.`, 409);
+    }
+    throw error;
+  }
 
   logAudit({
     orgId,

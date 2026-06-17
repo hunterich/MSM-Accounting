@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateBillInputSchema } from '@/types/api';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
+
+function isFakturDuplicate(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  return Array.isArray(target) ? target.includes('vendorInvoiceNo') : String(target ?? '').includes('vendorInvoiceNo');
+}
 
 export const runtime = 'nodejs';
 
@@ -39,7 +47,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { lines, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
+      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true, vendorInvoiceNo: true } });
       if (!existing) return null;
       if (existing.status !== 'DRAFT') {
         throw new ApiError('Only DRAFT bills can be modified', 403);
@@ -50,9 +58,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       if (header.poId) {
         await validateForeignKey(tx.purchaseOrder, { id: header.poId, organizationId: orgId }, 'Purchase order not found in organization');
       }
+      // A bill can't be approved without a supplier invoice # (the per-vendor
+      // duplicate guard). Honour either a value sent in this update or one already stored.
+      if (existing.status === 'DRAFT' && header.status === 'OPEN') {
+        const effectiveFaktur = header.vendorInvoiceNo !== undefined ? header.vendorInvoiceNo : existing.vendorInvoiceNo;
+        if (!effectiveFaktur) {
+          throw new ApiError('Supplier invoice # (No. Faktur) is required to approve a bill.', 400);
+        }
+      }
       await tx.bill.update({
         where: { id, organizationId: orgId },
-        data: { ...header, updatedAt: new Date() },
+        data: {
+          ...header,
+          // Empty faktur # stores as NULL so the per-vendor unique index ignores it.
+          ...(header.vendorInvoiceNo !== undefined && { vendorInvoiceNo: header.vendorInvoiceNo || null }),
+          updatedAt: new Date(),
+        },
       });
       if (lines) {
         await tx.billLine.deleteMany({ where: { billId: id } });
@@ -77,7 +98,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           where: { id, organizationId: orgId },
           include: { lines: true },
         });
-        if (finalized) await postBillToLedger(tx, orgId, finalized as any);
+        if (finalized) {
+          // Refuse to post into a closed/locked accounting period (mirrors the
+          // create-as-OPEN path in bills/route.ts).
+          await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date());
+          await postBillToLedger(tx, orgId, finalized as any);
+        }
       }
       return tx.bill.findFirst({
         where: { id, organizationId: orgId },
@@ -90,6 +116,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   } catch (error) {
     if (error instanceof ApiError) {
       return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
+    if (isFakturDuplicate(error)) {
+      return withCors(NextResponse.json({ error: 'Supplier invoice # is already recorded for this vendor.' }, { status: 409 }));
     }
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));

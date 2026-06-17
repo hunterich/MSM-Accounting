@@ -8,9 +8,12 @@ import Tabs from '../../components/UI/Tabs';
 import DocumentActionBar from '../../components/UI/DocumentActionBar';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import BillPrintTemplate from '../../components/print/BillPrintTemplate';
+import PullFromPoModal, { type PulledBillLine } from './PullFromPoModal';
+import JournalDetailModal from '../../components/UI/JournalDetailModal';
 import { formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
-import { useBills, useCreateBill, useUpdateBill, useDeleteBill, useVendors } from '../../hooks/useAP';
+import { useBills, useCreateBill, useUpdateBill, useDeleteBill, useVendors, useBillJournal } from '../../hooks/useAP';
+import { useItems } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -39,6 +42,11 @@ type BillTemplateLine = {
 
 type BillItem = {
     id: string;
+    // itemId !== undefined marks an inventory line (Rincian Barang); undefined marks
+    // an expense-account line (Biaya Lainnya). Empty string = item row not yet picked.
+    itemId?: string;
+    // Set on lines pulled from a goods receipt (Ambil) — bills already-received stock.
+    purchaseOrderLineId?: string;
     description: string;
     accountId: string;
     qty: number;
@@ -49,6 +57,10 @@ type BillItem = {
 
 type BillTemplateMap = Record<string, BillTemplateLine[]>;
 type FormErrors = Record<string, string | undefined>;
+
+// Stable empty default: a fresh `[]` inline default re-creates the array every
+// render while the query loads, which would re-fire the form-reset effect in a loop.
+const EMPTY_ACCOUNTS: Account[] = [];
 
 const buildFormData = (bill: Bill | null, defaultApAccountId: string): BillFormData => {
     if (!bill) {
@@ -97,6 +109,8 @@ const BillForm = () => {
 
     const [activeTab, setActiveTab] = useState<'items' | 'other'>('items');
     const [printOpen, setPrintOpen] = useState(false);
+    const [pullOpen, setPullOpen] = useState(false);
+    const [journalOpen, setJournalOpen] = useState(false);
 
     const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data || [];
@@ -110,7 +124,18 @@ const BillForm = () => {
     const setBillItemTemplates = useBillStore(s => s.setBillItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
 
-    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: chartOfAccounts = EMPTY_ACCOUNTS, isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+
+    const { data: itemsData } = useItems({ isActive: true });
+    const itemRows = useMemo(() => itemsData?.data ?? [], [itemsData?.data]);
+    const itemOptions = useMemo(
+        () => itemRows.map((it) => ({ value: it.id, label: `${it.sku} — ${it.name}`, subLabel: it.name })),
+        [itemRows],
+    );
+    const itemById = useMemo(
+        () => Object.fromEntries(itemRows.map((it) => [it.id, it])) as Record<string, (typeof itemRows)[number]>,
+        [itemRows],
+    );
 
     const createBill = useCreateBill();
     const updateBill = useUpdateBill();
@@ -172,6 +197,16 @@ const BillForm = () => {
         setErrors((prev) => ({ ...prev, [e.target.name]: undefined }));
     };
 
+    // Inventory line (Rincian Barang): itemId starts as '' until a product is picked.
+    const addItemLine = () => {
+        if (isViewMode) return;
+        setItems((prev) => ([
+            ...prev,
+            { id: String(Date.now()), itemId: '', description: '', accountId: '', qty: 1, unit: 'PCS', price: 0, discount: 0 }
+        ]));
+    };
+
+    // Expense line (Biaya Lainnya): no itemId, posts to the chosen GL account.
     const addLine = () => {
         if (isViewMode) return;
         const defaultAccountId = expenseTargetAccounts[0]?.id || '';
@@ -186,9 +221,46 @@ const BillForm = () => {
         setItems((prev) => prev.map((line) => (line.id === id ? { ...line, [field]: value } : line)));
     };
 
+    // Pick a product into an item row: auto-fill description/unit/price from the item master.
+    const pickItem = (id: BillItem['id'], itemId: string) => {
+        if (isViewMode) return;
+        const it = itemById[itemId];
+        setItems((prev) => prev.map((line) => (
+            line.id === id
+                ? {
+                    ...line,
+                    itemId,
+                    accountId: '',
+                    description: it ? it.name : line.description,
+                    unit: it ? (it.purchaseUnit || it.unit || 'PCS') : line.unit,
+                    price: it ? Number(it.cost || 0) : line.price,
+                }
+                : line
+        )));
+    };
+
     const removeLine = (id: BillItem['id']) => {
         if (isViewMode) return;
         setItems((prev) => prev.filter((line) => line.id !== id));
+    };
+
+    // Append lines pulled from a goods receipt; each carries its PO line link.
+    const addPulledLines = (pulled: PulledBillLine[]) => {
+        if (pulled.length === 0) return;
+        setItems((prev) => ([
+            ...prev,
+            ...pulled.map((l, i) => ({
+                id: `${Date.now()}-${i}`,
+                itemId: l.itemId,
+                purchaseOrderLineId: l.purchaseOrderLineId,
+                description: l.description,
+                accountId: '',
+                qty: l.qty,
+                unit: l.unit || 'PCS',
+                price: l.price,
+                discount: l.discount || 0,
+            })),
+        ]));
     };
 
     // lineTotal is net of the per-line discount percent — this is the value
@@ -209,14 +281,21 @@ const BillForm = () => {
 
     const postingPreview = useMemo(() => {
         const debitByAccount: Record<string, number> = {};
+        let itemNet = 0;
         items.forEach((line) => {
             const amount = Math.round(line.qty * line.price * (1 - (line.discount || 0) / 100) * 100) / 100;
-            if (!line.accountId || !amount) return;
+            if (!amount) return;
+            // Item lines post to inventory/COGS via the item's accounts (not a per-line GL account).
+            if (line.itemId !== undefined) { itemNet += amount; return; }
+            if (!line.accountId) return;
             debitByAccount[line.accountId] = (debitByAccount[line.accountId] || 0) + amount;
         });
         const debitLines = Object.entries(debitByAccount).map(([accountId, amount]) => ({
             side: 'DR', accountId, accountLabel: formatAccountOption(accountId), amount
         }));
+        if (itemNet > 0) {
+            debitLines.unshift({ side: 'DR', accountId: '', accountLabel: 'Inventory / COGS (items)', amount: Math.round(itemNet * 100) / 100 });
+        }
         if (taxSettings.taxable && taxAmount > 0 && !taxSettings.taxInclusive) {
             const taxAccountId = resolvedAccountDefaults.apTax || '';
             debitLines.push({
@@ -235,16 +314,27 @@ const BillForm = () => {
 
     const legacyLineCount = useMemo(() => {
         return items.filter((line) => {
+            if (line.itemId !== undefined) return false; // item lines don't use a per-line GL account
             const account = accountMap[line.accountId];
             return !account || !account.isActive || !account.isPostable;
         }).length;
     }, [items, accountMap]);
 
     const saveBill = async (statusOverride?: BillStatus) => {
-        const schemaResult = billSchema.safeParse({ ...formData, items });
+        // Only rows that resolve to an item or an expense account are real lines;
+        // untouched blank rows are ignored.
+        const activeItems = items.filter((line) => (line.itemId && line.itemId.length > 0) || line.accountId);
+        const isDraft = statusOverride === 'Draft';
+        const schemaResult = billSchema.safeParse({ ...formData, items: activeItems });
         if (!schemaResult.success) { setErrors(zodToFormErrors(schemaResult.error)); return; }
         if (!formData.vendorId) { setErrors({ vendor: 'Pick a vendor from the list.' }); return; }
         if (!formData.issueDate) { setErrors({ issueDate: 'Issue date is required.' }); return; }
+        // A bill needs its supplier invoice # (No. Faktur) before it can be approved —
+        // this is the per-vendor duplicate-bill guard. Drafts may omit it.
+        if (!isDraft && !formData.billNumber.trim()) {
+            setErrors({ billNumber: 'No. Faktur (supplier invoice #) is required to approve a bill.' });
+            return;
+        }
 
         const invalidPostingAccounts = postingPreview
             .filter((line) => Number(line.amount || 0) > 0 && line.accountId)
@@ -263,6 +353,7 @@ const BillForm = () => {
 
         const finalBill = {
             vendorId: formData.vendorId,
+            ...(formData.billNumber.trim() && { vendorInvoiceNo: formData.billNumber.trim() }),
             issueDate: formData.issueDate,
             ...(formData.dueDate && { dueDate: formData.dueDate }),
             status: mode === 'edit' ? selectedBill?.status : (statusOverride ?? 'Unpaid'),
@@ -273,13 +364,15 @@ const BillForm = () => {
             subtotal,
             taxAmount,
             totalAmount,
-            notes: [formData.billNumber && `Vendor bill #: ${formData.billNumber}`, formData.poNumber && `PO: ${formData.poNumber}`, formData.notes]
+            notes: [formData.poNumber && `PO: ${formData.poNumber}`, formData.notes]
                 .filter(Boolean).join(' | '),
-            lines: items
+            lines: activeItems
                 .filter((line) => line.description.trim())
                 .map((line, idx) => ({
                     lineNo: idx + 1,
-                    ...(line.accountId && { accountId: line.accountId }),
+                    ...(line.itemId && { itemId: line.itemId }),
+                    ...(line.accountId && !line.itemId && { accountId: line.accountId }),
+                    ...(line.purchaseOrderLineId && { purchaseOrderLineId: line.purchaseOrderLineId, alreadyReceived: true }),
                     description: line.description.trim(),
                     quantity: Number(line.qty || 0),
                     unit: line.unit || 'PCS',
@@ -299,6 +392,11 @@ const BillForm = () => {
             navigate('/ap/bills');
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown error';
+            // Duplicate supplier invoice # → show inline on the field, not a blocking alert.
+            if (/invoice #|faktur/i.test(message)) {
+                setErrors({ billNumber: message });
+                return;
+            }
             window.alert(`Failed to save bill: ${message}`);
         }
     };
@@ -324,12 +422,19 @@ const BillForm = () => {
     const isPageLoading = billsLoading || chartOfAccountsLoading;
     const entityId = mode === 'new' ? undefined : (selectedBill?._id || selectedBill?.id);
 
+    // Rincian Jurnal: posted bills (anything past Draft) have a GL entry to show.
+    const isPosted = isViewMode && Boolean(selectedBill) && selectedBill?.status !== 'Draft';
+    const billJournal = useBillJournal(entityId, journalOpen && isPosted);
+
     const pageTitle = isViewMode
         ? `View Bill${billId ? ` ${billId}` : ''}`
         : mode === 'edit' ? `Edit Bill${billId ? ` ${billId}` : ''}` : 'New Bill';
 
     const viewExtraActions = isViewMode ? (
         <>
+            {isPosted && (
+                <Button text="Rincian Jurnal" variant="secondary" onClick={() => setJournalOpen(true)} />
+            )}
             {selectedBill?.status === 'Draft' && (
                 <Button text={updateBill.isPending ? 'Approving...' : 'Approve'} variant="primary"
                     disabled={updateBill.isPending}
@@ -406,7 +511,8 @@ const BillForm = () => {
                                         <Input label="Issue Date" name="issueDate" type="date" value={formData.issueDate} onChange={handleChange} disabled={isViewMode} />
                                     </div>
                                     <div className="col-span-3">
-                                        <Input label="Bill Number" name="billNumber" placeholder="Vendor bill #" value={formData.billNumber} onChange={handleChange} disabled={isViewMode} />
+                                        <Input label="No. Faktur (Supplier Invoice #) *" name="billNumber" placeholder="e.g. INV-2026-001" value={formData.billNumber} onChange={handleChange} disabled={isViewMode} />
+                                        {errors.billNumber ? <div className="w-full -mt-2 mb-2 text-xs text-danger-500">{errors.billNumber}</div> : null}
                                     </div>
                                     <div className="col-span-6">
                                         <Input label="Purchase Order (Optional)" name="poNumber" placeholder="e.g. PO-2023-001" value={formData.poNumber} onChange={handleChange} disabled={isViewMode} />
@@ -419,7 +525,13 @@ const BillForm = () => {
                             <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-5 mt-4">
                                 <div className="flex justify-between items-center mb-4 pb-3 border-b border-neutral-100">
                                     <div className="text-base font-semibold text-neutral-800">Bill Items</div>
-                                    <Button text="Add Line" size="small" variant="secondary" onClick={addLine} disabled={isViewMode} />
+                                    <div className="flex items-center gap-2">
+                                        {!isViewMode && (
+                                            <Button text="Ambil dari PO" size="small" variant="secondary" onClick={() => setPullOpen(true)} disabled={!formData.vendorId} />
+                                        )}
+                                        <Button text="Add Item" size="small" variant="secondary" onClick={addItemLine} disabled={isViewMode} />
+                                        <Button text="Add Expense" size="small" variant="secondary" onClick={addLine} disabled={isViewMode} />
+                                    </div>
                                 </div>
                                 {legacyLineCount > 0 ? (
                                     <div className="journal-warning-banner mb-3">{legacyLineCount} line(s) use inactive/legacy accounts and are read-only.</div>
@@ -429,7 +541,7 @@ const BillForm = () => {
                                     <thead>
                                         <tr>
                                             <th className="text-left p-2 border-b border-neutral-200 font-semibold text-neutral-600 w-[24%]">Description</th>
-                                            <th className="text-left p-2 border-b border-neutral-200 font-semibold text-neutral-600 w-[22%]">Expense / Asset Account</th>
+                                            <th className="text-left p-2 border-b border-neutral-200 font-semibold text-neutral-600 w-[22%]">Item / Account</th>
                                             <th className="text-center p-2 border-b border-neutral-200 font-semibold text-neutral-600 w-[8%]">Qty</th>
                                             <th className="text-center p-2 border-b border-neutral-200 font-semibold text-neutral-600 w-[8%]">Unit</th>
                                             <th className="text-right p-2 border-b border-neutral-200 font-semibold text-neutral-600 w-[13%]">Price</th>
@@ -447,7 +559,15 @@ const BillForm = () => {
                                                     <Input value={line.description} onChange={(e) => updateLine(line.id, 'description', e.target.value)} placeholder="Description" disabled={isViewMode} />
                                                 </td>
                                                 <td className="p-2">
-                                                    {(() => {
+                                                    {line.itemId !== undefined ? (
+                                                        <SearchableSelect
+                                                            options={itemOptions}
+                                                            value={line.itemId}
+                                                            onChange={(itemId: string) => pickItem(line.id, itemId)}
+                                                            placeholder="Pilih barang..."
+                                                            disabled={isViewMode || Boolean(line.purchaseOrderLineId)}
+                                                        />
+                                                    ) : (() => {
                                                         const selectedAccount = accountMap[line.accountId];
                                                         if (!selectedAccount) return <div className="journal-account-warning">Unknown account</div>;
                                                         if (!selectedAccount.isActive || !selectedAccount.isPostable) {
@@ -602,6 +722,24 @@ const BillForm = () => {
                     company={company as unknown as Record<string, unknown>}
                 />
             </PrintPreviewModal>
+
+            <PullFromPoModal
+                isOpen={pullOpen}
+                vendorId={formData.vendorId}
+                onClose={() => setPullOpen(false)}
+                onConfirm={addPulledLines}
+            />
+
+            <JournalDetailModal
+                isOpen={journalOpen}
+                onClose={() => setJournalOpen(false)}
+                journal={billJournal.data}
+                isLoading={billJournal.isLoading}
+                meta={[
+                    { label: 'Pemasok', value: formData.vendor || selectedBill?.vendor || '—' },
+                    { label: 'No. Faktur', value: formData.billNumber || '—' },
+                ]}
+            />
         </FormPage>
     );
 };
