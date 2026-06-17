@@ -88,6 +88,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
+    const existing = await prisma.aPPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true, journalEntryId: true } });
+    if (!existing) {
+      return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
+    }
+    // Deleting a posted payment would orphan its journal entry in the ledger.
+    // Posted payments must be voided (which reverses the entry) instead.
+    if (existing.journalEntryId) {
+      return withCors(NextResponse.json({ error: 'Cannot delete a posted payment — void it instead' }, { status: 422 }));
+    }
     await prisma.aPPayment.delete({ where: { id, organizationId: orgId } });
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'APPayment', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));

@@ -98,6 +98,8 @@ const serializeDocumentLines = (payload: LegacyDocumentPayload) => {
                 lineNo: line.lineNo ?? idx + 1,
                 ...(line.itemId && { itemId: line.itemId }),
                 ...(line.accountId && { accountId: line.accountId }),
+                // Preserve the PO link so editing a goods-receipt bill doesn't
+                // strip it and double-count inventory on finalize.
                 ...(line.purchaseOrderLineId && { purchaseOrderLineId: line.purchaseOrderLineId }),
                 ...(line.alreadyReceived && { alreadyReceived: true }),
                 description: String(line.description ?? '').trim(),
@@ -389,6 +391,29 @@ export function useDeleteBill() {
     });
 }
 
+export function useVoidBill() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/bills/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.bills });
+            qc.invalidateQueries({ queryKey: AP_KEYS.bill(id) });
+        },
+    });
+}
+
+export function useUnreceiveBill() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/bills/${id}/unreceive`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.bills });
+            qc.invalidateQueries({ queryKey: AP_KEYS.bill(id) });
+            qc.invalidateQueries({ queryKey: AP_KEYS.pos }); // PO receivedQty/status rolled back
+        },
+    });
+}
+
 // ── AP Payments ───────────────────────────────────────────────────────────────
 
 export function useAPPayments(filters: Record<string, unknown> = {}) {
@@ -426,6 +451,18 @@ export function useUpdateAPPayment() {
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AP_KEYS.payments });
             qc.invalidateQueries({ queryKey: AP_KEYS.payment(vars.id) });
+        },
+    });
+}
+
+export function useVoidAPPayment() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/ap-payments/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AP_KEYS.payments });
+            qc.invalidateQueries({ queryKey: AP_KEYS.payment(id) });
+            qc.invalidateQueries({ queryKey: AP_KEYS.bills }); // settled bills revert
         },
     });
 }

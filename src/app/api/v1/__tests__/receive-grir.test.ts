@@ -39,6 +39,7 @@ it('posts Dr Inventory / Cr GR/IR at net cost and a cost layer for an inventory 
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO', accountDefaults: null })) },
+    accountingPeriod: { findFirst: vi.fn(async () => null) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 
@@ -48,6 +49,32 @@ it('posts Dr Inventory / Cr GR/IR at net cost and a cost layer for an inventory 
   expect((addCostLayer as any).mock.calls[0][5]).toBe(1000); // net unit cost (index: tx,orgId,itemId,warehouseId,qty,unitCost)
   const je = (postJournalEntry as any).mock.calls[0][1];
   expect(je.lines.find((l: any) => l.accountId === 'acc-grir').credit).toBe(10000);
+});
+
+it('refuses to receive into a closed/locked period and posts nothing', async () => {
+  vi.mocked(prisma.purchaseOrder.findFirst).mockResolvedValue({
+    id: 'po-1', number: 'PO-0001', vendorId: 'v-1', organizationId: 'org-a',
+    status: 'APPROVED', taxRate: 0, taxable: false, taxInclusive: false,
+    vendor: { id: 'v-1' },
+    lines: [{ id: 'pol-1', quantity: 10, receivedQty: 0, price: 1000, itemId: 'item-1', description: 'Widget', unit: 'PCS' }],
+  } as any);
+
+  const tx = {
+    purchaseOrderLine: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+    bill: { create: vi.fn() },
+    purchaseOrder: { update: vi.fn() },
+    item: { findMany: vi.fn() },
+    account: { findMany: vi.fn() },
+    organization: { findUnique: vi.fn() },
+    accountingPeriod: { findFirst: vi.fn(async () => ({ name: 'Mar 2026', status: 'OPEN', isLocked: true })) },
+  };
+  vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
+
+  const res = await receive(req({ lines: [{ purchaseOrderLineId: 'pol-1', qtyReceived: 10 }] }), { params: Promise.resolve({ id: 'po-1' }) });
+  expect(res.status).toBe(422);
+  expect(addCostLayer).not.toHaveBeenCalled();
+  expect(postJournalEntry).not.toHaveBeenCalled();
+  expect(tx.bill.create).not.toHaveBeenCalled();
 });
 
 it('values a discounted PO line at its net (post-discount) cost', async () => {
@@ -65,6 +92,7 @@ it('values a discounted PO line at its net (post-discount) cost', async () => {
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO', accountDefaults: null })) },
+    accountingPeriod: { findFirst: vi.fn(async () => null) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 
