@@ -24,6 +24,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:int": "vitest run --config vitest.integration.config.ts",
+    "test:int:setup": "tsx scripts/test-db-setup.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
