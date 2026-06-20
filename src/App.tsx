@@ -171,6 +171,8 @@ function App(): JSX.Element {
                     <Route path="banking/transfer" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/expense" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/income" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/payment" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/receive" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/account" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/reconciliation" element={withPermission(<PaymentReconciliation />, 'banking')} />
 
