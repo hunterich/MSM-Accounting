@@ -17,7 +17,10 @@ import {
     BarChart3,
     Building2,
     Settings,
-    Search,
+    ArrowRightLeft,
+    ArrowUpRight,
+    ArrowDownLeft,
+    FileText,
     ChevronDown,
     Menu,
     X,
@@ -76,19 +79,44 @@ const NAV_GROUPS: NavGroup[] = [
         ],
     },
     {
-        group: 'Cash & Books',
+        group: 'Cash & Bank',
         groupIcon: Landmark,
         items: [
-            { label: 'Banking',         path: '/banking', icon: Landmark },
-            { label: 'General Ledger',  path: '/gl',      icon: BookOpen },
-            { label: 'Reports',         path: '/reports', icon: BarChart3 },
+            { label: 'Payment',        path: '/banking/payment',        icon: ArrowUpRight },
+            { label: 'Receive',        path: '/banking/receive',        icon: ArrowDownLeft },
+            { label: 'Bank Transfer',  path: '/banking/transfer',       icon: ArrowRightLeft },
+            { label: 'Bank Accounts',  path: '/banking',                icon: Wallet },
+            { label: 'Reconciliation', path: '/banking/reconciliation', icon: CheckSquare },
+        ],
+    },
+    {
+        group: 'Inventory',
+        groupIcon: Package,
+        items: [
+            { label: 'Items',            path: '/inventory/items',      icon: Package },
+            { label: 'Item Categories',  path: '/inventory/categories', icon: Boxes },
+            { label: 'Stock Adjustments',path: '/inventory/adjustments',icon: PackageCheck },
+        ],
+    },
+    {
+        group: 'General Ledger',
+        groupIcon: BookOpen,
+        items: [
+            { label: 'Chart of Accounts', path: '/gl',          icon: BookOpen },
+            { label: 'Journal Entries',   path: '/gl/journals', icon: FileText },
+        ],
+    },
+    {
+        group: 'Reports',
+        groupIcon: BarChart3,
+        items: [
+            { label: 'Reports', path: '/reports', icon: BarChart3 },
         ],
     },
     {
         group: 'Operations',
         groupIcon: Boxes,
         items: [
-            { label: 'Inventory',     path: '/inventory',  icon: Package },
             { label: 'HR & Payroll',  path: '/hr',         icon: Users },
             { label: 'Assets',        path: '/assets',     icon: Building2 },
             { label: 'Settings',      path: '/settings',   icon: Settings },
@@ -158,7 +186,6 @@ const Sidebar = (): React.ReactElement => {
             return raw ? JSON.parse(raw) : allGroupsCollapsed();
         } catch { return allGroupsCollapsed(); }
     });
-    const [paletteOpen, setPaletteOpen] = useState(false);
     // Rail flyout: which group's pop-out panel is open (desktop icon rail). Only one at a time.
     const [openGroup, setOpenGroup] = useState<string | null>(null);
     const railRef = useRef<HTMLElement | null>(null);
@@ -176,10 +203,6 @@ const Sidebar = (): React.ReactElement => {
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-                e.preventDefault();
-                setPaletteOpen(true);
-            }
             if (e.key === 'Escape') setOpenGroup(null);
         };
         window.addEventListener('keydown', onKey);
@@ -239,6 +262,7 @@ const Sidebar = (): React.ReactElement => {
     const isItemActive = (path: string): boolean => {
         if (path === '/') return location.pathname === '/';
         if (path === '/gl') return location.pathname === '/gl';
+        if (path === '/banking') return location.pathname === '/banking';
         if (path === '/inventory') return location.pathname.startsWith('/inventory');
         return location.pathname.startsWith(path);
     };
@@ -254,18 +278,6 @@ const Sidebar = (): React.ReactElement => {
             </div>
 
             <div className="sidebar-icons">
-                <div className="sidebar-icon-wrapper">
-                    <button
-                        type="button"
-                        className="sidebar-icon-btn"
-                        onClick={() => setPaletteOpen(true)}
-                        aria-label="Search (⌘K)"
-                    >
-                        <Search size={18} strokeWidth={1.8} />
-                    </button>
-                    <span className="sidebar-tooltip">Search&nbsp;&nbsp;⌘K</span>
-                </div>
-
                 {visibleGroups.map(g => {
                     const GroupIcon = g.groupIcon;
                     const groupActive = isGroupActive(g);
@@ -337,18 +349,6 @@ const Sidebar = (): React.ReactElement => {
             <div className="h-[52px] px-4 flex items-center gap-2 border-b border-white/10 flex-shrink-0">
                 <div className="w-7 h-7 rounded-md bg-primary-700 flex items-center justify-center font-bold text-sm">M</div>
                 <div className="font-semibold text-[14px]">MSM Accounting</div>
-            </div>
-
-            <div className="px-3 py-2 border-b border-white/10 flex-shrink-0">
-                <button
-                    type="button"
-                    onClick={() => setPaletteOpen(true)}
-                    className="w-full h-8 px-2.5 flex items-center gap-2 rounded-md bg-white/5 hover:bg-white/10 text-white/70 text-[12px] transition-colors"
-                >
-                    <Search size={13} />
-                    <span>Search…</span>
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-white/10 font-mono">⌘K</span>
-                </button>
             </div>
 
             <div className="flex-1 overflow-y-auto py-2 min-h-0">
@@ -431,21 +431,6 @@ const Sidebar = (): React.ReactElement => {
             )}
 
             {RailBody}
-
-            {paletteOpen && (
-                <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] bg-black/40" onClick={() => setPaletteOpen(false)}>
-                    <div className="bg-white rounded-lg shadow-2xl w-[560px] max-w-[92vw] p-1" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-200">
-                            <Search size={14} className="text-neutral-500" />
-                            <input autoFocus placeholder="Jump to invoice, customer, action…" className="flex-1 bg-transparent outline-none text-[13px]" />
-                            <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 font-mono">esc</kbd>
-                        </div>
-                        <div className="p-3 text-[12px] text-neutral-500">
-                            Command palette wiring is not yet implemented. ⌘K opens this stub today.
-                        </div>
-                    </div>
-                </div>
-            )}
         </>
     );
 };
