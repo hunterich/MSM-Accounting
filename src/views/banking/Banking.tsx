@@ -82,8 +82,8 @@ const Banking = () => {
     const openTransactionForm = (txn: BankTransaction) => {
         const targetPathByType: Record<string, string> = {
             transfer: '/banking/transfer',
-            expense: '/banking/expense',
-            income: '/banking/income'
+            expense: '/banking/payment',
+            income: '/banking/receive'
         };
         navigate(targetPathByType[txn.type] || '/banking/account', {
             state: {
@@ -190,9 +190,9 @@ const Banking = () => {
                 onClose={closeTxnTab}
                 newTabLabel="New Transaction"
                 newTabMenu={[
-                    { label: 'Transfer', icon: <ArrowRightLeft size={14} />, onSelect: () => navigate('/banking/transfer') },
-                    { label: 'Expense', icon: <TrendingDown size={14} />, onSelect: () => navigate('/banking/expense') },
-                    { label: 'Income', icon: <TrendingUp size={14} />, onSelect: () => navigate('/banking/income') },
+                    { label: 'Payment', icon: <TrendingDown size={14} />, onSelect: () => navigate('/banking/payment') },
+                    { label: 'Receive', icon: <TrendingUp size={14} />, onSelect: () => navigate('/banking/receive') },
+                    { label: 'Bank Transfer', icon: <ArrowRightLeft size={14} />, onSelect: () => navigate('/banking/transfer') },
                 ]}
                 disableNew={!canCreate}
                 onCatalog={() => {
