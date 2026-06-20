@@ -760,6 +760,8 @@ const INVENTORY_REPORTS: ReportDefinition[] = [
     filterMode: 'date-range',
   },
   {
+    // Placeholder fields: handleCardClick navigates to the standalone
+    // /inventory/valuation view before apiPath/filterMode/type are ever read.
     id: 'stock-valuation',
     category: 'inventory',
     apiPath: '/inventory/valuation',

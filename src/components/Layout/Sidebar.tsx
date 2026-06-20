@@ -263,7 +263,6 @@ const Sidebar = (): React.ReactElement => {
         if (path === '/') return location.pathname === '/';
         if (path === '/gl') return location.pathname === '/gl';
         if (path === '/banking') return location.pathname === '/banking';
-        if (path === '/inventory') return location.pathname.startsWith('/inventory');
         return location.pathname.startsWith(path);
     };
 
