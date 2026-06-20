@@ -22,8 +22,8 @@ interface DateRange {
 
 const TXN_TYPE_LABELS: Record<string, string> = {
     transfer: 'Transfer',
-    expense: 'Expense',
-    income: 'Income',
+    expense: 'Payment',
+    income: 'Receive',
 };
 
 const Banking = () => {

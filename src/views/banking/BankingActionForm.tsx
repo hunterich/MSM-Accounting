@@ -440,7 +440,7 @@ const BankingActionForm = () => {
                     </>
                 )}
 
-                {/* ── Record Expense ───────────────────────────────────── */}
+                {/* ── Payment ──────────────────────────────────────────── */}
                 {action === 'expense' && (
                     <>
                         <div className="invoice-panel-header">
@@ -500,7 +500,7 @@ const BankingActionForm = () => {
                             </div>
                             <div className="col-span-3">
                                 <Input
-                                    label="Expense Date *"
+                                    label="Payment Date *"
                                     name="date"
                                     type="date"
                                     value={formData.date}
@@ -535,7 +535,7 @@ const BankingActionForm = () => {
                     </>
                 )}
 
-                {/* ── Record Income ────────────────────────────────────── */}
+                {/* ── Receive ──────────────────────────────────────────── */}
                 {action === 'income' && (
                     <>
                         <div className="invoice-panel-header">
