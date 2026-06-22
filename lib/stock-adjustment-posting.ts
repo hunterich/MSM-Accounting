@@ -3,6 +3,7 @@ import { InventoryDocumentType } from '@prisma/client';
 import { asMoney, toNumber } from './money';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
+import { addCostLayer, relieveCostLayers } from './inventory-costing';
 
 type Tx = Prisma.TransactionClient;
 
@@ -30,18 +31,15 @@ function lineQtyDiff(l: StockAdjustmentPostingLine): number {
 }
 
 /**
- * Post the inventory ledger + balancing journal entry for a stock adjustment.
- *
- * For every line, an `InventoryLedgerEntry` (documentType ADJUSTMENT) is written
- * with a signed `valueChange = qtyDiff × unitCost`. The net value across all
- * lines posts ONE journal entry: an increase debits Inventory and credits the
- * variance account; a decrease does the reverse. A net of zero posts no entry
- * (the per-line ledger rows still capture the detail).
- *
- * NOTE: this deliberately does NOT touch `InventoryLot` cost layers — purchases
- * and sales own lot tracking; adjustments only correct quantity/value. That gap
- * means on-hand *lot* valuation can drift from the ledger/GL after an
- * adjustment; see the stock-adjustment integration tests.
+ * Post the inventory ledger + cost layers + balancing journal entry for a stock
+ * adjustment. Each line drives the shared cost-layer helpers so lots and the
+ * ledger move together:
+ *   - increase (qtyDiff > 0): addCostLayer at the typed unit cost (new layer + ledger row).
+ *   - decrease (qtyDiff < 0): relieveCostLayers at carrying cost (FIFO/WA) + ledger row.
+ * The single net journal entry is posted from those lot-derived values, so
+ * lots = ledger = GL by construction (FIFO; see the WA note in the integration tests).
+ * Adjustments are never blocked on insufficient layers — a shortfall is valued at
+ * item.costPrice (consumeFIFO's fallback).
  */
 export async function postStockAdjustmentToLedger(
   tx: Tx,
@@ -51,26 +49,27 @@ export async function postStockAdjustmentToLedger(
   const lines = args.lines ?? [];
   if (lines.length === 0) return;
 
-  await tx.inventoryLedgerEntry.createMany({
-    data: lines.map((l) => {
-      const qtyDiff = lineQtyDiff(l);
+  let netValue = 0;
+  for (const l of lines) {
+    const qtyDiff = lineQtyDiff(l);
+    if (qtyDiff > 0) {
       const unitCost = toNumber(l.unitCost);
-      return {
-        organizationId: orgId,
-        itemId: l.itemId,
-        warehouseId: args.warehouseId ?? null,
-        date: args.date,
-        documentType: InventoryDocumentType.ADJUSTMENT,
-        documentId: args.id,
-        qtyIn: qtyDiff > 0 ? qtyDiff : 0,
-        qtyOut: qtyDiff < 0 ? -qtyDiff : 0,
-        unitCost,
-        valueChange: asMoney(qtyDiff * unitCost),
-      };
-    }),
-  });
+      await addCostLayer(
+        tx, orgId, l.itemId, args.warehouseId ?? null,
+        qtyDiff, unitCost, InventoryDocumentType.ADJUSTMENT, args.id, args.date,
+      );
+      netValue += asMoney(qtyDiff * unitCost);
+    } else if (qtyDiff < 0) {
+      const cost = await relieveCostLayers(
+        tx, orgId, l.itemId, args.warehouseId ?? null,
+        -qtyDiff, InventoryDocumentType.ADJUSTMENT, args.id, args.date,
+      );
+      netValue -= cost;
+    }
+    // qtyDiff === 0 → no movement
+  }
 
-  const netRounded = asMoney(lines.reduce((sum, l) => sum + lineQtyDiff(l) * toNumber(l.unitCost), 0));
+  const netRounded = asMoney(netValue);
   if (Math.abs(netRounded) === 0) return;
 
   const accounts = await tx.account.findMany({
@@ -92,7 +91,7 @@ export async function postStockAdjustmentToLedger(
       memo,
       lines: [
         { accountId: inventoryAccountId, description: `Inventory increase - ${args.number}`, debit: netRounded, credit: 0 },
-        { accountId: varianceAccountId, description: `Stock variance - ${args.number}`, debit: 0, credit: netRounded },
+        { accountId: varianceAccountId,  description: `Stock variance - ${args.number}`,    debit: 0,           credit: netRounded },
       ],
     });
   } else {
@@ -102,8 +101,8 @@ export async function postStockAdjustmentToLedger(
       date: args.date,
       memo,
       lines: [
-        { accountId: varianceAccountId, description: `Stock variance - ${args.number}`, debit: amount, credit: 0 },
-        { accountId: inventoryAccountId, description: `Inventory decrease - ${args.number}`, debit: 0, credit: amount },
+        { accountId: varianceAccountId,  description: `Stock variance - ${args.number}`,    debit: amount, credit: 0 },
+        { accountId: inventoryAccountId, description: `Inventory decrease - ${args.number}`, debit: 0,     credit: amount },
       ],
     });
   }
