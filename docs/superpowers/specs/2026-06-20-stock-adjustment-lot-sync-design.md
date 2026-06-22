@@ -21,6 +21,7 @@ Worked example: buy 10 @ Rp1,000 (all three = Rp10,000), then a count finds 15 �
 1. **A decrease relieves cost layers at their actual carrying cost** (FIFO oldest-first, or weighted-average per the org's costing method) — exactly like a sale's COGS. The unit cost typed on the adjustment line is **ignored on decreases** (it is used only as a fallback when no layers exist). This is the only way `lots = ledger = GL` holds, and matches Accurate / standard perpetual inventory.
 2. **An increase adds a new cost layer at the typed unit cost** (the declared cost of the found units).
 3. **Adjustments are never blocked on insufficient layers.** No `assertSufficientStock` guard — a decrease that exceeds open layers relieves what exists and values the shortfall at `item.costPrice` (the existing `consumeFIFO` fallback). Adjustments are a correction tool; the oversell guard stays on sales only.
+4. **The `lots = ledger = GL` guarantee is FIFO-only (the org default).** Under **weighted-average**, an adjustment still relieves layers (oldest-first by quantity) and posts the WA cost to the ledger + GL — consistent with how sales behave — but the lot-sum can diverge from the ledger, because cost layers keep their original per-batch costs while WA values consumption at the blended rate. This divergence is **pre-existing** (it already affects sales COGS under WA), so it is **flagged and pinned, not fixed here**.
 
 ## Design
 
@@ -112,21 +113,23 @@ The current adjustment tests encode the **old** behavior (no lots; decreases val
 - **receipt + adjustment (increase):** existing scenario now also makes lots = Rp15,000; assert `lots == ledger == GL`.
 - **remove `it.fails`** on the cost-layer reconciliation test — it now passes.
 - **new — FIFO mixed cost:** receive 5 @ Rp1,000 then 5 @ Rp1,200; decrease 6. Assert COGS relieved = 5×1,000 + 1×1,200 = Rp6,200 (oldest-first), and remaining lot value == ledger == GL.
-- **new — weighted-average:** set org `costingMethod = WEIGHTED_AVERAGE`; receive 5 @ Rp1,000 then 5 @ Rp1,200 (WA = Rp1,100); decrease 4 → relieved Rp4,400; assert `lots == ledger == GL`.
+- **new — weighted-average (FIFO-only guarantee):** set org `costingMethod = WEIGHTED_AVERAGE`; receive 5 @ Rp1,000 then 5 @ Rp1,200 (WA = Rp1,100); decrease 4. Assert the ledger/GL value removed = 4 × Rp1,100 = Rp4,400 (the WA cost) and that 4 units were relieved from layers. Do **not** assert `lots == ledger` here. Add a **separate `it.fails`** pinning the known WA lot-vs-ledger divergence (documents it's pre-existing and tracked for a future WA-model fix — flips to passing when WA is fixed).
 
 `relieveCostLayers` reuse means the sales COGS path is unchanged; `gl-invariants.int.test.ts` must still pass untouched.
 
 ## Out of scope (flagged follow-ups)
 
 - **Edit/void reversal of a posted adjustment.** Re-posting or voiding an adjustment must reverse its prior lot/ledger/GL moves. This is a pre-existing gap (the ledger+GL already have it today) and is not addressed here.
+- **Weighted-average cost-layer model.** Under WA, lot-sum value diverges from the ledger because layers keep original per-batch costs while WA values consumption at the blended rate (pre-existing; affects sales COGS too). A proper fix would collapse WA layers into a single blended layer on each receipt/consumption. Pinned here with an `it.fails`, not fixed.
 - **Per-warehouse lot scoping** (multi-warehouse) — deferred with Stock Transfer.
 - **Stock Opname** (structured physical count) — the separate next feature that builds on this fix.
 
 ## Acceptance criteria
 
 1. After an **increase**, `inventoryLotValue == inventoryLedgerValue == Inventory GL balance`.
-2. After a **decrease**, the same three are equal, and the value removed equals the actual FIFO/WA carrying cost of the units relieved (not the typed cost).
+2. After a **FIFO decrease**, the same three are equal, and the value removed equals the actual FIFO carrying cost of the units relieved (oldest-first), not the typed cost.
 3. A decrease that **exceeds** open layers does **not** throw; the shortfall is valued at `item.costPrice`.
 4. A **net-zero** batch writes the per-line lot + ledger rows but posts **no** adjustment journal entry.
 5. The **sales/COGS path is unchanged** — `calculateAndPostCOGS` still asserts sufficient stock and posts identical COGS; `gl-invariants.int.test.ts` passes unmodified.
-6. `npm run test:int` passes (including the formerly-`it.fails` test, now asserting equality); `npm run typecheck` and `npm test` stay green.
+6. Under **weighted-average**, an adjustment decrease relieves the correct quantity and posts the WA cost to the ledger + GL; the WA lot-vs-ledger divergence stays pinned by an `it.fails` (pre-existing, out of scope).
+7. `npm run test:int` passes (the formerly-`it.fails` FIFO reconciliation test now asserts equality; the new WA-divergence `it.fails` is an expected fail); `npm run typecheck` and `npm test` stay green.
