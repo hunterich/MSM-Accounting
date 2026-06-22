@@ -283,15 +283,16 @@ export async function getWeightedAverageCost(
 }
 
 /**
- * High-level function: calculate and post COGS using the organisation's costing
- * method.  Returns the total COGS amount.
+ * Relieve cost layers for an outbound movement using the org's costing method
+ * (FIFO oldest-first, or weighted-average), write the outbound InventoryLedgerEntry,
+ * and return the total cost removed.
  *
- * For FIFO:  calls consumeFIFO which handles lot updates.
- * For WA:    calculates WA cost × qty; decrements lots oldest-first for qty tracking.
- *
- * In both cases an InventoryLedgerEntry is created for the outbound movement.
+ * NOTE: this does NOT guard against insufficient stock — callers that need the
+ * oversell guard (sales) run assertSufficientStock first via calculateAndPostCOGS.
+ * Callers that are corrections (stock adjustments) relieve what exists and value
+ * any shortfall at item.costPrice (consumeFIFO's fallback).
  */
-export async function calculateAndPostCOGS(
+export async function relieveCostLayers(
   tx: Prisma.TransactionClient,
   orgId: string,
   itemId: string,
@@ -301,8 +302,6 @@ export async function calculateAndPostCOGS(
   docId: string,
   date: Date
 ): Promise<number> {
-  await assertSufficientStock(tx, orgId, itemId, warehouseId, qty)
-
   const method = await getOrgCostingMethod(tx, orgId)
 
   let totalCost: number
@@ -362,4 +361,23 @@ export async function calculateAndPostCOGS(
   })
 
   return totalCost
+}
+
+/**
+ * High-level function: calculate and post COGS using the organisation's costing
+ * method.  Returns the total COGS amount.  Guards against overselling, then
+ * relieves cost layers via relieveCostLayers.
+ */
+export async function calculateAndPostCOGS(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  itemId: string,
+  warehouseId: string | null,
+  qty: number,
+  docType: InventoryDocumentType,
+  docId: string,
+  date: Date
+): Promise<number> {
+  await assertSufficientStock(tx, orgId, itemId, warehouseId, qty)
+  return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date)
 }
