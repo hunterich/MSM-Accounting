@@ -128,7 +128,7 @@ describe('GL invariant: stock adjustment direction + lot reconciliation', () => 
     ]);
 
     expect((await journalEntryCount(org.orgId)) - jeBefore).toBe(0); // adjustment posted no JE
-    expect(await inventoryLedgerValue(org.orgId)).toBeCloseTo(5000, 2); // itemA 5000, itemB net 0
+    expect(await inventoryLedgerValue(org.orgId)).toBeCloseTo(5000, 2); // itemA +5000; itemB receipt +5000 then relieved -5000 = net 0
     expect(await inventoryLotValue(org.orgId)).toBeCloseTo(5000, 2);
     await assertTrialBalanced(org.orgId, 'net-zero batch');
 
