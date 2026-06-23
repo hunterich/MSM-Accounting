@@ -5,6 +5,7 @@ import {
   aggregateDestinationStatus,
 } from '../backup/retention';
 import type { DestinationResult } from '../backup/types';
+import { resolvePgToolPath } from '../backup/pg-tools';
 
 const f = (name: string) => ({ fileName: name, createdAt: new Date(name.slice(15, 25)) });
 
@@ -53,5 +54,22 @@ describe('aggregateDestinationStatus', () => {
   });
   it('SUCCESS when there are no destinations (canonical only)', () => {
     expect(aggregateDestinationStatus([])).toBe('SUCCESS');
+  });
+});
+
+describe('resolvePgToolPath', () => {
+  it('uses the override directory when the binary exists there', () => {
+    const exists = (p: string) => p === '/custom/bin/pg_dump';
+    expect(resolvePgToolPath('pg_dump', { override: '/custom/bin', fileExists: exists }))
+      .toBe('/custom/bin/pg_dump');
+  });
+  it('falls back to the bare command name when no override/dir matches (rely on PATH)', () => {
+    expect(resolvePgToolPath('pg_restore', { override: null, fileExists: () => false, searchDirs: [] }))
+      .toBe('pg_restore');
+  });
+  it('finds the binary in a provided search dir', () => {
+    const exists = (p: string) => p === '/opt/pg/bin/pg_dump';
+    expect(resolvePgToolPath('pg_dump', { override: null, fileExists: exists, searchDirs: ['/opt/pg/bin'] }))
+      .toBe('/opt/pg/bin/pg_dump');
   });
 });
