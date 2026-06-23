@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
-import { ApiError } from './api-utils';
+import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { calculateAndPostCOGS } from './inventory-costing';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
@@ -20,7 +20,14 @@ export async function postInvoiceSend(
 ): Promise<void> {
   const invoice = await tx.salesInvoice.findUnique({
     where: { id: invoiceId },
-    select: { number: true, issueDate: true },
+    select: {
+      number: true,
+      issueDate: true,
+      subtotal: true,
+      discountAmount: true,
+      totalAmount: true,
+      taxAmount: true,
+    },
   });
 
   if (!invoice) {
@@ -31,105 +38,91 @@ export async function postInvoiceSend(
 
   // Refuse to post into a closed/locked accounting period.
   await assertPeriodOpen(tx, orgId, new Date(invoice.issueDate));
-
-  const invoiceHeader = await tx.salesInvoice.findUnique({
-    where: { id: invoiceId },
-    select: {
-      number: true,
-      issueDate: true,
-      subtotal: true,
-      discountAmount: true,
-      totalAmount: true,
-      taxAmount: true,
-    },
-  });
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
 
-  if (invoiceHeader) {
-    const totalAmount = toNumber(invoiceHeader.totalAmount);
-    const taxAmount = toNumber(invoiceHeader.taxAmount);
-    const discountAmount = toNumber(invoiceHeader.discountAmount);
-    // Revenue is gross of any discount line we post separately below;
-    // when we post a contra-revenue discount line, salesRevenue is
-    // credited at the larger pre-discount amount.
-    const baseRevenue = totalAmount - taxAmount;
-    const arAccountId = resolveAccountDefaultId(accounts, settings, 'arControl');
-    const salesAccountId = resolveAccountDefaultId(accounts, settings, 'salesRevenue');
-    const taxAccountId = taxAmount > 0
-      ? resolveAccountDefaultId(accounts, settings, 'arTax')
+  const totalAmount = toNumber(invoice.totalAmount);
+  const taxAmount = toNumber(invoice.taxAmount);
+  const discountAmount = toNumber(invoice.discountAmount);
+  // Revenue is gross of any discount line we post separately below;
+  // when we post a contra-revenue discount line, salesRevenue is
+  // credited at the larger pre-discount amount.
+  const baseRevenue = totalAmount - taxAmount;
+  const arAccountId = resolveAccountDefaultId(accounts, settings, 'arControl');
+  const salesAccountId = resolveAccountDefaultId(accounts, settings, 'salesRevenue');
+  const taxAccountId = taxAmount > 0
+    ? resolveAccountDefaultId(accounts, settings, 'arTax')
+    : null;
+  const salesDiscountAccountId =
+    discountAmount > 0
+      ? (resolveAccountDefaultId(accounts, settings, 'salesDiscount')
+        || resolveAccountDefaultId(accounts, settings, 'arDiscount'))
       : null;
-    const salesDiscountAccountId =
-      discountAmount > 0
-        ? (resolveAccountDefaultId(accounts, settings, 'salesDiscount')
-          || resolveAccountDefaultId(accounts, settings, 'arDiscount'))
-        : null;
-    const roundingAccountId =
-      resolveAccountDefaultId(accounts, settings, 'roundingAccount')
-      || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
-    const arInvoiceDate = new Date(invoiceHeader.issueDate);
+  const roundingAccountId =
+    resolveAccountDefaultId(accounts, settings, 'roundingAccount')
+    || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
+  const arInvoiceDate = new Date(invoice.issueDate);
 
-    if (totalAmount > 0 && arAccountId && salesAccountId && (taxAmount === 0 || taxAccountId)) {
-      const splitDiscount = discountAmount > 0 && Boolean(salesDiscountAccountId);
-      const revenueCredit = splitDiscount
-        ? asMoney(baseRevenue + discountAmount)
-        : baseRevenue;
-      const arLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [
-        {
-          accountId: arAccountId,
-          description: `AR - ${invoiceHeader.number}`,
-          debit: totalAmount,
-          credit: 0,
-        },
-        {
-          accountId: salesAccountId,
-          description: `Sales - ${invoiceHeader.number}`,
-          debit: 0,
-          credit: revenueCredit,
-        },
-      ];
-      if (splitDiscount && salesDiscountAccountId) {
-        arLines.push({
-          accountId: salesDiscountAccountId,
-          description: `Sales discount - ${invoiceHeader.number}`,
-          debit: discountAmount,
-          credit: 0,
-        });
-      }
-      if (taxAmount > 0 && taxAccountId) {
-        arLines.push({
-          accountId: taxAccountId,
-          description: `Output tax - ${invoiceHeader.number}`,
-          debit: 0,
-          credit: taxAmount,
-        });
-      }
-
-      // Tax-inclusive math frequently leaves a sub-rupiah residual
-      // between totalAmount and (revenue - discount + tax). Book it to
-      // the rounding account so the entry balances exactly.
-      const sumDebits  = arLines.reduce((s, l) => s + l.debit, 0);
-      const sumCredits = arLines.reduce((s, l) => s + l.credit, 0);
-      const rounding = asMoney(sumDebits - sumCredits);
-      if (Math.abs(rounding) > 0 && roundingAccountId) {
-        arLines.push({
-          accountId: roundingAccountId,
-          description: `Rounding - ${invoiceHeader.number}`,
-          debit:  rounding < 0 ? -rounding : 0,
-          credit: rounding > 0 ?  rounding : 0,
-        });
-      }
-
-      await postJournalEntry(tx, {
-        organizationId: orgId,
-        date: arInvoiceDate,
-        memo: `Sales recognition: ${invoiceHeader.number}`,
-        lines: arLines,
+  if (totalAmount > 0 && arAccountId && salesAccountId && (taxAmount === 0 || taxAccountId)) {
+    const splitDiscount = discountAmount > 0 && Boolean(salesDiscountAccountId);
+    const revenueCredit = splitDiscount
+      ? asMoney(baseRevenue + discountAmount)
+      : baseRevenue;
+    const arLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [
+      {
+        accountId: arAccountId,
+        description: `AR - ${invoice.number}`,
+        debit: totalAmount,
+        credit: 0,
+      },
+      {
+        accountId: salesAccountId,
+        description: `Sales - ${invoice.number}`,
+        debit: 0,
+        credit: revenueCredit,
+      },
+    ];
+    if (splitDiscount && salesDiscountAccountId) {
+      arLines.push({
+        accountId: salesDiscountAccountId,
+        description: `Sales discount - ${invoice.number}`,
+        debit: discountAmount,
+        credit: 0,
       });
     }
+    if (taxAmount > 0 && taxAccountId) {
+      arLines.push({
+        accountId: taxAccountId,
+        description: `Output tax - ${invoice.number}`,
+        debit: 0,
+        credit: taxAmount,
+      });
+    }
+
+    // Tax-inclusive math frequently leaves a sub-rupiah residual
+    // between totalAmount and (revenue - discount + tax). Book it to
+    // the rounding account so the entry balances exactly.
+    const sumDebits  = arLines.reduce((s, l) => s + l.debit, 0);
+    const sumCredits = arLines.reduce((s, l) => s + l.credit, 0);
+    const rounding = asMoney(sumDebits - sumCredits);
+    if (Math.abs(rounding) > 0 && roundingAccountId) {
+      arLines.push({
+        accountId: roundingAccountId,
+        description: `Rounding - ${invoice.number}`,
+        debit:  rounding < 0 ? -rounding : 0,
+        credit: rounding > 0 ?  rounding : 0,
+      });
+    }
+
+    await postJournalEntry(tx, {
+      organizationId: orgId,
+      date: arInvoiceDate,
+      memo: `Sales recognition: ${invoice.number}`,
+      lines: arLines,
+    });
   }
 
   const organization = await tx.organization.findUnique({
@@ -163,11 +156,6 @@ export async function postInvoiceSend(
       );
 
       if (linesWithInventory.length > 0) {
-        const accounts = await tx.account.findMany({
-          where: { organizationId: orgId, isActive: true },
-          select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-        });
-
         const cogsAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
         const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
         const invoiceDate = new Date(invoice.issueDate);
