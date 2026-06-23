@@ -83,11 +83,15 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           totalValue: l.totalValue ?? ((Number(l.newQty) - Number(l.oldQty)) * Number(l.unitCost)),
         })),
       });
+    }
 
-      // Write the perpetual inventory ledger + balancing GL entry, unless the
-      // approval engine routes the adjustment for approval first. Shared with
-      // the integration tests via lib/stock-adjustment-posting.ts.
-      const routed = await routeForApproval(tx, {
+    // Approval gate: a live (non-DRAFT) adjustment must route regardless of line
+    // count. The input schema permits status:'APPROVED' with empty lines, so
+    // gating on `lines.length > 0` would let such a doc go live unrouted — a
+    // status-only approval bypass (GL impact is zero, but the state is wrong).
+    let routed = false;
+    if (adj.status !== 'DRAFT') {
+      routed = await routeForApproval(tx, {
         orgId,
         userId,
         documentType: 'STOCK_ADJUSTMENT',
@@ -99,15 +103,22 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           where: { id: adj.id },
           data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
         });
-      } else {
-        await postStockAdjustmentToLedger(tx, orgId, {
-          id: adj.id,
-          number: adj.number,
-          date: new Date(date),
-          warehouseId: warehouseId ?? null,
-          lines,
-        });
       }
+    }
+
+    // Post the perpetual inventory ledger + balancing GL entry only when the
+    // adjustment was not held for approval and there are lines to post. This
+    // preserves prior behavior: a non-routed adjustment with lines posts as
+    // before; an empty-lines adjustment posts nothing either way. Shared with
+    // the integration tests via lib/stock-adjustment-posting.ts.
+    if (!routed && lines.length > 0) {
+      await postStockAdjustmentToLedger(tx, orgId, {
+        id: adj.id,
+        number: adj.number,
+        date: new Date(date),
+        warehouseId: warehouseId ?? null,
+        lines,
+      });
     }
 
     return tx.stockAdjustment.findUnique({
