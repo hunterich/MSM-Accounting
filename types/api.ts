@@ -941,3 +941,30 @@ export type AssetInput = z.infer<typeof assetInputSchema>;
 export type UpdateAssetInput = z.infer<typeof updateAssetInputSchema>;
 export type AssetDisposalInput = z.infer<typeof assetDisposalInputSchema>;
 export type AssetDepreciationRunInput = z.infer<typeof assetDepreciationRunInputSchema>;
+
+// ── Backup & Restore ──────────────────────────────────────────────────────────
+
+const folderDestinationSchema = z.object({
+  label: z.string().trim().min(1),
+  path: z.string().trim().min(1),
+  enabled: z.boolean(),
+});
+
+export const updateBackupSettingsInputSchema = z.object({
+  enabled: z.boolean().optional(),
+  frequency: z.enum(['DAILY', 'TWICE_DAILY', 'WEEKLY']).optional(),
+  times: z.array(z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/)).optional(),
+  retentionDailyCount: z.number().int().min(1).max(365).optional(),
+  retentionMonthlyCount: z.number().int().min(0).max(120).optional(),
+  canonicalDir: z.string().trim().min(1).nullable().optional(),
+  folderDestinations: z.array(folderDestinationSchema).optional(),
+  downloadEnabled: z.boolean().optional(),
+  pgToolsPathOverride: z.string().trim().min(1).nullable().optional(),
+});
+
+export const restoreBackupInputSchema = z.object({
+  confirm: z.literal('RESTORE'),
+});
+
+export type UpdateBackupSettingsInput = z.infer<typeof updateBackupSettingsInputSchema>;
+export type RestoreBackupInput = z.infer<typeof restoreBackupInputSchema>;
