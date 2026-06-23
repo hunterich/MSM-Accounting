@@ -7,30 +7,35 @@ import {
 import type { DestinationResult } from '../backup/types';
 import { resolvePgToolPath } from '../backup/pg-tools';
 
-const f = (name: string) => ({ fileName: name, createdAt: new Date(name.slice(15, 25)) });
-
 describe('selectBackupsToPrune', () => {
-  it('keeps the most recent N daily backups and deletes older same-day extras', () => {
+  const file = (name: string, iso: string) => ({ fileName: name, createdAt: new Date(iso) });
+
+  it('keeps the newest backup per day for the most recent N days; prunes older same-day extras and days beyond the window', () => {
     const files = [
-      'msm_accounting_2026-06-23_1300.dump',
-      'msm_accounting_2026-06-23_2000.dump',
-      'msm_accounting_2026-06-22_1300.dump',
-      'msm_accounting_2026-05-15_1300.dump',
-    ].map(f);
-    const prune = selectBackupsToPrune(files, { dailyCount: 2, monthlyCount: 12 });
-    expect(prune.map((p) => p.fileName)).toContain('msm_accounting_2026-05-15_1300.dump');
-    expect(prune.map((p) => p.fileName)).not.toContain('msm_accounting_2026-06-23_2000.dump');
+      file('msm_accounting_2026-06-23_2000.dump', '2026-06-23T20:00:00Z'),
+      file('msm_accounting_2026-06-23_1300.dump', '2026-06-23T13:00:00Z'),
+      file('msm_accounting_2026-06-22_1300.dump', '2026-06-22T13:00:00Z'),
+      file('msm_accounting_2026-06-21_1300.dump', '2026-06-21T13:00:00Z'),
+    ];
+    const prune = selectBackupsToPrune(files, { dailyCount: 2, monthlyCount: 0 }).map((p) => p.fileName);
+    expect(prune).toContain('msm_accounting_2026-06-23_1300.dump');   // older same-day extra
+    expect(prune).toContain('msm_accounting_2026-06-21_1300.dump');   // outside the 2-day window
+    expect(prune).not.toContain('msm_accounting_2026-06-23_2000.dump'); // newest of newest day kept
+    expect(prune).not.toContain('msm_accounting_2026-06-22_1300.dump'); // second day kept
   });
 
-  it('keeps one monthly backup per month within monthlyCount months', () => {
+  it('keeps one monthly archive per month within monthlyCount months (even a lone old backup) and prunes the rest', () => {
     const files = [
-      'msm_accounting_2026-06-23_1300.dump',
-      'msm_accounting_2026-05-31_2000.dump',
-      'msm_accounting_2026-05-01_1300.dump',
-    ].map(f);
-    const prune = selectBackupsToPrune(files, { dailyCount: 1, monthlyCount: 12 });
-    expect(prune.map((p) => p.fileName)).toContain('msm_accounting_2026-05-01_1300.dump');
-    expect(prune.map((p) => p.fileName)).not.toContain('msm_accounting_2026-05-31_2000.dump');
+      file('msm_accounting_2026-06-23_1300.dump', '2026-06-23T13:00:00Z'),
+      file('msm_accounting_2026-05-31_2000.dump', '2026-05-31T20:00:00Z'),
+      file('msm_accounting_2026-05-01_1300.dump', '2026-05-01T13:00:00Z'),
+      file('msm_accounting_2026-03-10_0900.dump', '2026-03-10T09:00:00Z'),
+    ];
+    const prune = selectBackupsToPrune(files, { dailyCount: 1, monthlyCount: 12 }).map((p) => p.fileName);
+    expect(prune).toContain('msm_accounting_2026-05-01_1300.dump');     // older May extra pruned
+    expect(prune).not.toContain('msm_accounting_2026-05-31_2000.dump'); // newest May kept as monthly
+    expect(prune).not.toContain('msm_accounting_2026-03-10_0900.dump'); // lone March archive kept
+    expect(prune).not.toContain('msm_accounting_2026-06-23_1300.dump'); // recent daily kept
   });
 });
 

@@ -3,56 +3,44 @@ import type { DestinationResult } from './types';
 export type BackupFileMeta = { fileName: string; createdAt: Date };
 export type RetentionPolicy = { dailyCount: number; monthlyCount: number };
 
-const dayKey = (d: Date) => d.toISOString().slice(0, 10);
-const monthKey = (d: Date) => d.toISOString().slice(0, 7);
+const dayKey = (d: Date) => d.toISOString().slice(0, 10);   // YYYY-MM-DD
+const monthKey = (d: Date) => d.toISOString().slice(0, 7);  // YYYY-MM
 
+/**
+ * GFS-style selection of which backups to DELETE.
+ * KEEP a backup if it is the newest of one of the most recent `dailyCount` days,
+ * OR the newest of one of the most recent `monthlyCount` months. A lone older
+ * backup that is still within the monthly window is KEPT as that month's archive
+ * (retention errs toward keeping data). Everything else is pruned.
+ */
 export function selectBackupsToPrune(
   files: BackupFileMeta[],
   policy: RetentionPolicy,
 ): BackupFileMeta[] {
-  const sorted = [...files].sort(
-    (a, b) =>
-      b.createdAt.getTime() - a.createdAt.getTime() ||
-      b.fileName.localeCompare(a.fileName),
-  );
+  // Newest-first; tiebreak on fileName desc for deterministic same-instant ordering.
+  const sorted = [...files].sort((a, b) => {
+    const t = b.createdAt.getTime() - a.createdAt.getTime();
+    if (t !== 0) return t;
+    return a.fileName < b.fileName ? 1 : a.fileName > b.fileName ? -1 : 0;
+  });
 
-  // Step 1: daily keepers — newest file per day, for the N most recent distinct days
   const newestPerDay = new Map<string, BackupFileMeta>();
+  const newestPerMonth = new Map<string, BackupFileMeta>();
   for (const file of sorted) {
     const dk = dayKey(file.createdAt);
-    if (!newestPerDay.has(dk)) newestPerDay.set(dk, file);
-  }
-  const keptDayKeys = [...newestPerDay.keys()].sort().reverse().slice(0, policy.dailyCount);
-  const keptByDaily = new Set<string>(
-    keptDayKeys.map((dk) => newestPerDay.get(dk)!.fileName),
-  );
-
-  // Step 2: monthly keepers — for files NOT protected by daily, group by month.
-  // Only protect a month if it has 2+ files outside the daily window (to pick the best one).
-  // Apply the monthlyCount cap on how many months back we protect.
-  const outsideDaily = sorted.filter((f) => !keptByDaily.has(f.fileName));
-
-  const byMonth = new Map<string, BackupFileMeta[]>();
-  for (const file of outsideDaily) {
     const mk = monthKey(file.createdAt);
-    const group = byMonth.get(mk) ?? [];
-    group.push(file);
-    byMonth.set(mk, group);
+    if (!newestPerDay.has(dk)) newestPerDay.set(dk, file);
+    if (!newestPerMonth.has(mk)) newestPerMonth.set(mk, file);
   }
 
-  const keptMonthKeys = [...byMonth.keys()].sort().reverse().slice(0, policy.monthlyCount);
-  const keptByMonthly = new Set<string>();
-  for (const mk of keptMonthKeys) {
-    const group = byMonth.get(mk)!;
-    if (group.length >= 2) {
-      // Keep the newest in this month (already sorted newest-first since outsideDaily is sorted)
-      keptByMonthly.add(group[0].fileName);
-    }
-  }
+  const keptDays = [...newestPerDay.keys()].sort().reverse().slice(0, policy.dailyCount);
+  const keptMonths = [...newestPerMonth.keys()].sort().reverse().slice(0, policy.monthlyCount);
 
-  return sorted.filter(
-    (file) => !keptByDaily.has(file.fileName) && !keptByMonthly.has(file.fileName),
-  );
+  const keep = new Set<BackupFileMeta>();
+  for (const dk of keptDays) keep.add(newestPerDay.get(dk)!);
+  for (const mk of keptMonths) keep.add(newestPerMonth.get(mk)!);
+
+  return sorted.filter((file) => !keep.has(file));
 }
 
 export function timesToCronExpressions(times: string[]): string[] {
