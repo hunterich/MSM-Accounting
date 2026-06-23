@@ -248,6 +248,19 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   signerName: '',
 };
 
+export interface ApprovalRequirementsMap {
+  ar_sales_orders: boolean;
+  ar_invoices: boolean;
+  ar_payments: boolean;
+  ar_credits: boolean;
+  ap_pos: boolean;
+  ap_bills: boolean;
+  ap_payments: boolean;
+  ap_debits: boolean;
+  inv_adj: boolean;
+  hr_payroll: boolean;
+}
+
 export interface RawOrganizationSettings {
   id: string;
   legalName?: string | null;
@@ -268,6 +281,8 @@ export interface RawOrganizationSettings {
   costingMethodSetById?: string | null;
   costingMethodEffectiveDate?: string | null;
   accountDefaults?: Record<string, string> | null;
+  approvalRequirements?: Partial<ApprovalRequirementsMap> | null;
+  requireDistinctApproverForAdmins?: boolean | null;
 }
 
 export type ShopPaymentMode = 'direct' | 'settlement_import';
@@ -413,6 +428,8 @@ export interface OrganizationSettings {
   costingMethodEffectiveDate: string;
   accountDefaults: Record<string, string>;
   needsInventoryValuationSetup: boolean;
+  approvalRequirements: ApprovalRequirementsMap;
+  requireDistinctApproverForAdmins: boolean;
 }
 
 export interface EcommerceConnection {
