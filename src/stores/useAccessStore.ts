@@ -108,6 +108,7 @@ export const MODULE_KEYS = {
     reports:       { label: 'Financial Reports',      group: 'Reports' },
     company:       { label: 'Company Setup',          group: 'Company' },
     settings:      { label: 'Application Settings',   group: 'Settings' },
+    system_backup: { label: 'Backup & Restore',       group: 'Settings' },
 };
 
 /**
@@ -126,7 +127,7 @@ export const SIDEBAR_PERMISSION_MAP: Record<string, string[]> = {
     'Integrations':        ['integrations'],
     'Reports':             ['reports'],
     'Company Setup':       ['company'],
-    'Settings':            ['settings'],
+    'Settings':            ['settings', 'system_backup'],
 };
 
 /**
