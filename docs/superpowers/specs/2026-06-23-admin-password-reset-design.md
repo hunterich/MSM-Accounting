@@ -30,7 +30,8 @@ self-service "change my password" path needed to make the forced flow work.
 | Decision | Choice |
 |---|---|
 | Scope | Minimal real reset: read-only real-user list + admin reset + self-service change-password. No full user CRUD. |
-| Temp password | Admin **types** the temporary password (min 8 chars). No generated/random password. |
+| Temp password | Admin **types** the temporary password. No generated/random password. |
+| Password policy | Min 8 chars **and** must contain at least one letter and at least one number. Applies to every new password (admin-set temp passwords and user-chosen passwords alike). |
 | After reset | **Force change on next login** (`mustChangePassword` flag). |
 | Authorization | `ADMIN` role only, via the existing `x-role-type` header pattern. |
 
@@ -47,6 +48,25 @@ mustChangePassword Boolean @default(false)
 Requires `prisma db push` at merge (consistent with prior features such as backup and
 GR/IR). No other schema changes. Reuses existing `passwordHash` and `lib/password.ts`
 (`hashPassword` / `comparePassword`, bcrypt cost 12).
+
+### Password policy (shared validator)
+
+A single source of truth, defined once and reused everywhere a new password is accepted
+(both endpoints; the frontend mirrors the rule for inline feedback but the server is
+authoritative). Add to `lib/password.ts`:
+
+```ts
+import { z } from 'zod';
+
+export const passwordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[A-Za-z]/, 'Password must contain at least one letter')
+  .regex(/[0-9]/, 'Password must contain at least one number');
+```
+
+Symbols are allowed but not required. A failing password returns **400** with the specific
+Zod message so the admin/user sees why (e.g. "Password must contain at least one number").
 
 ### Why endpoints live under `/api/v1/users/*`
 
@@ -71,7 +91,7 @@ Returns real DB users in the caller's org, scoped by `x-org-id` via `UserOrganiz
 Fields: `id`, `fullName`, `email`, `status`, role `name`. No password material.
 
 #### `POST /api/v1/users/[id]/reset-password` — ADMIN only
-- Body (Zod): `{ newPassword: string (min 8) }`.
+- Body (Zod): `{ newPassword }` validated by the shared `passwordSchema`.
 - Verifies the target user belongs to the caller's org (`x-org-id`); otherwise **404** (do
   not reveal whether a user exists in another org).
 - `passwordHash = await hashPassword(newPassword)`, `mustChangePassword = true`.
@@ -79,7 +99,8 @@ Fields: `id`, `fullName`, `email`, `status`, role `name`. No password material.
 - **Never logs the password value.**
 
 #### `POST /api/v1/users/me/password` — any authenticated user
-- Body (Zod): `{ currentPassword: string, newPassword: string (min 8) }`.
+- Body (Zod): `{ currentPassword: string, newPassword }` where `newPassword` uses the shared
+  `passwordSchema`.
 - Reads `x-user-id`. Verifies `currentPassword` against stored hash (`comparePassword`);
   wrong current → **400** (input validation failure on an already-authenticated request,
   not a session-auth failure).
@@ -118,6 +139,8 @@ Follows existing patterns in `src/app/api/v1/__tests__` and `lib/__tests__`.
 - Cross-org target user → not resettable (404).
 - Self change-password: wrong current password → rejected; correct → hash updated and flag
   cleared.
+- Password policy: a `newPassword` that is too short, letters-only, or numbers-only → 400
+  with the matching message, on both the reset and the change endpoints.
 - `login` / `me` return `mustChangePassword` correctly.
 
 ## Out of scope (deliberate)
@@ -126,7 +149,8 @@ Follows existing patterns in `src/app/api/v1/__tests__` and `lib/__tests__`.
 - Generated/random temporary passwords.
 - Full user CRUD and role assignment against real DB users (i.e. replacing the localStorage
   mock Users tab). Flagged as future work to unify the mock RBAC list with real accounts.
-- Password complexity rules beyond an 8-character minimum.
+- Password complexity beyond "min 8, at least one letter and one number" — e.g. mandatory
+  symbols, dictionary/breach checks, or password history/expiry.
 
 ## Merge checklist
 
