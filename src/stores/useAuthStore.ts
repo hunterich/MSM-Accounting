@@ -21,6 +21,7 @@ interface RolePermission {
     canCreate:  boolean;
     canEdit:    boolean;
     canDelete:  boolean;
+    canApprove?: boolean;
     [key: string]: unknown;
 }
 
@@ -40,7 +41,7 @@ interface AuthStore {
     logout:              () => Promise<void>;
 }
 
-type PermissionAction = 'view' | 'create' | 'edit' | 'delete';
+type PermissionAction = 'view' | 'create' | 'edit' | 'delete' | 'approve';
 
 interface AuthResponseLike {
   user?: AuthUser | null;
@@ -93,11 +94,12 @@ export const hasModulePermission = (
     const row = permissions.find((permission) => normalizeModuleKey(permission?.moduleKey) === normalizedModuleKey);
     if (!row) return false;
 
-    const actionMap = {
-      view: row.canView === true,
-      create: row.canCreate === true,
-      edit: row.canEdit === true,
-      delete: row.canDelete === true,
+    const actionMap: Record<PermissionAction, boolean> = {
+      view:    row.canView === true,
+      create:  row.canCreate === true,
+      edit:    row.canEdit === true,
+      delete:  row.canDelete === true,
+      approve: row.canApprove === true,
     };
 
     return actionMap[action] === true;

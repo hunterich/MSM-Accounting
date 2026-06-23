@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type PermAction = 'view' | 'create' | 'edit' | 'delete';
+type PermAction = 'view' | 'create' | 'edit' | 'delete' | 'approve';
 type ModuleKey = keyof typeof MODULE_KEYS;
 type PermissionMatrix = Record<string, ModulePermission>;
 
@@ -18,6 +18,7 @@ export interface ModulePermission {
     overridePrice?:     boolean;
     sellBelowCost?:     boolean;
     invoiceWithoutSO?:  boolean;
+    approve?:           boolean;
 }
 
 export type ExtraActionKey = 'reprint' | 'overridePrice' | 'sellBelowCost' | 'invoiceWithoutSO';
@@ -61,6 +62,7 @@ interface AccessStore {
     getCurrentUser:  () => AccessUser;
     getCurrentRole:  () => AccessRole;
     hasPermission:   (moduleKey: string, action: PermAction) => boolean;
+    canApproveAny:   () => boolean;
     hasExtraAction:  (moduleKey: string, action: ExtraActionKey) => boolean;
     canSeeSidebarItem:(navLabel: string) => boolean;
     canSeeSubItem:   (path: string) => boolean;
@@ -236,6 +238,14 @@ const normalizeRolePermissions = (role: AccessRole): AccessRole => {
                 edit: existing.edit === true,
                 delete: existing.delete === true,
             };
+            // Map server canApprove → client approve (also handles stored approve boolean).
+            const existingRaw = existing as unknown as Record<string, unknown>;
+            const rawApprove = existing.approve ?? existingRaw.canApprove;
+            if (rawApprove !== undefined) {
+                next.approve = rawApprove === true;
+            } else if (isAdminLike) {
+                next.approve = true;
+            }
             // Preserve extra action flags from existing data; fall back to true
             // for admin-like roles so they keep override capability after migration.
             extras.forEach((extra) => {
@@ -247,6 +257,7 @@ const normalizeRolePermissions = (role: AccessRole): AccessRole => {
         }
 
         const fresh: ModulePermission = { ...fallback };
+        if (isAdminLike) { fresh.approve = true; }
         extras.forEach((extra) => { fresh[extra.key] = isAdminLike; });
         acc[key] = fresh;
         return acc;
@@ -358,6 +369,15 @@ export const useAccessStore = create<AccessStore>()(
                 const role = get().getCurrentRole();
                 if (!role || !role.permissions[moduleKey]) return false;
                 return role.permissions[moduleKey][action] === true;
+            },
+
+            /**
+             * Returns true if the current user has `approve` on at least one module.
+             */
+            canApproveAny: () => {
+                const role = get().getCurrentRole();
+                if (!role) return false;
+                return Object.values(role.permissions).some((p) => p?.approve === true);
             },
 
             /**
