@@ -598,6 +598,30 @@ export const stockAdjustmentInputSchema = z.object({
 
 export const updateStockAdjustmentInputSchema = stockAdjustmentInputSchema.omit({ organizationId: true }).partial();
 
+export const stockCountCreateSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  date: isoDateString,
+  warehouseId: z.string().trim().optional(),
+  categoryId: z.string().trim().optional(),
+  countedBy: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+});
+
+export const stockCountLineUpdateSchema = z.object({
+  itemId: z.string().trim().min(1, 'Item is required'),
+  countedQty: decimalNumber.nullable().optional(), // null = not counted
+  note: z.string().trim().optional(),
+});
+
+export const stockCountUpdateSchema = z.object({
+  notes: z.string().trim().optional(),
+  countedBy: z.string().trim().optional(),
+  lines: z.array(stockCountLineUpdateSchema).optional(),
+});
+
+export type StockCountCreateInput = z.infer<typeof stockCountCreateSchema>;
+export type StockCountUpdateInput = z.infer<typeof stockCountUpdateSchema>;
+
 export const createBankAccountInputSchema = z.object({
   name:           z.string().trim().min(1, 'Account name is required'),
   bankName:       z.string().trim().optional().nullable(),
