@@ -68,6 +68,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             where: { id },
             data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
           });
+          // NOTE: intentionally no early return here. The PO is now held at
+          // PENDING_APPROVAL, but we must still fall through to the line
+          // replace/createMany block below so the user's edited line items are
+          // saved on the held document. Returning early would silently drop edits.
         }
         // else: not required / already approved — keep APPROVED (POs post no GL).
       }
