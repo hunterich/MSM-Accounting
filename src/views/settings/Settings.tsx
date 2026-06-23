@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck, Printer, DatabaseBackup } from 'lucide-react';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import SecurityRolesTab from './SecurityRolesTab';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from './DataMigrationPanel';
 import EmailTemplates from './EmailTemplates';
 import CsvImportPanel from './CsvImportPanel';
+import BackupPanel from './BackupPanel';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useAccountDefaults, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
@@ -153,6 +154,7 @@ const Settings = () => {
         { id: 'migration', label: 'Migrasi Data', icon: DatabaseZap },
         { id: 'email-templates', label: 'Email Templates', icon: Mail },
         { id: 'csv-import', label: 'CSV Import', icon: Upload },
+        { id: 'backup', label: 'Backup & Restore', icon: DatabaseBackup },
     ];
 
     const saveCustomerCreditSettings = (): boolean => {
@@ -862,6 +864,10 @@ const Settings = () => {
                         <p className="settings-muted mb-4">Bulk-import customers, vendors, items, or chart of accounts from a CSV file. Download the template, fill in your data, then upload.</p>
                         <CsvImportPanel />
                     </Card>
+                )}
+
+                {activeTab === 'backup' && (
+                    <BackupPanel />
                 )}
             </div>
         </div>

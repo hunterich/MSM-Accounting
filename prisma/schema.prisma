@@ -1527,6 +1527,7 @@ enum ModuleKey {
   REPORTS
   COMPANY
   SETTINGS
+  SYSTEM_BACKUP
 }
 
 enum AccountType {
@@ -2171,4 +2172,56 @@ model Subscription {
 
   @@index([organizationId, status])
   @@index([customerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Backup & Restore
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum BackupFrequency {
+  DAILY
+  TWICE_DAILY
+  WEEKLY
+}
+
+enum BackupType {
+  AUTO
+  MANUAL
+  PRE_RESTORE_SAFETY
+}
+
+enum BackupStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+// System-level (not org-scoped): a whole-database backup spans all organizations.
+model BackupSettings {
+  id                    String          @id @default("singleton")
+  enabled               Boolean         @default(true)
+  frequency             BackupFrequency @default(TWICE_DAILY)
+  times                 Json            @default("[\"13:00\",\"20:00\"]")
+  retentionDailyCount   Int             @default(30)
+  retentionMonthlyCount Int             @default(12)
+  canonicalDir          String?
+  folderDestinations    Json            @default("[]")
+  downloadEnabled       Boolean         @default(true)
+  pgToolsPathOverride   String?
+  updatedAt             DateTime        @updatedAt
+}
+
+model BackupRecord {
+  id                String       @id @default(cuid())
+  createdAt         DateTime     @default(now())
+  type              BackupType
+  fileName          String
+  sizeBytes         Int          @default(0)
+  status            BackupStatus
+  destinations      Json         @default("[]")
+  durationMs        Int          @default(0)
+  triggeredByUserId String?
+  error             String?
+
+  @@index([createdAt])
 }
