@@ -28,6 +28,7 @@ const ALL_MODULE_KEYS: ModuleKey[] = [
   ModuleKey.REPORTS,
   ModuleKey.COMPANY,
   ModuleKey.SETTINGS,
+  ModuleKey.SYSTEM_BACKUP,
 ];
 
 async function main() {
