@@ -59,9 +59,9 @@ function lineToRow(line: StockCountLineRow): CountRow {
 
 function VarianceCell({ systemQty, countedQty }: { systemQty: number; countedQty: number | null }) {
     if (countedQty == null) return <span className="text-neutral-400">—</span>;
-    const diff = countedQty - systemQty;
-    if (diff > 0) return <span style={{ color: '#2b8a3e' }} className="font-medium">+{diff}</span>;
-    if (diff < 0) return <span style={{ color: '#c92a2a' }} className="font-medium">{diff}</span>;
+    const cleanDiff = Number((countedQty - systemQty).toFixed(4));
+    if (cleanDiff > 0) return <span style={{ color: '#2b8a3e' }} className="font-medium">+{cleanDiff}</span>;
+    if (cleanDiff < 0) return <span style={{ color: '#c92a2a' }} className="font-medium">{cleanDiff}</span>;
     return <span className="text-neutral-600">0</span>;
 }
 
@@ -334,7 +334,8 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
             prev.map((r, i) => {
                 if (i !== idx) return r;
                 if (field === 'countedQty') {
-                    return { ...r, countedQty: value === '' ? null : Number(value) };
+                    const parsed = value === '' ? null : Number(value);
+                    return { ...r, countedQty: parsed !== null && Number.isNaN(parsed) ? null : parsed };
                 }
                 return { ...r, note: value };
             })
@@ -370,7 +371,7 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
                         text="Cancel count"
                         variant="danger"
                         onClick={handleCancel}
-                        disabled={isBusy}
+                        disabled={isBusy || !canEdit}
                     />
                 </>
             )}
@@ -386,7 +387,7 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
                         text="Cancel count"
                         variant="danger"
                         onClick={handleCancel}
-                        disabled={isBusy}
+                        disabled={isBusy || !canEdit}
                     />
                     <Button
                         text={postMutation.isPending ? 'Posting…' : 'Post'}
@@ -486,6 +487,21 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
                                             onChange={(e) => setNotes(e.target.value)}
                                         />
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Read-only notes for non-DRAFT states */}
+                    {!isDraft && count.notes && (
+                        <div className="col-span-12">
+                            <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-5">
+                                <div className="text-base font-semibold text-neutral-800 mb-4 pb-3 border-b border-neutral-100">
+                                    Count Details
+                                </div>
+                                <div>
+                                    <label className="block mb-1 text-sm font-medium text-neutral-700">Notes</label>
+                                    <div className="text-sm text-neutral-800 whitespace-pre-wrap">{count.notes}</div>
                                 </div>
                             </div>
                         </div>
