@@ -16,6 +16,10 @@ export default defineConfig({
   },
   test: {
     include: ['lib/__tests__/integration/**/*.int.test.ts'],
+    // Point the shared @/lib/prisma client (used by code paths that open their
+    // own transaction, e.g. the approval engine) at the `<db>_test` database
+    // before any module loads. Harness-driven tests are unaffected.
+    setupFiles: ['lib/__tests__/integration/setup-test-db-env.ts'],
     // Serial: deterministic ordering, one DB connection pool.
     fileParallelism: false,
     hookTimeout: 30000,
