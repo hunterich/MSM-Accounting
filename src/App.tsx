@@ -50,6 +50,8 @@ const ItemCategories = lazy(() => import('./views/inventory/ItemCategories'))
 const InventoryAdjustments = lazy(() => import('./views/inventory/InventoryAdjustments'))
 const AdjustmentForm = lazy(() => import('./views/inventory/AdjustmentForm'))
 const StockValuation = lazy(() => import('./views/inventory/StockValuation'))
+const StockCounts = lazy(() => import('./views/inventory/StockCounts'))
+const StockCountForm = lazy(() => import('./views/inventory/StockCountForm'))
 const DeliveryNotes = lazy(() => import('./views/ar/DeliveryNotes'))
 const Banking = lazy(() => import('./views/banking/Banking'))
 const BankingActionForm = lazy(() => import('./views/banking/BankingActionForm'))
@@ -164,6 +166,9 @@ function App(): JSX.Element {
                     <Route path="inventory/adjustments" element={withPermission(<InventoryAdjustments />, 'inv_adj')} />
                     <Route path="inventory/adjustments/new" element={withPermission(<AdjustmentForm />, 'inv_adj', 'create')} />
                     <Route path="inventory/adjustments/edit" element={withPermission(<AdjustmentForm />, 'inv_adj', 'edit')} />
+                    <Route path="inventory/counts" element={withPermission(<StockCounts />, 'inv_adj')} />
+                    <Route path="inventory/counts/new" element={withPermission(<StockCountForm />, 'inv_adj', 'create')} />
+                    <Route path="inventory/counts/edit" element={withPermission(<StockCountForm />, 'inv_adj', 'edit')} />
                     <Route path="inventory/valuation" element={withPermission(<StockValuation />, 'inv_items')} />
 
                     {/* Banking */}

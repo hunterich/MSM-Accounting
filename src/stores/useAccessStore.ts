@@ -154,6 +154,7 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/inventory/items':        'inv_items',
     '/inventory/categories':   'inv_categories',
     '/inventory/adjustments':  'inv_adj',
+    '/inventory/counts':       'inv_adj',
     '/assets':                'assets',
     '/assets/categories':     'assets',
     '/assets/depreciation':   'assets',
