@@ -7,6 +7,7 @@ import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { useAccessStore } from '../../stores/useAccessStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,12 @@ interface ApprovalRequest {
     };
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function moduleKeyFor(documentType: DocumentType): string {
+    return documentType === 'INVOICE' ? 'ar_invoices' : 'ap_pos';
+}
+
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
 interface Toast {
@@ -42,6 +49,7 @@ let toastSeq = 0;
 
 const ApprovalInbox: React.FC = () => {
     const queryClient = useQueryClient();
+    const hasPermission = useAccessStore((s) => s.hasPermission);
 
     const [toasts, setToasts] = useState<Toast[]>([]);
     const pushToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -70,13 +78,8 @@ const ApprovalInbox: React.FC = () => {
     // ── Mutations ─────────────────────────────────────────────────────────────
 
     const approveMutation = useMutation({
-        mutationFn: (req: ApprovalRequest) => {
-            const baseUrl =
-                req.documentType === 'INVOICE'
-                    ? `/api/v1/invoices/${req.documentId}`
-                    : `/api/v1/purchase-orders/${req.documentId}`;
-            return api.post(`${baseUrl}/approve`);
-        },
+        mutationFn: (req: ApprovalRequest) =>
+            api.post(`/api/v1/approvals/${req.id}/approve`),
         onSuccess: (_data, req) => {
             invalidate();
             pushToast(`${req.document.number} approved.`);
@@ -85,13 +88,8 @@ const ApprovalInbox: React.FC = () => {
     });
 
     const rejectMutation = useMutation({
-        mutationFn: ({ req, note }: { req: ApprovalRequest; note: string }) => {
-            const baseUrl =
-                req.documentType === 'INVOICE'
-                    ? `/api/v1/invoices/${req.documentId}`
-                    : `/api/v1/purchase-orders/${req.documentId}`;
-            return api.post(`${baseUrl}/reject`, { note });
-        },
+        mutationFn: ({ req, note }: { req: ApprovalRequest; note: string }) =>
+            api.post(`/api/v1/approvals/${req.id}/reject`, { note }),
         onSuccess: (_data, vars) => {
             invalidate();
             setRejectingId(null);
@@ -184,6 +182,7 @@ const ApprovalInbox: React.FC = () => {
             label: '',
             render: (_val, row) => {
                 const req = row as unknown as ApprovalRequest;
+                const canAct = hasPermission(moduleKeyFor(req.documentType), 'approve');
 
                 if (rejectingId === req.id) {
                     return (
@@ -217,6 +216,8 @@ const ApprovalInbox: React.FC = () => {
                         </div>
                     );
                 }
+
+                if (!canAct) return null;
 
                 return (
                     <div className="flex items-center gap-1 justify-end">
