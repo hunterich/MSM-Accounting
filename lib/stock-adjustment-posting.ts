@@ -107,3 +107,29 @@ export async function postStockAdjustmentToLedger(
     });
   }
 }
+
+/**
+ * Fetch a stock adjustment + its lines by id and post them to the ledger.
+ * Used by the approval finalizer (which only has the document id). Skips when
+ * the adjustment is already APPROVED (i.e. already posted) or missing.
+ */
+export async function postStockAdjustmentIfNeeded(tx: Tx, orgId: string, adjustmentId: string): Promise<void> {
+  const adj = await tx.stockAdjustment.findFirst({
+    where: { id: adjustmentId, organizationId: orgId },
+    include: { lines: true },
+  });
+  if (!adj || adj.status === 'APPROVED') return; // already posted / nothing to do
+  await postStockAdjustmentToLedger(tx, orgId, {
+    id: adj.id,
+    number: adj.number,
+    date: adj.date,
+    warehouseId: adj.warehouseId,
+    lines: adj.lines.map((l) => ({
+      itemId: l.itemId,
+      oldQty: l.oldQty,
+      newQty: l.newQty,
+      qtyDiff: l.qtyDiff,
+      unitCost: l.unitCost,
+    })),
+  });
+}

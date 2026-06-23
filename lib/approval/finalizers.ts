@@ -7,6 +7,8 @@ import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
+import { postArPaymentIfNeeded, postApPaymentIfNeeded } from '@/lib/payment-posting';
+import { postStockAdjustmentIfNeeded } from '@/lib/stock-adjustment-posting';
 import { ApiError } from '@/lib/errors';
 
 export type Finalizer = (tx: Prisma.TransactionClient, orgId: string, documentId: string) => Promise<void>;
@@ -50,6 +52,20 @@ export const FINALIZERS: Partial<Record<ApprovalDocumentType, Finalizer>> = {
   PURCHASE_RETURN: async (tx, _orgId, documentId) => {
     await postPurchaseReturnOnApproval(tx, documentId);
     await tx.purchaseReturn.update({ where: { id: documentId }, data: { status: 'APPROVED', updatedAt: new Date() } });
+  },
+  AR_PAYMENT: async (tx, orgId, documentId) => {
+    // Set the live status FIRST — postArPaymentIfNeeded skips while PENDING_APPROVAL.
+    await tx.aRPayment.update({ where: { id: documentId }, data: { status: 'COMPLETED', updatedAt: new Date() } });
+    await postArPaymentIfNeeded(tx, orgId, documentId);
+  },
+  AP_PAYMENT: async (tx, orgId, documentId) => {
+    await tx.aPPayment.update({ where: { id: documentId }, data: { status: 'COMPLETED', updatedAt: new Date() } });
+    await postApPaymentIfNeeded(tx, orgId, documentId);
+  },
+  STOCK_ADJUSTMENT: async (tx, orgId, documentId) => {
+    // Post while still PENDING_APPROVAL (wrapper skips only when APPROVED), then mark APPROVED.
+    await postStockAdjustmentIfNeeded(tx, orgId, documentId);
+    await tx.stockAdjustment.update({ where: { id: documentId }, data: { status: 'APPROVED', updatedAt: new Date() } });
   },
 };
 
