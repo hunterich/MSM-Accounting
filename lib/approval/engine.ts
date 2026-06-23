@@ -130,7 +130,10 @@ export async function rejectRequest(
       CREDIT_NOTE:     () => tx.creditNote.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
       DEBIT_NOTE:      () => tx.debitNote.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
       SALES_RETURN:    () => tx.salesReturn.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
-      PURCHASE_RETURN: () => tx.purchaseReturn.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      PURCHASE_RETURN:  () => tx.purchaseReturn.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      AR_PAYMENT:       () => tx.aRPayment.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      AP_PAYMENT:       () => tx.aPPayment.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      STOCK_ADJUSTMENT: () => tx.stockAdjustment.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
     };
     await revertMap[reqRow.documentType]();
 

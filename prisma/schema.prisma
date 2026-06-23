@@ -1615,6 +1615,7 @@ enum PaymentStatus {
   PROCESSING
   COMPLETED
   VOID
+  PENDING_APPROVAL
 }
 
 enum ReturnStatus {
@@ -1668,6 +1669,7 @@ enum StockAdjustmentType {
 enum StockAdjustmentStatus {
   DRAFT
   APPROVED
+  PENDING_APPROVAL
 }
 
 enum InventoryDocumentType {
@@ -1974,6 +1976,9 @@ enum ApprovalDocumentType {
   DEBIT_NOTE
   SALES_RETURN
   PURCHASE_RETURN
+  AR_PAYMENT
+  AP_PAYMENT
+  STOCK_ADJUSTMENT
 }
 
 enum ApprovalStatus {
