@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { prisma } from '@/lib/prisma';
 import type { BackupSettingsShape, DestinationResult } from './types';
-import { resolvePgToolPath, assertPgToolAvailable, runPgDump, runPgRestore } from './pg-tools';
+import { resolvePgToolPath, assertPgToolAvailable, runPgDump, runPgRestore, scrubSecrets } from './pg-tools';
 import { copyToFolder, pruneFolder } from './destinations';
 import { aggregateDestinationStatus } from './retention';
 
@@ -102,6 +102,7 @@ export async function createBackup(opts: {
 
     return { recordId: record.id, fileName, status };
   } catch (e) {
+    const message = scrubSecrets(e instanceof Error ? e.message : String(e));
     await prisma.backupRecord.create({
       data: {
         type: opts.type,
@@ -111,10 +112,10 @@ export async function createBackup(opts: {
         destinations: [] as never,
         durationMs: Date.now() - started,
         triggeredByUserId: opts.triggeredByUserId ?? null,
-        error: e instanceof Error ? e.message : String(e),
+        error: message,
       },
     });
-    throw e;
+    throw new Error(message);
   } finally {
     backupInProgress = false;
   }
