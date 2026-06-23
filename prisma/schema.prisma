@@ -559,6 +559,7 @@ enum SoStatus {
   CONFIRMED
   INVOICED
   CANCELLED
+  PENDING_APPROVAL
 }
 
 enum InventoryCostingMethod {
@@ -1598,6 +1599,7 @@ enum BillStatus {
   PAID
   OVERDUE
   VOID
+  PENDING_APPROVAL
 }
 
 enum PaymentMethod {
@@ -1622,18 +1624,21 @@ enum ReturnStatus {
   PENDING_DEBIT_NOTE
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum CreditNoteStatus {
   DRAFT
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum DebitNoteStatus {
   DRAFT
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum CreditSettlementType {
@@ -1753,6 +1758,7 @@ enum PayrollRunStatus {
   REVIEWED
   POSTED
   VOID
+  PENDING_APPROVAL
 }
 
 enum BillImportStatus {
@@ -1961,6 +1967,13 @@ model RecurringBillLine {
 enum ApprovalDocumentType {
   INVOICE
   PURCHASE_ORDER
+  BILL
+  SALES_ORDER
+  PAYROLL_RUN
+  CREDIT_NOTE
+  DEBIT_NOTE
+  SALES_RETURN
+  PURCHASE_RETURN
 }
 
 enum ApprovalStatus {
