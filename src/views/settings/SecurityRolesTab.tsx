@@ -10,7 +10,6 @@ import { useModulePermissions } from '../../hooks/useModulePermissions';
 import type { AccessRole, AccessUser } from '../../stores/useAccessStore';
 
 interface SecuritySettings {
-    require2FA: boolean;
     allowInvites: boolean;
     sessionTimeoutMinutes: string;
 }
@@ -464,17 +463,6 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
 
             <Card title="Global Security Settings">
                 <p className="settings-muted">System-wide security controls that apply regardless of role.</p>
-                <div className="mb-4">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-neutral-700 select-none">
-                        <input
-                            type="checkbox"
-                            checked={securitySettings.require2FA}
-                            onChange={(e) => setSecuritySettings((prev) => ({ ...prev, require2FA: e.target.checked }))}
-                            className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        Require 2FA for all users
-                    </label>
-                </div>
                 <div className="mb-4">
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-neutral-700 select-none">
                         <input
