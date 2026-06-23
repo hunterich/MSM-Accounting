@@ -8,13 +8,30 @@ import { formatIDR } from '../../../utils/formatters';
 interface ApprovalDocument {
     id: string;
     number?: string;
-    totalAmount?: number;
+    amount?: number | null;
 }
 
 interface ApprovalItem {
     id: string;
     documentType: string;
     document?: ApprovalDocument;
+}
+
+// Human-readable label per document type (mirrors ApprovalInbox).
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+    INVOICE: 'Invoice',
+    PURCHASE_ORDER: 'PO',
+    BILL: 'Bill',
+    SALES_ORDER: 'SO',
+    PAYROLL_RUN: 'Payroll',
+    CREDIT_NOTE: 'Credit Note',
+    DEBIT_NOTE: 'Debit Note',
+    SALES_RETURN: 'Sales Return',
+    PURCHASE_RETURN: 'Purchase Return',
+};
+
+function labelFor(documentType: string): string {
+    return DOCUMENT_TYPE_LABELS[documentType] ?? documentType;
 }
 
 const PendingApprovalsWidget = (): React.ReactElement => {
@@ -38,10 +55,10 @@ const PendingApprovalsWidget = (): React.ReactElement => {
                 {items.slice(0, 5).map((r) => (
                     <li key={r.id} className="py-1.5 flex justify-between gap-2">
                         <span className="truncate">
-                            {r.documentType === 'INVOICE' ? 'Invoice' : 'PO'}{r.document?.number ? ` ${r.document.number}` : ''}
+                            {labelFor(r.documentType)}{r.document?.number ? ` ${r.document.number}` : ''}
                         </span>
                         <span className="text-neutral-500 shrink-0">
-                            {formatIDR(Number(r.document?.totalAmount ?? 0))}
+                            {r.document?.amount != null ? formatIDR(Number(r.document.amount)) : '—'}
                         </span>
                     </li>
                 ))}
