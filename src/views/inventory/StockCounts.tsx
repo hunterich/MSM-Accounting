@@ -135,9 +135,7 @@ const StockCounts = () => {
     const prevSelectedIdRef = React.useRef<string>('');
     if (prevSelectedIdRef.current !== selectedId) {
         prevSelectedIdRef.current = selectedId;
-        if (detailTab !== 'summary') {
-            // use a callback-safe trick: reset on next render
-        }
+        if (detailTab !== 'summary') setDetailTab('summary');
     }
 
     // ── Journal (only fetched when Journal Entry tab is active + POSTED) ───
