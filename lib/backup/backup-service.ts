@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { prisma } from '@/lib/prisma';
 import type { BackupSettingsShape, DestinationResult } from './types';
-import { resolvePgToolPath, assertPgToolAvailable, runPgDump } from './pg-tools';
+import { resolvePgToolPath, assertPgToolAvailable, runPgDump, runPgRestore } from './pg-tools';
 import { copyToFolder, pruneFolder } from './destinations';
 import { aggregateDestinationStatus } from './retention';
 
@@ -141,4 +141,28 @@ export async function listBackups(page = 1, limit = 20) {
     prisma.backupRecord.count(),
   ]);
   return { data, total, page, limit };
+}
+
+export async function restoreBackup(opts: {
+  recordId: string;
+  triggeredByUserId?: string | null;
+}): Promise<{ safetyBackupId: string; restoredFile: string }> {
+  const record = await prisma.backupRecord.findUnique({ where: { id: opts.recordId } });
+  if (!record || record.fileName === '(failed)') throw new Error('Backup not found');
+
+  const settings = await getSettings();
+  const filePath = path.join(settings.canonicalDirResolved, record.fileName);
+  await fs.access(filePath); // throws if missing
+
+  // 1) Safety backup BEFORE we touch the live DB.
+  const safety = await createBackup({ type: 'PRE_RESTORE_SAFETY', triggeredByUserId: opts.triggeredByUserId });
+
+  // 2) Restore.
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is not set on the server.');
+  const restoreTool = resolvePgToolPath('pg_restore', { override: settings.pgToolsPathOverride });
+  await assertPgToolAvailable(restoreTool);
+  await runPgRestore({ toolPath: restoreTool, databaseUrl, inFile: filePath });
+
+  return { safetyBackupId: safety.recordId, restoredFile: record.fileName };
 }
