@@ -1,4 +1,6 @@
 import { NextRequest } from 'next/server';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { ok, err, withHandler } from '@/lib/api-utils';
 import { corsPreflightResponse } from '@/lib/cors';
 import { getSettings, updateSettings } from '@/lib/backup/backup-service';
@@ -12,14 +14,7 @@ function requireAdmin(req: NextRequest): string | null {
   return null;
 }
 
-export function OPTIONS() {
-  return corsPreflightResponse();
-}
-
-export const GET = withHandler(async function GET(req: NextRequest) {
-  const forbidden = requireAdmin(req);
-  if (forbidden) return err(forbidden, 403);
-
+async function settingsResponsePayload() {
   const settings = await getSettings();
   let pgToolsOk = true;
   let pgToolsMessage = '';
@@ -30,7 +25,31 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     pgToolsOk = false;
     pgToolsMessage = e instanceof Error ? e.message : String(e);
   }
-  return ok({ ...settings, pgToolsOk, pgToolsMessage });
+  const folderChecks = await Promise.all(
+    settings.folderDestinations.map(async (d) => {
+      let writable = false;
+      let message = '';
+      try {
+        await fs.access(path.dirname(d.path)); // parent must exist (drive mounted / cloud app present)
+        writable = true;
+      } catch {
+        message = 'Folder not available — is the drive connected / the cloud app installed & signed in?';
+      }
+      return { label: d.label, path: d.path, enabled: d.enabled, writable, message };
+    }),
+  );
+  return { ...settings, pgToolsOk, pgToolsMessage, folderChecks };
+}
+
+export function OPTIONS() {
+  return corsPreflightResponse();
+}
+
+export const GET = withHandler(async function GET(req: NextRequest) {
+  const forbidden = requireAdmin(req);
+  if (forbidden) return err(forbidden, 403);
+
+  return ok(await settingsResponsePayload());
 });
 
 export const PUT = withHandler(async function PUT(req: NextRequest) {
@@ -46,5 +65,5 @@ export const PUT = withHandler(async function PUT(req: NextRequest) {
   const { rescheduleBackups } = await import('@/lib/backup/scheduler');
   await rescheduleBackups();
 
-  return ok(await getSettings());
+  return ok(await settingsResponsePayload());
 });

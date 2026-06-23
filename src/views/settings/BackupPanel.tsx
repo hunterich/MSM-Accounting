@@ -84,11 +84,16 @@ export default function BackupPanel() {
           <p className="text-sm opacity-70">No folders yet. Add your external drive folder, Google Drive folder, or OneDrive folder.</p>
         )}
         {settings.folderDestinations.map((d, i) => (
-          <div key={i} className="flex items-center gap-2 mb-2">
-            <input type="checkbox" checked={d.enabled} onChange={(e) => setDest(i, { enabled: e.target.checked })} />
-            <Input value={d.label} onChange={(e) => setDest(i, { label: e.target.value })} placeholder="Label" wrapperClassName="w-40" />
-            <Input value={d.path} onChange={(e) => setDest(i, { path: e.target.value })} placeholder="Folder path (e.g. G:\My Drive\MSM-Backups)" wrapperClassName="flex-1" />
-            <Button variant="ghost" icon={<Trash2 size={16} />} aria-label="Remove folder" onClick={() => removeDest(i)} />
+          <div key={i}>
+            <div className="flex items-center gap-2 mb-1">
+              <input type="checkbox" checked={d.enabled} onChange={(e) => setDest(i, { enabled: e.target.checked })} />
+              <Input value={d.label} onChange={(e) => setDest(i, { label: e.target.value })} placeholder="Label" wrapperClassName="w-40" />
+              <Input value={d.path} onChange={(e) => setDest(i, { path: e.target.value })} placeholder="Folder path (e.g. G:\My Drive\MSM-Backups)" wrapperClassName="flex-1" />
+              <Button variant="ghost" icon={<Trash2 size={16} />} aria-label="Remove folder" onClick={() => removeDest(i)} />
+            </div>
+            {settings.folderChecks?.[i] && !settings.folderChecks[i].writable && d.enabled && (
+              <p className="text-xs text-warning-600 mb-2 ml-6">⚠ {settings.folderChecks[i].message}</p>
+            )}
           </div>
         ))}
       </Card>
@@ -96,7 +101,7 @@ export default function BackupPanel() {
       <Card title="Backup history">
         <table className="w-full text-sm">
           <thead><tr className="text-left opacity-60">
-            <th className="py-2">When</th><th>Type</th><th>Size</th><th>Status</th><th className="text-right">Actions</th>
+            <th className="py-2">When</th><th>Type</th><th>Size</th><th>Saved to</th><th>Status</th><th className="text-right">Actions</th>
           </tr></thead>
           <tbody>
             {(history?.data ?? []).map((r) => (
@@ -104,6 +109,15 @@ export default function BackupPanel() {
                 <td className="py-2">{new Date(r.createdAt).toLocaleString()}</td>
                 <td>{r.type === 'AUTO' ? 'Auto' : r.type === 'MANUAL' ? 'Manual' : 'Safety'}</td>
                 <td>{formatBytes(r.sizeBytes)}</td>
+                <td>
+                  {r.destinations.length === 0
+                    ? <span className="opacity-50">Local only</span>
+                    : r.destinations.map((d, i) => (
+                        <span key={i} title={d.error || d.status} className="mr-2 whitespace-nowrap">
+                          {d.status === 'OK' ? '✓' : '⚠'} {d.label}
+                        </span>
+                      ))}
+                </td>
                 <td><StatusTag status={r.status} /></td>
                 <td className="text-right whitespace-nowrap">
                   {r.fileName !== '(failed)' && (
@@ -127,6 +141,7 @@ export default function BackupPanel() {
           {restoreTarget && new Date(restoreTarget.createdAt).toLocaleString()}. A safety backup is taken first.
           Make sure all other staff are logged out.
         </p>
+        <p className="text-xs opacity-70 mb-3">Note: after restoring, the backup history shown here resets to the restored point — your backup files on disk are unaffected.</p>
         <p className="text-sm mb-2">Type <strong>RESTORE</strong> to confirm:</p>
         <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
         <div className="flex justify-end gap-2 mt-4">

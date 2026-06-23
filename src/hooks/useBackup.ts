@@ -14,6 +14,7 @@ export type BackupSettings = {
   pgToolsPathOverride: string | null;
   pgToolsOk: boolean;
   pgToolsMessage: string;
+  folderChecks?: { label: string; path: string; enabled: boolean; writable: boolean; message: string }[];
 };
 export type BackupRecord = {
   id: string;
