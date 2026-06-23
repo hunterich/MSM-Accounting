@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { calculateSalesOrderTotal, enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { salesOrderInputSchema } from '@/types/api';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -51,6 +52,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId  = requireOrg(req);
   const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
 
   const body = await req.json();
   const parsed = salesOrderInputSchema.safeParse({
@@ -73,7 +75,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       });
     }
 
-    return tx.salesOrder.create({
+    const created = await tx.salesOrder.create({
       data: {
         organizationId: orgId,
         customerName,
@@ -97,6 +99,27 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       },
       include: { items: true },
     });
+
+    // Gate create-as-CONFIRMED through the approval engine.
+    // DRAFT creates pass through unchanged.
+    if (created.status === 'CONFIRMED') {
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'SALES_ORDER',
+        documentId: created.id,
+      });
+      if (routed) {
+        // HELD for approval: override to PENDING_APPROVAL, skip any finalisation.
+        await tx.salesOrder.update({
+          where: { id: created.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+        (created as any).status = 'PENDING_APPROVAL';
+      }
+    }
+
+    return created;
   });
 
   logAudit({ orgId, actorId: userId, entityType: 'SalesOrder', entityId: so.id, action: 'CREATE' });
