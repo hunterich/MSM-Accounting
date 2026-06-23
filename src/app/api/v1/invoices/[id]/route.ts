@@ -4,6 +4,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit } from '@/lib/api-utils';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -88,12 +89,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         });
       }
 
-      // Post AR + COGS journals when invoice transitions DRAFT → SENT.
+      // Post AR + COGS journals when invoice transitions DRAFT → SENT,
+      // unless the approval engine routes the finalize for approval first.
       // The AR-side post (DR AR / CR Sales / CR Tax) runs for every invoice;
       // the COGS post only runs when the org has a costing method and the
       // invoice has inventory lines.
       if (existing.status === 'DRAFT' && header.status === 'SENT') {
-        await postInvoiceSend(tx, existing.organizationId, existing.id);
+        const routed = await routeForApproval(tx, {
+          orgId: existing.organizationId,
+          userId,
+          documentType: 'INVOICE',
+          documentId: existing.id,
+        });
+        if (routed) {
+          // HELD for approval: the header update above already stamped
+          // status='SENT'; override it back to PENDING_APPROVAL and post NO GL.
+          await tx.salesInvoice.update({
+            where: { id: existing.id },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        } else {
+          // Not required / already approved: keep SENT and post the GL.
+          await postInvoiceSend(tx, existing.organizationId, existing.id);
+        }
       }
 
       return tx.salesInvoice.findFirst({
