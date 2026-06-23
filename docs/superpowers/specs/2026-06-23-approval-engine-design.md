@@ -4,6 +4,21 @@
 > `approvalRequirements` toggles" and delivers the generic engine parked in §4.4
 > (Workflow / Approval Engine).
 
+## Plain-English summary
+
+Think of the books as a filing cabinet. Today, finalizing a document (send invoice, post
+payment) files it straight into the cabinet — it's on the books at once. Approval adds an
+IN-tray in between: when a document type needs approval, finalizing drops it into the
+approver's tray as "Pending Approval" instead of posting it. The approver files it (approve →
+posts) or hands it back (reject → draft). Three moving parts make this real:
+
+1. The "which documents need approval" switches move from the web browser into the database,
+   so the server that records money can actually see and enforce them.
+2. Every document type needs an IN-tray to wait in. Invoices/POs already have one; payments
+   and stock adjustments post the instant they're created, so they must be changed to
+   "draft first, post on approval" (the hardest part — done last).
+3. A place to see and act on the tray: a new dashboard widget + the existing Approval Inbox.
+
 ## Problem
 
 The Settings → Approval Rules tab exposes 10 per-module "requires approval" toggles, but
@@ -131,6 +146,11 @@ confirmed during planning; the engine itself is module-agnostic.
 - Generalize `ApprovalInbox.tsx` to list pending requests across all 10 document types,
   filterable by type, with Approve / Reject (+ reason). Reuse the existing `pending_approvals`
   sidebar badge.
+- **Dashboard widget `pending_approvals`** — new widget in `src/config/dashboardWidgets.js`
+  showing a count + the waiting documents (type, number, amount, requester) with click-through
+  to the inbox. Gated so it renders **only for users who hold `canApprove` on at least one
+  module** (reuses the dashboard's existing per-permission widget filtering). Added to the
+  default widget set for Admins.
 
 ---
 
@@ -176,8 +196,37 @@ confirmed during planning; the engine itself is module-agnostic.
 - Defaults are all-off / no-approval, so the system behaves exactly as today until an admin
   turns a toggle on — safe, incremental rollout.
 
+## Phased Delivery
+
+Built in three independently-shippable phases. After each, stop, demo it working, and get the
+owner's go-ahead before starting the next — so work always halts at a clean, finished line.
+
+### Phase 1 — Foundation + easy modules + dashboard widget
+The complete engine, proven on the two modules that already have a holding state.
+- Config server-side (`Organization.approvalRequirements` + `requireDistinctApproverForAdmins`)
+  + settings API + Settings tab rewired off localStorage.
+- RBAC `RolePermission.canApprove` + "Approve" column in Security & Roles + Admin seed.
+- The guard (`requiresApproval`, `assertApprovalSatisfied`, `userCanApprove`,
+  `assertCanApprove`), `routeOrFinalize`, and the generic `approve`/`reject` engine.
+- Enforce on **Invoices** and **Purchase Orders** (refactor their existing routes onto the
+  engine; widen `ApprovalRequest.documentType`).
+- **Pending Approvals dashboard widget** + generalized Approval Inbox.
+- **Usable on its own:** approvals fully work for invoices and POs.
+
+### Phase 2 — Modules with an existing draft → finalize step
+Extend enforcement to **Bills, Sales Orders, Payroll Runs, and Credit/Debit Notes & Returns**
+(`ap_bills`, `ar_sales_orders`, `hr_payroll`, `ar_credits`, `ap_debits`). Each adds a
+`PENDING_APPROVAL` holding state and a guarded finalize via the existing posting libs.
+- **After Phase 2:** 7 of 10 document types enforce approval.
+
+### Phase 3 — Post-on-create modules (hardest, last)
+**Receive Payments, Send Payments, Stock Adjustments** (`ar_payments`, `ap_payments`,
+`inv_adj`). Convert each from "post on create" to "create unposted → post on approval"; this
+is the biggest behavior change and gets the most integration testing.
+- **After Phase 3:** all 10 document types enforce approval.
+
 ## Effort
 
-Large — comparable to the Backup/Restore build (multi-file, schema change, ~12–15 TDD tasks).
-The four post-on-create modules (payments ×2, stock adjustments) dominate the effort because
-they need a new unposted-then-post lifecycle.
+Large — comparable to the Backup/Restore build (multi-file, schema change, ~12–15 TDD tasks
+spread across the three phases). The four post-on-create modules (payments ×2, stock
+adjustments — Phase 3) dominate the effort because they need a new unposted-then-post lifecycle.
