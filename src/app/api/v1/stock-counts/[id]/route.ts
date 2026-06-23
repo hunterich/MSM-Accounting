@@ -5,6 +5,8 @@ import { err, ok } from '@/lib/api-utils';
 import { ApiError } from '@/lib/errors';
 import { stockCountUpdateSchema } from '@/types/api';
 
+const QTY_EPSILON = 1e-6;
+
 export const runtime = 'nodejs';
 
 export async function OPTIONS() {
@@ -30,7 +32,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   for (const r of lotRows) live[r.itemId] = Number(r._sum.qtyBalance ?? 0);
   const lines = count.lines.map((l) => {
     const liveQty = live[l.itemId] ?? 0;
-    return { ...l, liveSystemQty: liveQty, changedSinceCount: liveQty !== Number(l.systemQty) };
+    return { ...l, liveSystemQty: liveQty, changedSinceCount: Math.abs(liveQty - Number(l.systemQty)) > QTY_EPSILON };
   });
 
   return ok({ ...count, lines });
