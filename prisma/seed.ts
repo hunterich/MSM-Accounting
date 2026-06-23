@@ -102,6 +102,7 @@ async function main() {
       canCreate: true,
       canEdit: true,
       canDelete: true,
+      canApprove: true,
     })),
     skipDuplicates: true,
   });
@@ -113,6 +114,7 @@ async function main() {
       canCreate: true,
       canEdit: true,
       canDelete: true,
+      canApprove: true,
     },
   });
 

@@ -37,7 +37,9 @@ model Organization {
   dailySummary           Boolean  @default(false)
   emailFromName          String?
   emailFromDomain        String?
-  accountDefaults        Json?
+  accountDefaults                  Json?
+  approvalRequirements             Json?
+  requireDistinctApproverForAdmins Boolean @default(false)
   printSettings          Json?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -159,6 +161,7 @@ model RolePermission {
   canCreate   Boolean   @default(false)
   canEdit     Boolean   @default(false)
   canDelete   Boolean   @default(false)
+  canApprove  Boolean   @default(false)
 
   role        Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
