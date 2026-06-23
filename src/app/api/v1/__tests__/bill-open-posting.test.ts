@@ -38,6 +38,7 @@ it('posts to the ledger when a DRAFT bill transitions to OPEN', async () => {
     vendor: { findFirst: vi.fn() },
     purchaseOrder: { findFirst: vi.fn() },
     accountingPeriod: { findFirst: vi.fn(async () => null) },
+    organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 
@@ -58,6 +59,7 @@ it('refuses to finalize a bill into a closed/locked period and does not post', a
     vendor: { findFirst: vi.fn() },
     purchaseOrder: { findFirst: vi.fn() },
     accountingPeriod: { findFirst: vi.fn(async () => ({ name: 'Mar 2026', status: 'CLOSED', isLocked: false })) },
+    organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 
