@@ -7,6 +7,7 @@ import Modal from '../components/UI/Modal';
 import { WIDGET_REGISTRY, DEFAULT_WIDGET_IDS } from '../config/dashboardWidgets';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAccessStore } from '../stores/useAccessStore';
+import { useAuthStore } from '../stores/useAuthStore';
 
 // Widget components
 import CashOnHandWidget       from '../components/dashboard/widgets/CashOnHandWidget';
@@ -35,7 +36,7 @@ const Dashboard = (): React.ReactElement => {
 
     const currentUser         = useAccessStore((s) => s.getCurrentUser());
     const hasPermission       = useAccessStore((s) => s.hasPermission);
-    const canApproveAny       = useAccessStore((s) => s.canApproveAny);
+    const canApproveAny       = useAuthStore((s) => s.permissions.some((p) => p.canApprove === true));
     const dashboardConfig     = useSettingsStore((s) => s.dashboardConfig);
     const setDashboardWidgets = useSettingsStore((s) => s.setDashboardWidgets);
 
@@ -45,7 +46,7 @@ const Dashboard = (): React.ReactElement => {
         return saved.filter((id) => {
             const meta = WIDGET_REGISTRY.find((w) => w.id === id);
             if (!meta) return false;
-            if (meta.requiresApproveRight) return canApproveAny();
+            if (meta.requiresApproveRight) return canApproveAny;
             return hasPermission(meta.permission, 'view');
         });
     }, [currentUser, dashboardConfig, hasPermission, canApproveAny]);
@@ -54,7 +55,7 @@ const Dashboard = (): React.ReactElement => {
     const addableWidgets = useMemo(() =>
         WIDGET_REGISTRY.filter((w) => {
             if (activeWidgetIds.includes(w.id)) return false;
-            if (w.requiresApproveRight) return canApproveAny();
+            if (w.requiresApproveRight) return canApproveAny;
             return hasPermission(w.permission, 'view');
         }),
         [activeWidgetIds, hasPermission, canApproveAny]

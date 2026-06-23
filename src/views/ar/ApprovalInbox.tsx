@@ -7,7 +7,7 @@ import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID, formatIDR } from '../../utils/formatters';
-import { useAccessStore } from '../../stores/useAccessStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ let toastSeq = 0;
 
 const ApprovalInbox: React.FC = () => {
     const queryClient = useQueryClient();
-    const hasPermission = useAccessStore((s) => s.hasPermission);
+    const hasPermission = useAuthStore((s) => s.hasPermission);
 
     const [toasts, setToasts] = useState<Toast[]>([]);
     const pushToast = (message: string, type: 'success' | 'error' = 'success') => {

@@ -62,7 +62,6 @@ interface AccessStore {
     getCurrentUser:  () => AccessUser;
     getCurrentRole:  () => AccessRole;
     hasPermission:   (moduleKey: string, action: PermAction) => boolean;
-    canApproveAny:   () => boolean;
     hasExtraAction:  (moduleKey: string, action: ExtraActionKey) => boolean;
     canSeeSidebarItem:(navLabel: string) => boolean;
     canSeeSubItem:   (path: string) => boolean;
@@ -369,15 +368,6 @@ export const useAccessStore = create<AccessStore>()(
                 const role = get().getCurrentRole();
                 if (!role || !role.permissions[moduleKey]) return false;
                 return role.permissions[moduleKey][action] === true;
-            },
-
-            /**
-             * Returns true if the current user has `approve` on at least one module.
-             */
-            canApproveAny: () => {
-                const role = get().getCurrentRole();
-                if (!role) return false;
-                return Object.values(role.permissions).some((p) => p?.approve === true);
             },
 
             /**
