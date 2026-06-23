@@ -109,7 +109,7 @@ export default function BackupPanel() {
                   {r.fileName !== '(failed)' && (
                     <>
                       <Button text="Download" variant="ghost" icon={<Download size={14} />}
-                        onClick={() => downloadBackupFile(r.id, r.fileName)} />
+                        onClick={() => { downloadBackupFile(r.id, r.fileName).catch((e) => window.alert('Download failed: ' + (e instanceof Error ? e.message : String(e)))); }} />
                       <Button text="Restore" variant="danger" icon={<RotateCcw size={14} />}
                         onClick={() => { setRestoreTarget(r); setConfirmText(''); }} />
                     </>
@@ -135,9 +135,13 @@ export default function BackupPanel() {
             loading={restore.isPending}
             onClick={async () => {
               if (!restoreTarget) return;
-              await restore.mutateAsync(restoreTarget.id);
-              setRestoreTarget(null);
-              window.alert('Restore complete.');
+              try {
+                await restore.mutateAsync(restoreTarget.id);
+                setRestoreTarget(null);
+                window.alert('Restore complete.');
+              } catch {
+                // failure is surfaced via restore.isError below; keep the modal open
+              }
             }} />
         </div>
         {restore.isError && <p className="text-sm text-danger-600 mt-2">{(restore.error as Error).message}</p>}
