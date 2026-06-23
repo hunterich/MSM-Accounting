@@ -1,7 +1,9 @@
 import type { Prisma } from '@prisma/client';
-import { toNumber } from './money';
+import { toNumber, asMoney } from './money';
 import { nextNumber } from './api-utils';
 import { postStockAdjustmentToLedger, type StockAdjustmentPostingLine } from './stock-adjustment-posting';
+
+const QTY_EPSILON = 1e-6;
 
 export interface CountLineInput {
   itemId: string;
@@ -27,7 +29,7 @@ export function buildCountAdjustmentLines(
     const counted = toNumber(l.countedQty);
     const live = liveQtyByItem[l.itemId] ?? 0;
     const qtyDiff = counted - live;
-    if (qtyDiff === 0) continue;
+    if (Math.abs(qtyDiff) < QTY_EPSILON) continue;
     out.push({ itemId: l.itemId, oldQty: live, newQty: counted, qtyDiff, unitCost: toNumber(l.unitCost) });
   }
   return out;
@@ -80,14 +82,14 @@ export async function postStockCount(
       newQty: l.newQty,
       qtyDiff: l.qtyDiff,
       unitCost: l.unitCost,
-      totalValue: l.qtyDiff * l.unitCost,
+      totalValue: asMoney(l.qtyDiff * l.unitCost),
     })),
   });
   await postStockAdjustmentToLedger(tx, orgId, {
     id: adj.id,
     number: adj.number,
     date: count.date,
-    warehouseId: count.warehouseId,
+    warehouseId: null, // cost layers are warehouse-agnostic; StockCount.warehouseId is metadata-only (multi-warehouse deferred)
     lines: adjLines,
   });
   return adj.id;

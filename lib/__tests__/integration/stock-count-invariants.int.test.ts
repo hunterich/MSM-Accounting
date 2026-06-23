@@ -87,4 +87,26 @@ describe('GL invariant: stock count post', () => {
 
     await cleanupOrg(org.orgId);
   });
+
+  it('a count-up posts an adjustment so on-hand equals the count, lots = ledger = GL', async () => {
+    const org = await createTestOrg();
+    const itemId = await createItem(org.orgId, 1000);
+    await receiveStock(org, itemId, 10, 1000); // on-hand 10, lots/ledger/GL = 10000
+
+    const count = await seedCount(org, [{ itemId, systemQty: 10, countedQty: 13, unitCost: 1000 }]);
+    const adjId = await prisma.$transaction((tx) => postStockCount(tx, org.orgId, {
+      id: count.id, number: count.number, date: DATE, warehouseId: null,
+      lines: count.lines.map((l) => ({ itemId: l.itemId, systemQty: l.systemQty, countedQty: l.countedQty, unitCost: l.unitCost })),
+    }));
+
+    expect(adjId).toBeTruthy();
+    expect(await onHand(org.orgId, itemId)).toBeCloseTo(13, 4); // book == counted (+3 layer)
+    const gl = await accountBalance(org.orgId, org.accounts.inventoryAsset);
+    expect(gl).toBeCloseTo(13000, 2);
+    expect(await inventoryLedgerValue(org.orgId)).toBeCloseTo(13000, 2);
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(13000, 2);
+    await assertTrialBalanced(org.orgId, 'stock count up');
+
+    await cleanupOrg(org.orgId);
+  });
 });
