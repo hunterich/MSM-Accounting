@@ -28,6 +28,9 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
     DEBIT_NOTE: 'Debit Note',
     SALES_RETURN: 'Sales Return',
     PURCHASE_RETURN: 'Purchase Return',
+    AR_PAYMENT: 'Receipt',
+    AP_PAYMENT: 'Payment',
+    STOCK_ADJUSTMENT: 'Stock Adj',
 };
 
 function labelFor(documentType: string): string {

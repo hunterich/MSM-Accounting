@@ -20,6 +20,9 @@ const DOCUMENT_TYPES = [
   'DEBIT_NOTE',
   'SALES_RETURN',
   'PURCHASE_RETURN',
+  'AR_PAYMENT',
+  'AP_PAYMENT',
+  'STOCK_ADJUSTMENT',
 ] as const;
 
 type DocumentType = (typeof DOCUMENT_TYPES)[number];
@@ -193,6 +196,52 @@ async function fetchSummaries(
           number: r.number ?? '',
           amount: toNumber(r.totalAmount),
           party: r.vendor?.name ?? null,
+        };
+      }
+      break;
+    }
+    case 'AR_PAYMENT': {
+      const rows = await prisma.aRPayment.findMany({
+        where,
+        select: { id: true, number: true, totalAmount: true, customer: { select: { name: true } } },
+      });
+      for (const r of rows) {
+        map[r.id] = {
+          id: r.id,
+          number: r.number ?? '',
+          amount: toNumber(r.totalAmount),
+          party: r.customer?.name ?? null,
+        };
+      }
+      break;
+    }
+    case 'AP_PAYMENT': {
+      const rows = await prisma.aPPayment.findMany({
+        where,
+        select: { id: true, number: true, totalAmount: true, vendor: { select: { name: true } } },
+      });
+      for (const r of rows) {
+        map[r.id] = {
+          id: r.id,
+          number: r.number ?? '',
+          amount: toNumber(r.totalAmount),
+          party: r.vendor?.name ?? null,
+        };
+      }
+      break;
+    }
+    case 'STOCK_ADJUSTMENT': {
+      // No single monetary total; use reason as the party label.
+      const rows = await prisma.stockAdjustment.findMany({
+        where,
+        select: { id: true, number: true, reason: true },
+      });
+      for (const r of rows) {
+        map[r.id] = {
+          id: r.id,
+          number: r.number ?? '',
+          amount: null,
+          party: r.reason ?? null,
         };
       }
       break;

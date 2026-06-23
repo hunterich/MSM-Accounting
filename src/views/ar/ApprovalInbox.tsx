@@ -20,7 +20,10 @@ type DocumentType =
     | 'CREDIT_NOTE'
     | 'DEBIT_NOTE'
     | 'SALES_RETURN'
-    | 'PURCHASE_RETURN';
+    | 'PURCHASE_RETURN'
+    | 'AR_PAYMENT'
+    | 'AP_PAYMENT'
+    | 'STOCK_ADJUSTMENT';
 
 type FilterType = 'ALL' | DocumentType;
 
@@ -52,6 +55,9 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
     DEBIT_NOTE: 'Debit Note',
     SALES_RETURN: 'Sales Return',
     PURCHASE_RETURN: 'Purchase Return',
+    AR_PAYMENT: 'Receive Payment',
+    AP_PAYMENT: 'Send Payment',
+    STOCK_ADJUSTMENT: 'Stock Adjustment',
 };
 
 function labelFor(documentType: DocumentType): string {
@@ -69,6 +75,9 @@ const MODULE_KEY_BY_TYPE: Record<DocumentType, string> = {
     DEBIT_NOTE: 'ap_debits',
     SALES_RETURN: 'ar_credits',
     PURCHASE_RETURN: 'ap_debits',
+    AR_PAYMENT: 'ar_payments',
+    AP_PAYMENT: 'ap_payments',
+    STOCK_ADJUSTMENT: 'inv_adj',
 };
 
 function moduleKeyFor(documentType: DocumentType): string {
@@ -178,7 +187,9 @@ const ApprovalInbox: React.FC = () => {
                     type === 'SALES_ORDER' ||
                     type === 'CREDIT_NOTE' ||
                     type === 'SALES_RETURN' ||
-                    type === 'PAYROLL_RUN'
+                    type === 'PAYROLL_RUN' ||
+                    type === 'AR_PAYMENT' ||
+                    type === 'STOCK_ADJUSTMENT'
                         ? 'info'
                         : 'warning';
                 return <StatusTag status={status} label={label} />;
