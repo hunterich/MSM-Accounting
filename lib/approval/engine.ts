@@ -121,11 +121,18 @@ export async function rejectRequest(
       requireDistinctApproverForAdmins: org?.requireDistinctApproverForAdmins ?? false,
     });
 
-    if (reqRow.documentType === 'INVOICE') {
-      await tx.salesInvoice.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT', updatedAt: new Date() } });
-    } else if (reqRow.documentType === 'PURCHASE_ORDER') {
-      await tx.purchaseOrder.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT', updatedAt: new Date() } });
-    }
+    const revertMap: Record<ApprovalDocumentType, () => Promise<unknown>> = {
+      INVOICE:         () => tx.salesInvoice.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      PURCHASE_ORDER:  () => tx.purchaseOrder.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      BILL:            () => tx.bill.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      SALES_ORDER:     () => tx.salesOrder.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      PAYROLL_RUN:     () => tx.payrollRun.update({ where: { id: reqRow.documentId }, data: { status: 'REVIEWED', updatedAt: new Date() } }),
+      CREDIT_NOTE:     () => tx.creditNote.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      DEBIT_NOTE:      () => tx.debitNote.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      SALES_RETURN:    () => tx.salesReturn.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+      PURCHASE_RETURN: () => tx.purchaseReturn.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
+    };
+    await revertMap[reqRow.documentType]();
 
     await tx.approvalRequest.update({
       where: { id: reqRow.id },
