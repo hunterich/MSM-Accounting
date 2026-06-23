@@ -64,6 +64,7 @@ model Organization {
   purchaseReturns        PurchaseReturn[]
   debitNotes             DebitNote[]
   stockAdjustments       StockAdjustment[]
+  stockCounts            StockCount[]
   inventoryLedgerEntries InventoryLedgerEntry[]
   bankAccounts           BankAccount[]
   bankTransactions       BankTransaction[]
@@ -383,6 +384,7 @@ model ItemCategory {
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   items          Item[]
+  stockCounts    StockCount[]
 
   @@unique([organizationId, name])
   @@unique([organizationId, code])
@@ -423,6 +425,7 @@ model Item {
   salesReturnLines   SalesReturnLine[]
   purchaseReturnLines PurchaseReturnLine[]
   stockAdjustmentLines StockAdjustmentLine[]
+  stockCountLines      StockCountLine[]
   ledgerEntries      InventoryLedgerEntry[]
   documentMappings   VendorDocumentMapping[]
   inventoryLots      InventoryLot[]
@@ -445,6 +448,7 @@ model Warehouse {
   salesReturns   SalesReturn[]
   purchaseReturns PurchaseReturn[]
   stockAdjustments StockAdjustment[]
+  stockCounts      StockCount[]
   ledgerEntries  InventoryLedgerEntry[]
   deliveryNotes  DeliveryNote[]
   inventoryLots  InventoryLot[]
@@ -1085,6 +1089,55 @@ model StockAdjustmentLine {
 
   @@unique([stockAdjustmentId, lineNo])
   @@index([itemId])
+}
+
+enum StockCountStatus {
+  DRAFT
+  SUBMITTED
+  POSTED
+  CANCELLED
+}
+
+model StockCount {
+  id                    String           @id @default(cuid())
+  organizationId        String
+  number                String
+  date                  DateTime
+  status                StockCountStatus @default(DRAFT)
+  warehouseId           String?
+  categoryId            String?
+  countedBy             String?
+  notes                 String?
+  generatedAdjustmentId String?
+  submittedAt           DateTime?
+  postedAt              DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  category     ItemCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  lines        StockCountLine[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date, status])
+}
+
+model StockCountLine {
+  id           String   @id @default(cuid())
+  stockCountId String
+  lineNo       Int
+  itemId       String
+  systemQty    Decimal  @db.Decimal(18, 4)
+  countedQty   Decimal? @db.Decimal(18, 4)
+  unitCost     Decimal  @db.Decimal(18, 2)
+  note         String?
+
+  stockCount StockCount @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  item       Item       @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([stockCountId, lineNo])
+  @@index([stockCountId])
 }
 
 model InventoryLedgerEntry {

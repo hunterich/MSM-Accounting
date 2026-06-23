@@ -163,6 +163,7 @@ const NUMBER_QUERIES: Record<string, (prisma: any) => Promise<Array<{ max: numbe
   PurchaseReturn: (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PurchaseReturn"`,
   SalesReturn:    (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "SalesReturn"`,
   StockAdjustment:(p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "StockAdjustment"`,
+  StockCount:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "StockCount"`,
   PayrollRun:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PayrollRun"`,
   JournalEntry:   (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("entryNo" FROM '[0-9]+') AS INTEGER)) AS max FROM "JournalEntry"`,
 };
