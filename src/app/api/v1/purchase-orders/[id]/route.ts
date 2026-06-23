@@ -29,7 +29,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
     const parsed = updatePurchaseOrderInputSchema.safeParse(body);
@@ -53,7 +57,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       // The header update above may have already stamped status='APPROVED';
       // if approval is required, hold the PO at PENDING_APPROVAL instead.
       if (existing.status === 'DRAFT' && header.status === 'APPROVED') {
-        const userId = req.headers.get('x-user-id')!;
         const routed = await routeForApproval(tx, {
           orgId,
           userId,
