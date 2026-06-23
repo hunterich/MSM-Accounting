@@ -1,5 +1,13 @@
 import type { ApprovalDocumentType, Prisma } from '@prisma/client';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { postPayrollRunToLedger } from '@/lib/payroll-posting';
+import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
+import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
+import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
+import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
+import { ApiError } from '@/lib/errors';
 
 export type Finalizer = (tx: Prisma.TransactionClient, orgId: string, documentId: string) => Promise<void>;
 
@@ -11,6 +19,37 @@ export const FINALIZERS: Partial<Record<ApprovalDocumentType, Finalizer>> = {
   PURCHASE_ORDER: async (tx, _orgId, documentId) => {
     // POs post no GL at approval; going live = APPROVED status.
     await tx.purchaseOrder.update({ where: { id: documentId }, data: { status: 'APPROVED', updatedAt: new Date() } });
+  },
+  BILL: async (tx, orgId, documentId) => {
+    const bill = await tx.bill.findFirst({ where: { id: documentId, organizationId: orgId }, include: { lines: true } });
+    if (!bill) throw new ApiError('Bill not found', 404);
+    await assertPeriodOpen(tx, orgId, bill.issueDate ? new Date(bill.issueDate) : new Date());
+    await postBillToLedger(tx, orgId, bill as never);
+    await tx.bill.update({ where: { id: documentId }, data: { status: 'OPEN', updatedAt: new Date() } });
+  },
+  SALES_ORDER: async (tx, _orgId, documentId) => {
+    // Sales orders post no GL; going live = CONFIRMED status.
+    await tx.salesOrder.update({ where: { id: documentId }, data: { status: 'CONFIRMED', updatedAt: new Date() } });
+  },
+  PAYROLL_RUN: async (tx, orgId, documentId) => {
+    await postPayrollRunToLedger(tx, orgId, documentId);
+    await tx.payrollRun.update({ where: { id: documentId }, data: { status: 'POSTED', updatedAt: new Date() } });
+  },
+  CREDIT_NOTE: async (tx, _orgId, documentId) => {
+    await postCreditNoteOnApply(tx, documentId);
+    await tx.creditNote.update({ where: { id: documentId }, data: { status: 'APPLIED', updatedAt: new Date() } });
+  },
+  DEBIT_NOTE: async (tx, _orgId, documentId) => {
+    await postDebitNoteOnApply(tx, documentId);
+    await tx.debitNote.update({ where: { id: documentId }, data: { status: 'APPLIED', updatedAt: new Date() } });
+  },
+  SALES_RETURN: async (tx, _orgId, documentId) => {
+    await postSalesReturnOnApproval(tx, documentId);
+    await tx.salesReturn.update({ where: { id: documentId }, data: { status: 'APPROVED', updatedAt: new Date() } });
+  },
+  PURCHASE_RETURN: async (tx, _orgId, documentId) => {
+    await postPurchaseReturnOnApproval(tx, documentId);
+    await tx.purchaseReturn.update({ where: { id: documentId }, data: { status: 'APPROVED', updatedAt: new Date() } });
   },
 };
 
