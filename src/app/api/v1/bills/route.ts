@@ -11,6 +11,7 @@ import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
 import { postBillToLedger } from '@/lib/bill-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -66,6 +67,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+  const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
   const parsed = billInputSchema.safeParse({
     ...body,
@@ -140,16 +143,33 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       }
     }
 
-    // Post inventory + GL when the bill is created already finalized.
+    // Post inventory + GL when the bill is created already finalized,
+    // unless the approval engine routes the finalize for approval first.
     const billStatus = parsed.data.status as string;
     if ((billStatus === 'APPROVED' || billStatus === 'OPEN') && createdBill) {
-      // Refuse to post into a closed/locked accounting period.
-      await assertPeriodOpen(
-        tx,
+      const routed = await routeForApproval(tx, {
         orgId,
-        createdBill.issueDate ? new Date(createdBill.issueDate) : new Date(),
-      );
-      await postBillToLedger(tx, orgId, createdBill as any);
+        userId,
+        documentType: 'BILL',
+        documentId: createdBill.id,
+      });
+      if (routed) {
+        // HELD for approval: createBillRecord stamped the live status above;
+        // override it back to PENDING_APPROVAL and post NO GL (skip assertPeriodOpen).
+        await tx.bill.update({
+          where: { id: createdBill.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+        (createdBill as any).status = 'PENDING_APPROVAL';
+      } else {
+        // Refuse to post into a closed/locked accounting period.
+        await assertPeriodOpen(
+          tx,
+          orgId,
+          createdBill.issueDate ? new Date(createdBill.issueDate) : new Date(),
+        );
+        await postBillToLedger(tx, orgId, createdBill as any);
+      }
     }
     return createdBill;
     });

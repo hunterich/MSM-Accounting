@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
 
 export const runtime = 'nodejs';
@@ -37,6 +38,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+  const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
   const { lines, ...header } = body;
 
@@ -73,8 +76,24 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       include: { lines: true },
     });
 
+    // Post inventory leg if user creates as APPROVED directly. If the approval
+    // engine routes the finalize for approval first, hold the return at
+    // PENDING_APPROVAL and post NO GL.
     if (created.status === 'APPROVED') {
-      await postPurchaseReturnOnApproval(tx, created.id);
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'PURCHASE_RETURN',
+        documentId: created.id,
+      });
+      if (routed) {
+        await tx.purchaseReturn.update({
+          where: { id: created.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+      } else {
+        await postPurchaseReturnOnApproval(tx, created.id);
+      }
     }
 
     return tx.purchaseReturn.findUniqueOrThrow({
