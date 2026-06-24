@@ -40,7 +40,7 @@ Confidence: 🔴 and 🟠 rows verified by direct read. 🟡 rows ("blocked, no 
 
 ### Resolving the posting JE(s) to reverse
 
-Documents with a `journalEntryId` column (notes, returns, payments, bills, bank txns, payroll) reverse by that token. Documents without one (invoices: two JEs; stock adjustments) reverse by **deterministic memo match** — the established `bill-void.ts:64-71` fallback. Posting memos are deterministic: invoices use `Sales recognition: <number>` and `COGS auto-post: <number>`; stock adjustments use their number. Memo-based reversal avoids a migration. (A `journalEntryId`/document-link column may be added later as hardening, but is not required for correctness.)
+Documents with a `journalEntryId` column (notes, returns, payments, bills, bank txns, payroll) reverse by that token. Documents without one (invoices: two JEs; stock adjustments) reverse by **deterministic memo match** — the established `bill-void.ts:64-71` fallback. Posting memos are deterministic: invoices use `Sales recognition: <number>` and `COGS auto-post: <number>`; stock adjustments use their number. Memo-based reversal avoids a migration. **Decision (confirmed with user):** use memo match for invoices/stock-adjustments. The sturdier alternative — a `sourceType`/`sourceId` document link on every `JournalEntry`, looked up by exact ID — was explicitly considered and deferred; it adds a schema migration and is not required for correctness (invoices post two JEs, so a single `journalEntryId` column wouldn't suffice anyway). Memo format is code-generated and unique per document; integration tests assert the exact reversal lines so a format drift fails loudly. May be revisited as future hardening.
 
 ### Inventory un-consume primitive (the one new piece of engineering)
 
