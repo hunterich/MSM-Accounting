@@ -24,6 +24,10 @@ interface LineItemsTableProps {
     onAddLine: () => void;
     /** search box is presentational here; host wires the product autocomplete */
     searchSlot?: React.ReactNode;
+    /** when true, the table is display-only (posted documents): no editing, no add/remove */
+    readOnly?: boolean;
+    /** per-line predicate to lock the price cell (e.g. catalog item without override permission) */
+    isPriceLocked?: (line: DocLine) => boolean;
 }
 
 const TEXT_KEYS = new Set<keyof DocLine>(['description', 'unit', 'code']);
@@ -39,6 +43,8 @@ const LineItemsTable = ({
     onRemove,
     onAddLine,
     searchSlot,
+    readOnly = false,
+    isPriceLocked,
 }: LineItemsTableProps): React.ReactElement => {
     const handle = (id: string, key: keyof DocLine) => (e: React.ChangeEvent<HTMLInputElement>) => {
         const v = TEXT_KEYS.has(key) ? e.target.value : Number(e.target.value || 0);
@@ -49,7 +55,7 @@ const LineItemsTable = ({
         <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-200">
                 <div className="text-[13px] font-semibold text-neutral-800">Items</div>
-                {searchSlot ?? (
+                {readOnly ? null : searchSlot ?? (
                     <div className="relative w-72">
                         <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
                         <input
@@ -97,19 +103,22 @@ const LineItemsTable = ({
                                         value={l.description}
                                         onChange={handle(l.id, 'description')}
                                         placeholder="Description"
-                                        className={cell + ' px-0 hover:border-transparent'}
+                                        disabled={readOnly}
+                                        className={cell + ' px-0 hover:border-transparent disabled:bg-transparent'}
                                     />
                                 </td>
-                                <td className="px-2 py-1.5"><input type="number" value={l.qty} onChange={handle(l.id, 'qty')} className={`${cell} text-right tabular-nums`} /></td>
-                                <td className="px-2 py-1.5"><input value={l.unit} onChange={handle(l.id, 'unit')} className={cell} /></td>
-                                <td className="px-2 py-1.5"><input type="number" value={l.price} onChange={handle(l.id, 'price')} className={`${cell} text-right tabular-nums`} /></td>
-                                <td className="px-2 py-1.5"><input type="number" value={l.discount} onChange={handle(l.id, 'discount')} className={`${cell} text-right tabular-nums`} /></td>
+                                <td className="px-2 py-1.5"><input type="number" value={l.qty} onChange={handle(l.id, 'qty')} disabled={readOnly} className={`${cell} text-right tabular-nums`} /></td>
+                                <td className="px-2 py-1.5"><input value={l.unit} onChange={handle(l.id, 'unit')} disabled={readOnly} className={cell} /></td>
+                                <td className="px-2 py-1.5"><input type="number" value={l.price} onChange={handle(l.id, 'price')} disabled={readOnly || isPriceLocked?.(l)} className={`${cell} text-right tabular-nums disabled:text-neutral-500`} /></td>
+                                <td className="px-2 py-1.5"><input type="number" value={l.discount} onChange={handle(l.id, 'discount')} disabled={readOnly} className={`${cell} text-right tabular-nums`} /></td>
                                 {showTax && <td className="px-2 py-1.5 text-right text-neutral-500 text-[12px]">{l.taxRate ?? 0}%</td>}
                                 <td className="px-3 py-1.5 text-right font-semibold text-neutral-900 tabular-nums">{formatIDR(lineNet(l))}</td>
                                 <td className="px-2 py-1.5 text-center">
-                                    <button type="button" onClick={() => onRemove(l.id)} className="text-neutral-300 hover:text-danger-500" aria-label="Remove line">
-                                        <X size={15} />
-                                    </button>
+                                    {!readOnly && (
+                                        <button type="button" onClick={() => onRemove(l.id)} className="text-neutral-300 hover:text-danger-500" aria-label="Remove line">
+                                            <X size={15} />
+                                        </button>
+                                    )}
                                 </td>
                             </tr>
                         ))
@@ -117,9 +126,11 @@ const LineItemsTable = ({
                 </tbody>
             </table>
 
-            <button type="button" onClick={onAddLine} className="w-full text-left px-3 py-2 text-[13px] text-primary-700 hover:bg-primary-50 inline-flex items-center gap-1.5">
-                <Plus size={14} /> Add line
-            </button>
+            {!readOnly && (
+                <button type="button" onClick={onAddLine} className="w-full text-left px-3 py-2 text-[13px] text-primary-700 hover:bg-primary-50 inline-flex items-center gap-1.5">
+                    <Plus size={14} /> Add line
+                </button>
+            )}
         </div>
     );
 };
