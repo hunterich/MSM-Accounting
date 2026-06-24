@@ -11,6 +11,8 @@ interface PageHeaderProps {
     backLabel?: string;
     className?: string;
     noBorder?: boolean;
+    /** Pin the header to the top of the scroll container while the page scrolls. */
+    sticky?: boolean;
 }
 
 const PageHeader = ({
@@ -21,7 +23,8 @@ const PageHeader = ({
     onBack = null,
     backLabel = 'Back',
     className = '',
-    noBorder = false
+    noBorder = false,
+    sticky = false
 }: PageHeaderProps): React.ReactElement => {
     const navigate = useNavigate();
 
@@ -36,7 +39,7 @@ const PageHeader = ({
     };
 
     return (
-        <div className={`flex justify-between items-center mb-6 pb-4 ${noBorder ? '' : 'border-b border-neutral-200'} ${className}`}>
+        <div className={`flex justify-between items-center mb-6 pb-4 ${sticky ? 'sticky top-0 z-20 bg-neutral-50 pt-2' : ''} ${noBorder ? '' : 'border-b border-neutral-200'} ${className}`}>
             <div className="flex items-center gap-4">
                 {(backTo || onBack) && (
                     <button

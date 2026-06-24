@@ -21,6 +21,7 @@ interface RolePermission {
     canCreate:  boolean;
     canEdit:    boolean;
     canDelete:  boolean;
+    canApprove?: boolean;
     [key: string]: unknown;
 }
 
@@ -32,6 +33,8 @@ interface AuthStore {
     permissions:         RolePermission[];
     isLoading:           boolean;
     needsInventoryValuationSetup: boolean;
+    mustChangePassword:  boolean;
+    clearMustChangePassword: () => void;
     hasPermission:       (moduleKey: string, action?: PermissionAction) => boolean;
     updateOrganizationContext: (nextOrg: Partial<AuthOrg>, needsInventoryValuationSetup?: boolean) => void;
     checkSession:        () => Promise<void>;
@@ -40,7 +43,7 @@ interface AuthStore {
     logout:              () => Promise<void>;
 }
 
-type PermissionAction = 'view' | 'create' | 'edit' | 'delete';
+type PermissionAction = 'view' | 'create' | 'edit' | 'delete' | 'approve';
 
 interface AuthResponseLike {
   user?: AuthUser | null;
@@ -48,6 +51,7 @@ interface AuthResponseLike {
   roleType?: string | null;
   permissions?: RolePermission[];
   needsInventoryValuationSetup?: boolean;
+  mustChangePassword?: boolean;
   role?: {
     type?: string | null;
     permissions?: RolePermission[];
@@ -71,6 +75,7 @@ const EMPTY_SESSION = {
   permissions: [],
   isLoading: false,
   needsInventoryValuationSetup: false,
+  mustChangePassword: false,
 };
 
 const normalizeModuleKey = (moduleKey: string) => String(moduleKey || '').trim().toLowerCase();
@@ -93,11 +98,12 @@ export const hasModulePermission = (
     const row = permissions.find((permission) => normalizeModuleKey(permission?.moduleKey) === normalizedModuleKey);
     if (!row) return false;
 
-    const actionMap = {
-      view: row.canView === true,
-      create: row.canCreate === true,
-      edit: row.canEdit === true,
-      delete: row.canDelete === true,
+    const actionMap: Record<PermissionAction, boolean> = {
+      view:    row.canView === true,
+      create:  row.canCreate === true,
+      edit:    row.canEdit === true,
+      delete:  row.canDelete === true,
+      approve: row.canApprove === true,
     };
 
     return actionMap[action] === true;
@@ -118,6 +124,9 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   permissions: [],
   isLoading: true,
   needsInventoryValuationSetup: false,
+  mustChangePassword: false,
+
+  clearMustChangePassword: () => set({ mustChangePassword: false }),
 
   hasPermission: (moduleKey, action = 'view') =>
     hasModulePermission(get().permissions, moduleKey, action),
@@ -144,6 +153,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
           invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
           permissions: getPermissionsFromResponse(data),
           needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
+          mustChangePassword: data.mustChangePassword === true,
           isLoading: false,
         });
         return;
@@ -177,6 +187,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
       permissions: getPermissionsFromResponse(data),
       needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
+      mustChangePassword: data.mustChangePassword === true,
       isLoading: false,
     });
 

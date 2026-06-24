@@ -2,22 +2,22 @@ import React, { useEffect, useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck, Printer, DatabaseBackup } from 'lucide-react';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import SecurityRolesTab from './SecurityRolesTab';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from './DataMigrationPanel';
 import EmailTemplates from './EmailTemplates';
 import CsvImportPanel from './CsvImportPanel';
+import BackupPanel from './BackupPanel';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 import { useChartOfAccounts } from '../../hooks/useGL';
-import { useAccountDefaults, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
+import { useAccountDefaults, useOrganizationSettings, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
 import { ACCOUNT_DEFAULT_SPECS, DEFAULT_ACCOUNT_DEFAULTS } from '../../../lib/account-defaults';
 import type { AccountDefaultKey } from '../../../lib/account-defaults';
 import type { LucideIcon } from 'lucide-react';
 
 interface SecuritySettings {
-    require2FA: boolean;
     allowInvites: boolean;
     sessionTimeoutMinutes: string;
 }
@@ -99,6 +99,7 @@ const Settings = () => {
     const updateDocumentNumbering = useSettingsStore(s => s.updateDocumentNumbering);
     const { data: chartOfAccounts = [] } = useChartOfAccounts();
     const { data: serverAccountDefaults } = useAccountDefaults();
+    const { data: serverOrgSettings } = useOrganizationSettings();
     const updateOrgSettings = useUpdateOrganizationSettings();
 
     const [generalSettings, setGeneralSettings] = useState(storeCompanyInfo);
@@ -111,6 +112,7 @@ const Settings = () => {
     const [salesPolicy, setSalesPolicy] = useState(storeSalesPolicy);
     const [features, setFeatures] = useState(storeFeatures);
     const [approvalRequirements, setApprovalRequirements] = useState(storeApprovalRequirements);
+    const [requireDistinctApproverForAdmins, setRequireDistinctApproverForAdmins] = useState(false);
     const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
     const [printForm, setPrintForm] = useState(storePrintSettings);
 
@@ -125,8 +127,14 @@ const Settings = () => {
       if (Object.keys(serverAccountDefaults).length === 0) return;
       setAccountDefaults((prev) => ({ ...prev, ...serverAccountDefaults }));
     }, [serverAccountDefaults]);
+
+    // Seed approval settings from the server (DB is the source of truth).
+    useEffect(() => {
+      if (!serverOrgSettings) return;
+      setApprovalRequirements((prev) => ({ ...prev, ...serverOrgSettings.approvalRequirements }));
+      setRequireDistinctApproverForAdmins(serverOrgSettings.requireDistinctApproverForAdmins);
+    }, [serverOrgSettings]);
     const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
-        require2FA: false,
         allowInvites: true,
         sessionTimeoutMinutes: '30'
     });
@@ -153,6 +161,7 @@ const Settings = () => {
         { id: 'migration', label: 'Migrasi Data', icon: DatabaseZap },
         { id: 'email-templates', label: 'Email Templates', icon: Mail },
         { id: 'csv-import', label: 'CSV Import', icon: Upload },
+        { id: 'backup', label: 'Backup & Restore', icon: DatabaseBackup },
     ];
 
     const saveCustomerCreditSettings = (): boolean => {
@@ -227,7 +236,16 @@ const Settings = () => {
         }
 
         if (sectionId === 'approvals') {
-            updateApprovalRequirements(approvalRequirements);
+            try {
+                await updateOrgSettings.mutateAsync({
+                    approvalRequirements,
+                    requireDistinctApproverForAdmins,
+                });
+                updateApprovalRequirements(approvalRequirements);
+            } catch (e) {
+                window.alert(`Failed to save approval settings: ${e instanceof Error ? e.message : 'Unknown error'}`);
+                return;
+            }
         }
 
         if (sectionId === 'accounts') {
@@ -578,6 +596,22 @@ const Settings = () => {
                         <ApprovalRow label="Stock Adjustments"  checked={approvalRequirements.inv_adj}    onChange={(v) => setApprovalRequirements({ ...approvalRequirements, inv_adj: v })} />
                         <ApprovalRow label="Payroll Runs"       checked={approvalRequirements.hr_payroll} onChange={(v) => setApprovalRequirements({ ...approvalRequirements, hr_payroll: v })} />
 
+                        <h3 className="settings-section-title mt-6">Admin Approver Policy</h3>
+                        <div className="mb-3">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={requireDistinctApproverForAdmins}
+                                    onChange={(e) => setRequireDistinctApproverForAdmins(e.target.checked)}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Require a different approver even for admins</span>
+                            </label>
+                            <div className="settings-help-text ml-6">
+                                By default, admins may approve their own documents. Turn this on to require someone else to approve, even for admin users.
+                            </div>
+                        </div>
+
                         <div className="settings-save-wrap">
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('approvals')} />
                         </div>
@@ -862,6 +896,10 @@ const Settings = () => {
                         <p className="settings-muted mb-4">Bulk-import customers, vendors, items, or chart of accounts from a CSV file. Download the template, fill in your data, then upload.</p>
                         <CsvImportPanel />
                     </Card>
+                )}
+
+                {activeTab === 'backup' && (
+                    <BackupPanel />
                 )}
             </div>
         </div>

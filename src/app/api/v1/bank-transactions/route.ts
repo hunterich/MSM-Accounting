@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { bankTransactionInputSchema } from '@/types/api';
+import { postBankTransactionIfNeeded } from '@/lib/bank-transaction-posting';
 
 export const runtime = 'nodejs';
 
@@ -50,7 +51,14 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       data: { ...rest, bankAccountId, type, amount, date: new Date(date), organizationId: orgId },
       include: { bankAccount: { select: { id: true, name: true } } },
     });
-    const delta = type === 'INCOME' ? amount : type === 'TRANSFER' ? 0 : -amount;
+    // Post Dr Expense / [Dr Input Tax] / Cr Bank for direct expenses (no-op for
+    // INCOME/TRANSFER). Returns the cash credited to the bank GL — base + PPN when
+    // taxable — so the cached balance moves by the same amount as the ledger.
+    const postedBankCredit = await postBankTransactionIfNeeded(tx, orgId, txn.id);
+    // For a posted expense the cash out is what hit the GL (incl. PPN); otherwise
+    // fall back to the pre-tax amount (INCOME / TRANSFER / unposted expense).
+    const expenseOut = postedBankCredit > 0 ? postedBankCredit : amount;
+    const delta = type === 'INCOME' ? amount : type === 'TRANSFER' ? 0 : -expenseOut;
     if (delta !== 0) {
       await tx.bankAccount.update({
         where: { id: bankAccountId },

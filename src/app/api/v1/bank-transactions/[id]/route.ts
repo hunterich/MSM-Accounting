@@ -31,9 +31,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const txn = await prisma.$transaction(async (tx) => {
       const existing = await tx.bankTransaction.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, bankAccountId: true, type: true, amount: true },
+        select: { id: true, bankAccountId: true, type: true, amount: true, journalEntryId: true },
       });
       if (!existing) return null;
+      if (existing.journalEntryId) {
+        throw new ApiError('This expense has already been posted to the ledger and cannot be edited — void it instead.', 409);
+      }
       if (parsed.data.bankAccountId) {
         await validateForeignKey(tx.bankAccount, { id: parsed.data.bankAccountId, organizationId: orgId, isActive: true }, 'Bank account not found in organization');
       }
@@ -95,12 +98,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
+  try {
   const deleted = await prisma.$transaction(async (tx) => {
     const existing = await tx.bankTransaction.findFirst({
       where: { id, organizationId: orgId },
-      select: { id: true, bankAccountId: true, type: true, amount: true },
+      select: { id: true, bankAccountId: true, type: true, amount: true, journalEntryId: true },
     });
     if (!existing) return null;
+    if (existing.journalEntryId) {
+      throw new ApiError('This expense has already been posted to the ledger and cannot be deleted — void it instead.', 409);
+    }
+
+    // Atomically claim the delete BEFORE touching the balance. The guarded
+    // `deleteMany` takes a row lock; a concurrent delete blocks here, then finds
+    // the row already gone → count 0 → 409, so only the winner increments the
+    // bank-account balance (a double-delete would otherwise double-increment it).
+    const del = await tx.bankTransaction.deleteMany({
+      where: { id, organizationId: orgId, journalEntryId: null },
+    });
+    if (del.count !== 1) {
+      throw new ApiError('Transaction not found or already posted', 409);
+    }
 
     const delta = existing.type === 'INCOME'
       ? -Number(existing.amount)
@@ -115,10 +133,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       });
     }
 
-    await tx.bankTransaction.delete({ where: { id, organizationId: orgId } });
     return existing;
   });
   if (!deleted) return err('Not found', 404);
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankTransaction', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
+  } catch (error) {
+    if (error instanceof ApiError) return err(error.message, error.status);
+    const message = error instanceof Error ? error.message : 'Failed to delete bank transaction';
+    return err(message, 500);
+  }
 }

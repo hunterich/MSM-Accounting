@@ -65,6 +65,7 @@ export async function GET(req: NextRequest) {
           costingMethodEffectiveDate: organization.costingMethodEffectiveDate,
         },
         needsInventoryValuationSetup: !organization.costingMethod,
+        mustChangePassword: user.mustChangePassword === true,
         role: {
           type: membership.role.roleType,
           permissions: membership.role.permissions,

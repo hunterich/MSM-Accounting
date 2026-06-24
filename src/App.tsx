@@ -27,7 +27,7 @@ const CreditNoteForm = lazy(() => import('./views/ar/CreditNoteForm'))
 const SalesReturnForm = lazy(() => import('./views/ar/SalesReturnForm'))
 const RecurringBilling = lazy(() => import('./views/ar/RecurringBilling'))
 const ApprovalInbox = lazy(() => import('./views/ar/ApprovalInbox'))
-const SOForm = lazy(() => import('./components/ar/salesorders/SOForm'))
+const SOForm = lazy(() => import('./components/ar/salesorders/SOFormV2'))
 
 const Bills = lazy(() => import('./views/ap/Bills'))
 const BillForm = lazy(() => import('./views/ap/BillForm'))
@@ -50,6 +50,8 @@ const ItemCategories = lazy(() => import('./views/inventory/ItemCategories'))
 const InventoryAdjustments = lazy(() => import('./views/inventory/InventoryAdjustments'))
 const AdjustmentForm = lazy(() => import('./views/inventory/AdjustmentForm'))
 const StockValuation = lazy(() => import('./views/inventory/StockValuation'))
+const StockCounts = lazy(() => import('./views/inventory/StockCounts'))
+const StockCountForm = lazy(() => import('./views/inventory/StockCountForm'))
 const DeliveryNotes = lazy(() => import('./views/ar/DeliveryNotes'))
 const Banking = lazy(() => import('./views/banking/Banking'))
 const BankingActionForm = lazy(() => import('./views/banking/BankingActionForm'))
@@ -138,6 +140,7 @@ function App(): JSX.Element {
                     <Route path="ap/pos" element={withPermission(<PurchaseOrders />, 'ap_pos')} />
                     <Route path="ap/pos/new" element={withPermission(<POForm />, 'ap_pos', 'create')} />
                     <Route path="ap/pos/edit" element={withPermission(<POForm />, 'ap_pos', 'edit')} />
+                    <Route path="ap/receiving" element={withPermission(<PurchaseOrders receivingMode />, 'ap_pos')} />
                     <Route path="ap/bills" element={withPermission(<Bills />, 'ap_bills')} />
                     <Route path="ap/bills/import" element={withPermission(<BillImport />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/new" element={withPermission(<BillForm />, 'ap_bills', 'create')} />
@@ -163,6 +166,9 @@ function App(): JSX.Element {
                     <Route path="inventory/adjustments" element={withPermission(<InventoryAdjustments />, 'inv_adj')} />
                     <Route path="inventory/adjustments/new" element={withPermission(<AdjustmentForm />, 'inv_adj', 'create')} />
                     <Route path="inventory/adjustments/edit" element={withPermission(<AdjustmentForm />, 'inv_adj', 'edit')} />
+                    <Route path="inventory/counts" element={withPermission(<StockCounts />, 'inv_adj')} />
+                    <Route path="inventory/counts/new" element={withPermission(<StockCountForm />, 'inv_adj', 'create')} />
+                    <Route path="inventory/counts/edit" element={withPermission(<StockCountForm />, 'inv_adj', 'edit')} />
                     <Route path="inventory/valuation" element={withPermission(<StockValuation />, 'inv_items')} />
 
                     {/* Banking */}
@@ -170,6 +176,8 @@ function App(): JSX.Element {
                     <Route path="banking/transfer" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/expense" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/income" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/payment" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
+                    <Route path="banking/receive" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/account" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/reconciliation" element={withPermission(<PaymentReconciliation />, 'banking')} />
 

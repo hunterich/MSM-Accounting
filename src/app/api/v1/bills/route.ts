@@ -3,18 +3,29 @@
 // BillLine fields: billId, lineNo, description, quantity, unit, price, lineTotal
 // Unique: @@unique([organizationId, number])
 import { NextRequest } from 'next/server';
-import { InventoryDocumentType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
-import { addCostLayer } from '@/lib/inventory-costing';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
-import { toNumber, asMoney } from '@/lib/money';
-import { postJournalEntry } from '@/lib/journal-posting';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
+import { assertPeriodOpen } from '@/lib/period-guard';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
+
+// A bill must carry a supplier invoice # (No. Faktur) before it can post, so the
+// same physical supplier invoice can't be billed twice (enforced by the
+// per-vendor unique index on vendorInvoiceNo).
+const POSTING_STATUSES = new Set(['APPROVED', 'OPEN']);
+
+function isFakturDuplicate(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  return Array.isArray(target) ? target.includes('vendorInvoiceNo') : String(target ?? '').includes('vendorInvoiceNo');
+}
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -57,6 +68,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+  const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
   const parsed = billInputSchema.safeParse({
     ...body,
@@ -66,197 +79,90 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     return err(parsed.error.issues[0]?.message || 'Invalid bill payload', 400);
   }
 
-  const bill = await prisma.$transaction(async (tx: any) => {
+  if (POSTING_STATUSES.has(parsed.data.status as string) && !parsed.data.vendorInvoiceNo) {
+    return err('Supplier invoice # (No. Faktur) is required to approve a bill.', 400);
+  }
+
+  let bill;
+  try {
+    bill = await prisma.$transaction(async (tx: any) => {
     const createdBill = await createBillRecord(tx, orgId, parsed.data);
 
-    // --- PO line qty tracking ---
+    // --- PO line qty tracking: VALIDATE + LINK at create time ---
+    // Lines pulled from an existing goods receipt (alreadyReceived) bill stock
+    // that was already received — they must NOT re-increment receivedQty. Only
+    // lines that both link a PO and represent a fresh receipt drive receivedQty.
+    //
+    // The receivedQty INCREMENT + PO status flip is deferred to the FINALIZE
+    // path (applyBillPoReceipt) so a bill held for approval — or later rejected —
+    // never mutates the PO. Here we only do the read-only over-receive check and
+    // persist the bill-line -> PO-line link so the finalizer can read it back.
     if (parsed.data.lines && parsed.data.lines.length > 0) {
-      const linesWithPO = (parsed.data.lines as any[]).filter(l => l.purchaseOrderLineId);
-      if (linesWithPO.length > 0) {
-        // Validate: no over-receiving
-        for (const line of linesWithPO) {
-          const poLine = await tx.purchaseOrderLine.findUnique({
-            where: { id: line.purchaseOrderLineId },
-            select: { id: true, quantity: true, receivedQty: true, purchaseOrderId: true },
-          });
-          if (!poLine) throw new ApiError(`PO line ${line.purchaseOrderLineId} not found`, 422);
-          const newTotal = Number(poLine.receivedQty) + Number(line.quantity);
-          if (newTotal > Number(poLine.quantity) + 0.0001) {
-            throw new ApiError(`Over-receiving: PO line allows ${Number(poLine.quantity) - Number(poLine.receivedQty)} more units`, 422);
-          }
-          // Increment receivedQty
-          await tx.purchaseOrderLine.update({
-            where: { id: line.purchaseOrderLineId },
-            data: { receivedQty: { increment: Number(line.quantity) } },
-          });
-          // Link the created bill line to the PO line
-          const billLine = createdBill!.lines?.find((bl: any) => bl.lineNo === line.lineNo);
-          if (billLine) {
-            await tx.billLine.update({
-              where: { id: billLine.id },
-              data: { purchaseOrderLineId: line.purchaseOrderLineId },
-            });
-          }
-        }
-        // Check PO completion and update status
-        const firstPoLineId = linesWithPO[0].purchaseOrderLineId;
-        const firstPoLine = await tx.purchaseOrderLine.findUnique({
-          where: { id: firstPoLineId },
-          select: { purchaseOrderId: true },
+      const linesWithPO = parsed.data.lines.filter(l => l.purchaseOrderLineId && !l.alreadyReceived);
+      for (const line of linesWithPO) {
+        // Validate: no over-receiving (read-only).
+        const poLine = await tx.purchaseOrderLine.findUnique({
+          where: { id: line.purchaseOrderLineId },
+          select: { id: true, quantity: true, receivedQty: true },
         });
-        if (firstPoLine) {
-          const allPoLines = await tx.purchaseOrderLine.findMany({
-            where: { purchaseOrderId: firstPoLine.purchaseOrderId },
-            select: { quantity: true, receivedQty: true },
+        if (!poLine) throw new ApiError(`PO line ${line.purchaseOrderLineId} not found`, 422);
+        const newTotal = Number(poLine.receivedQty) + Number(line.quantity);
+        if (newTotal > Number(poLine.quantity) + 0.0001) {
+          throw new ApiError(`Over-receiving: PO line allows ${Number(poLine.quantity) - Number(poLine.receivedQty)} more units`, 422);
+        }
+        // Link the created bill line to the PO line (createBillRecord already
+        // persists this, but keep the explicit link so the relationship is
+        // guaranteed regardless of how the line was created).
+        const billLine = createdBill!.lines?.find((bl: any) => bl.lineNo === line.lineNo);
+        if (billLine && !billLine.purchaseOrderLineId) {
+          await tx.billLine.update({
+            where: { id: billLine.id },
+            data: { purchaseOrderLineId: line.purchaseOrderLineId },
           });
-          const allFull = allPoLines.every((pl: any) => Number(pl.receivedQty) >= Number(pl.quantity) - 0.0001);
-          const anyReceived = allPoLines.some((pl: any) => Number(pl.receivedQty) > 0.0001);
-          const newPoStatus = allFull ? 'CLOSED' : anyReceived ? 'PARTIAL_RECEIVED' : undefined;
-          if (newPoStatus) {
-            await tx.purchaseOrder.update({
-              where: { id: firstPoLine.purchaseOrderId },
-              data: { status: newPoStatus as any },
-            });
-          }
         }
       }
     }
 
-    // Add cost layers when bill status is APPROVED or OPEN (treated as approved/ready)
-    // Cast to string for forward-compatibility in case APPROVED is added to the enum later
+    // Post inventory + GL when the bill is created already finalized,
+    // unless the approval engine routes the finalize for approval first.
     const billStatus = parsed.data.status as string;
     if ((billStatus === 'APPROVED' || billStatus === 'OPEN') && createdBill) {
-      const organization = await tx.organization.findUnique({
-        where: { id: orgId },
-        select: { costingMethod: true },
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'BILL',
+        documentId: createdBill.id,
       });
-
-      if (organization?.costingMethod) {
-        const billLines = createdBill.lines ?? [];
-        const itemIds = billLines
-          .map((l: any) => l.itemId)
-          .filter((id: string | null) => Boolean(id)) as string[];
-
-        const inventoryItems = itemIds.length > 0
-          ? await tx.item.findMany({
-              where: {
-                id: { in: itemIds },
-                organizationId: orgId,
-                type: { in: ['PRODUCT', 'RAW_MATERIAL'] },
-              },
-              select: { id: true },
-            })
-          : [];
-        const inventoryItemIds = new Set(inventoryItems.map((i: any) => i.id));
-
-        const inventoryLines = billLines.filter(
-          (l: any) => l.itemId && inventoryItemIds.has(l.itemId),
+      if (routed) {
+        // HELD for approval: createBillRecord stamped the live status above;
+        // override it back to PENDING_APPROVAL, apply NO PO receipt, post NO GL
+        // (skip assertPeriodOpen). The PO receipt happens on approval (finalizer).
+        await tx.bill.update({
+          where: { id: createdBill.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+        (createdBill as any).status = 'PENDING_APPROVAL';
+      } else {
+        // Finalized directly. Apply the PO receipt FIRST (before postBillToLedger
+        // books the inventory lots applyBillPoReceipt uses to detect an already-
+        // booked goods receipt), then post GL into an open accounting period.
+        await applyBillPoReceipt(tx, orgId, createdBill.id);
+        await assertPeriodOpen(
+          tx,
+          orgId,
+          createdBill.issueDate ? new Date(createdBill.issueDate) : new Date(),
         );
-
-        if (billLines.length > 0) {
-            // Resolve account IDs once
-            const accounts = await tx.account.findMany({
-              where: { organizationId: orgId, isActive: true },
-              select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-            });
-
-            const settings = await loadOrgAccountDefaults(tx, orgId);
-            const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-            const apAccountId =
-              (createdBill.apAccountId as string | null | undefined)
-              ?? resolveAccountDefaultId(accounts, settings, 'apControl');
-            const inputTaxAccountId = resolveAccountDefaultId(accounts, settings, 'apTax');
-            // Service-line catch-all expense — no per-category mapping yet,
-            // so use cogsExpense until a Settings field is added for it.
-            const expenseAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
-
-            const billDate = createdBill.issueDate
-              ? new Date(createdBill.issueDate)
-              : new Date();
-
-            // Add inventory cost layers for inventory lines (unchanged behavior).
-            for (const line of inventoryLines) {
-              const qty = toNumber(line.quantity);
-              const unitCost = toNumber(line.price);
-              if (qty <= 0 || !line.itemId) continue;
-              await addCostLayer(
-                tx,
-                orgId,
-                line.itemId as string,
-                null,
-                qty,
-                unitCost,
-                InventoryDocumentType.PURCHASE,
-                createdBill.id,
-                billDate,
-              );
-            }
-
-            // Post one balanced journal entry for the whole bill.
-            const inventorySubtotal = inventoryLines.reduce(
-              (sum: number, line: any) => sum + toNumber(line.lineTotal ?? toNumber(line.quantity) * toNumber(line.price)),
-              0,
-            );
-            const serviceLines = billLines.filter(
-              (l: any) => !l.itemId || !inventoryItemIds.has(l.itemId),
-            );
-            const serviceSubtotal = serviceLines.reduce(
-              (sum: number, line: any) => sum + toNumber(line.lineTotal ?? toNumber(line.quantity) * toNumber(line.price)),
-              0,
-            );
-            const taxAmount = toNumber(createdBill.taxAmount);
-            const totalAmount = toNumber(createdBill.totalAmount);
-
-            const journalLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [];
-            if (inventorySubtotal > 0 && inventoryAccountId) {
-              journalLines.push({
-                accountId: inventoryAccountId,
-                description: `Inventory - ${createdBill.number}`,
-                debit: asMoney(inventorySubtotal),
-                credit: 0,
-              });
-            }
-            if (serviceSubtotal > 0 && expenseAccountId) {
-              journalLines.push({
-                accountId: expenseAccountId,
-                description: `Expense - ${createdBill.number}`,
-                debit: asMoney(serviceSubtotal),
-                credit: 0,
-              });
-            }
-            if (taxAmount > 0 && inputTaxAccountId) {
-              journalLines.push({
-                accountId: inputTaxAccountId,
-                description: `Input tax - ${createdBill.number}`,
-                debit: asMoney(taxAmount),
-                credit: 0,
-              });
-            }
-            if (totalAmount > 0 && apAccountId) {
-              journalLines.push({
-                accountId: apAccountId,
-                description: `AP - ${createdBill.number}`,
-                debit: 0,
-                credit: asMoney(totalAmount),
-              });
-            }
-
-            // Only post when we have at least one debit and the credit side.
-            const hasDebit = journalLines.some((l) => l.debit > 0);
-            const hasCredit = journalLines.some((l) => l.credit > 0);
-            if (hasDebit && hasCredit) {
-              await postJournalEntry(tx, {
-                organizationId: orgId,
-                date: billDate,
-                memo: `Bill: ${createdBill.number}`,
-                lines: journalLines,
-              });
-            }
-          }
-        }
+        await postBillToLedger(tx, orgId, createdBill as any);
       }
+    }
     return createdBill;
-  });
+    });
+  } catch (error) {
+    if (isFakturDuplicate(error)) {
+      return err(`Supplier invoice # "${parsed.data.vendorInvoiceNo}" is already recorded for this vendor.`, 409);
+    }
+    throw error;
+  }
 
   logAudit({
     orgId,

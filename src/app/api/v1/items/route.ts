@@ -2,8 +2,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { ApiError, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { createItemInputSchema } from '@/types/api';
+import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 
 export const runtime = 'nodejs';
 
@@ -90,10 +91,22 @@ export async function POST(req: NextRequest) {
   if (parsed.data.revenueAccountId !== undefined) itemData.revenueAccountId = parsed.data.revenueAccountId || null;
   if (parsed.data.cogsAccountId !== undefined) itemData.cogsAccountId = parsed.data.cogsAccountId || null;
 
-  const item = await prisma.item.create({
-    data: itemData,
-    include: { category: { select: { id: true, name: true, code: true } } },
-  });
+  let item;
+  try {
+    item = await prisma.$transaction(async (tx) => {
+      const created = await tx.item.create({
+        data: itemData,
+        include: { category: { select: { id: true, name: true, code: true } } },
+      });
+      // Post opening stock as a real cost layer + opening journal entry so the
+      // inventory asset and on-hand quantity agree from day one.
+      await postOpeningStockIfNeeded(tx, orgId, created.id, new Date());
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof ApiError) return err(error.message, error.status);
+    throw error;
+  }
   logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Item', entityId: item.id, action: 'CREATE', payload: { name: item.name } });
   return ok(item, 201);
 }

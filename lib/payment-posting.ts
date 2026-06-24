@@ -10,11 +10,12 @@
 import type { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
+import { assertPeriodOpen } from './period-guard';
 import { toNumber } from './money';
 
 type Tx = Prisma.TransactionClient;
 
-const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'VOID']);
+const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'VOID', 'PENDING_APPROVAL']);
 
 /** Post DR Bank / CR AR for an AR receipt, once. */
 export async function postArPaymentIfNeeded(tx: Tx, orgId: string, paymentId: string): Promise<void> {
@@ -25,6 +26,8 @@ export async function postArPaymentIfNeeded(tx: Tx, orgId: string, paymentId: st
 
   const amount = toNumber(payment.totalAmount);
   if (amount <= 0) return;
+
+  await assertPeriodOpen(tx, orgId, new Date(payment.date));
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
@@ -75,6 +78,8 @@ export async function postApPaymentIfNeeded(tx: Tx, orgId: string, paymentId: st
 
   const amount = toNumber(payment.totalAmount);
   if (amount <= 0) return;
+
+  await assertPeriodOpen(tx, orgId, new Date(payment.date));
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },

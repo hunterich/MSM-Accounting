@@ -1,12 +1,10 @@
 import { NextRequest } from 'next/server';
-import { InventoryDocumentType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { stockAdjustmentInputSchema } from '@/types/api';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
-import { postJournalEntry } from '@/lib/journal-posting';
-import { asMoney, toNumber } from '@/lib/money';
+import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -37,6 +35,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+  const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
   const parsed = stockAdjustmentInputSchema.safeParse({
     ...body,
@@ -83,76 +83,42 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           totalValue: l.totalValue ?? ((Number(l.newQty) - Number(l.oldQty)) * Number(l.unitCost)),
         })),
       });
+    }
 
-      // Write the perpetual inventory ledger — currently no other route does
-      // this. Without these rows, stock-on-hand reports drift.
-      await tx.inventoryLedgerEntry.createMany({
-        data: lines.map((l) => {
-          const qtyDiff = toNumber(l.qtyDiff ?? Number(l.newQty) - Number(l.oldQty));
-          const unitCost = toNumber(l.unitCost);
-          return {
-            organizationId: orgId,
-            itemId: l.itemId,
-            warehouseId: warehouseId ?? null,
-            date: new Date(date),
-            documentType: InventoryDocumentType.ADJUSTMENT,
-            documentId: adj.id,
-            qtyIn: qtyDiff > 0 ? qtyDiff : 0,
-            qtyOut: qtyDiff < 0 ? -qtyDiff : 0,
-            unitCost,
-            valueChange: asMoney(qtyDiff * unitCost),
-          };
-        }),
+    // Approval gate: a live (non-DRAFT) adjustment must route regardless of line
+    // count. The input schema permits status:'APPROVED' with empty lines, so
+    // gating on `lines.length > 0` would let such a doc go live unrouted — a
+    // status-only approval bypass (GL impact is zero, but the state is wrong).
+    let routed = false;
+    if (adj.status !== 'DRAFT') {
+      routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'STOCK_ADJUSTMENT',
+        documentId: adj.id,
       });
-
-      // Net the value change across all lines and post one journal entry.
-      // Lines that decrease stock (qtyDiff < 0) credit Inventory and debit
-      // the variance expense; lines that increase stock do the reverse.
-      // Mixed-sign batches post the net only — InventoryLedgerEntry rows
-      // already capture per-line detail.
-      const netValueChange = lines.reduce((sum, l) => {
-        const qtyDiff = toNumber(l.qtyDiff ?? Number(l.newQty) - Number(l.oldQty));
-        return sum + qtyDiff * toNumber(l.unitCost);
-      }, 0);
-      const netRounded = asMoney(netValueChange);
-
-      if (Math.abs(netRounded) > 0) {
-        const accounts = await tx.account.findMany({
-          where: { organizationId: orgId, isActive: true },
-          select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+      if (routed) {
+        // HELD for approval: stamp PENDING_APPROVAL and write NO ledger/GL.
+        await tx.stockAdjustment.update({
+          where: { id: adj.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
         });
-        const settings = await loadOrgAccountDefaults(tx, orgId);
-        const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-        const varianceAccountId =
-          resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment')
-          || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
-
-        if (inventoryAccountId && varianceAccountId) {
-          const memo = `Stock adjustment: ${adj.number}`;
-          if (netRounded > 0) {
-            await postJournalEntry(tx, {
-              organizationId: orgId,
-              date: new Date(date),
-              memo,
-              lines: [
-                { accountId: inventoryAccountId, description: `Inventory increase - ${adj.number}`, debit: netRounded, credit: 0 },
-                { accountId: varianceAccountId,  description: `Stock variance - ${adj.number}`,    debit: 0,           credit: netRounded },
-              ],
-            });
-          } else {
-            const amount = -netRounded;
-            await postJournalEntry(tx, {
-              organizationId: orgId,
-              date: new Date(date),
-              memo,
-              lines: [
-                { accountId: varianceAccountId,  description: `Stock variance - ${adj.number}`,    debit: amount, credit: 0 },
-                { accountId: inventoryAccountId, description: `Inventory decrease - ${adj.number}`, debit: 0,     credit: amount },
-              ],
-            });
-          }
-        }
       }
+    }
+
+    // Post the perpetual inventory ledger + balancing GL entry only when the
+    // adjustment was not held for approval and there are lines to post. This
+    // preserves prior behavior: a non-routed adjustment with lines posts as
+    // before; an empty-lines adjustment posts nothing either way. Shared with
+    // the integration tests via lib/stock-adjustment-posting.ts.
+    if (!routed && lines.length > 0) {
+      await postStockAdjustmentToLedger(tx, orgId, {
+        id: adj.id,
+        number: adj.number,
+        date: new Date(date),
+        warehouseId: warehouseId ?? null,
+        lines,
+      });
     }
 
     return tx.stockAdjustment.findUnique({

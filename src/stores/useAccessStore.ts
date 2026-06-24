@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type PermAction = 'view' | 'create' | 'edit' | 'delete';
+type PermAction = 'view' | 'create' | 'edit' | 'delete' | 'approve';
 type ModuleKey = keyof typeof MODULE_KEYS;
 type PermissionMatrix = Record<string, ModulePermission>;
 
@@ -18,6 +18,7 @@ export interface ModulePermission {
     overridePrice?:     boolean;
     sellBelowCost?:     boolean;
     invoiceWithoutSO?:  boolean;
+    approve?:           boolean;
 }
 
 export type ExtraActionKey = 'reprint' | 'overridePrice' | 'sellBelowCost' | 'invoiceWithoutSO';
@@ -108,6 +109,7 @@ export const MODULE_KEYS = {
     reports:       { label: 'Financial Reports',      group: 'Reports' },
     company:       { label: 'Company Setup',          group: 'Company' },
     settings:      { label: 'Application Settings',   group: 'Settings' },
+    system_backup: { label: 'Backup & Restore',       group: 'Settings' },
 };
 
 /**
@@ -126,7 +128,7 @@ export const SIDEBAR_PERMISSION_MAP: Record<string, string[]> = {
     'Integrations':        ['integrations'],
     'Reports':             ['reports'],
     'Company Setup':       ['company'],
-    'Settings':            ['settings'],
+    'Settings':            ['settings', 'system_backup'],
 };
 
 /**
@@ -144,6 +146,7 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/ar/customers':          'ar_customers',
     '/ar/categories':         'ar_customer_categories',
     '/ap/pos':                'ap_pos',
+    '/ap/receiving':          'ap_pos',
     '/ap/bills':              'ap_bills',
     '/ap/payments':           'ap_payments',
     '/ap/debits':             'ap_debits',
@@ -153,6 +156,7 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/inventory/items':        'inv_items',
     '/inventory/categories':   'inv_categories',
     '/inventory/adjustments':  'inv_adj',
+    '/inventory/counts':       'inv_adj',
     '/assets':                'assets',
     '/assets/categories':     'assets',
     '/assets/depreciation':   'assets',
@@ -163,6 +167,9 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/banking/transfer':      'banking',
     '/banking/expense':       'banking',
     '/banking/income':        'banking',
+    '/banking/payment':       'banking',
+    '/banking/receive':       'banking',
+    '/banking/reconciliation': 'banking',
     '/banking/account':       'banking',
     '/integrations':          'integrations',
     '/reports':               'reports',
@@ -230,6 +237,14 @@ const normalizeRolePermissions = (role: AccessRole): AccessRole => {
                 edit: existing.edit === true,
                 delete: existing.delete === true,
             };
+            // Map server canApprove → client approve (also handles stored approve boolean).
+            const existingRaw = existing as unknown as Record<string, unknown>;
+            const rawApprove = existing.approve ?? existingRaw.canApprove;
+            if (rawApprove !== undefined) {
+                next.approve = rawApprove === true;
+            } else if (isAdminLike) {
+                next.approve = true;
+            }
             // Preserve extra action flags from existing data; fall back to true
             // for admin-like roles so they keep override capability after migration.
             extras.forEach((extra) => {
@@ -241,6 +256,7 @@ const normalizeRolePermissions = (role: AccessRole): AccessRole => {
         }
 
         const fresh: ModulePermission = { ...fallback };
+        if (isAdminLike) { fresh.approve = true; }
         extras.forEach((extra) => { fresh[extra.key] = isAdminLike; });
         acc[key] = fresh;
         return acc;

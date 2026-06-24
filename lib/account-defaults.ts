@@ -82,6 +82,13 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredCodes: ['21'],
     keywords: ['hutang usaha', 'accounts payable', 'hutang'],
   },
+  grIrClearing: {
+    label: 'Goods Received Not Invoiced (GR/IR)',
+    description: 'Clearing liability for goods received but not yet invoiced.',
+    allowedTypes: ['Liability'],
+    preferredCodes: ['2150', '215'],
+    keywords: ['penerimaan barang belum tertagih', 'goods received not invoiced', 'grir', 'gr ir', 'uninvoiced receipts', 'akrual pembelian'],
+  },
   apDiscount: {
     label: 'Purchase Discount Income',
     description: 'Revenue account used when vendor payment discounts are received.',
@@ -137,6 +144,14 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredIds: ['COA-5100'],
     preferredCodes: ['51'],
     keywords: ['hpp', 'harga pokok penjualan', 'cost of goods sold'],
+  },
+  openingBalanceEquity: {
+    label: 'Opening Balance Equity',
+    description: 'Equity offset for opening inventory and other onboarding balances.',
+    allowedTypes: ['Equity'],
+    preferredIds: ['COA-3900', 'COA-3100'],
+    preferredCodes: ['3-9000', '39', '3-1000', '31'],
+    keywords: ['opening balance equity', 'saldo awal', 'modal awal', 'modal', 'retained earnings', 'laba ditahan', 'equity', 'ekuitas'],
   },
   inventoryAdjustment: {
     label: 'Inventory Adjustment / Variance',
@@ -196,7 +211,7 @@ export function isAccountUsableForRole(account: AccountLike | null | undefined, 
 }
 
 function resolvePreferredMatch(accounts: AccountLike[], key: AccountDefaultKey) {
-  const spec = ACCOUNT_DEFAULT_SPECS[key];
+  const spec: AccountDefaultSpec = ACCOUNT_DEFAULT_SPECS[key];
   const candidates = accounts.filter((account) => isAccountUsableForRole(account, key));
 
   const byId = spec.preferredIds?.find((preferredId) => candidates.some((account) => account.id === preferredId));

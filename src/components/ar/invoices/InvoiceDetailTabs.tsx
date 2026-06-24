@@ -39,7 +39,7 @@ interface InvoiceDetailTabsProps {
 }
 
 const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, onPrint, canEdit = true, canDelete = false, canPrint = true }) => {
-    const [activeTab, setActiveTab] = useState('items');
+    const [activeTab, setActiveTab] = useState('summary');
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -59,63 +59,64 @@ const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, 
     };
 
     return (
-        <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between py-2.5 px-3.5 border-b border-neutral-200">
-                <div className="flex items-center gap-2.5">
-                    <h2 className="m-0 text-xl font-semibold">{invoice.number || invoice.id}</h2>
+        <div className="invoice-workbench-card dense-mode">
+            <div className="dense-topbar">
+                <div className="detail-header-title">
+                    <h2 className="detail-header-h2">{invoice.number || invoice.id}</h2>
                     <StatusTag status={invoice.status} />
                 </div>
-                <div className="flex gap-2">
+                <div className="detail-header-actions">
                     {canPrint && (
                         <Button text="Print" size="small" variant="secondary" onClick={onPrint} />
                     )}
                     <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={onEdit} />
                 </div>
             </div>
-            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-0 border-b border-neutral-200">
-                <div className="py-2 px-3 border-r border-neutral-200">
-                    <label className="block text-[0.78rem] text-neutral-600 mb-1">Customer</label>
+
+            <div className="dense-header-grid">
+                <div className="dense-field">
+                    <label>Customer</label>
                     <div>{invoice.customerName}</div>
                 </div>
-                <div className="py-2 px-3 border-r border-neutral-200">
-                    <label className="block text-[0.78rem] text-neutral-600 mb-1">Date</label>
+                <div className="dense-field">
+                    <label>Date</label>
                     <div>{formatDateID(invoice.issueDate || invoice.date || '') || '-'}</div>
                 </div>
-                <div className="py-2 px-3 border-r border-neutral-200">
-                    <label className="block text-[0.78rem] text-neutral-600 mb-1">Currency</label>
+                <div className="dense-field">
+                    <label>Currency</label>
                     <div>{invoice.currency || 'IDR'}</div>
                 </div>
-                <div className="py-2 px-3 border-r border-neutral-200">
-                    <label className="block text-[0.78rem] text-neutral-600 mb-1">No Faktur #</label>
+                <div className="dense-field">
+                    <label>No Faktur #</label>
                     <div>{invoice.number || invoice.id}</div>
                 </div>
-                <div className="py-2 px-3 font-bold text-lg text-primary-700 flex items-center">
+                <div className="dense-amount">
                     {formatIDR(invoice.amount)}
                 </div>
             </div>
 
-            <div className="flex">
-                <div className="flex-1 min-w-0">
-                    <div className="flex gap-1 border-b border-neutral-200 px-2 pt-2">
+            <div className="dense-body">
+                <div className="dense-main">
+                    <div className="detail-tabs dense-tabs">
                         {tabs.map((tab) => (
                             <button
                                 key={tab.id}
-                                className={`border border-transparent border-b-2 border-b-transparent bg-transparent text-neutral-600 py-2 px-2.5 cursor-pointer font-semibold text-[0.85rem] ${activeTab === tab.id ? '!text-primary-700 !border-b-primary-600' : ''}`}
+                                className={`detail-tab ${activeTab === tab.id ? 'active' : ''}`}
                                 onClick={() => setActiveTab(tab.id)}
                             >
                                 {tab.label}
                             </button>
                         ))}
                     </div>
-                    <div className="p-3.5">
+                    <div className="detail-tab-content dense-content">
                         {renderTabContent()}
                     </div>
                 </div>
-                <div className="flex flex-col gap-1 p-2 border-l border-neutral-200">
-                    <button className="border border-neutral-300 bg-neutral-0 text-neutral-700 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" title="Details"><FileText size={18} /></button>
-                    <button className="border border-neutral-300 bg-neutral-0 text-neutral-700 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" title="Attachments"><Paperclip size={18} /></button>
-                    <button className="border border-neutral-300 bg-neutral-0 text-success-600 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-neutral-100" title="More"><MoreHorizontal size={18} /></button>
-                    <button className={`border border-neutral-300 bg-neutral-0 text-danger-500 w-[34px] h-[34px] rounded-md inline-flex items-center justify-center hover:bg-neutral-100 ${canDelete ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
+                <div className="dense-side-actions">
+                    <button className="dense-side-btn" title="Details"><FileText size={18} /></button>
+                    <button className="dense-side-btn" title="Attachments"><Paperclip size={18} /></button>
+                    <button className="dense-side-btn success" title="More"><MoreHorizontal size={18} /></button>
+                    <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
                 </div>
             </div>
         </div>

@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateBillInputSchema } from '@/types/api';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
+import { assertPeriodOpen } from '@/lib/period-guard';
+import { routeForApproval } from '@/lib/approval/engine';
+
+function isFakturDuplicate(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  return Array.isArray(target) ? target.includes('vendorInvoiceNo') : String(target ?? '').includes('vendorInvoiceNo');
+}
 
 export const runtime = 'nodejs';
 
@@ -28,7 +39,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
     const parsed = updateBillInputSchema.safeParse(body);
@@ -38,7 +53,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { lines, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
+      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true, vendorInvoiceNo: true } });
       if (!existing) return null;
       if (existing.status !== 'DRAFT') {
         throw new ApiError('Only DRAFT bills can be modified', 403);
@@ -49,9 +64,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       if (header.poId) {
         await validateForeignKey(tx.purchaseOrder, { id: header.poId, organizationId: orgId }, 'Purchase order not found in organization');
       }
+      // A bill can't be approved without a supplier invoice # (the per-vendor
+      // duplicate guard). Honour either a value sent in this update or one already stored.
+      if (existing.status === 'DRAFT' && header.status === 'OPEN') {
+        const effectiveFaktur = header.vendorInvoiceNo !== undefined ? header.vendorInvoiceNo : existing.vendorInvoiceNo;
+        if (!effectiveFaktur) {
+          throw new ApiError('Supplier invoice # (No. Faktur) is required to approve a bill.', 400);
+        }
+      }
       await tx.bill.update({
         where: { id, organizationId: orgId },
-        data: { ...header, updatedAt: new Date() },
+        data: {
+          ...header,
+          // Empty faktur # stores as NULL so the per-vendor unique index ignores it.
+          ...(header.vendorInvoiceNo !== undefined && { vendorInvoiceNo: header.vendorInvoiceNo || null }),
+          updatedAt: new Date(),
+        },
       });
       if (lines) {
         await tx.billLine.deleteMany({ where: { billId: id } });
@@ -60,6 +88,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             billId: id,
             itemId: l.itemId || null,
             accountId: l.accountId || null,
+            purchaseOrderLineId: l.purchaseOrderLineId || null,
             lineNo: l.lineNo ?? idx + 1,
             description: l.description,
             quantity: l.quantity,
@@ -68,6 +97,43 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             lineTotal: l.lineTotal ?? (Number(l.quantity) * Number(l.price)),
           })),
         });
+      }
+      // Recognize GL + inventory when the bill is finalized (DRAFT -> OPEN),
+      // unless the approval engine routes the finalize for approval first.
+      if (existing.status === 'DRAFT' && header.status === 'OPEN') {
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'BILL',
+          documentId: id,
+        });
+        if (routed) {
+          // HELD for approval: the header update above already stamped
+          // status='OPEN'; override it back to PENDING_APPROVAL and post NO GL.
+          await tx.bill.update({
+            where: { id, organizationId: orgId },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        } else {
+          const finalized = await tx.bill.findFirst({
+            where: { id, organizationId: orgId },
+            include: { lines: true },
+          });
+          if (finalized) {
+            // Refuse to post into a closed/locked accounting period (mirrors the
+            // create-as-OPEN path in bills/route.ts).
+            await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date());
+            // Apply the PO receipt on this DRAFT -> OPEN finalize, exactly once.
+            // For a direct-bill-from-PO created as DRAFT the receivedQty increment
+            // was deferred to finalize and lands here. For a goods-receipt bill
+            // (receivedQty already incremented + inventory lots booked at receipt)
+            // applyBillPoReceipt detects the existing lots and no-ops, so the
+            // receipt never double-counts. Runs BEFORE postBillToLedger books
+            // this finalize's lots.
+            await applyBillPoReceipt(tx, orgId, id);
+            await postBillToLedger(tx, orgId, finalized as any);
+          }
+        }
       }
       return tx.bill.findFirst({
         where: { id, organizationId: orgId },
@@ -80,6 +146,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   } catch (error) {
     if (error instanceof ApiError) {
       return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
+    }
+    if (isFakturDuplicate(error)) {
+      return withCors(NextResponse.json({ error: 'Supplier invoice # is already recorded for this vendor.' }, { status: 409 }));
     }
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));

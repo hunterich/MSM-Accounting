@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard,
@@ -9,15 +9,22 @@ import {
     Users,
     CheckSquare,
     ShoppingBag,
+    ShoppingCart,
+    Boxes,
     Package,
+    PackageCheck,
     Landmark,
     BarChart3,
     Building2,
     Settings,
-    Search,
+    ArrowRightLeft,
+    ArrowUpRight,
+    ArrowDownLeft,
+    FileText,
     ChevronDown,
     Menu,
     X,
+    ClipboardCheck,
     type LucideIcon,
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
@@ -32,16 +39,19 @@ interface SubItem {
 }
 interface NavGroup {
     group: string;
+    groupIcon: LucideIcon;
     items: SubItem[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
     {
         group: 'Workspace',
+        groupIcon: LayoutDashboard,
         items: [{ label: 'Dashboard', path: '/', icon: LayoutDashboard }],
     },
     {
         group: 'Sales',
+        groupIcon: Receipt,
         items: [
             { label: 'Sales Orders',   path: '/ar/sales-orders',   icon: ShoppingBag },
             { label: 'Invoices',       path: '/ar/invoices',       icon: Receipt, badgeKey: 'overdue_invoices' },
@@ -57,8 +67,10 @@ const NAV_GROUPS: NavGroup[] = [
     },
     {
         group: 'Purchases',
+        groupIcon: ShoppingCart,
         items: [
             { label: 'Purchase Orders', path: '/ap/pos',      icon: ShoppingBag },
+            { label: 'Receive Goods',   path: '/ap/receiving', icon: PackageCheck },
             { label: 'Bills',           path: '/ap/bills',    icon: Receipt, badgeKey: 'overdue_bills' },
             { label: 'Payments',        path: '/ap/payments', icon: Wallet },
             { label: 'Returns & Debits',path: '/ap/debits',   icon: Receipt },
@@ -68,17 +80,45 @@ const NAV_GROUPS: NavGroup[] = [
         ],
     },
     {
-        group: 'Cash & Books',
+        group: 'Cash & Bank',
+        groupIcon: Landmark,
         items: [
-            { label: 'Banking',         path: '/banking', icon: Landmark },
-            { label: 'General Ledger',  path: '/gl',      icon: BookOpen },
-            { label: 'Reports',         path: '/reports', icon: BarChart3 },
+            { label: 'Payment',        path: '/banking/payment',        icon: ArrowUpRight },
+            { label: 'Receive',        path: '/banking/receive',        icon: ArrowDownLeft },
+            { label: 'Bank Transfer',  path: '/banking/transfer',       icon: ArrowRightLeft },
+            { label: 'Bank Accounts',  path: '/banking',                icon: Wallet },
+            { label: 'Reconciliation', path: '/banking/reconciliation', icon: CheckSquare },
+        ],
+    },
+    {
+        group: 'Inventory',
+        groupIcon: Package,
+        items: [
+            { label: 'Items',            path: '/inventory/items',      icon: Package },
+            { label: 'Item Categories',  path: '/inventory/categories', icon: Boxes },
+            { label: 'Stock Counts',     path: '/inventory/counts',     icon: ClipboardCheck },
+            { label: 'Stock Adjustments',path: '/inventory/adjustments',icon: PackageCheck },
+        ],
+    },
+    {
+        group: 'General Ledger',
+        groupIcon: BookOpen,
+        items: [
+            { label: 'Chart of Accounts', path: '/gl',          icon: BookOpen },
+            { label: 'Journal Entries',   path: '/gl/journals', icon: FileText },
+        ],
+    },
+    {
+        group: 'Reports',
+        groupIcon: BarChart3,
+        items: [
+            { label: 'Reports', path: '/reports', icon: BarChart3 },
         ],
     },
     {
         group: 'Operations',
+        groupIcon: Boxes,
         items: [
-            { label: 'Inventory',     path: '/inventory',  icon: Package },
             { label: 'HR & Payroll',  path: '/hr',         icon: Users },
             { label: 'Assets',        path: '/assets',     icon: Building2 },
             { label: 'Settings',      path: '/settings',   icon: Settings },
@@ -95,7 +135,7 @@ const PARENT_LABEL_FOR: Record<string, string> = {
     '/ar/customers': 'Accounts Receivable',
     '/ar/categories': 'Accounts Receivable', '/ar/approvals': 'Accounts Receivable',
     '/integrations': 'Accounts Receivable',
-    '/ap/pos': 'Accounts Payable', '/ap/bills': 'Accounts Payable',
+    '/ap/pos': 'Accounts Payable', '/ap/receiving': 'Accounts Payable', '/ap/bills': 'Accounts Payable',
     '/ap/payments': 'Accounts Payable', '/ap/debits': 'Accounts Payable',
     '/ap/recurring': 'Accounts Payable',
     '/ap/vendors': 'Accounts Payable', '/ap/vendor-categories': 'Accounts Payable',
@@ -124,6 +164,7 @@ const SUBITEM_FEATURE_MAP: Record<string, keyof FeatureFlags> = {
     '/ar/approvals':          'approvals',
     '/integrations':          'shopIntegrations',
     '/ap/pos':                'purchaseOrders',
+    '/ap/receiving':          'purchaseOrders',
     '/ap/vendor-categories':  'vendorCategories',
     '/inventory/categories':  'itemCategories',
     '/assets':                'fixedAssets',
@@ -147,7 +188,16 @@ const Sidebar = (): React.ReactElement => {
             return raw ? JSON.parse(raw) : allGroupsCollapsed();
         } catch { return allGroupsCollapsed(); }
     });
-    const [paletteOpen, setPaletteOpen] = useState(false);
+    // Rail flyout: which group's pop-out panel is open (desktop icon rail). Only one at a time.
+    const [openGroup, setOpenGroup] = useState<string | null>(null);
+    const railRef = useRef<HTMLElement | null>(null);
+    // Trigger buttons by group, so we can restore focus to the trigger when its flyout closes.
+    const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+    const closeFlyout = (restoreGroup?: string): void => {
+        setOpenGroup(null);
+        if (restoreGroup) triggerRefs.current[restoreGroup]?.focus();
+    };
 
     useEffect(() => {
         try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsedGroups)); } catch { /* noop */ }
@@ -155,14 +205,24 @@ const Sidebar = (): React.ReactElement => {
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-                e.preventDefault();
-                setPaletteOpen(true);
-            }
+            if (e.key === 'Escape') setOpenGroup(null);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, []);
+
+    // Close the rail flyout whenever the route changes (e.g. after clicking a flyout link).
+    useEffect(() => { setOpenGroup(null); }, [location.pathname]);
+
+    // Close the rail flyout on any click outside the rail.
+    useEffect(() => {
+        if (!openGroup) return;
+        const onDown = (e: MouseEvent) => {
+            if (railRef.current && !railRef.current.contains(e.target as Node)) setOpenGroup(null);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [openGroup]);
 
     const canSeeSubItem = (path: string): boolean => {
         // Feature-flag gate first — bail early if the org has the module off.
@@ -204,27 +264,92 @@ const Sidebar = (): React.ReactElement => {
     const isItemActive = (path: string): boolean => {
         if (path === '/') return location.pathname === '/';
         if (path === '/gl') return location.pathname === '/gl';
-        if (path === '/inventory') return location.pathname.startsWith('/inventory');
+        if (path === '/banking') return location.pathname === '/banking';
         return location.pathname.startsWith(path);
     };
 
+    const isGroupActive = (g: NavGroup): boolean =>
+        g.items.some(it => isItemActive(it.path));
+
+    // ── Desktop icon rail: logo + one icon per group, hover tooltip, click flyout ──
+    const RailBody = (
+        <nav ref={railRef} className="sidebar-rail hidden md:flex" aria-label="Primary">
+            <div className="sidebar-logo">
+                <span className="sidebar-logo-text" aria-hidden="true">M</span>
+            </div>
+
+            <div className="sidebar-icons">
+                {visibleGroups.map(g => {
+                    const GroupIcon = g.groupIcon;
+                    const groupActive = isGroupActive(g);
+                    const isOpen = openGroup === g.group;
+                    const single = g.items.length === 1;
+
+                    return (
+                        <div key={g.group} className="sidebar-icon-wrapper">
+                            {single ? (
+                                <NavLink
+                                    to={g.items[0].path}
+                                    end={g.items[0].path === '/'}
+                                    className={`sidebar-icon-btn ${groupActive ? 'active' : ''}`}
+                                    aria-label={g.group}
+                                >
+                                    <GroupIcon size={18} strokeWidth={1.8} />
+                                </NavLink>
+                            ) : (
+                                <button
+                                    type="button"
+                                    ref={el => { triggerRefs.current[g.group] = el; }}
+                                    className={`sidebar-icon-btn ${groupActive || isOpen ? 'active' : ''}`}
+                                    onClick={() => setOpenGroup(prev => (prev === g.group ? null : g.group))}
+                                    aria-label={g.group}
+                                    aria-expanded={isOpen}
+                                    aria-haspopup="true"
+                                >
+                                    <GroupIcon size={18} strokeWidth={1.8} />
+                                </button>
+                            )}
+
+                            {!isOpen && <span className="sidebar-tooltip">{g.group}</span>}
+
+                            {isOpen && !single && (
+                                <div
+                                    className="sidebar-flyout"
+                                    aria-label={g.group}
+                                    onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeFlyout(g.group); } }}
+                                >
+                                    <div className="sidebar-flyout-title">{g.group}</div>
+                                    {g.items.map(it => {
+                                        const ItemIcon = it.icon;
+                                        const active = isItemActive(it.path);
+                                        return (
+                                            <NavLink
+                                                key={it.path}
+                                                to={it.path}
+                                                end={it.path === '/'}
+                                                className={`sidebar-flyout-item ${active ? 'active' : ''}`}
+                                            >
+                                                <ItemIcon size={16} strokeWidth={1.7} />
+                                                <span>{it.label}</span>
+                                            </NavLink>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            <RailFooter />
+        </nav>
+    );
+
     const SidebarBody = (
-        <nav className="w-[240px] h-full bg-[#0e1730] flex flex-col text-white flex-shrink-0">
+        <nav className="w-[240px] h-full bg-[#0e1730] flex flex-col text-white flex-shrink-0" aria-label="Primary">
             <div className="h-[52px] px-4 flex items-center gap-2 border-b border-white/10 flex-shrink-0">
                 <div className="w-7 h-7 rounded-md bg-primary-700 flex items-center justify-center font-bold text-sm">M</div>
                 <div className="font-semibold text-[14px]">MSM Accounting</div>
-            </div>
-
-            <div className="px-3 py-2 border-b border-white/10 flex-shrink-0">
-                <button
-                    type="button"
-                    onClick={() => setPaletteOpen(true)}
-                    className="w-full h-8 px-2.5 flex items-center gap-2 rounded-md bg-white/5 hover:bg-white/10 text-white/70 text-[12px] transition-colors"
-                >
-                    <Search size={13} />
-                    <span>Search…</span>
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-white/10 font-mono">⌘K</span>
-                </button>
             </div>
 
             <div className="flex-1 overflow-y-auto py-2 min-h-0">
@@ -306,25 +431,25 @@ const Sidebar = (): React.ReactElement => {
                 </div>
             )}
 
-            <div className="hidden md:flex h-full">{SidebarBody}</div>
-
-            {paletteOpen && (
-                <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] bg-black/40" onClick={() => setPaletteOpen(false)}>
-                    <div className="bg-white rounded-lg shadow-2xl w-[560px] max-w-[92vw] p-1" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-200">
-                            <Search size={14} className="text-neutral-500" />
-                            <input autoFocus placeholder="Jump to invoice, customer, action…" className="flex-1 bg-transparent outline-none text-[13px]" />
-                            <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 font-mono">esc</kbd>
-                        </div>
-                        <div className="p-3 text-[12px] text-neutral-500">
-                            Command palette wiring is not yet implemented. ⌘K opens this stub today.
-                        </div>
-                    </div>
-                </div>
-            )}
+            {RailBody}
         </>
     );
 };
+
+function RailFooter(): React.ReactElement {
+    const user = useAuthStore((s) => s.user);
+    const roleType = useAuthStore((s) => s.roleType);
+    const initials = (user?.fullName || user?.email || 'U')
+        .split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+    return (
+        <div className="sidebar-icon-wrapper" style={{ marginTop: 'auto', marginBottom: 4 }}>
+            <NavLink to="/settings" className="sidebar-icon-btn" aria-label={user?.fullName || 'Account'}>
+                <span className="sidebar-avatar">{initials}</span>
+            </NavLink>
+            <span className="sidebar-tooltip">{user?.fullName || user?.email || 'Account'}{roleType ? ` · ${roleType}` : ''}</span>
+        </div>
+    );
+}
 
 const UserFooter = (): React.ReactElement => {
     const user = useAuthStore((s) => s.user);

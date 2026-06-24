@@ -42,22 +42,9 @@ interface BankingActionFormData {
 type BankingActionErrors = Record<string, string | null | undefined>;
 import { useChartOfAccounts } from '../../hooks/useGL';
 import FormPage from '../../components/Layout/FormPage';
+import { getActionFromPath, ACTION_TITLES } from './bankingAction';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-
-const getActionFromPath = (path: string) => {
-    if (path.includes('transfer')) return 'transfer';
-    if (path.includes('expense'))  return 'expense';
-    if (path.includes('income'))   return 'income';
-    return 'account';
-};
-
-const ACTION_TITLES = {
-    transfer: 'Bank Transfer',
-    expense:  'Record Expense',
-    income:   'Record Income',
-    account:  'Add Bank Account',
-};
 
 /**
  * SelectField — wraps label + select in a form-group div so it aligns
@@ -267,7 +254,7 @@ const BankingActionForm = () => {
             containerClassName="banking-module"
             title={ACTION_TITLES[action]}
             backTo="/banking"
-            backLabel="Back to Banking"
+            backLabel="Back to Cash & Bank"
             isLoading={isPageLoading}
             actions={
                 <>
@@ -453,11 +440,11 @@ const BankingActionForm = () => {
                     </>
                 )}
 
-                {/* ── Record Expense ───────────────────────────────────── */}
+                {/* ── Payment ──────────────────────────────────────────── */}
                 {action === 'expense' && (
                     <>
                         <div className="invoice-panel-header">
-                            <span className="invoice-panel-title">Expense Details</span>
+                            <span className="invoice-panel-title">Payment Details</span>
                         </div>
                         <div className="grid-12 form-grid-start">
                             {/* Row 1: Paid From + Payee */}
@@ -513,7 +500,7 @@ const BankingActionForm = () => {
                             </div>
                             <div className="col-span-3">
                                 <Input
-                                    label="Expense Date *"
+                                    label="Payment Date *"
                                     name="date"
                                     type="date"
                                     value={formData.date}
@@ -548,11 +535,11 @@ const BankingActionForm = () => {
                     </>
                 )}
 
-                {/* ── Record Income ────────────────────────────────────── */}
+                {/* ── Receive ──────────────────────────────────────────── */}
                 {action === 'income' && (
                     <>
                         <div className="invoice-panel-header">
-                            <span className="invoice-panel-title">Income Details</span>
+                            <span className="invoice-panel-title">Receive Details</span>
                         </div>
                         <div className="grid-12 form-grid-start">
                             {/* Row 1: Deposit To + Received From */}

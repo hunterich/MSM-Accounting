@@ -8,7 +8,7 @@ import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import BillPrintTemplate from '../../components/print/BillPrintTemplate';
 import { Plus, Search, List, Download, FileUp } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
-import { useBills, useUpdateBill } from '../../hooks/useAP';
+import { useBills, useUpdateBill, useVoidBill, useUnreceiveBill } from '../../hooks/useAP';
 import { useBillStore } from '../../stores/useBillStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
@@ -28,11 +28,33 @@ const Bills = () => {
     const { canCreate, canEdit } = useModulePermissions('ap_bills');
     const { data: billsResult, isLoading } = useBills();
     const updateBill = useUpdateBill();
+    const voidBill = useVoidBill();
+    const unreceiveBill = useUnreceiveBill();
     const bills = billsResult?.data ?? [];
 
     const handleApprove = (billId: string) => {
         // Draft → Unpaid (OPEN): the bill enters AP aging and becomes payable.
         updateBill.mutate({ id: billId, status: 'Unpaid' });
+    };
+
+    const handleVoid = (billId: string) => {
+        // Reverses the bill's posting (and any inventory it booked directly).
+        if (!window.confirm('Void this bill? Its journal entry will be reversed. This cannot be undone.')) return;
+        voidBill.mutate(billId, {
+            onError: (error: unknown) => {
+                window.alert(error instanceof Error ? error.message : 'Failed to void bill');
+            },
+        });
+    };
+
+    const handleUnreceive = (billId: string) => {
+        // Reverses a draft goods receipt: removes the stock, rolls back the PO.
+        if (!window.confirm('Un-receive this goods receipt? The received stock will be removed and the PO reopened. This cannot be undone.')) return;
+        unreceiveBill.mutate(billId, {
+            onError: (error: unknown) => {
+                window.alert(error instanceof Error ? error.message : 'Failed to un-receive');
+            },
+        });
     };
     // billItemTemplates stays in the local store (used for print until API supports line fetch)
     const billItemTemplates = useBillStore((s) => s.billItemTemplates);
@@ -105,7 +127,7 @@ const Bills = () => {
         { key: 'amount', label: 'Amount', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Paid' ? 'Success' : (val as string)} label={val as string} /> },
         {
-            key: 'actions', label: '', render: (_: unknown, row: { id: string; _id?: string; status?: string; vendorId?: string }) => (
+            key: 'actions', label: '', render: (_: unknown, row: { id: string; _id?: string; status?: string; vendorId?: string; poNumber?: string }) => (
                 <div className="flex gap-1.5 justify-end">
                     {row.status === 'Draft' && (
                         <Button
@@ -114,6 +136,15 @@ const Bills = () => {
                             variant="primary"
                             disabled={!canEdit || updateBill.isPending}
                             onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleApprove(row._id || row.id); }}
+                        />
+                    )}
+                    {row.status === 'Draft' && row.poNumber && (
+                        <Button
+                            text="Un-receive"
+                            size="small"
+                            variant="tertiary"
+                            disabled={!canEdit || unreceiveBill.isPending}
+                            onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleUnreceive(row._id || row.id); }}
                         />
                     )}
                     {(row.status === 'Unpaid' || row.status === 'Overdue') && (
@@ -125,6 +156,15 @@ const Bills = () => {
                                 event.stopPropagation();
                                 navigate('/ap/payments/new', { state: { mode: 'create', vendorId: row.vendorId, payBillId: row.id } });
                             }}
+                        />
+                    )}
+                    {(row.status === 'Unpaid' || row.status === 'Overdue') && (
+                        <Button
+                            text="Void"
+                            size="small"
+                            variant="tertiary"
+                            disabled={!canEdit || voidBill.isPending}
+                            onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleVoid(row._id || row.id); }}
                         />
                     )}
                     <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/bills/new?billId=${row.id}&mode=view`); }} />

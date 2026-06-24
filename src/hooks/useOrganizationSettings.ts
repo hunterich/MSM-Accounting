@@ -1,8 +1,21 @@
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
-import type { OrganizationSettings, RawOrganizationSettings } from '../types';
+import type { OrganizationSettings, RawOrganizationSettings, ApprovalRequirementsMap } from '../types';
 import { DEFAULT_PRINT_OPTIONS } from '../types';
+
+const DEFAULT_APPROVAL_REQUIREMENTS: ApprovalRequirementsMap = {
+  ar_sales_orders: false,
+  ar_invoices: false,
+  ar_payments: false,
+  ar_credits: false,
+  ap_pos: false,
+  ap_bills: false,
+  ap_payments: false,
+  ap_debits: false,
+  inv_adj: false,
+  hr_payroll: false,
+};
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export const ORG_SETTINGS_KEY = ['organizationSettings'] as const;
@@ -15,6 +28,12 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
       if (typeof v === 'string' && v.length > 0) accountDefaults[k] = v;
     }
   }
+  // Merge server approval requirements over defaults so missing keys default to false.
+  const approvalRequirements: ApprovalRequirementsMap = {
+    ...DEFAULT_APPROVAL_REQUIREMENTS,
+    ...(raw.approvalRequirements || {}),
+  };
+
   return {
     id: raw.id,
     legalName: raw.legalName || '',
@@ -36,6 +55,8 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
     accountDefaults,
     printSettings: { ...DEFAULT_PRINT_OPTIONS, ...(raw.printSettings || {}) },
     needsInventoryValuationSetup: raw.needsInventoryValuationSetup === true || !raw.costingMethod,
+    approvalRequirements,
+    requireDistinctApproverForAdmins: raw.requireDistinctApproverForAdmins === true,
   };
 }
 

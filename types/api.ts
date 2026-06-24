@@ -354,6 +354,8 @@ export const updateOrganizationSettingsInputSchema = z.object({
   paymentAlerts: z.boolean().optional(),
   dailySummary: z.boolean().optional(),
   accountDefaults: z.record(z.string().min(1), z.string()).optional(),
+  approvalRequirements: z.record(z.string(), z.boolean()).optional(),
+  requireDistinctApproverForAdmins: z.boolean().optional(),
   printSettings: z.object({
     showLogo: z.boolean().optional(),
     showLetterhead: z.boolean().optional(),
@@ -374,22 +376,31 @@ const documentLineSchema = z.object({
   lineNo: z.number().int().positive().optional(),
   itemId: z.string().trim().optional(),
   accountId: z.string().trim().optional(),
+  purchaseOrderLineId: z.string().trim().optional(),
+  // Transient (not a BillLine column): set on lines pulled from an existing
+  // goods receipt so the bill bills already-received stock without re-incrementing
+  // PurchaseOrderLine.receivedQty (which the receipt already did).
+  alreadyReceived: z.boolean().optional(),
   description: z.string().trim().min(1, 'Description is required'),
   quantity: positiveDecimal.default(0),
   unit: z.string().trim().min(1).default('PCS'),
   price: positiveDecimal.default(0),
+  discountPct: positiveDecimal.max(100).optional(),
   lineTotal: positiveDecimal.optional(),
 });
 
 export const billInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   vendorId: z.string().trim().min(1, 'Vendor is required'),
+  vendorInvoiceNo: z.string().trim().optional(),
   poId: z.string().trim().optional(),
   issueDate: isoDateString,
   dueDate: isoDateString.optional(),
   status: z.enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID']).default('DRAFT'),
   apAccountId: z.string().trim().optional(),
   taxRate: positiveDecimal.max(100).default(0),
+  taxable: z.boolean().default(false),
+  taxInclusive: z.boolean().default(false),
   subtotal: positiveDecimal.default(0),
   taxAmount: positiveDecimal.default(0),
   totalAmount: positiveDecimal.default(0),
@@ -399,12 +410,15 @@ export const billInputSchema = z.object({
 
 export const updateBillInputSchema = z.object({
   vendorId: z.string().trim().min(1).optional(),
+  vendorInvoiceNo: z.string().trim().optional(),
   poId: z.string().trim().optional(),
   issueDate: isoDateString.optional(),
   dueDate: isoDateString.optional(),
   status: z.enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID']).optional(),
   apAccountId: z.string().trim().optional(),
   taxRate: positiveDecimal.max(100).optional(),
+  taxable: z.boolean().optional(),
+  taxInclusive: z.boolean().optional(),
   subtotal: positiveDecimal.optional(),
   taxAmount: positiveDecimal.optional(),
   totalAmount: positiveDecimal.optional(),
@@ -467,6 +481,8 @@ export const purchaseOrderInputSchema = z.object({
   expectedDate: isoDateString.optional(),
   status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).default('DRAFT'),
   taxRate: positiveDecimal.max(100).default(0),
+  taxable: z.boolean().default(false),
+  taxInclusive: z.boolean().default(false),
   subtotal: positiveDecimal.default(0),
   taxAmount: positiveDecimal.default(0),
   totalAmount: positiveDecimal.default(0),
@@ -480,6 +496,8 @@ export const updatePurchaseOrderInputSchema = z.object({
   expectedDate: isoDateString.optional(),
   status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).optional(),
   taxRate: positiveDecimal.max(100).optional(),
+  taxable: z.boolean().optional(),
+  taxInclusive: z.boolean().optional(),
   subtotal: positiveDecimal.optional(),
   taxAmount: positiveDecimal.optional(),
   totalAmount: positiveDecimal.optional(),
@@ -581,6 +599,30 @@ export const stockAdjustmentInputSchema = z.object({
 });
 
 export const updateStockAdjustmentInputSchema = stockAdjustmentInputSchema.omit({ organizationId: true }).partial();
+
+export const stockCountCreateSchema = z.object({
+  organizationId: z.string().trim().min(1),
+  date: isoDateString,
+  warehouseId: z.string().trim().optional(),
+  categoryId: z.string().trim().optional(),
+  countedBy: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+});
+
+export const stockCountLineUpdateSchema = z.object({
+  itemId: z.string().trim().min(1, 'Item is required'),
+  countedQty: decimalNumber.nullable().optional(), // null = not counted
+  note: z.string().trim().optional(),
+});
+
+export const stockCountUpdateSchema = z.object({
+  notes: z.string().trim().optional(),
+  countedBy: z.string().trim().optional(),
+  lines: z.array(stockCountLineUpdateSchema).optional(),
+});
+
+export type StockCountCreateInput = z.infer<typeof stockCountCreateSchema>;
+export type StockCountUpdateInput = z.infer<typeof stockCountUpdateSchema>;
 
 export const createBankAccountInputSchema = z.object({
   name:           z.string().trim().min(1, 'Account name is required'),
@@ -901,3 +943,30 @@ export type AssetInput = z.infer<typeof assetInputSchema>;
 export type UpdateAssetInput = z.infer<typeof updateAssetInputSchema>;
 export type AssetDisposalInput = z.infer<typeof assetDisposalInputSchema>;
 export type AssetDepreciationRunInput = z.infer<typeof assetDepreciationRunInputSchema>;
+
+// ── Backup & Restore ──────────────────────────────────────────────────────────
+
+const folderDestinationSchema = z.object({
+  label: z.string().trim().min(1),
+  path: z.string().trim().min(1),
+  enabled: z.boolean(),
+});
+
+export const updateBackupSettingsInputSchema = z.object({
+  enabled: z.boolean().optional(),
+  frequency: z.enum(['DAILY', 'TWICE_DAILY', 'WEEKLY']).optional(),
+  times: z.array(z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/)).optional(),
+  retentionDailyCount: z.number().int().min(1).max(365).optional(),
+  retentionMonthlyCount: z.number().int().min(0).max(120).optional(),
+  canonicalDir: z.string().trim().min(1).nullable().optional(),
+  folderDestinations: z.array(folderDestinationSchema).optional(),
+  downloadEnabled: z.boolean().optional(),
+  pgToolsPathOverride: z.string().trim().min(1).nullable().optional(),
+});
+
+export const restoreBackupInputSchema = z.object({
+  confirm: z.literal('RESTORE'),
+});
+
+export type UpdateBackupSettingsInput = z.infer<typeof updateBackupSettingsInputSchema>;
+export type RestoreBackupInput = z.infer<typeof restoreBackupInputSchema>;

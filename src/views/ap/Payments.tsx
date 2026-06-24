@@ -6,7 +6,7 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import { Plus, Search, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
-import { useAPPayments, useUpdateAPPayment } from '../../hooks/useAP';
+import { useAPPayments, useUpdateAPPayment, useVoidAPPayment } from '../../hooks/useAP';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -34,7 +34,15 @@ const Payments = () => {
     const [detailTab, setDetailTab] = useState<string>('summary');
     const { data: paymentsResult, isLoading } = useAPPayments();
     const updateAPPayment = useUpdateAPPayment();
+    const voidAPPayment = useVoidAPPayment();
     const payments = paymentsResult?.data ?? [];
+
+    const handleVoidPayment = (paymentId: string) => {
+        if (!window.confirm('Void this payment? Its journal entry will be reversed and its allocations removed. This cannot be undone.')) return;
+        voidAPPayment.mutate(paymentId, {
+            onError: (error: unknown) => window.alert(error instanceof Error ? error.message : 'Failed to void payment'),
+        });
+    };
 
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -114,6 +122,15 @@ const Payments = () => {
                             variant="primary"
                             disabled={!canEdit || updateAPPayment.isPending}
                             onClick={(event: React.MouseEvent) => { event.stopPropagation(); updateAPPayment.mutate({ id: (row['_id'] || row['id']) as string, status: 'Completed' }); }}
+                        />
+                    )}
+                    {row['status'] === 'Completed' && (
+                        <Button
+                            text="Void"
+                            size="small"
+                            variant="tertiary"
+                            disabled={!canDelete || voidAPPayment.isPending}
+                            onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleVoidPayment((row['_id'] || row['id']) as string); }}
                         />
                     )}
                     <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); openPaymentTab(row['id'] as string); }} />

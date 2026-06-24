@@ -25,7 +25,7 @@ export interface PostJournalEntryArgs {
   organizationId: string;
   date: Date;
   memo: string;
-  source?: 'SYSTEM' | 'MANUAL';
+  source?: 'SYSTEM' | 'MANUAL' | 'REVERSAL';
   lines: JournalLineInput[];
 }
 

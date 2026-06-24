@@ -9,7 +9,7 @@ import PageHeader from '../../components/Layout/PageHeader';
 import { Search, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
-import { useARPayments, useUpdateARPayment } from '../../hooks/useAR';
+import { useARPayments, useUpdateARPayment, useVoidARPayment } from '../../hooks/useAR';
 import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -46,7 +46,15 @@ const Payments = () => {
 
     const { data: paymentsResult, isLoading } = useARPayments();
     const updateARPayment = useUpdateARPayment();
+    const voidARPayment = useVoidARPayment();
     const payments = paymentsResult?.data ?? [];
+
+    const handleVoidPayment = (paymentId: string) => {
+        if (!window.confirm('Void this receipt? Its journal entry will be reversed and its allocations removed. This cannot be undone.')) return;
+        voidARPayment.mutate(paymentId, {
+            onError: (error: unknown) => window.alert(error instanceof Error ? error.message : 'Failed to void receipt'),
+        });
+    };
 
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -56,7 +64,7 @@ const Payments = () => {
     const activePrintPayment = payments.find((p) => p.id === printPaymentId) || null;
 
     // Tab state managed by useDocumentTabs
-    const { selectedId: selectedPaymentId, openIds: openPaymentIds, openTab: openPaymentTab, closeTab: closePaymentTab, tabRows } = useDocumentTabs({ urlParam: 'paymentId' });
+    const { selectedId: selectedPaymentId, openIds: openPaymentIds, openTab: openPaymentTab, closeTab: closePaymentTab, selectNone: selectNonePayment, tabRows } = useDocumentTabs({ urlParam: 'paymentId' });
 
     const filteredData = useMemo(() => {
         return payments.filter(item => {
@@ -95,6 +103,15 @@ const Payments = () => {
                             variant="primary"
                             disabled={!canEdit || updateARPayment.isPending}
                             onClick={(e: React.MouseEvent) => { e.stopPropagation(); updateARPayment.mutate({ id: (row['_id'] || row['id']) as string, status: 'Completed' }); }}
+                        />
+                    )}
+                    {row['status'] === 'Completed' && (
+                        <Button
+                            text="Void"
+                            size="small"
+                            variant="tertiary"
+                            disabled={!canDelete || voidARPayment.isPending}
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleVoidPayment((row['_id'] || row['id']) as string); }}
                         />
                     )}
                     <Button text="View" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openPaymentTab(row['id'] as string); }} />
@@ -167,6 +184,7 @@ const Payments = () => {
                 onNewTab={canCreate ? () => navigate('/ar/payments/new', { state: { mode: 'create' } }) : undefined}
                 disableNew={!canCreate}
                 onCatalog={() => {
+                    selectNonePayment();
                     setSearchTerm('');
                     setFilters({ status: '' });
                     setDateRange({ from: '', to: '' });

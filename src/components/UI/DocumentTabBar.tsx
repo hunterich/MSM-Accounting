@@ -1,5 +1,11 @@
-import React from 'react';
-import { X, List, Plus } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, List, Plus, ChevronDown } from 'lucide-react';
+
+interface NewTabMenuItem {
+    label: string;
+    icon?: React.ReactNode;
+    onSelect: () => void;
+}
 
 interface DocumentTabBarProps {
     openIds: string[];
@@ -10,6 +16,8 @@ interface DocumentTabBarProps {
     onClose: (id: string) => void;
     newTabLabel?: string;
     onNewTab?: () => void;
+    /** When provided, the "New" button opens a dropdown menu instead of calling onNewTab */
+    newTabMenu?: NewTabMenuItem[];
     onCatalog?: () => void;
     catalogLabel?: string;
     disableNew?: boolean;
@@ -26,11 +34,26 @@ const DocumentTabBar = ({
     onClose,
     newTabLabel = 'Data Baru',
     onNewTab,
+    newTabMenu,
     onCatalog,
     catalogLabel = 'Catalog',
     disableNew = false,
     firstRowSuffix,
 }: DocumentTabBarProps): React.ReactElement => {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!menuOpen) return;
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [menuOpen]);
+
     const renderTab = (id: string) => {
         const isActive = id === selectedId;
         return (
@@ -70,7 +93,34 @@ const DocumentTabBar = ({
                         {catalogLabel}
                     </button>
                 )}
-                {onNewTab && (
+                {newTabMenu && newTabMenu.length > 0 ? (
+                    <div className="relative" ref={menuRef}>
+                        <button
+                            className={`workbench-doc-tab workbench-doc-tab-new ${disableNew ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            onClick={() => setMenuOpen((open) => !open)}
+                            disabled={disableNew}
+                            title={newTabLabel}
+                        >
+                            <Plus size={16} />
+                            {newTabLabel}
+                            <ChevronDown size={14} />
+                        </button>
+                        {menuOpen && !disableNew && (
+                            <div className="absolute top-full left-0 mt-1 min-w-[160px] bg-neutral-0 border border-neutral-200 rounded-md shadow-lg z-[100] py-1">
+                                {newTabMenu.map((item) => (
+                                    <button
+                                        key={item.label}
+                                        className="w-full px-3 py-2 text-left text-sm text-neutral-700 flex items-center gap-2 hover:bg-primary-50 hover:text-primary-700"
+                                        onClick={() => { setMenuOpen(false); item.onSelect(); }}
+                                    >
+                                        {item.icon}
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ) : onNewTab && (
                     <button
                         className={`workbench-doc-tab workbench-doc-tab-new ${disableNew ? 'opacity-60 cursor-not-allowed' : ''}`}
                         onClick={onNewTab}

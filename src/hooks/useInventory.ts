@@ -16,6 +16,9 @@ export const INV_KEYS = {
     adjustment:   (id: string) => ['invAdjustments', id] as const,
     warehouses:   ['invWarehouses'] as const,
     valuation:    (filters: Record<string, unknown>) => ['invValuation', filters] as const,
+    counts:       ['invStockCounts'] as const,
+    count:        (id: string) => ['invStockCounts', id] as const,
+    countJournal: (id: string) => ['invStockCounts', id, 'journal'] as const,
 };
 
 // ── Status / Type maps ────────────────────────────────────────────────────────
@@ -306,3 +309,81 @@ export function useRecalculateCosting() {
         },
     });
 }
+
+// ── Stock Counts ──────────────────────────────────────────────────────────────
+
+export interface StockCountLineRow {
+    id: string; lineNo: number; itemId: string;
+    systemQty: number; countedQty: number | null; unitCost: number; note: string | null;
+    liveSystemQty?: number; changedSinceCount?: boolean;
+    item?: { id: string; name: string; sku: string };
+}
+
+export interface StockCount {
+    id: string; number: string; date: string; status: string;
+    warehouseId: string | null; categoryId: string | null; countedBy: string | null;
+    notes: string | null; generatedAdjustmentId: string | null;
+    lines?: StockCountLineRow[]; _count?: { lines: number };
+}
+
+export function useStockCounts(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        queryKey: [...INV_KEYS.counts, filters],
+        queryFn: () => api.get<ListResponse<StockCount>>('/api/v1/stock-counts', filters),
+        staleTime: 15_000,
+    });
+}
+
+export function useStockCount(id: string | undefined) {
+    return useQuery({
+        queryKey: INV_KEYS.count(id ?? ''),
+        queryFn: () => api.get<StockCount>(`/api/v1/stock-counts/${id}`),
+        enabled: Boolean(id),
+        staleTime: 5_000,
+    });
+}
+
+export function useStockCountJournal(id: string | undefined, enabled = true) {
+    return useQuery({
+        queryKey: INV_KEYS.countJournal(id ?? ''),
+        queryFn: () => api.get<import('./useAP').JournalDetail | null>(`/api/v1/stock-counts/${id}/journal`),
+        enabled: Boolean(id) && enabled,
+        staleTime: 10_000,
+    });
+}
+
+export function useCreateStockCount() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (body: { date: string; warehouseId?: string; categoryId?: string; countedBy?: string; notes?: string }) =>
+            api.post<StockCount>('/api/v1/stock-counts', body),
+        onSuccess: () => qc.invalidateQueries({ queryKey: INV_KEYS.counts }),
+    });
+}
+
+export function useUpdateStockCount() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...body }: { id: string; notes?: string; countedBy?: string; lines?: Array<{ itemId: string; countedQty?: number | null; note?: string }> }) =>
+            api.put<StockCount>(`/api/v1/stock-counts/${id}`, body),
+        onSuccess: (_d, { id }) => { qc.invalidateQueries({ queryKey: INV_KEYS.count(id) }); qc.invalidateQueries({ queryKey: INV_KEYS.counts }); },
+    });
+}
+
+function countAction(action: 'submit' | 'reopen' | 'post' | 'cancel') {
+    return function useCountAction() {
+        const qc = useQueryClient();
+        return useMutation({
+            mutationFn: (id: string) => api.post<StockCount>(`/api/v1/stock-counts/${id}/${action}`, {}),
+            onSuccess: (_d, id) => {
+                qc.invalidateQueries({ queryKey: INV_KEYS.count(id) });
+                qc.invalidateQueries({ queryKey: INV_KEYS.counts });
+                if (action === 'post') { qc.invalidateQueries({ queryKey: INV_KEYS.items }); qc.invalidateQueries({ queryKey: INV_KEYS.adjustments }); qc.invalidateQueries({ queryKey: INV_KEYS.countJournal(id) }); }
+            },
+        });
+    };
+}
+export const useSubmitStockCount = countAction('submit');
+export const useReopenStockCount = countAction('reopen');
+export const usePostStockCount   = countAction('post');
+export const useCancelStockCount = countAction('cancel');

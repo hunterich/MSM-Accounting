@@ -50,6 +50,7 @@ function normalizeCustomer(raw: RawCustomer): Customer {
         defaultDiscount: Number(raw.defaultDiscount ?? 0),
         paymentTerms:    Number(raw.paymentTermsDays ?? raw.paymentTerms ?? 0),
         creditLimit:     Number(raw.creditLimit ?? 0),
+        npwp:            raw.npwp             || '',
         useCategoryDefaults: raw.useCategoryDefaults ?? true,
         billingAddress:  raw.billingAddress  || '',
         shippingAddress: raw.shippingAddress || '',
@@ -277,6 +278,18 @@ export function useDeleteARPayment() {
     return useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/ar-payments/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.payments }),
+    });
+}
+
+export function useVoidARPayment() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/ar-payments/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AR_KEYS.payments });
+            qc.invalidateQueries({ queryKey: AR_KEYS.payment(id) });
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoices }); // settled invoices revert
+        },
     });
 }
 

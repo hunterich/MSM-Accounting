@@ -4,10 +4,11 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { nextNumber } from '@/lib/api-utils';
 import { apPaymentInputSchema } from '@/types/api';
 import { postApPaymentIfNeeded } from '@/lib/payment-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -39,6 +40,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+  const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
   const parsed = apPaymentInputSchema.safeParse({
     ...body,
@@ -60,8 +63,12 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         if (!bill) {
           throw new ApiError('Bill not found in organization', 404);
         }
+        // Only COMPLETED-payment allocations have actually cleared the bill.
+        // VOID / PENDING_APPROVAL / DRAFT allocations posted no GL and must NOT
+        // count toward `alreadyPaid` (matches AP aging), otherwise a real new
+        // payment is falsely blocked with "Over-allocation".
         const existingAllocations = await tx.aPPaymentAllocation.aggregate({
-          where: { billId: allocation.billId },
+          where: { billId: allocation.billId, payment: { status: 'COMPLETED' } },
           _sum: { amountApplied: true },
         });
         const alreadyPaid = Number(existingAllocations._sum.amountApplied ?? 0);
@@ -91,8 +98,28 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     });
 
     // Post DR AP / CR Bank — skipped for DRAFT payments; idempotent via
-    // journalEntryId (see lib/payment-posting.ts).
-    await postApPaymentIfNeeded(tx, orgId, created.id);
+    // journalEntryId (see lib/payment-posting.ts). A payment created directly
+    // into a postable status (anything except DRAFT/VOID) is a finalize, so it
+    // may be routed for approval first.
+    const isPostable = created.status !== 'DRAFT' && created.status !== 'VOID';
+    if (isPostable) {
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'AP_PAYMENT',
+        documentId: created.id,
+      });
+      if (routed) {
+        // HELD for approval: stamp PENDING_APPROVAL and post NO GL.
+        await tx.aPPayment.update({
+          where: { id: created.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+        (created as any).status = 'PENDING_APPROVAL';
+      } else {
+        await postApPaymentIfNeeded(tx, orgId, created.id);
+      }
+    }
 
     return created;
   });

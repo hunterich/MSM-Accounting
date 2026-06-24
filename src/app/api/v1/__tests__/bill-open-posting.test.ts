@@ -1,0 +1,73 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    bill: {},
+    auditLog: { create: vi.fn(async () => undefined) },
+    $transaction: vi.fn(),
+  },
+}));
+vi.mock('@/lib/cors', () => ({ withCors: (r: Response) => r, corsPreflightResponse: () => new Response(null, { status: 204 }) }));
+vi.mock('@/lib/bill-posting', () => ({ postBillToLedger: vi.fn(async () => undefined) }));
+// The PO-receipt mutation is exercised by its own integration tests
+// (bill-po-receipt-approval.int.test.ts); stub it here so this route unit test
+// stays focused on GL posting + the period guard without mocking PO/lot tables.
+vi.mock('@/lib/bill-po-receipt', () => ({ applyBillPoReceipt: vi.fn(async () => undefined) }));
+
+import { prisma } from '@/lib/prisma';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { PUT as putBill } from '../bills/[id]/route';
+
+function req(body: unknown) {
+  return new NextRequest('http://localhost/api/v1/bills/bill-1', {
+    method: 'PUT',
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+beforeEach(() => vi.clearAllMocks());
+
+it('posts to the ledger when a DRAFT bill transitions to OPEN', async () => {
+  const tx = {
+    bill: {
+      findFirst: vi.fn()
+        .mockResolvedValueOnce({ id: 'bill-1', status: 'DRAFT', vendorInvoiceNo: 'INV-1' }) // existing (faktur present so approve is allowed)
+        .mockResolvedValueOnce({ id: 'bill-1', lines: [] })                  // finalized (for posting)
+        .mockResolvedValueOnce({ id: 'bill-1', status: 'OPEN', lines: [] }), // return value
+      update: vi.fn(async () => ({})),
+    },
+    billLine: { deleteMany: vi.fn(), createMany: vi.fn() },
+    vendor: { findFirst: vi.fn() },
+    purchaseOrder: { findFirst: vi.fn() },
+    accountingPeriod: { findFirst: vi.fn(async () => null) },
+    organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
+  };
+  vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
+
+  const res = await putBill(req({ status: 'OPEN' }), { params: Promise.resolve({ id: 'bill-1' }) });
+  expect(res.status).toBe(200);
+  expect(postBillToLedger).toHaveBeenCalledTimes(1);
+});
+
+it('refuses to finalize a bill into a closed/locked period and does not post', async () => {
+  const tx = {
+    bill: {
+      findFirst: vi.fn()
+        .mockResolvedValueOnce({ id: 'bill-1', status: 'DRAFT', vendorInvoiceNo: 'INV-1' })     // existing (faktur present)
+        .mockResolvedValueOnce({ id: 'bill-1', issueDate: '2026-03-15', lines: [] }),          // finalized
+      update: vi.fn(async () => ({})),
+    },
+    billLine: { deleteMany: vi.fn(), createMany: vi.fn() },
+    vendor: { findFirst: vi.fn() },
+    purchaseOrder: { findFirst: vi.fn() },
+    accountingPeriod: { findFirst: vi.fn(async () => ({ name: 'Mar 2026', status: 'CLOSED', isLocked: false })) },
+    organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
+  };
+  vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
+
+  const res = await putBill(req({ status: 'OPEN' }), { params: Promise.resolve({ id: 'bill-1' }) });
+  expect(res.status).toBe(422);
+  expect(postBillToLedger).not.toHaveBeenCalled();
+});

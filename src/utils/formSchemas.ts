@@ -72,16 +72,28 @@ export type CustomerFormData = z.infer<typeof customerSchema>;
 
 export const billLineItemSchema = z.object({
     id:          z.union([z.string(), z.number()]),
+    // itemId set => inventory line (Rincian Barang); accountId set => expense line (Biaya Lainnya).
+    itemId:      z.string().optional(),
     description: z.string(),
-    accountId:   z.string().min(1, 'Each line must have an expense/asset account.'),
+    accountId:   z.string().optional(),
     qty:         z.number(),
     unit:        z.string(),
     price:       z.number(),
+    discount:    z.number().optional(),
+}).superRefine((line, ctx) => {
+    if (!line.itemId && !line.accountId) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['accountId'],
+            message: 'Each line needs an item or an expense/asset account.',
+        });
+    }
 });
 
 export const billSchema = z.object({
     vendor:      z.string().min(1, 'Vendor is required.'),
-    apAccountId: z.string().min(1, 'A/P account is required.'),
+    // Optional: the server defaults the A/P control account from settings when omitted.
+    apAccountId: z.string().optional(),
     poNumber:    z.string().optional(),
     issueDate:   z.string().optional(),
     dueDate:     z.string().optional(),

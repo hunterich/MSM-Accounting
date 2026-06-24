@@ -3,14 +3,16 @@ import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
-import { Save, Plus, Edit2, Clock, Shield, Check } from 'lucide-react';
+import { Save, Plus, Edit2, Clock, Shield, Check, KeyRound } from 'lucide-react';
 import Table, { TableColumn } from '../../components/UI/Table';
 import { useAccessStore, MODULE_KEYS, MODULE_EXTRA_ACTIONS, noPermissions } from '../../stores/useAccessStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import type { AccessRole, AccessUser } from '../../stores/useAccessStore';
+import { useLoginAccounts, type LoginAccount } from '../../hooks/useUsers';
+import { useAuthStore } from '../../stores/useAuthStore';
+import ResetPasswordModal from '../../components/auth/ResetPasswordModal';
 
 interface SecuritySettings {
-    require2FA: boolean;
     allowInvites: boolean;
     sessionTimeoutMinutes: string;
 }
@@ -49,6 +51,11 @@ const groupOrder: string[] = [
 
 const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: SecurityRolesTabProps) => {
     const { canCreate, canEdit } = useModulePermissions('settings');
+    const roleType = useAuthStore((s) => s.roleType);
+    const isAdmin = roleType === 'ADMIN';
+    const { data: loginAccountsData } = useLoginAccounts(isAdmin);
+    const [resetTarget, setResetTarget] = useState<LoginAccount | null>(null);
+    const loginAccounts = loginAccountsData?.data ?? [];
     /* ---- Pull from Zustand store ---- */
     const roles = useAccessStore(s => s.roles);
     const users = useAccessStore(s => s.users);
@@ -280,6 +287,12 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                                     <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Create</th>
                                     <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Edit</th>
                                     <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Delete</th>
+                                    {/* Approve column: edits the CLIENT role model's `approve` flag.
+                                        Persisting this to the server `RolePermission.canApprove` for
+                                        non-admin roles requires a roles-write API that does not yet
+                                        exist (flagged follow-up). Admins approve out of the box via
+                                        the seed (canApprove=true). */}
+                                    <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">Approve</th>
                                     <th className="p-3 text-sm font-semibold text-neutral-700 text-center w-20">View</th>
                                 </tr>
                             </thead>
@@ -305,7 +318,10 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                                         }
                                         return null;
                                     })}
-                                    {/* Empty cells for the other columns in select-all row */}
+                                    {/* Empty cells for Create, Edit, Delete, Approve, View columns
+                                        in select-all row. Select-all toggles CRUD only (see
+                                        handleSelectAllGroup); Approve is left out intentionally. */}
+                                    <td className="p-3"></td>
                                     <td className="p-3"></td>
                                     <td className="p-3"></td>
                                     <td className="p-3"></td>
@@ -314,7 +330,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
 
                                 {/* Akses Menu header */}
                                 <tr className="bg-neutral-50/50">
-                                    <td colSpan={6} className="px-3 py-2 text-xs font-bold text-neutral-500 uppercase tracking-wider">
+                                    <td colSpan={7} className="px-3 py-2 text-xs font-bold text-neutral-500 uppercase tracking-wider">
                                         Akses Menu
                                     </td>
                                 </tr>
@@ -324,19 +340,24 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                                     <React.Fragment key={mod.key}>
                                     <tr className={idx !== activeModules.length - 1 || MODULE_EXTRA_ACTIONS[mod.key] ? 'border-b border-neutral-100' : ''}>
                                         <td className="p-3 pl-6 text-sm font-medium text-neutral-800">{mod.label}</td>
-                                        {['view', 'create', 'edit', 'delete', 'view'].map((action, i) => {
-                                            // Column order: Aktif(view), Buat(create), Ubah(edit), Hapus(delete), Lihat(view)
-                                            // We use: view for Aktif, create for Buat, edit for Ubah, delete for Hapus, view for Lihat
-                                            // To match Accurate: Aktif = view, Buat = create, Ubah = edit, Hapus = delete, Lihat = view
-                                            // Since Aktif and Lihat both map to "view", we'll treat them separately:
-                                            // Aktif toggles all on/off, Lihat is the view permission
-                                            const realActions = ['view', 'create', 'edit', 'delete', 'view'];
+                                        {['view', 'create', 'edit', 'delete', 'approve', 'view'].map((action, i) => {
+                                            // Column order: Aktif(view), Buat(create), Ubah(edit), Hapus(delete), Approve(approve), Lihat(view)
+                                            // To match Accurate: Aktif = view, Buat = create, Ubah = edit, Hapus = delete, Lihat = view.
+                                            // Approve is an MSM addition bound to the role's `approve` flag — toggled
+                                            // exactly like edit/delete via handleTogglePermission (same persistence path).
+                                            // NOTE: this edits the CLIENT role model only; persisting `approve` to the
+                                            // server RolePermission.canApprove for non-admin roles needs a roles-write
+                                            // API that does not yet exist (flagged follow-up). Admins approve out of the
+                                            // box via the seed.
+                                            // Since Aktif and Lihat both map to "view", we treat them separately:
+                                            // Aktif toggles the view field, Lihat is the view permission.
+                                            const realActions = ['view', 'create', 'edit', 'delete', 'approve', 'view'];
                                             const realAction = realActions[i];
 
-                                            // For "Aktif" column (index 0), it controls whether the row is enabled
-                                            // For "Lihat" column (index 4), it's the view permission
-                                            // They share the same underlying "view" field (like Accurate)
-                                            if (i === 0 || i === 4) {
+                                            // For "Aktif" column (index 0) and "Lihat" column (index 5), both map to the
+                                            // same underlying "view" field (like Accurate). All other columns —
+                                            // create/edit/delete/approve — toggle their own field via the default branch.
+                                            if (i === 0 || i === 5) {
                                                 // Both Aktif and Lihat map to view
                                                 return (
                                                     <td key={`${action}-${i}`} className="p-3 text-center align-middle">
@@ -379,7 +400,7 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                                         return (
                                             <tr key={`${mod.key}-${extra.key}`} className={!isLastRow ? 'border-b border-neutral-100' : ''}>
                                                 <td className="px-3 py-2 pl-12 text-[12px] text-neutral-600 italic">↳ {extra.label}</td>
-                                                <td colSpan={4} className="px-3 py-2 text-center align-middle">
+                                                <td colSpan={5} className="px-3 py-2 text-center align-middle">
                                                     <label className="inline-flex items-center cursor-pointer">
                                                         <input
                                                             type="checkbox"
@@ -462,19 +483,34 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
                 <Table columns={roleColumns as unknown as TableColumn<Record<string, unknown>>[]} data={roles as unknown as Record<string, unknown>[]} />
             </Card>
 
+            {isAdmin && (
+              <Card title="Login Accounts">
+                <p className="settings-muted">
+                  Real sign-in accounts. Resetting a password sets a temporary one and forces the
+                  user to choose their own at next login. (This is separate from the role list above,
+                  which configures permissions.)
+                </p>
+                <div className="mt-3 divide-y divide-neutral-200">
+                  {loginAccounts.map((acct) => (
+                    <div key={acct.id} className="flex items-center justify-between py-2.5">
+                      <div>
+                        <div className="text-sm font-medium text-neutral-800">{acct.fullName}</div>
+                        <div className="text-xs text-neutral-500">{acct.email} · {acct.roleName}</div>
+                      </div>
+                      <Button text="Reset password" size="small" variant="secondary"
+                        icon={<KeyRound size={14} />} onClick={() => setResetTarget(acct)} />
+                    </div>
+                  ))}
+                  {loginAccounts.length === 0 && (
+                    <p className="py-2.5 text-sm text-neutral-500">No login accounts found.</p>
+                  )}
+                </div>
+              </Card>
+            )}
+            <ResetPasswordModal account={resetTarget} onClose={() => setResetTarget(null)} />
+
             <Card title="Global Security Settings">
                 <p className="settings-muted">System-wide security controls that apply regardless of role.</p>
-                <div className="mb-4">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-neutral-700 select-none">
-                        <input
-                            type="checkbox"
-                            checked={securitySettings.require2FA}
-                            onChange={(e) => setSecuritySettings((prev) => ({ ...prev, require2FA: e.target.checked }))}
-                            className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        Require 2FA for all users
-                    </label>
-                </div>
                 <div className="mb-4">
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-neutral-700 select-none">
                         <input

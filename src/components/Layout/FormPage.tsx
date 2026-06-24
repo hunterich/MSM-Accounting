@@ -11,6 +11,7 @@ interface FormPageProps {
     backLabel?: string;
     actions?: React.ReactNode;
     isLoading?: boolean;
+    sticky?: boolean;
     children?: React.ReactNode;
 }
 
@@ -23,6 +24,7 @@ const FormPage = ({
     backLabel = 'Back',
     actions = null,
     isLoading = false,
+    sticky = false,
     children
 }: FormPageProps): React.ReactElement => {
     if (isLoading) {
@@ -57,6 +59,7 @@ const FormPage = ({
                 onBack={onBack}
                 backLabel={backLabel}
                 actions={actions}
+                sticky={sticky}
                 className="no-print"
             />
             {children}

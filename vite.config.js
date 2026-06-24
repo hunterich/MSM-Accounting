@@ -15,7 +15,7 @@ export default defineConfig({
         },
     },
     test: {
-        exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/.claude/**'],
+        exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/.claude/**', '**/__tests__/integration/**'],
     },
     resolve: {
         extensions: ['.mjs', '.ts', '.tsx', '.js', '.jsx', '.json'],

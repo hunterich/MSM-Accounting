@@ -28,6 +28,7 @@ const ALL_MODULE_KEYS: ModuleKey[] = [
   ModuleKey.REPORTS,
   ModuleKey.COMPANY,
   ModuleKey.SETTINGS,
+  ModuleKey.SYSTEM_BACKUP,
 ];
 
 async function main() {
@@ -101,6 +102,7 @@ async function main() {
       canCreate: true,
       canEdit: true,
       canDelete: true,
+      canApprove: true,
     })),
     skipDuplicates: true,
   });
@@ -112,6 +114,7 @@ async function main() {
       canCreate: true,
       canEdit: true,
       canDelete: true,
+      canApprove: true,
     },
   });
 
@@ -304,6 +307,7 @@ async function main() {
     { code: '2-1000', name: 'Accounts Payable',      type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
     { code: '2-1100', name: 'Tax Payable (PPN)',     type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
     { code: '3-1000', name: 'Retained Earnings',     type: 'EQUITY',    normalSide: 'CREDIT', parentCode: '3-0000' },
+    { code: '3-9000', name: 'Opening Balance Equity', type: 'EQUITY',   normalSide: 'CREDIT', parentCode: '3-0000' },
     { code: '4-1000', name: 'Sales Revenue',         type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
     { code: '5-1000', name: 'Cost of Goods Sold',    type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
     { code: '5-1100', name: 'Salaries Expense',      type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },

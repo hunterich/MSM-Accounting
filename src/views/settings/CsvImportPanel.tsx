@@ -42,14 +42,14 @@ const TEMPLATES: Record<ImportEntity, { columns: string[]; sample: string[][]; h
       ['PT Maju Bersama', 'INV-2025-001', '2025-11-15', '2025-12-15', '12500000', 'Unpaid from prior system'],
       ['CV Abadi Sentosa', '', '2025-10-01', '2025-11-01', '8750000', ''],
     ],
-    hint: 'Import outstanding invoices from your old system. Customer must already exist. Invoices are created as POSTED.',
+    hint: 'Creates open (unpaid) invoices as accounts-receivable subledger detail. These do NOT post to the General Ledger — import a matching Opening Balance Journal to set the AR control account.',
   },
   'opening-bills': {
     columns: ['vendorName', 'billNumber', 'issueDate', 'dueDate', 'amount', 'notes'],
     sample: [
       ['CV Sumber Jaya', 'BILL-2025-042', '2025-12-01', '2026-01-01', '8000000', 'Unpaid from prior system'],
     ],
-    hint: 'Import outstanding bills from your old system. Vendor must already exist. Bills are created as APPROVED.',
+    hint: 'Creates open (unpaid) bills as accounts-payable subledger detail. These do NOT post to the General Ledger — import a matching Opening Balance Journal to set the AP control account.',
   },
 };
 

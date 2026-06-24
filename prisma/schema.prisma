@@ -21,6 +21,7 @@ model Organization {
   costingMethodSetAt     DateTime?
   costingMethodSetById   String?
   costingMethodEffectiveDate DateTime?
+  allowNegativeStock     Boolean  @default(false)
   defaultCreditLimit     Decimal  @default(0) @db.Decimal(18, 2)
   enforceCreditLimit     Boolean  @default(true)
   taxEnabled             Boolean  @default(true)
@@ -36,8 +37,10 @@ model Organization {
   dailySummary           Boolean  @default(false)
   emailFromName          String?
   emailFromDomain        String?
-  accountDefaults        Json?
-  printSettings          Json?
+  accountDefaults                  Json?
+  approvalRequirements             Json?
+  requireDistinctApproverForAdmins Boolean @default(false)
+  printSettings                    Json?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -63,6 +66,7 @@ model Organization {
   purchaseReturns        PurchaseReturn[]
   debitNotes             DebitNote[]
   stockAdjustments       StockAdjustment[]
+  stockCounts            StockCount[]
   inventoryLedgerEntries InventoryLedgerEntry[]
   bankAccounts           BankAccount[]
   bankTransactions       BankTransaction[]
@@ -98,6 +102,7 @@ model User {
   email          String   @unique
   fullName       String
   passwordHash   String?
+  mustChangePassword Boolean @default(false)
   status         UserStatus @default(ACTIVE)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -157,6 +162,7 @@ model RolePermission {
   canCreate   Boolean   @default(false)
   canEdit     Boolean   @default(false)
   canDelete   Boolean   @default(false)
+  canApprove  Boolean   @default(false)
 
   role        Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
@@ -234,6 +240,7 @@ model JournalEntry {
   purchaseReturns PurchaseReturn[] @relation("PurchaseReturnJournal")
   creditNote      CreditNote?      @relation("CreditNoteJournal")
   debitNote       DebitNote?       @relation("DebitNoteJournal")
+  bankTransaction BankTransaction? @relation("BankTxnJournal")
 
   @@unique([organizationId, entryNo])
   @@index([organizationId, date, status])
@@ -381,6 +388,7 @@ model ItemCategory {
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   items          Item[]
+  stockCounts    StockCount[]
 
   @@unique([organizationId, name])
   @@unique([organizationId, code])
@@ -421,6 +429,7 @@ model Item {
   salesReturnLines   SalesReturnLine[]
   purchaseReturnLines PurchaseReturnLine[]
   stockAdjustmentLines StockAdjustmentLine[]
+  stockCountLines      StockCountLine[]
   ledgerEntries      InventoryLedgerEntry[]
   documentMappings   VendorDocumentMapping[]
   inventoryLots      InventoryLot[]
@@ -443,6 +452,7 @@ model Warehouse {
   salesReturns   SalesReturn[]
   purchaseReturns PurchaseReturn[]
   stockAdjustments StockAdjustment[]
+  stockCounts      StockCount[]
   ledgerEntries  InventoryLedgerEntry[]
   deliveryNotes  DeliveryNote[]
   inventoryLots  InventoryLot[]
@@ -550,6 +560,7 @@ enum SoStatus {
   CONFIRMED
   INVOICED
   CANCELLED
+  PENDING_APPROVAL
 }
 
 enum InventoryCostingMethod {
@@ -739,6 +750,8 @@ model PurchaseOrder {
   expectedDate   DateTime?
   status         PurchaseOrderStatus @default(DRAFT)
   taxRate        Decimal             @default(0) @db.Decimal(5, 2)
+  taxable        Boolean             @default(false)
+  taxInclusive   Boolean             @default(false)
   subtotal       Decimal             @default(0) @db.Decimal(18, 2)
   taxAmount      Decimal             @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal             @default(0) @db.Decimal(18, 2)
@@ -766,6 +779,7 @@ model PurchaseOrderLine {
   quantity        Decimal  @default(0) @db.Decimal(18, 4)
   unit            String   @default("PCS")
   price           Decimal  @default(0) @db.Decimal(18, 2)
+  discountPct     Decimal  @default(0) @db.Decimal(5, 2)
   lineTotal       Decimal  @default(0) @db.Decimal(18, 2)
   receivedQty     Decimal  @default(0) @db.Decimal(15, 4)
 
@@ -782,17 +796,22 @@ model Bill {
   organizationId String
   number         String
   vendorId       String
+  vendorInvoiceNo String?
   poId           String?
   issueDate      DateTime
   dueDate        DateTime?
   status         BillStatus  @default(DRAFT)
   apAccountId    String?
   taxRate        Decimal     @default(0) @db.Decimal(5, 2)
+  taxable        Boolean     @default(false)
+  taxInclusive   Boolean     @default(false)
   subtotal       Decimal     @default(0) @db.Decimal(18, 2)
   taxAmount      Decimal     @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal     @default(0) @db.Decimal(18, 2)
   notes          String?
   recurringBillId String?
+  journalEntryId String?
+  voidedAt       DateTime?
   deletedAt      DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -809,6 +828,7 @@ model Bill {
   debitNotes     DebitNote[]
 
   @@unique([organizationId, number])
+  @@unique([organizationId, vendorId, vendorInvoiceNo])
   @@index([organizationId, issueDate, status])
   @@index([vendorId])
 }
@@ -823,6 +843,7 @@ model BillLine {
   quantity             Decimal  @default(0) @db.Decimal(18, 4)
   unit                 String   @default("PCS")
   price                Decimal  @default(0) @db.Decimal(18, 2)
+  discountPct          Decimal  @default(0) @db.Decimal(5, 2)
   lineTotal            Decimal  @default(0) @db.Decimal(18, 2)
   purchaseOrderLineId  String?
 
@@ -1075,6 +1096,55 @@ model StockAdjustmentLine {
   @@index([itemId])
 }
 
+enum StockCountStatus {
+  DRAFT
+  SUBMITTED
+  POSTED
+  CANCELLED
+}
+
+model StockCount {
+  id                    String           @id @default(cuid())
+  organizationId        String
+  number                String
+  date                  DateTime
+  status                StockCountStatus @default(DRAFT)
+  warehouseId           String?
+  categoryId            String?
+  countedBy             String?
+  notes                 String?
+  generatedAdjustmentId String?
+  submittedAt           DateTime?
+  postedAt              DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  category     ItemCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  lines        StockCountLine[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, date, status])
+}
+
+model StockCountLine {
+  id           String   @id @default(cuid())
+  stockCountId String
+  lineNo       Int
+  itemId       String
+  systemQty    Decimal  @db.Decimal(18, 4)
+  countedQty   Decimal? @db.Decimal(18, 4)
+  unitCost     Decimal  @db.Decimal(18, 2)
+  note         String?
+
+  stockCount StockCount @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  item       Item       @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([stockCountId, lineNo])
+  @@index([stockCountId])
+}
+
 model InventoryLedgerEntry {
   id             String      @id @default(cuid())
   organizationId String
@@ -1140,11 +1210,13 @@ model BankTransaction {
   receivedFrom     String?
   expenseAccountId String?
   incomeAccountId  String?
+  journalEntryId   String?        @unique
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   bankAccount      BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  journalEntry     JournalEntry? @relation("BankTxnJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, date])
   @@index([bankAccountId, status])
@@ -1460,6 +1532,7 @@ enum ModuleKey {
   REPORTS
   COMPANY
   SETTINGS
+  SYSTEM_BACKUP
 }
 
 enum AccountType {
@@ -1527,6 +1600,7 @@ enum BillStatus {
   PAID
   OVERDUE
   VOID
+  PENDING_APPROVAL
 }
 
 enum PaymentMethod {
@@ -1542,6 +1616,7 @@ enum PaymentStatus {
   PROCESSING
   COMPLETED
   VOID
+  PENDING_APPROVAL
 }
 
 enum ReturnStatus {
@@ -1551,18 +1626,21 @@ enum ReturnStatus {
   PENDING_DEBIT_NOTE
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum CreditNoteStatus {
   DRAFT
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum DebitNoteStatus {
   DRAFT
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum CreditSettlementType {
@@ -1592,6 +1670,7 @@ enum StockAdjustmentType {
 enum StockAdjustmentStatus {
   DRAFT
   APPROVED
+  PENDING_APPROVAL
 }
 
 enum InventoryDocumentType {
@@ -1682,6 +1761,7 @@ enum PayrollRunStatus {
   REVIEWED
   POSTED
   VOID
+  PENDING_APPROVAL
 }
 
 enum BillImportStatus {
@@ -1890,6 +1970,16 @@ model RecurringBillLine {
 enum ApprovalDocumentType {
   INVOICE
   PURCHASE_ORDER
+  BILL
+  SALES_ORDER
+  PAYROLL_RUN
+  CREDIT_NOTE
+  DEBIT_NOTE
+  SALES_RETURN
+  PURCHASE_RETURN
+  AR_PAYMENT
+  AP_PAYMENT
+  STOCK_ADJUSTMENT
 }
 
 enum ApprovalStatus {
@@ -1916,6 +2006,13 @@ model ApprovalRequest {
 
   @@index([organizationId, status])
   @@index([organizationId, documentType, documentId])
+  // OUT-OF-BAND PARTIAL UNIQUE INDEX (Prisma cannot express filtered unique indexes):
+  //   CREATE UNIQUE INDEX "ApprovalRequest_open_pending_unique"
+  //   ON "ApprovalRequest" ("organizationId", "documentType", "documentId")
+  //   WHERE status = 'PENDING';
+  // Enforces at most one OPEN (PENDING) request per document — DB backstop for the
+  // routeForApproval advisory lock (Bug A: duplicate PENDING under concurrent finalize).
+  // Applied in scripts/test-db-setup.mjs for tests; MUST be created in prod at merge.
 }
 // ─── Asset Management ───────────────────────────────────────────────────────
 
@@ -2104,4 +2201,56 @@ model Subscription {
 
   @@index([organizationId, status])
   @@index([customerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Backup & Restore
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum BackupFrequency {
+  DAILY
+  TWICE_DAILY
+  WEEKLY
+}
+
+enum BackupType {
+  AUTO
+  MANUAL
+  PRE_RESTORE_SAFETY
+}
+
+enum BackupStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+// System-level (not org-scoped): a whole-database backup spans all organizations.
+model BackupSettings {
+  id                    String          @id @default("singleton")
+  enabled               Boolean         @default(true)
+  frequency             BackupFrequency @default(TWICE_DAILY)
+  times                 Json            @default("[\"13:00\",\"20:00\"]")
+  retentionDailyCount   Int             @default(30)
+  retentionMonthlyCount Int             @default(12)
+  canonicalDir          String?
+  folderDestinations    Json            @default("[]")
+  downloadEnabled       Boolean         @default(true)
+  pgToolsPathOverride   String?
+  updatedAt             DateTime        @updatedAt
+}
+
+model BackupRecord {
+  id                String       @id @default(cuid())
+  createdAt         DateTime     @default(now())
+  type              BackupType
+  fileName          String
+  sizeBytes         Int          @default(0)
+  status            BackupStatus
+  destinations      Json         @default("[]")
+  durationMs        Int          @default(0)
+  triggeredByUserId String?
+  error             String?
+
+  @@index([createdAt])
 }

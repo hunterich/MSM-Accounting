@@ -17,6 +17,7 @@ vi.mock('@/lib/prisma', () => {
     item: {
       create: vi.fn(),
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn(),
     },
@@ -43,6 +44,7 @@ vi.mock('@/lib/prisma', () => {
       update: vi.fn(),
       findUnique: vi.fn(),
     },
+    $executeRaw: vi.fn(async () => undefined),
     $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
   };
 

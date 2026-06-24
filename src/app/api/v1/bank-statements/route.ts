@@ -14,22 +14,49 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams } = new URL(req.url);
   const bankAccountId = searchParams.get('bankAccountId');
+  const statementId = searchParams.get('statementId');
 
-  if (!bankAccountId) {
-    return err('bankAccountId is required', 400);
+  // Single-statement mode: return the statement with its lines
+  if (statementId) {
+    const statement = await prisma.bankStatement.findFirst({
+      where: { id: statementId, organizationId: orgId },
+      include: { lines: { orderBy: { date: 'asc' } } },
+    });
+    if (!statement) {
+      return err('Statement not found', 404);
+    }
+    return ok({
+      id: statement.id,
+      bankAccountId: statement.bankAccountId,
+      filename: statement.filename,
+      importedAt: statement.importedAt,
+      fromDate: statement.fromDate,
+      toDate: statement.toDate,
+      lines: statement.lines.map((line) => ({
+        id: line.id,
+        date: line.date,
+        description: line.description,
+        amount: Number(line.amount),
+        balance: line.balance !== null ? Number(line.balance) : null,
+        matchStatus: line.matchStatus,
+        matchedTxId: line.matchedTxId,
+      })),
+    });
   }
 
-  // Validate bankAccount belongs to org
-  const bankAccount = await prisma.bankAccount.findFirst({
-    where: { id: bankAccountId, organizationId: orgId },
-    select: { id: true },
-  });
-  if (!bankAccount) {
-    return err('Bank account not found in organization', 404);
+  if (bankAccountId) {
+    // Validate bankAccount belongs to org
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { id: bankAccountId, organizationId: orgId },
+      select: { id: true },
+    });
+    if (!bankAccount) {
+      return err('Bank account not found in organization', 404);
+    }
   }
 
   const statements = await prisma.bankStatement.findMany({
-    where: { organizationId: orgId, bankAccountId },
+    where: { organizationId: orgId, ...(bankAccountId ? { bankAccountId } : {}) },
     orderBy: { importedAt: 'desc' },
     include: {
       _count: {

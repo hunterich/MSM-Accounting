@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, listResponse, parsePaginationParams, requireOrg, withHandler, logAudit, ApiError } from '@/lib/api-utils';
-import { calculateTrialEndDate, calculateNextPeriod } from '@/lib/subscription';
+import { calculateTrialEndDate, calculateNextPeriod, type BillingInterval } from '@/lib/subscription';
 
 export const runtime = 'nodejs';
 
@@ -59,20 +59,13 @@ export const POST = withHandler(async function POST(req: NextRequest) {
   const trialDays = plan.trialDays ?? 0;
   const trialEndDate = trialDays > 0 ? calculateTrialEndDate(startDate, trialDays) : null;
 
-  // Calculate initial period
-  const periodEnd = new Date(startDate);
-  switch (plan.interval) {
-    case 'MONTHLY':
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
-      break;
-    case 'QUARTERLY':
-      periodEnd.setMonth(periodEnd.getMonth() + 3);
-      break;
-    case 'YEARLY':
-      periodEnd.setFullYear(periodEnd.getFullYear() + 1);
-      break;
-  }
-  periodEnd.setDate(periodEnd.getDate() - 1);
+  // Calculate initial period using the shared helper so interval logic is DRY.
+  // Subtract one day from startDate so calculateNextPeriod (which adds 1 day to
+  // derive the period start) lands back on startDate exactly.
+  const fakePreviousEnd = new Date(startDate);
+  fakePreviousEnd.setDate(fakePreviousEnd.getDate() - 1);
+  const initialPeriod = calculateNextPeriod(fakePreviousEnd, plan.interval as BillingInterval);
+  const periodEnd = initialPeriod.end;
 
   const subscription = await (prisma as any).subscription.create({
     data: {

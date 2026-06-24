@@ -112,6 +112,7 @@ const txStub = () => ({
       { id: 'acc-purchase-return', isActive: true, isPostable: true, code: '5-2000', name: 'Purchase Return', type: 'EXPENSE' },
     ]),
   },
+  organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
 });
 
 const deleteCalls = { creditNote: 0, debitNote: 0 };

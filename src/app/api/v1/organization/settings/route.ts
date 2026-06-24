@@ -9,6 +9,7 @@ import {
   type AccountDefaultKey,
   type AccountDefaultsConfig,
 } from '@/lib/account-defaults';
+import { normalizeApprovalRequirements } from '@/lib/approval/config';
 
 export const runtime = 'nodejs';
 
@@ -30,6 +31,8 @@ type OrganizationSettingsRecord = {
   costingMethodEffectiveDate: Date | null;
   accountDefaults: unknown;
   printSettings: unknown;
+  approvalRequirements: unknown;
+  requireDistinctApproverForAdmins: boolean;
 };
 
 const DEFAULT_PRINT_SETTINGS = {
@@ -103,6 +106,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     ...organization,
     accountDefaults: normalizeAccountDefaults(organization.accountDefaults),
     printSettings: normalizePrintSettings(organization.printSettings),
+    approvalRequirements: normalizeApprovalRequirements(organization.approvalRequirements),
+    requireDistinctApproverForAdmins: organization.requireDistinctApproverForAdmins ?? false,
     needsInventoryValuationSetup: !organization.costingMethod,
   });
 });
@@ -220,6 +225,13 @@ export const PUT = withHandler(async function PUT(req: NextRequest) {
     updateData.printSettings = normalizePrintSettings({ ...existing, ...parsed.data.printSettings });
   }
 
+  if (parsed.data.approvalRequirements !== undefined) {
+    updateData.approvalRequirements = normalizeApprovalRequirements(parsed.data.approvalRequirements);
+  }
+  if (parsed.data.requireDistinctApproverForAdmins !== undefined) {
+    updateData.requireDistinctApproverForAdmins = !!parsed.data.requireDistinctApproverForAdmins;
+  }
+
   if (Object.keys(updateData).length === 0) {
     return err('No changes provided', 400);
   }
@@ -248,6 +260,8 @@ export const PUT = withHandler(async function PUT(req: NextRequest) {
     ...updated,
     accountDefaults: normalizeAccountDefaults(updated.accountDefaults),
     printSettings: normalizePrintSettings(updated.printSettings),
+    approvalRequirements: normalizeApprovalRequirements(updated.approvalRequirements),
+    requireDistinctApproverForAdmins: updated.requireDistinctApproverForAdmins ?? false,
     needsInventoryValuationSetup: !updated.costingMethod,
   });
 });

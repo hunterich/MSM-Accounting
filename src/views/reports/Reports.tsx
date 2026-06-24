@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package, Users,
   Search, Printer, Download, X, LayoutGrid, BarChart3,
@@ -40,6 +41,7 @@ export type ReportType =
   | 'ap-overdue-list'
   | 'cash-flow'
   | 'stock-movement'
+  | 'stock-valuation'
   | 'pph21-summary'
   | 'bank-reconciliation';
 
@@ -450,6 +452,7 @@ export interface CashFlowStatementSummary {
   netCashChange: number;
   beginningCash: number;
   endingCash: number;
+  reconciliationDifference?: number;
 }
 
 // ── PPh 21 Summary ───────────────────────────────────────────────────────────
@@ -756,6 +759,17 @@ const INVENTORY_REPORTS: ReportDefinition[] = [
     description: 'Shows per-item opening balance, total in/out, and closing balance for a period.',
     type: 'table',
     filterMode: 'date-range',
+  },
+  {
+    // Placeholder fields: handleCardClick navigates to the standalone
+    // /inventory/valuation view before apiPath/filterMode/type are ever read.
+    id: 'stock-valuation',
+    category: 'inventory',
+    apiPath: '/inventory/valuation',
+    name: 'Stock Valuation',
+    description: 'Current inventory value (qty × average cost) per item, filterable by category and warehouse.',
+    type: 'table',
+    filterMode: 'as-of',
   },
 ];
 
@@ -1084,6 +1098,9 @@ const buildGlCsv = (report: ReportDefinition, data: Record<string, unknown>): st
     ]).join('\n');
     csv += `\nNet Change in Cash,,,${summary.netCashChange || 0}`;
     csv += `\nBeginning Cash,,,${summary.beginningCash || 0}`;
+    if (Math.abs(summary.reconciliationDifference || 0) > 0.005) {
+      csv += `\nUnexplained Reconciling Difference,,,${summary.reconciliationDifference || 0}`;
+    }
     csv += `\nEnding Cash,,,${summary.endingCash || 0}`;
     return csv;
   }
@@ -1094,6 +1111,7 @@ const buildGlCsv = (report: ReportDefinition, data: Record<string, unknown>): st
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const Reports: React.FC = () => {
+  const navigate = useNavigate();
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: itemsData } = useItems({ limit: 100 });
@@ -1275,6 +1293,12 @@ const Reports: React.FC = () => {
   };
 
   const handleCardClick = (report: ReportDefinition) => {
+    // Stock Valuation reuses its standalone view (category/warehouse filters,
+    // not the date-based param dialog), so navigate instead of opening the modal.
+    if (report.id === 'stock-valuation') {
+      navigate('/inventory/valuation');
+      return;
+    }
     const presetParams = activeReport?.report.id === report.id ? activeReport.params : null;
     openParamModal(report, presetParams);
   };
@@ -2488,6 +2512,12 @@ const Reports: React.FC = () => {
               <span className="text-neutral-600">Kas Awal Periode</span>
               <span className="font-semibold">{formatIDR(cfsData.summary.beginningCash || 0)}</span>
             </div>
+            {Math.abs(cfsData.summary.reconciliationDifference || 0) > 0.005 && (
+              <div className="flex items-center justify-between text-sm rounded-md bg-danger-50 px-2 py-1.5">
+                <span className="font-medium text-danger-700">Selisih Belum Terjelaskan</span>
+                <span className="font-semibold text-danger-700">{formatIDR(cfsData.summary.reconciliationDifference || 0)}</span>
+              </div>
+            )}
             <div className="border-t border-neutral-200 pt-3 flex items-center justify-between">
               <span className="font-semibold text-neutral-900">Kas Akhir Periode</span>
               <span className="font-bold text-primary-700">{formatIDR(cfsData.summary.endingCash || 0)}</span>

@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, requireOrg, withHandler, logAudit, ApiError } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
+import { postJournalEntry } from '@/lib/journal-posting';
+import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -153,59 +156,66 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       }
     }
 
-    // Create audit journal entry
-    const entryRows = await tx.$queryRaw`
-      SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-      FROM "JournalEntry"
-      WHERE "organizationId" = ${orgId}
-        AND "entryNo" LIKE ${'JE-%'}
-    `;
-    const nextSeq = (Number((entryRows as any)[0]?.max_seq ?? 0)) + 1;
-    const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
-
+    // Net valuation delta caused by re-costing the open lots. A positive value
+    // means the recalculated inventory is worth MORE than before (DR Inventory),
+    // negative means it is worth LESS (CR Inventory). Only post when non-zero.
     const valueChange = asMoney(totalNewValue - totalOldValue);
 
-    const journalEntry = await tx.journalEntry.create({
-      data: {
+    let journalEntryId: string | null = null;
+    if (valueChange !== 0) {
+      // Back-dated audit posting must respect a closed/locked period.
+      await assertPeriodOpen(tx, orgId, effectiveDateObj);
+
+      // Resolve REAL accounts the same way the other posting libs do — never
+      // post to a literal/fake id (JournalLine.account is a Restrict FK, so a
+      // bad id rolls back the whole switch).
+      const accounts = await tx.account.findMany({
+        where: { organizationId: orgId, isActive: true },
+        select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+      });
+      const settings = await loadOrgAccountDefaults(tx, orgId);
+      const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+      const varianceAccountId =
+        resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment') ||
+        resolveAccountDefaultId(accounts, settings, 'cogsExpense');
+
+      if (!inventoryAccountId) {
+        throw new ApiError(
+          'Cannot post costing adjustment: no Inventory asset account is configured for this organization',
+          422,
+        );
+      }
+      if (!varianceAccountId) {
+        throw new ApiError(
+          'Cannot post costing adjustment: no Inventory Variance (or COGS) account is configured for this organization',
+          422,
+        );
+      }
+
+      const amount = asMoney(Math.abs(valueChange));
+      const memo = `Costing method changed from ${oldMethod} to ${newMethod} effective ${effectiveDate}`;
+      const description = `Costing method change: ${oldMethod} to ${newMethod}`;
+
+      const entry = await postJournalEntry(tx, {
         organizationId: orgId,
-        entryNo,
         date: effectiveDateObj,
-        memo: `Costing method changed from ${oldMethod} to ${newMethod} effective ${effectiveDate}`,
+        memo,
         source: 'SYSTEM',
-        status: 'POSTED',
-        postedAt: new Date(),
-        totalDebit: Math.abs(valueChange),
-        totalCredit: Math.abs(valueChange),
-        lines: {
-          create: valueChange !== 0
-            ? [
-                {
-                  lineNo: 1,
-                  accountId: 'costing-adjustment',
-                  description: `Costing method change: ${oldMethod} to ${newMethod}`,
-                  debit: valueChange > 0 ? valueChange : 0,
-                  credit: valueChange < 0 ? Math.abs(valueChange) : 0,
-                },
-                {
-                  lineNo: 2,
-                  accountId: 'inventory-valuation-adjustment',
-                  description: `Costing method change: ${oldMethod} to ${newMethod}`,
-                  debit: valueChange < 0 ? Math.abs(valueChange) : 0,
-                  credit: valueChange > 0 ? valueChange : 0,
-                },
+        lines:
+          valueChange > 0
+            ? // Valuation INCREASE → DR Inventory / CR variance.
+              [
+                { accountId: inventoryAccountId, description, debit: amount, credit: 0 },
+                { accountId: varianceAccountId, description, debit: 0, credit: amount },
               ]
-            : [
-                {
-                  lineNo: 1,
-                  accountId: 'costing-adjustment',
-                  description: `Costing method change: ${oldMethod} to ${newMethod} (no value change)`,
-                  debit: 0,
-                  credit: 0,
-                },
+            : // Valuation DECREASE → DR variance / CR Inventory.
+              [
+                { accountId: varianceAccountId, description, debit: amount, credit: 0 },
+                { accountId: inventoryAccountId, description, debit: 0, credit: amount },
               ],
-        },
-      },
-    });
+      });
+      journalEntryId = entry.id;
+    }
 
     // Update organization settings
     await tx.organization.update({
@@ -220,7 +230,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     return {
       itemsRecalculated,
       totalValueChange: valueChange,
-      journalEntryId: journalEntry.id,
+      journalEntryId,
     };
   });
 

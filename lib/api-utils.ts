@@ -5,15 +5,10 @@ import { withCors } from '@/lib/cors';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { AccessError } from '@/lib/document-access';
 import { CreditLimitError } from '@/lib/credit-limit';
+import { ApiError } from '@/lib/errors';
 
-export class ApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
-}
+// Re-exported so existing `import { ApiError } from '@/lib/api-utils'` keeps working.
+export { ApiError };
 
 export function ok(data: unknown, status = 200) {
   return withCors(NextResponse.json(data, { status }));
@@ -34,7 +29,7 @@ type AuditOpts = {
   actorId?: string | null;
   entityType: string;
   entityId: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID' | 'RESET_PASSWORD' | 'CHANGE_PASSWORD';
   payload?: unknown;
 };
 
@@ -168,6 +163,7 @@ const NUMBER_QUERIES: Record<string, (prisma: any) => Promise<Array<{ max: numbe
   PurchaseReturn: (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PurchaseReturn"`,
   SalesReturn:    (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "SalesReturn"`,
   StockAdjustment:(p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "StockAdjustment"`,
+  StockCount:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "StockCount"`,
   PayrollRun:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PayrollRun"`,
   JournalEntry:   (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("entryNo" FROM '[0-9]+') AS INTEGER)) AS max FROM "JournalEntry"`,
 };
