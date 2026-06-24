@@ -33,12 +33,15 @@ interface InvoiceDetailTabsProps {
     invoice: InvoiceRecord;
     onEdit?: () => void;
     onPrint?: () => void;
+    onVoid?: () => void;
     canEdit?: boolean;
     canDelete?: boolean;
     canPrint?: boolean;
+    canVoid?: boolean;
 }
 
-const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, onPrint, canEdit = true, canDelete = false, canPrint = true }) => {
+const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, onPrint, onVoid, canEdit = true, canDelete = false, canPrint = true, canVoid = false }) => {
+    const voidable = ['sent', 'overdue'].includes(String(invoice.status ?? '').toLowerCase());
     const [activeTab, setActiveTab] = useState('summary');
 
     const renderTabContent = () => {
@@ -66,6 +69,9 @@ const InvoiceDetailTabs: React.FC<InvoiceDetailTabsProps> = ({ invoice, onEdit, 
                     <StatusTag status={invoice.status} />
                 </div>
                 <div className="detail-header-actions">
+                    {voidable && canVoid && onVoid && (
+                        <Button text="Void" size="small" variant="secondary" onClick={onVoid} />
+                    )}
                     {canPrint && (
                         <Button text="Print" size="small" variant="secondary" onClick={onPrint} />
                     )}

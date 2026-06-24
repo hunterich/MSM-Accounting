@@ -221,6 +221,17 @@ export function useDeleteInvoice() {
     });
 }
 
+export function useVoidInvoice() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/invoices/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoices });
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoice(id) });
+        },
+    });
+}
+
 // ── AR Payments ───────────────────────────────────────────────────────────────
 
 export function useARPayments(filters: Record<string, unknown> = {}) {
