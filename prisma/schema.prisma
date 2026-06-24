@@ -2005,6 +2005,13 @@ model ApprovalRequest {
 
   @@index([organizationId, status])
   @@index([organizationId, documentType, documentId])
+  // OUT-OF-BAND PARTIAL UNIQUE INDEX (Prisma cannot express filtered unique indexes):
+  //   CREATE UNIQUE INDEX "ApprovalRequest_open_pending_unique"
+  //   ON "ApprovalRequest" ("organizationId", "documentType", "documentId")
+  //   WHERE status = 'PENDING';
+  // Enforces at most one OPEN (PENDING) request per document — DB backstop for the
+  // routeForApproval advisory lock (Bug A: duplicate PENDING under concurrent finalize).
+  // Applied in scripts/test-db-setup.mjs for tests; MUST be created in prod at merge.
 }
 // ─── Asset Management ───────────────────────────────────────────────────────
 

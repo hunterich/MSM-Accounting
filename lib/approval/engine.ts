@@ -7,10 +7,26 @@ import { getDescriptor } from './registry';
 import { getFinalizer } from './finalizers';
 import { assertApprovalAuthorized } from './can-approve';
 
+/** FNV-1a 32-bit hash → stable advisory-lock id (same helper used for number sequences). */
+function fnv1aHash(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash || 1;
+}
+
 /**
  * Decide whether finalizing should be held for approval.
  * Returns true if it routed (caller must STOP and set its holding status);
- * false if no approval is needed / already granted (caller proceeds to finalize).
+ * false if approval is not required (caller proceeds to finalize).
+ *
+ * When approval IS required this ALWAYS returns true and ensures exactly one
+ * open PENDING request exists for the document: a per-document advisory lock
+ * serializes concurrent finalizes (no duplicate PENDING / TOCTOU), and a past
+ * APPROVED request is deliberately NOT treated as a free pass — a document that
+ * was approved, reverted, edited and re-finalized must be re-approved.
  */
 export async function routeForApproval(
   tx: Prisma.TransactionClient,
@@ -24,11 +40,11 @@ export async function routeForApproval(
   const { configKey } = getDescriptor(args.documentType);
   if (!requiresApproval(reqs, configKey)) return false;
 
-  const alreadyApproved = await tx.approvalRequest.findFirst({
-    where: { organizationId: args.orgId, documentType: args.documentType, documentId: args.documentId, status: 'APPROVED' },
-    select: { id: true },
-  });
-  if (alreadyApproved) return false; // approver path: let the finalize proceed
+  // Serialize concurrent finalizes of the SAME document so the find→create
+  // below cannot interleave (Bug A: two finalizes both see "no open PENDING"
+  // and both create one). The lock auto-releases at transaction end.
+  const lockKey = fnv1aHash(`approval:${args.orgId}:${args.documentType}:${args.documentId}`);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
 
   const open = await tx.approvalRequest.findFirst({
     where: { organizationId: args.orgId, documentType: args.documentType, documentId: args.documentId, status: 'PENDING' },
@@ -76,12 +92,20 @@ export async function approveRequest(
       requireDistinctApproverForAdmins: org?.requireDistinctApproverForAdmins ?? false,
     });
 
-    await getFinalizer(reqRow.documentType)(tx, actor.orgId, reqRow.documentId);
-
-    await tx.approvalRequest.update({
-      where: { id: reqRow.id },
+    // Atomically claim the request (PENDING → APPROVED) BEFORE running the
+    // finalizer so only the winner posts (Bug B: two concurrent approves both
+    // pass the status check above and both run the finalizer → double GL post).
+    // updateMany WHERE status:'PENDING' takes a row lock; a concurrent approve
+    // blocks here, then sees status≠PENDING → count===0 → 409. If the finalizer
+    // throws, the whole $transaction rolls back and the request stays PENDING.
+    const claim = await tx.approvalRequest.updateMany({
+      where: { id: reqRow.id, status: 'PENDING' },
       data: { status: 'APPROVED', reviewedById: actor.userId, reviewedAt: new Date() },
     });
+    if (claim.count !== 1) throw new ApiError('Approval request is no longer pending', 409);
+
+    await getFinalizer(reqRow.documentType)(tx, actor.orgId, reqRow.documentId);
+
     await logAuditTx(tx, {
       orgId: actor.orgId,
       actorId: actor.userId,
