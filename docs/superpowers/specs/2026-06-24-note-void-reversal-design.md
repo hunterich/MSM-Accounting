@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-24
 **Status:** Approved (design)
-**Scope:** Phase 1 of the "APPLIED → VOID does not reverse the journal entry on credit/debit notes (and returns)" fix. Notes only; returns are a tracked Phase 2 fast-follow.
+**Scope:** Phase 1 of the **Void Integrity Program** (umbrella: `docs/superpowers/specs/2026-06-24-void-integrity-program-design.md`). Credit & debit notes only — AR/AP, no inventory, no migration. The systemic audit that expanded this into a 6-phase program lives in the program spec; sales/purchase returns are Phase 4, invoices Phase 3.
 
 ## Problem
 
