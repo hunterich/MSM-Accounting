@@ -19,9 +19,12 @@ import { unreceiveGoodsReceipt } from '../unreceive-goods';
 const DATE = new Date('2026-06-14');
 const ACCOUNTS = [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }];
 
-function makeTx(bill: any, poLinesAfter: any[] = [{ quantity: 10, receivedQty: 0 }]) {
+function makeTx(bill: any, poLinesAfter: any[] = [{ quantity: 10, receivedQty: 0 }], claimCount = 1) {
   return {
-    bill: { findFirst: vi.fn(async () => bill), update: vi.fn(async () => ({})) },
+    bill: {
+      findFirst: vi.fn(async () => bill),
+      updateMany: vi.fn(async () => ({ count: claimCount })),
+    },
     purchaseOrderLine: { update: vi.fn(async () => ({})), findMany: vi.fn(async () => poLinesAfter) },
     purchaseOrder: { update: vi.fn(async () => ({})) },
     account: { findMany: vi.fn(async () => ACCOUNTS) },
@@ -45,6 +48,10 @@ describe('unreceiveGoodsReceipt', () => {
     await unreceiveGoodsReceipt(tx as never, 'org-a', 'bill-1', { date: DATE });
 
     expect(assertPeriodOpen).toHaveBeenCalledWith(tx, 'org-a', DATE);
+    // Un-receive is claimed atomically (soft-delete token) BEFORE any side effect.
+    const claim = (tx.bill.updateMany as any).mock.calls[0][0];
+    expect(claim.where).toMatchObject({ id: 'bill-1', status: 'DRAFT', deletedAt: null });
+    expect(claim.data).toMatchObject({ deletedAt: DATE });
     expect(reversePurchaseLayers).toHaveBeenCalledWith(tx, 'org-a', 'bill-1', DATE);
 
     const je = (postJournalEntry as any).mock.calls[0][1];
@@ -58,8 +65,16 @@ describe('unreceiveGoodsReceipt', () => {
     // nothing left received -> PO back to APPROVED
     expect(tx.purchaseOrder.update).toHaveBeenCalledWith({ where: { id: 'po-1' }, data: { status: 'APPROVED' } });
 
-    // receipt bill soft-deleted
-    expect((tx.bill.update as any).mock.calls[0][0].data).toMatchObject({ deletedAt: DATE });
+    // receipt bill soft-deleted exactly once, by the atomic claim above.
+    expect((tx.bill.updateMany as any).mock.calls.length).toBe(1);
+  });
+
+  it('rejects 409 if a concurrent un-receive already claimed it (claim count 0)', async () => {
+    const tx = makeTx(receiptBill(), [{ quantity: 10, receivedQty: 0 }], 0);
+    await expect(unreceiveGoodsReceipt(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/already un-received/i);
+    // Lost the claim race → no lot reversal, no PO decrement.
+    expect(reversePurchaseLayers).not.toHaveBeenCalled();
+    expect(tx.purchaseOrderLine.update).not.toHaveBeenCalled();
   });
 
   it('sets the PO back to PARTIAL_RECEIVED when other receipts remain', async () => {
@@ -78,7 +93,7 @@ describe('unreceiveGoodsReceipt', () => {
     const tx = makeTx(receiptBill({ status: 'OPEN' }));
     await expect(unreceiveGoodsReceipt(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/draft|void/i);
     expect(reversePurchaseLayers).not.toHaveBeenCalled();
-    expect(tx.bill.update).not.toHaveBeenCalled();
+    expect(tx.bill.updateMany).not.toHaveBeenCalled();
   });
 
   it('throws 404 when the bill does not exist', async () => {
