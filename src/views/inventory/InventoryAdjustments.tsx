@@ -7,7 +7,7 @@ import StatusTag from '../../components/UI/StatusTag';
 import { Plus, Search, List, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID } from '../../utils/formatters';
-import { useStockAdjustments } from '../../hooks/useInventory';
+import { useStockAdjustments, useVoidStockAdjustment } from '../../hooks/useInventory';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 interface AdjFilters {
@@ -25,6 +25,16 @@ const InventoryAdjustments = () => {
     const { canCreate, canEdit } = useModulePermissions('inv_adj');
     const { data: adjResult, isLoading } = useStockAdjustments();
     const adjustments = adjResult?.data ?? [];
+    const voidStockAdjustment = useVoidStockAdjustment();
+
+    const handleVoid = (id: string) => {
+        if (!window.confirm('Void this stock adjustment? Its journal entry will be reversed and the inventory change undone. This cannot be undone.')) return;
+        voidStockAdjustment.mutate(id, {
+            onError: (error: unknown) => {
+                window.alert(error instanceof Error ? error.message : 'Failed to void stock adjustment');
+            },
+        });
+    };
 
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<AdjFilters>({ status: '', type: '' });
@@ -57,8 +67,11 @@ const InventoryAdjustments = () => {
         { key: 'reason', label: 'Reason' },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Approved' ? 'Success' : (val as string)} label={val as string} /> },
         {
-            key: 'actions', label: '', render: (_: unknown, row: { id: string }) => (
+            key: 'actions', label: '', render: (_: unknown, row: { id: string; status?: string }) => (
                 <div className="flex gap-1.5 justify-end">
+                    {row.status !== 'Void' && (
+                        <Button text="Void" size="small" variant="tertiary" disabled={!canEdit || voidStockAdjustment.isPending} onClick={() => handleVoid(row.id)} />
+                    )}
                     <Button text="View" size="small" variant="tertiary" onClick={() => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=view`)} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={() => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=edit`)} />
                 </div>
