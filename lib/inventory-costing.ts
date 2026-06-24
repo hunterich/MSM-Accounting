@@ -198,6 +198,74 @@ export function reversePurchaseLayers(
 }
 
 /**
+ * Un-consume: restore the stock a document drew down (e.g. when voiding an
+ * invoice's COGS or a purchase return's removal). For each outbound
+ * `InventoryLedgerEntry` the document wrote, re-add a fresh inbound cost layer +
+ * ledger entry. The restored value anchors on the recorded `valueChange` (the
+ * exact total removed), so the round-trip is value-neutral even when the
+ * per-unit cost was rounded; the re-derived `unitCost` keeps the new lot's value
+ * equal to that total (so the inventory ledger and lots stay reconciled).
+ *
+ * The re-added layer is tagged ADJUSTMENT and dated `date`, so it re-enters FIFO
+ * at the end of the queue — a documented, accepted simplification vs. exact-lot
+ * restoration. Returns the total value restored (so callers can post the
+ * balancing GL contra).
+ *
+ * Not idempotent: the caller guards against double-restore at the document level
+ * (a terminal VOID status).
+ */
+export async function restoreConsumedLayers(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  documentType: InventoryDocumentType,
+  documentId: string,
+  date: Date,
+): Promise<number> {
+  const outbound = await tx.inventoryLedgerEntry.findMany({
+    where: { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 } },
+  })
+  if (outbound.length === 0) return 0
+
+  let valueRestored = 0
+  for (const entry of outbound) {
+    const qty = toNumber(entry.qtyOut)
+    const value = asMoney(-toNumber(entry.valueChange)) // exact total removed
+    const unitCost = qty > 0 ? value / qty : 0
+    valueRestored += value
+
+    await tx.inventoryLot.create({
+      data: {
+        organizationId: orgId,
+        itemId: entry.itemId,
+        warehouseId: entry.warehouseId ?? null,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        date,
+        qtyIn: qty,
+        qtyOut: 0,
+        qtyBalance: qty,
+        unitCost,
+      },
+    })
+    await tx.inventoryLedgerEntry.create({
+      data: {
+        organizationId: orgId,
+        itemId: entry.itemId,
+        warehouseId: entry.warehouseId ?? null,
+        date,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        qtyIn: qty,
+        qtyOut: 0,
+        unitCost,
+        valueChange: value,
+      },
+    })
+  }
+  return asMoney(valueRestored)
+}
+
+/**
  * FIFO consumption: consumes cost layers oldest-first and returns total cost and
  * average COGS per unit for the outbound movement.
  */
