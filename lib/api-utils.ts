@@ -29,7 +29,7 @@ type AuditOpts = {
   actorId?: string | null;
   entityType: string;
   entityId: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID' | 'RESET_PASSWORD' | 'CHANGE_PASSWORD';
   payload?: unknown;
 };
 

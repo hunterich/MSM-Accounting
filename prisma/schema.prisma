@@ -102,6 +102,7 @@ model User {
   email          String   @unique
   fullName       String
   passwordHash   String?
+  mustChangePassword Boolean @default(false)
   status         UserStatus @default(ACTIVE)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

@@ -18,7 +18,6 @@ import type { AccountDefaultKey } from '../../../lib/account-defaults';
 import type { LucideIcon } from 'lucide-react';
 
 interface SecuritySettings {
-    require2FA: boolean;
     allowInvites: boolean;
     sessionTimeoutMinutes: string;
 }
@@ -136,7 +135,6 @@ const Settings = () => {
       setRequireDistinctApproverForAdmins(serverOrgSettings.requireDistinctApproverForAdmins);
     }, [serverOrgSettings]);
     const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
-        require2FA: false,
         allowInvites: true,
         sessionTimeoutMinutes: '30'
     });
