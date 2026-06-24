@@ -62,8 +62,12 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         if (!invoice) {
           throw new ApiError('Invoice not found in organization', 404);
         }
+        // Only COMPLETED-payment allocations have actually cleared the invoice.
+        // VOID / PENDING_APPROVAL / DRAFT allocations posted no GL and must NOT
+        // count toward `alreadyPaid` (matches AR aging), otherwise a real new
+        // payment is falsely blocked with "Over-allocation".
         const existingAllocations = await tx.aRPaymentAllocation.aggregate({
-          where: { invoiceId: allocation.invoiceId },
+          where: { invoiceId: allocation.invoiceId, payment: { status: 'COMPLETED' } },
           _sum: { amountApplied: true },
         });
         const alreadyPaid = Number(existingAllocations._sum.amountApplied ?? 0);

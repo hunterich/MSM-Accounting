@@ -63,8 +63,12 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         if (!bill) {
           throw new ApiError('Bill not found in organization', 404);
         }
+        // Only COMPLETED-payment allocations have actually cleared the bill.
+        // VOID / PENDING_APPROVAL / DRAFT allocations posted no GL and must NOT
+        // count toward `alreadyPaid` (matches AP aging), otherwise a real new
+        // payment is falsely blocked with "Over-allocation".
         const existingAllocations = await tx.aPPaymentAllocation.aggregate({
-          where: { billId: allocation.billId },
+          where: { billId: allocation.billId, payment: { status: 'COMPLETED' } },
           _sum: { amountApplied: true },
         });
         const alreadyPaid = Number(existingAllocations._sum.amountApplied ?? 0);
