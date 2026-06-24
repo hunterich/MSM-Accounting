@@ -70,3 +70,14 @@ it('PUT status:VOID is rejected on a debit note (422, directs to /void)', async 
   expect(res.status).toBe(422);
   expect(prisma.$transaction).not.toHaveBeenCalled();
 });
+
+it('PUT rejects a mixed-case void status too (case-insensitive guard)', async () => {
+  const req = new NextRequest('http://localhost/api/v1/credit-notes/cn-1', {
+    method: 'PUT',
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 'Void' }),
+  });
+  const res = await putCredit(req, cnParams);
+  expect(res.status).toBe(422);
+  expect(prisma.$transaction).not.toHaveBeenCalled();
+});

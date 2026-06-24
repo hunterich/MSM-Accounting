@@ -50,7 +50,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     // Voiding a posted note must reverse its journal entry — that only happens
     // through the dedicated endpoint. A bare status flip here would leave the
     // posting entry live (the bug this guards against).
-    if (body.status === 'VOID') {
+    if (String(body.status ?? '').toUpperCase() === 'VOID') {
       return withCors(
         NextResponse.json(
           { error: 'Void a posted debit note through POST /api/v1/debit-notes/:id/void' },
