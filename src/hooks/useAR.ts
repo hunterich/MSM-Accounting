@@ -50,6 +50,7 @@ function normalizeCustomer(raw: RawCustomer): Customer {
         defaultDiscount: Number(raw.defaultDiscount ?? 0),
         paymentTerms:    Number(raw.paymentTermsDays ?? raw.paymentTerms ?? 0),
         creditLimit:     Number(raw.creditLimit ?? 0),
+        npwp:            raw.npwp             || '',
         useCategoryDefaults: raw.useCategoryDefaults ?? true,
         billingAddress:  raw.billingAddress  || '',
         shippingAddress: raw.shippingAddress || '',

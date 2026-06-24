@@ -26,6 +26,7 @@ export interface RawCustomer {
   paymentTermsDays?: number | string | null;
   paymentTerms?: number | string | null;
   creditLimit?: number | string | null;
+  npwp?: string | null;
   useCategoryDefaults?: boolean | null;
   billingAddress?: string | null;
   shippingAddress?: string | null;
@@ -443,6 +444,7 @@ export interface Customer {
   defaultDiscount: number;
   paymentTerms: number;
   creditLimit: number;
+  npwp: string;
   useCategoryDefaults: boolean;
   billingAddress: string;
   shippingAddress: string;
