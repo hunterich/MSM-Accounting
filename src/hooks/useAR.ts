@@ -23,7 +23,7 @@ export const AR_KEYS = {
 const CUSTOMER_STATUS_DOWN: Record<string, CustomerStatus> = { ACTIVE: 'Active', INACTIVE: 'Inactive' };
 const CUSTOMER_STATUS_UP:   Record<string, string>         = { Active: 'ACTIVE', Inactive: 'INACTIVE' };
 
-const INVOICE_STATUS_DOWN: Record<string, InvoiceStatus> = { DRAFT: 'Draft', SENT: 'Sent', PAID: 'Paid', OVERDUE: 'Overdue' };
+const INVOICE_STATUS_DOWN: Record<string, InvoiceStatus> = { DRAFT: 'Draft', SENT: 'Sent', PAID: 'Paid', OVERDUE: 'Overdue', VOID: 'Void' };
 const INVOICE_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Sent: 'SENT', Paid: 'PAID', Overdue: 'OVERDUE' };
 
 const PAYMENT_METHOD_UP: Record<string, string> = {
@@ -219,6 +219,17 @@ export function useDeleteInvoice() {
     return useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/invoices/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.invoices }),
+    });
+}
+
+export function useVoidInvoice() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/invoices/${id}/void`, {}),
+        onSuccess: (_, id) => {
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoices });
+            qc.invalidateQueries({ queryKey: AR_KEYS.invoice(id) });
+        },
     });
 }
 

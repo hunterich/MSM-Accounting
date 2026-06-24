@@ -397,7 +397,7 @@ export interface RawBillImportSession {
 // ── Normalized frontend types ─────────────────────────────────────────────────
 
 export type CustomerStatus = 'Active' | 'Inactive';
-export type InvoiceStatus  = 'Draft' | 'Sent' | 'Paid' | 'Overdue';
+export type InvoiceStatus  = 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Void';
 export type PaymentStatus  = 'Draft' | 'Processing' | 'Completed' | 'Void';
 export type VendorStatus   = 'Active' | 'Inactive';
 export type BillStatus     = 'Draft' | 'Unpaid' | 'Pending' | 'Paid' | 'Overdue' | 'Void';
