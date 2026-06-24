@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { stockAdjustmentInputSchema } from '@/types/api';
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +35,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+  const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
   const parsed = stockAdjustmentInputSchema.safeParse({
     ...body,
@@ -80,9 +83,35 @@ export const POST = withHandler(async function POST(req: NextRequest) {
           totalValue: l.totalValue ?? ((Number(l.newQty) - Number(l.oldQty)) * Number(l.unitCost)),
         })),
       });
+    }
 
-      // Write the perpetual inventory ledger + balancing GL entry. Shared with
-      // the integration tests via lib/stock-adjustment-posting.ts.
+    // Approval gate: a live (non-DRAFT) adjustment must route regardless of line
+    // count. The input schema permits status:'APPROVED' with empty lines, so
+    // gating on `lines.length > 0` would let such a doc go live unrouted — a
+    // status-only approval bypass (GL impact is zero, but the state is wrong).
+    let routed = false;
+    if (adj.status !== 'DRAFT') {
+      routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'STOCK_ADJUSTMENT',
+        documentId: adj.id,
+      });
+      if (routed) {
+        // HELD for approval: stamp PENDING_APPROVAL and write NO ledger/GL.
+        await tx.stockAdjustment.update({
+          where: { id: adj.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+      }
+    }
+
+    // Post the perpetual inventory ledger + balancing GL entry only when the
+    // adjustment was not held for approval and there are lines to post. This
+    // preserves prior behavior: a non-routed adjustment with lines posts as
+    // before; an empty-lines adjustment posts nothing either way. Shared with
+    // the integration tests via lib/stock-adjustment-posting.ts.
+    if (!routed && lines.length > 0) {
       await postStockAdjustmentToLedger(tx, orgId, {
         id: adj.id,
         number: adj.number,

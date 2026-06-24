@@ -4,6 +4,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -51,9 +52,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 //     The recommended path is APPLIED → VOID, then create a replacement.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
+
+    // Voiding a posted note must reverse its journal entry — that only happens
+    // through the dedicated endpoint. A bare status flip here would leave the
+    // posting entry live (the bug this guards against).
+    if (String(body.status ?? '').toUpperCase() === 'VOID') {
+      return withCors(
+        NextResponse.json(
+          { error: 'Void a posted credit note through POST /api/v1/credit-notes/:id/void' },
+          { status: 422 },
+        ),
+      );
+    }
 
     const cn = await prisma.$transaction(async (tx) => {
       const prior = await tx.creditNote.findFirst({
@@ -92,14 +109,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         },
       });
 
+      // Auto-route the DRAFT → APPLIED finalize through the approval engine.
+      // The update above may have already stamped status='APPLIED'; if approval
+      // is required, hold the note at PENDING_APPROVAL and post NO GL.
       if (prior.status === 'DRAFT' && nextStatus === 'APPLIED') {
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'CREDIT_NOTE',
+          documentId: id,
+        });
+        if (routed) {
+          return tx.creditNote.update({
+            where: { id, organizationId: orgId },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        }
         await postCreditNoteOnApply(tx, id);
       }
 
       return updated;
     });
 
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: userId, entityType: 'CreditNote', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(cn));
   } catch (error) {
     const status = (error as { status?: number }).status ?? 500;

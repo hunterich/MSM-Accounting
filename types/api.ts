@@ -354,6 +354,8 @@ export const updateOrganizationSettingsInputSchema = z.object({
   paymentAlerts: z.boolean().optional(),
   dailySummary: z.boolean().optional(),
   accountDefaults: z.record(z.string().min(1), z.string()).optional(),
+  approvalRequirements: z.record(z.string(), z.boolean()).optional(),
+  requireDistinctApproverForAdmins: z.boolean().optional(),
   printSettings: z.object({
     showLogo: z.boolean().optional(),
     showLetterhead: z.boolean().optional(),

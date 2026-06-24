@@ -26,6 +26,7 @@ export interface RawCustomer {
   paymentTermsDays?: number | string | null;
   paymentTerms?: number | string | null;
   creditLimit?: number | string | null;
+  npwp?: string | null;
   useCategoryDefaults?: boolean | null;
   billingAddress?: string | null;
   shippingAddress?: string | null;
@@ -248,6 +249,19 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   signerName: '',
 };
 
+export interface ApprovalRequirementsMap {
+  ar_sales_orders: boolean;
+  ar_invoices: boolean;
+  ar_payments: boolean;
+  ar_credits: boolean;
+  ap_pos: boolean;
+  ap_bills: boolean;
+  ap_payments: boolean;
+  ap_debits: boolean;
+  inv_adj: boolean;
+  hr_payroll: boolean;
+}
+
 export interface RawOrganizationSettings {
   id: string;
   legalName?: string | null;
@@ -268,6 +282,8 @@ export interface RawOrganizationSettings {
   costingMethodSetById?: string | null;
   costingMethodEffectiveDate?: string | null;
   accountDefaults?: Record<string, string> | null;
+  approvalRequirements?: Partial<ApprovalRequirementsMap> | null;
+  requireDistinctApproverForAdmins?: boolean | null;
 }
 
 export type ShopPaymentMode = 'direct' | 'settlement_import';
@@ -381,7 +397,7 @@ export interface RawBillImportSession {
 // ── Normalized frontend types ─────────────────────────────────────────────────
 
 export type CustomerStatus = 'Active' | 'Inactive';
-export type InvoiceStatus  = 'Draft' | 'Sent' | 'Paid' | 'Overdue';
+export type InvoiceStatus  = 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Void';
 export type PaymentStatus  = 'Draft' | 'Processing' | 'Completed' | 'Void';
 export type VendorStatus   = 'Active' | 'Inactive';
 export type BillStatus     = 'Draft' | 'Unpaid' | 'Pending' | 'Paid' | 'Overdue' | 'Void';
@@ -413,6 +429,8 @@ export interface OrganizationSettings {
   costingMethodEffectiveDate: string;
   accountDefaults: Record<string, string>;
   needsInventoryValuationSetup: boolean;
+  approvalRequirements: ApprovalRequirementsMap;
+  requireDistinctApproverForAdmins: boolean;
 }
 
 export interface EcommerceConnection {
@@ -443,6 +461,7 @@ export interface Customer {
   defaultDiscount: number;
   paymentTerms: number;
   creditLimit: number;
+  npwp: string;
   useCategoryDefaults: boolean;
   billingAddress: string;
   shippingAddress: string;

@@ -42,10 +42,10 @@ const RETURN_STATUS_UP: Record<string, string> = {
 };
 
 const CN_STATUS_DOWN: Record<string, CreditNoteStatus> = { DRAFT: 'Draft', APPLIED: 'Applied', VOID: 'Void' };
-const CN_STATUS_UP:   Record<string, string>           = { Draft: 'DRAFT', Applied: 'APPLIED', Void: 'VOID' };
+const CN_STATUS_UP:   Record<string, string>           = { Draft: 'DRAFT', Applied: 'APPLIED' };
 
 const DN_STATUS_DOWN: Record<string, DebitNoteStatus>  = { DRAFT: 'Draft', APPLIED: 'Applied', VOID: 'Void' };
-const DN_STATUS_UP:   Record<string, string>           = { Draft: 'DRAFT', Applied: 'APPLIED', Void: 'VOID' };
+const DN_STATUS_UP:   Record<string, string>           = { Draft: 'DRAFT', Applied: 'APPLIED' };
 
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
@@ -350,6 +350,14 @@ export function useDeleteCreditNote() {
   });
 }
 
+export function useVoidCreditNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/api/v1/credit-notes/${id}/void`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['creditNotes'] }),
+  });
+}
+
 // ─── Debit Notes ──────────────────────────────────────────────────────────────
 
 export function useDebitNotes(filters: Record<string, unknown> = {}) {
@@ -391,6 +399,14 @@ export function useUpdateDebitNote() {
         ...(body.status         && { status:         DN_STATUS_UP[body.status] ?? body.status }),
         ...(body.settlementType && { settlementType: body.settlementType === 'Refund from Vendor' ? 'REFUND_FROM_VENDOR' : 'APPLY_TO_BILL' }),
       }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['debitNotes'] }),
+  });
+}
+
+export function useVoidDebitNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/api/v1/debit-notes/${id}/void`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['debitNotes'] }),
   });
 }

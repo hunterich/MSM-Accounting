@@ -19,9 +19,13 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const topN           = topNRaw ? parseInt(topNRaw, 10) : null;
   const sortBy         = searchParams.get('sortBy') || 'total'; // 'total' | 'qty'
 
+  // Positive whitelist of LIVE invoice statuses (matches reports/ar and the
+  // dashboard convention). A loose `status: { not: 'VOID' }` would leak held
+  // (PENDING_APPROVAL) and DRAFT invoices into revenue totals, disagreeing with
+  // the GL-based P&L (which only sums POSTED journal lines).
   const dateFilter: any = {
     organizationId: orgId,
-    status: { not: 'VOID' },
+    status: { in: ['SENT', 'OVERDUE', 'PAID'] },
   };
   if (dateFrom) dateFilter.issueDate = { ...dateFilter.issueDate, gte: new Date(dateFrom) };
   if (dateTo) {

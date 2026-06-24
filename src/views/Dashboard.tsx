@@ -7,6 +7,7 @@ import Modal from '../components/UI/Modal';
 import { WIDGET_REGISTRY, DEFAULT_WIDGET_IDS } from '../config/dashboardWidgets';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAccessStore } from '../stores/useAccessStore';
+import { useAuthStore } from '../stores/useAuthStore';
 
 // Widget components
 import CashOnHandWidget       from '../components/dashboard/widgets/CashOnHandWidget';
@@ -15,7 +16,8 @@ import NetCashFlowWidget      from '../components/dashboard/widgets/NetCashFlowW
 import OutstandingBillsWidget from '../components/dashboard/widgets/OutstandingBillsWidget';
 import RecentInvoicesWidget   from '../components/dashboard/widgets/RecentInvoicesWidget';
 import RecentPaymentsWidget   from '../components/dashboard/widgets/RecentPaymentsWidget';
-import RecentBillsWidget      from '../components/dashboard/widgets/RecentBillsWidget';
+import RecentBillsWidget          from '../components/dashboard/widgets/RecentBillsWidget';
+import PendingApprovalsWidget     from '../components/dashboard/widgets/PendingApprovalsWidget';
 
 const WIDGET_COMPONENTS: Record<string, React.ComponentType> = {
     cash_on_hand:      CashOnHandWidget,
@@ -25,6 +27,7 @@ const WIDGET_COMPONENTS: Record<string, React.ComponentType> = {
     recent_invoices:   RecentInvoicesWidget,
     recent_payments:   RecentPaymentsWidget,
     recent_bills:      RecentBillsWidget,
+    pending_approvals: PendingApprovalsWidget,
 };
 
 const Dashboard = (): React.ReactElement => {
@@ -33,6 +36,7 @@ const Dashboard = (): React.ReactElement => {
 
     const currentUser         = useAccessStore((s) => s.getCurrentUser());
     const hasPermission       = useAccessStore((s) => s.hasPermission);
+    const canApproveAny       = useAuthStore((s) => s.permissions.some((p) => p.canApprove === true));
     const dashboardConfig     = useSettingsStore((s) => s.dashboardConfig);
     const setDashboardWidgets = useSettingsStore((s) => s.setDashboardWidgets);
 
@@ -41,16 +45,20 @@ const Dashboard = (): React.ReactElement => {
         const saved = dashboardConfig[currentUser?.id] ?? DEFAULT_WIDGET_IDS;
         return saved.filter((id) => {
             const meta = WIDGET_REGISTRY.find((w) => w.id === id);
-            return meta && hasPermission(meta.permission, 'view');
+            if (!meta) return false;
+            if (meta.requiresApproveRight) return canApproveAny;
+            return hasPermission(meta.permission, 'view');
         });
-    }, [currentUser, dashboardConfig, hasPermission]);
+    }, [currentUser, dashboardConfig, hasPermission, canApproveAny]);
 
     // Widgets the user is permitted to add but hasn't added yet
     const addableWidgets = useMemo(() =>
-        WIDGET_REGISTRY.filter(
-            (w) => hasPermission(w.permission, 'view') && !activeWidgetIds.includes(w.id)
-        ),
-        [activeWidgetIds, hasPermission]
+        WIDGET_REGISTRY.filter((w) => {
+            if (activeWidgetIds.includes(w.id)) return false;
+            if (w.requiresApproveRight) return canApproveAny;
+            return hasPermission(w.permission, 'view');
+        }),
+        [activeWidgetIds, hasPermission, canApproveAny]
     );
 
     const removeWidget = (id: string): void => {

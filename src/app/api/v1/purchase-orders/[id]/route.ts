@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updatePurchaseOrderInputSchema } from '@/types/api';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -28,7 +29,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
     const parsed = updatePurchaseOrderInputSchema.safeParse(body);
@@ -38,7 +43,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { lines, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId }, select: { id: true } });
+      const existing = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
       if (!existing) return null;
       if (header.vendorId) {
         await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
@@ -47,6 +52,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         where: { id, organizationId: orgId },
         data: { ...header, updatedAt: new Date() },
       });
+
+      // Auto-route the DRAFT → APPROVED finalize through the approval engine.
+      // The header update above may have already stamped status='APPROVED';
+      // if approval is required, hold the PO at PENDING_APPROVAL instead.
+      if (existing.status === 'DRAFT' && header.status === 'APPROVED') {
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'PURCHASE_ORDER',
+          documentId: id,
+        });
+        if (routed) {
+          await tx.purchaseOrder.update({
+            where: { id },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+          // NOTE: intentionally no early return here. The PO is now held at
+          // PENDING_APPROVAL, but we must still fall through to the line
+          // replace/createMany block below so the user's edited line items are
+          // saved on the held document. Returning early would silently drop edits.
+        }
+        // else: not required / already approved — keep APPROVED (POs post no GL).
+      }
       if (lines) {
         await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId: id } });
         await tx.purchaseOrderLine.createMany({

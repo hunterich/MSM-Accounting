@@ -27,6 +27,18 @@ export const POST = withHandler(async function POST(
     return err(`Purchase order must be in DRAFT status to submit for approval (current: ${po.status})`, 400);
   }
 
+  // Dedup: if an open PENDING request already exists (e.g. created by the
+  // auto-route at finalize), reuse it rather than creating a duplicate.
+  const existingPending = await prisma.approvalRequest.findFirst({
+    where: { organizationId: orgId, documentType: 'PURCHASE_ORDER', documentId: id, status: 'PENDING' },
+    select: { id: true },
+  });
+  if (existingPending) {
+    // Already awaiting approval — ensure the doc reflects it and return the existing request.
+    await prisma.purchaseOrder.update({ where: { id }, data: { status: 'PENDING_APPROVAL', updatedAt: new Date() } });
+    return ok({ success: true, approvalRequestId: existingPending.id });
+  }
+
   const [approvalRequest] = await prisma.$transaction([
     prisma.approvalRequest.create({
       data: {

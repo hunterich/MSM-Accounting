@@ -9,7 +9,7 @@ import DocumentTabBar from '../../components/UI/DocumentTabBar';
 import PageHeader from '../../components/Layout/PageHeader';
 import { Plus, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
-import { useCreditNotes, useSalesReturns, useWarehouses, useVoidSalesReturn } from '../../hooks/useReturns';
+import { useCreditNotes, useSalesReturns, useWarehouses, useVoidSalesReturn, useVoidCreditNote } from '../../hooks/useReturns';
 import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
@@ -51,6 +51,16 @@ const CreditNotes = () => {
     const { canCreate, canEdit, canDelete } = useModulePermissions('ar_credits');
     const { data: cnData } = useCreditNotes();
     const creditNotes = cnData?.data ?? [];
+    const voidCreditNote = useVoidCreditNote();
+
+    const handleVoidCredit = (id: string) => {
+        if (!window.confirm('Void this credit note? Its journal entry will be reversed. This cannot be undone.')) return;
+        voidCreditNote.mutate(id, {
+            onError: (error: unknown) => {
+                window.alert(error instanceof Error ? error.message : 'Failed to void credit note');
+            },
+        });
+    };
     const { data: srData } = useSalesReturns();
     const salesReturns = srData?.data ?? [];
     const voidSalesReturn = useVoidSalesReturn();
@@ -183,6 +193,9 @@ const CreditNotes = () => {
             label: '',
             render: (_: unknown, row: Record<string, unknown>) => (
                 <div className="row-actions-end">
+                    {(row['status'] as string) === 'Applied' && (
+                        <Button text="Void" size="small" variant="tertiary" disabled={!canEdit || voidCreditNote.isPending} onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleVoidCredit(row['id'] as string); }} />
+                    )}
                     <Button text="View" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openDoc('credit', row['id'] as string); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); queuePrintCredit(row['id'] as string); }} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(e: React.MouseEvent) => { e.stopPropagation(); navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: row['id'] as string } }); }} />
@@ -344,6 +357,9 @@ const CreditNotes = () => {
                             <StatusTag status={selectedCredit.status === 'Applied' ? 'Success' : 'Info'} label={selectedCredit.status} />
                         </div>
                         <div className="detail-header-actions">
+                            {selectedCredit.status === 'Applied' && (
+                                <Button text="Void" size="small" variant="secondary" disabled={!canEdit || voidCreditNote.isPending} onClick={() => handleVoidCredit(selectedCredit.id)} />
+                            )}
                             <Button text="Print" size="small" variant="secondary" onClick={() => queuePrintCredit(selectedCredit.id)} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ar/credits/edit', { state: { mode: 'edit', creditId: selectedCredit.id } })} />
                         </div>

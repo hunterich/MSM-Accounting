@@ -7,6 +7,10 @@ import {
   withHandler,
   logAudit,
 } from '@/lib/api-utils';
+import { routeForApproval } from '@/lib/approval/engine';
+import { resolveRequesterId } from '@/lib/approval/requester';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -56,6 +60,7 @@ type GenerateResult =
 async function generateFromTemplate(
   orgId: string,
   templateId: string,
+  userId: string,
 ): Promise<GenerateResult> {
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -103,6 +108,17 @@ async function generateFromTemplate(
       const taxAmount = Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100;
       const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
 
+      // PPN classification: carry the template's tax flag onto the Bill so
+      // postBillToLedger books a separate DR Input Tax (apTax) line instead of
+      // burying the PPN inside the expense/inventory debit. postBillToLedger
+      // applies the *bill-level* taxable flag uniformly to every line (no
+      // per-line tax support), so we only mark the bill taxable when there is
+      // positive tax AND every line is taxable — that keeps the booked input
+      // tax equal to taxAmount and the AP credit equal to totalAmount. Mixed
+      // taxable/non-taxable templates fall back to taxable=false (no over-tax).
+      const allLinesTaxable = template.lines.every((line) => line.taxable);
+      const billTaxable = taxRate > 0 && taxAmount > 0 && allLinesTaxable;
+
       const issueDate = new Date(template.nextRunDate);
       const dueDate = new Date(template.nextRunDate);
       dueDate.setDate(dueDate.getDate() + 30);
@@ -119,6 +135,11 @@ async function generateFromTemplate(
           status: template.autoPost ? 'OPEN' : 'DRAFT',
           recurringBillId: template.id,
           taxRate,
+          taxable: billTaxable,
+          // Recurring templates compute tax exclusively (taxAmount on top of
+          // subtotal), so the generated bill is tax-EXCLUSIVE — mirrors the
+          // normal bill create default.
+          taxInclusive: false,
           taxAmount,
           subtotal,
           totalAmount,
@@ -140,6 +161,37 @@ async function generateFromTemplate(
         },
         select: { id: true, number: true },
       });
+
+      // Gate the auto-posted bill through the approval engine. An autoPost
+      // template creates a live OPEN (payable) bill; if ap_bills approval is
+      // required this must instead be HELD (PENDING_APPROVAL) so it does not
+      // enter AP aging and skip the gate. DRAFT bills (autoPost false) never go live.
+      if (template.autoPost) {
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'BILL',
+          documentId: bill.id,
+        });
+        if (routed) {
+          await tx.bill.update({
+            where: { id: bill.id },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        } else {
+          // Approval off / not required → the OPEN bill is live (in AP aging),
+          // so its GL must actually post. Mirrors the BILL finalizer: assert the
+          // period, then post inventory/expense/AP. postBillToLedger needs the
+          // bill WITH its lines (PostableBill shape). A locked-period throw is
+          // caught per-doc, isolating the failure to this one template.
+          const billWithLines = await tx.bill.findFirst({
+            where: { id: bill.id, organizationId: orgId },
+            include: { lines: true },
+          });
+          await assertPeriodOpen(tx, orgId, new Date(issueDate));
+          await postBillToLedger(tx, orgId, billWithLines as never);
+        }
+      }
 
       // Advance nextRunDate
       const newNextRunDate = calcNextRunDate(
@@ -178,6 +230,10 @@ async function generateFromTemplate(
 export const POST = withHandler(async (req: NextRequest) => {
   const orgId = requireOrg(req);
   const actorId = req.headers.get('x-user-id');
+  // Resolve the user any held ApprovalRequest will be attributed to: the caller
+  // (x-user-id) when present, else the org's admin (deterministic scheduler
+  // fallback). Resolved up-front so every template in the batch shares it.
+  const requesterId = await resolveRequesterId(orgId, actorId, 'recurring bills');
 
   const today = new Date();
   // Normalize to start-of-day UTC so date-only comparison is correct
@@ -193,7 +249,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   });
 
   const results = await Promise.allSettled(
-    templates.map((t) => generateFromTemplate(orgId, t.id)),
+    templates.map((t) => generateFromTemplate(orgId, t.id, requesterId)),
   );
 
   const generated: string[] = [];

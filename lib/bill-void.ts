@@ -74,6 +74,18 @@ export async function voidBill(
     throw new ApiError('No posting journal entry found for this bill — nothing to reverse', 422);
   }
 
+  // Atomically claim VOID before any GL/inventory side effect. The guarded
+  // `updateMany` takes a row lock; a concurrent void blocks here, then sees the
+  // bill already VOID → count 0 → 409, so the reversal runs exactly once and the
+  // ledger can never be double-reversed.
+  const claim = await tx.bill.updateMany({
+    where: { id: billId, organizationId: orgId, status: { not: 'VOID' }, voidedAt: null },
+    data: { status: 'VOID', voidedAt: opts.date },
+  });
+  if (claim.count !== 1) {
+    throw new ApiError('Bill is already voided', 409);
+  }
+
   await reverseJournalEntry(tx, journalEntryId, { date: opts.date, memo: `Void bill: ${bill.number}` });
 
   // Only bills that booked inventory directly own their cost layers. PO-sourced
@@ -81,9 +93,4 @@ export async function voidBill(
   if (!bill.poId) {
     await reversePurchaseLayers(tx, orgId, bill.id, opts.date);
   }
-
-  await tx.bill.update({
-    where: { id: bill.id },
-    data: { status: 'VOID', voidedAt: opts.date },
-  });
 }

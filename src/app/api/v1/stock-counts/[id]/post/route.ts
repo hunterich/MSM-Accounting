@@ -18,11 +18,24 @@ export const POST = withHandler(async function POST(req: NextRequest, { params }
     });
     if (!count) throw new ApiError('Stock count not found', 404);
     if (count.status !== 'SUBMITTED') throw new ApiError(`Cannot post a ${count.status} count`, 400);
+
+    // Atomically claim POSTED before the inventory/GL side effect. The guarded
+    // updateMany takes a row lock; a concurrent post blocks here, then sees the
+    // row already POSTED → count 0 → 409. This is the race guard — it MUST run
+    // before postStockCount, or two concurrent posts both create a
+    // StockAdjustment + double the inventory + double the variance JE.
+    const claim = await tx.stockCount.updateMany({
+      where: { id, organizationId: orgId, status: 'SUBMITTED' },
+      data: { status: 'POSTED', postedAt: new Date() },
+    });
+    if (claim.count !== 1) throw new ApiError('Stock count already posted', 409);
+
     const generatedAdjustmentId = await postStockCount(tx, orgId, {
       id: count.id, number: count.number, date: count.date, warehouseId: count.warehouseId,
       lines: count.lines.map((l) => ({ itemId: l.itemId, systemQty: l.systemQty, countedQty: l.countedQty, unitCost: l.unitCost })),
     });
-    return tx.stockCount.update({ where: { id }, data: { status: 'POSTED', postedAt: new Date(), generatedAdjustmentId } });
+    // Attach the generated adjustment id (status/postedAt were set by the claim).
+    return tx.stockCount.update({ where: { id }, data: { generatedAdjustmentId } });
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'StockCount', entityId: id, action: 'UPDATE', payload: { action: 'POST' } });
   return ok(result);

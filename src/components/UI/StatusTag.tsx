@@ -20,6 +20,7 @@ const STATUS_MAP: Record<string, StatusConfig> = {
     rejected:     { tone: 'danger', label: 'Rejected' },
     out_of_stock: { tone: 'danger', label: 'Out of stock' },
     voided:       { tone: 'danger', label: 'Voided' },
+    void:         { tone: 'danger', label: 'Void' },
 
     pending:      { tone: 'warning', label: 'Pending' },
     awaiting:     { tone: 'warning', label: 'Awaiting approval' },

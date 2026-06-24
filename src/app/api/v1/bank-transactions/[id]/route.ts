@@ -109,6 +109,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       throw new ApiError('This expense has already been posted to the ledger and cannot be deleted — void it instead.', 409);
     }
 
+    // Atomically claim the delete BEFORE touching the balance. The guarded
+    // `deleteMany` takes a row lock; a concurrent delete blocks here, then finds
+    // the row already gone → count 0 → 409, so only the winner increments the
+    // bank-account balance (a double-delete would otherwise double-increment it).
+    const del = await tx.bankTransaction.deleteMany({
+      where: { id, organizationId: orgId, journalEntryId: null },
+    });
+    if (del.count !== 1) {
+      throw new ApiError('Transaction not found or already posted', 409);
+    }
+
     const delta = existing.type === 'INCOME'
       ? -Number(existing.amount)
       : existing.type === 'TRANSFER'
@@ -122,7 +133,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       });
     }
 
-    await tx.bankTransaction.delete({ where: { id, organizationId: orgId } });
     return existing;
   });
   if (!deleted) return err('Not found', 404);
