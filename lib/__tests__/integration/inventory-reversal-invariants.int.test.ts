@@ -102,4 +102,36 @@ describe('restoreConsumedLayers round-trip', () => {
 
     await cleanupOrg(org.orgId);
   });
+
+  it('restores exactly (value-neutral) across multiple FIFO lots with a non-divisible per-unit cost', async () => {
+    const org = await createTestOrg();
+    const itemId = await createItem(org.orgId);
+
+    // Two purchase lots at different costs: total 3 units worth 250.
+    await prisma.$transaction((tx) =>
+      addCostLayer(tx, org.orgId, itemId, org.warehouseId, 2, 100, InventoryDocumentType.PURCHASE, 'po-a', new Date('2026-06-01')),
+    );
+    await prisma.$transaction((tx) =>
+      addCostLayer(tx, org.orgId, itemId, org.warehouseId, 1, 50, InventoryDocumentType.PURCHASE, 'po-b', new Date('2026-06-02')),
+    );
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(250, 2);
+
+    // Consume all 3 across both lots → cogsPerUnit = 250/3 = 83.333… (rounds to 83.33).
+    const cost = await prisma.$transaction((tx) =>
+      relieveCostLayers(tx, org.orgId, itemId, org.warehouseId, 3, InventoryDocumentType.SALES, 'inv-2', DATE),
+    );
+    expect(cost).toBeCloseTo(250, 2);
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(0, 2);
+
+    // Un-consume: anchoring on the recorded valueChange must restore exactly 250,
+    // not 3 × 83.33 = 249.99. Proven here against real Decimal columns.
+    const restored = await prisma.$transaction((tx) =>
+      restoreConsumedLayers(tx, org.orgId, InventoryDocumentType.SALES, 'inv-2', DATE),
+    );
+    expect(restored).toBeCloseTo(250, 2);
+    await assertInventoryReconciled(org.orgId, 'after non-divisible restore');
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(250, 2);
+
+    await cleanupOrg(org.orgId);
+  });
 });
