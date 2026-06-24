@@ -1,9 +1,8 @@
 import type { Prisma } from '@prisma/client';
-import { InventoryDocumentType } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
-import { reverseAddedLayers, restoreConsumedLayers } from './inventory-costing';
+import { reverseAdjustmentInventory } from './inventory-costing';
 
 type Tx = Prisma.TransactionClient;
 
@@ -13,11 +12,10 @@ type Tx = Prisma.TransactionClient;
  *
  * An adjustment can move stock both ways across its lines (increases via
  * addCostLayer, decreases via relieveCostLayers — all tagged ADJUSTMENT + id), so
- * the void:
- *   1. removes the increase layers (`reverseAddedLayers`, blocks if since consumed),
- *   2. THEN restores the decrease draw-downs (`restoreConsumedLayers`).
- * The order matters: restoring adds fresh ADJUSTMENT-tagged layers, so it must run
- * after the removal — otherwise the removal would delete the just-restored layers.
+ * the inventory unwind goes through `reverseAdjustmentInventory`, a single
+ * snapshot-first pass that removes the increase layers (blocking if since
+ * consumed) and restores the decrease draw-downs without the two directions'
+ * reversal rows colliding.
  *
  * The variance JE is resolved by its deterministic memo (`Stock adjustment:
  * <number>` — no journalEntryId column); a net-zero adjustment posted no JE, so
@@ -52,9 +50,10 @@ export async function voidStockAdjustment(
     await reverseJournalEntry(tx, entry.id, { date: opts.date, memo: `Void stock adjustment: ${adj.number}` });
   }
 
-  // Remove the increase layers first, then restore the decrease draw-downs.
-  await reverseAddedLayers(tx, orgId, InventoryDocumentType.ADJUSTMENT, id, opts.date);
-  await restoreConsumedLayers(tx, orgId, InventoryDocumentType.ADJUSTMENT, id, opts.date);
+  // Unwind both directions in one snapshot-first pass (removes increases,
+  // restores decreases) — avoids the two generic primitives colliding on the
+  // shared ADJUSTMENT documentId.
+  await reverseAdjustmentInventory(tx, orgId, id, opts.date);
 
   await tx.stockAdjustment.update({ where: { id, organizationId: orgId }, data: { status: 'VOID' } });
 }

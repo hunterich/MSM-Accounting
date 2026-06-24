@@ -266,6 +266,109 @@ export async function restoreConsumedLayers(
 }
 
 /**
+ * Reverse the inventory a stock adjustment moved. An adjustment can move stock
+ * BOTH ways under one `(ADJUSTMENT, documentId)` key — increases added layers,
+ * decreases drew layers down — so the generic `reverseAddedLayers` /
+ * `restoreConsumedLayers` can't be composed here: each writes ADJUSTMENT-keyed
+ * rows that the other would then re-read, double-counting.
+ *
+ * This does the unwind in a single snapshot-first pass: it reads the adjustment's
+ * own ledger movements up front, then removes the increase layers (blocking if
+ * any was since consumed) and re-adds the decrease draw-downs at recorded cost.
+ * Because the originals are snapshotted before any contra/restore row is written,
+ * the reversal rows are never re-processed. Returns the net value reversed.
+ */
+export async function reverseAdjustmentInventory(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  documentId: string,
+  date: Date,
+): Promise<number> {
+  // Snapshot the adjustment's original outbound (decrease) movements first.
+  const outbound = (
+    await tx.inventoryLedgerEntry.findMany({
+      where: { organizationId: orgId, documentType: InventoryDocumentType.ADJUSTMENT, documentId },
+    })
+  ).filter((e) => toNumber(e.qtyOut) > 0)
+
+  // The increase layers this adjustment added.
+  const addedLots = await tx.inventoryLot.findMany({
+    where: { organizationId: orgId, documentType: InventoryDocumentType.ADJUSTMENT, documentId },
+  })
+  for (const lot of addedLots) {
+    if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
+      throw new ApiError(
+        'Cannot void: stock added by this adjustment has already been consumed or sold. Reverse the dependent transactions first.',
+        422,
+      )
+    }
+  }
+
+  let netReversed = 0
+
+  // Remove the increases (delete the layer, append a contra ledger row).
+  for (const lot of addedLots) {
+    const qty = toNumber(lot.qtyIn)
+    const unitCost = toNumber(lot.unitCost)
+    const value = asMoney(qty * unitCost)
+    netReversed -= value
+    await tx.inventoryLedgerEntry.create({
+      data: {
+        organizationId: orgId,
+        itemId: lot.itemId,
+        warehouseId: lot.warehouseId ?? null,
+        date,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        qtyIn: 0,
+        qtyOut: qty,
+        unitCost,
+        valueChange: -value,
+      },
+    })
+    await tx.inventoryLot.delete({ where: { id: lot.id } })
+  }
+
+  // Restore the decreases (re-add a layer at the recorded consumed cost).
+  for (const entry of outbound) {
+    const qty = toNumber(entry.qtyOut)
+    const value = asMoney(-toNumber(entry.valueChange))
+    const unitCost = qty > 0 ? value / qty : 0
+    netReversed += value
+    await tx.inventoryLot.create({
+      data: {
+        organizationId: orgId,
+        itemId: entry.itemId,
+        warehouseId: entry.warehouseId ?? null,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        date,
+        qtyIn: qty,
+        qtyOut: 0,
+        qtyBalance: qty,
+        unitCost,
+      },
+    })
+    await tx.inventoryLedgerEntry.create({
+      data: {
+        organizationId: orgId,
+        itemId: entry.itemId,
+        warehouseId: entry.warehouseId ?? null,
+        date,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        qtyIn: qty,
+        qtyOut: 0,
+        unitCost,
+        valueChange: value,
+      },
+    })
+  }
+
+  return asMoney(netReversed)
+}
+
+/**
  * FIFO consumption: consumes cost layers oldest-first and returns total cost and
  * average COGS per unit for the outbound movement.
  */
