@@ -42,6 +42,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const body = await req.json();
     const { lines, ...header } = body;
 
+    // Voiding a posted return must reverse its inventory journal entry and unwind
+    // the stock — only the dedicated endpoint does that. A bare status flip here
+    // would leave the GL + inventory wrong (the bug this guards against).
+    if (String(header.status ?? '').toUpperCase() === 'VOID') {
+      return withCors(NextResponse.json(
+        { error: 'Void a posted purchase return through POST /api/v1/purchase-returns/:id/void' },
+        { status: 422 },
+      ));
+    }
+
     const pr = await prisma.$transaction(async (tx) => {
       const prior = await tx.purchaseReturn.findFirst({
         where: { id, organizationId: orgId },
