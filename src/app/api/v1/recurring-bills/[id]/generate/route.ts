@@ -8,6 +8,7 @@ import {
   withHandler,
   logAudit,
 } from '@/lib/api-utils';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -50,6 +51,12 @@ function fnv1aHash(input: string): number {
 
 export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const orgId = requireOrg(req);
+  // Manual "Generate now": a user clicked the button, so we require their id —
+  // it becomes the ApprovalRequest.requestedById (a required FK) when the
+  // auto-posted bill is held for approval. Refuse rather than route with a null
+  // requester, which would either crash on the FK or reintroduce a bypass.
+  const userId = req.headers.get('x-user-id');
+  if (!userId) throw new ApiError('Unauthenticated', 401);
   const { id } = await ctx.params;
 
   const result = await prisma.$transaction(async (tx) => {
@@ -139,6 +146,27 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
       select: { id: true, number: true },
     });
 
+    // 6a. Gate the auto-posted bill through the approval engine. An autoPost
+    // template creates a live OPEN (payable) bill; if ap_bills approval is
+    // required this must instead be HELD (PENDING_APPROVAL) so it does not enter
+    // AP aging and skip the gate. DRAFT bills (autoPost false) never go live → no gating.
+    let heldForApproval = false;
+    if (template.autoPost) {
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'BILL',
+        documentId: bill.id,
+      });
+      if (routed) {
+        await tx.bill.update({
+          where: { id: bill.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+        heldForApproval = true;
+      }
+    }
+
     // 7. Calculate next nextRunDate
     const newNextRunDate = calcNextRunDate(
       new Date(template.nextRunDate),
@@ -161,10 +189,13 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
       },
     });
 
+    // Reflect the held status so callers don't show the bill as live (OPEN)
+    // when it was actually routed for approval.
     return {
       billId: bill.id,
       billNumber: bill.number,
       nextRunDate: newNextRunDate,
+      status: heldForApproval ? 'PENDING_APPROVAL' : template.autoPost ? 'OPEN' : 'DRAFT',
     };
   });
 

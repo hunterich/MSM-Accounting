@@ -2,13 +2,42 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import {
+  ApiError,
   ok,
   requireOrg,
   withHandler,
   logAudit,
 } from '@/lib/api-utils';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
+
+/**
+ * Resolve the requester that will own any held ApprovalRequest created during a
+ * batch run. The "run all due" endpoint can be triggered by a user (admin) via
+ * the UI OR, in principle, by a scheduler with no user header (today nothing
+ * schedules it — instrumentation.ts only boots the backup scheduler — but we
+ * must not assume that forever). RecurringBill has no createdById column, so the
+ * deterministic fallback is the org's ADMIN user (UserOrganization → Role with
+ * roleType 'ADMIN'). ApprovalRequest.requestedById is a required FK, so we MUST
+ * resolve a real user before routing — never skip gating for lack of one, which
+ * would reintroduce the bypass.
+ */
+async function resolveRequesterId(orgId: string, headerUserId: string | null): Promise<string> {
+  if (headerUserId) return headerUserId;
+  const adminMembership = await prisma.userOrganization.findFirst({
+    where: { organizationId: orgId, role: { roleType: 'ADMIN' } },
+    orderBy: { joinedAt: 'asc' },
+    select: { userId: true },
+  });
+  if (!adminMembership) {
+    throw new ApiError(
+      'Cannot run recurring bills: no requesting user (x-user-id) and no admin user to attribute approval requests to',
+      401,
+    );
+  }
+  return adminMembership.userId;
+}
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -56,6 +85,7 @@ type GenerateResult =
 async function generateFromTemplate(
   orgId: string,
   templateId: string,
+  userId: string,
 ): Promise<GenerateResult> {
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -141,6 +171,25 @@ async function generateFromTemplate(
         select: { id: true, number: true },
       });
 
+      // Gate the auto-posted bill through the approval engine. An autoPost
+      // template creates a live OPEN (payable) bill; if ap_bills approval is
+      // required this must instead be HELD (PENDING_APPROVAL) so it does not
+      // enter AP aging and skip the gate. DRAFT bills (autoPost false) never go live.
+      if (template.autoPost) {
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'BILL',
+          documentId: bill.id,
+        });
+        if (routed) {
+          await tx.bill.update({
+            where: { id: bill.id },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        }
+      }
+
       // Advance nextRunDate
       const newNextRunDate = calcNextRunDate(
         new Date(template.nextRunDate),
@@ -178,6 +227,10 @@ async function generateFromTemplate(
 export const POST = withHandler(async (req: NextRequest) => {
   const orgId = requireOrg(req);
   const actorId = req.headers.get('x-user-id');
+  // Resolve the user any held ApprovalRequest will be attributed to: the caller
+  // (x-user-id) when present, else the org's admin (deterministic scheduler
+  // fallback). Resolved up-front so every template in the batch shares it.
+  const requesterId = await resolveRequesterId(orgId, actorId);
 
   const today = new Date();
   // Normalize to start-of-day UTC so date-only comparison is correct
@@ -193,7 +246,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   });
 
   const results = await Promise.allSettled(
-    templates.map((t) => generateFromTemplate(orgId, t.id)),
+    templates.map((t) => generateFromTemplate(orgId, t.id, requesterId)),
   );
 
   const generated: string[] = [];
