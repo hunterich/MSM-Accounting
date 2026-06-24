@@ -282,6 +282,20 @@ export async function journalEntryCount(orgId: string): Promise<number> {
   return prisma.journalEntry.count({ where: { organizationId: orgId } });
 }
 
+/**
+ * Inventory reconciliation invariant: the immutable ledger's net value must
+ * equal the open cost layers' value. Holds after every inventory movement —
+ * including reversals (reverseAddedLayers) and restores (restoreConsumedLayers).
+ * The reusable assertion for void round-trips in Phases 3-5. Returns both values.
+ */
+export async function assertInventoryReconciled(orgId: string, label = '') {
+  const [ledger, lots] = await Promise.all([inventoryLedgerValue(orgId), inventoryLotValue(orgId)]);
+  if (Math.abs(ledger - lots) > TOLERANCE) {
+    throw new Error(`${label} inventory not reconciled: ledger=${ledger} lots=${lots}`);
+  }
+  return { ledger, lots };
+}
+
 /* ------------------------------------------------------------------ */
 /* Cleanup                                                             */
 /* ------------------------------------------------------------------ */

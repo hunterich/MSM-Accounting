@@ -124,30 +124,36 @@ export async function addCostLayer(
 }
 
 /**
- * Reverse the PURCHASE cost layers a document booked (e.g. when voiding the bill
- * that created them). Only whole, untouched layers can be removed: if any layer
- * has been drawn down (consumed/sold), reversal is impossible without
- * reconstructing FIFO history, so it throws and the caller must block the void.
+ * Reverse the inbound cost layers a document booked under a given documentType
+ * (e.g. PURCHASE layers from a bill, SALES_RETURN restock layers from a sales
+ * return, ADJUSTMENT layers from a stock-increase). Only whole, untouched layers
+ * can be removed: if any layer has been drawn down (consumed/sold), reversal is
+ * impossible without reconstructing FIFO history, so it throws and the caller
+ * must block the void.
  *
  * On success each layer is deleted and a contra `InventoryLedgerEntry`
  * (ADJUSTMENT, negative valueChange) is appended for the audit trail. Returns
  * the total cost value removed (so callers can post the balancing GL contra).
+ *
+ * Not idempotent: the caller is responsible for guarding against double-reversal
+ * at the document level (e.g. a terminal VOID status).
  */
-export async function reversePurchaseLayers(
+export async function reverseAddedLayers(
   tx: Prisma.TransactionClient,
   orgId: string,
+  documentType: InventoryDocumentType,
   documentId: string,
   date: Date,
 ): Promise<number> {
   const lots = await tx.inventoryLot.findMany({
-    where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId },
+    where: { organizationId: orgId, documentType, documentId },
   })
   if (lots.length === 0) return 0
 
   for (const lot of lots) {
     if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
       throw new ApiError(
-        'Cannot void: inventory received on this bill has already been consumed or sold. Reverse the dependent transactions first.',
+        'Cannot reverse: inventory added by this document has already been consumed or sold. Reverse the dependent transactions first.',
         422,
       )
     }
@@ -176,6 +182,87 @@ export async function reversePurchaseLayers(
     await tx.inventoryLot.delete({ where: { id: lot.id } })
   }
   return asMoney(valueRemoved)
+}
+
+/**
+ * Back-compat wrapper: reverse the PURCHASE cost layers a bill / goods receipt
+ * booked. Delegates to {@link reverseAddedLayers} with documentType PURCHASE.
+ */
+export function reversePurchaseLayers(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  documentId: string,
+  date: Date,
+): Promise<number> {
+  return reverseAddedLayers(tx, orgId, InventoryDocumentType.PURCHASE, documentId, date)
+}
+
+/**
+ * Un-consume: restore the stock a document drew down (e.g. when voiding an
+ * invoice's COGS or a purchase return's removal). For each outbound
+ * `InventoryLedgerEntry` the document wrote, re-add a fresh inbound cost layer +
+ * ledger entry. The restored value anchors on the recorded `valueChange` (the
+ * exact total removed), so the round-trip is value-neutral even when the
+ * per-unit cost was rounded; the re-derived `unitCost` keeps the new lot's value
+ * equal to that total (so the inventory ledger and lots stay reconciled).
+ *
+ * The re-added layer is tagged ADJUSTMENT and dated `date`, so it re-enters FIFO
+ * at the end of the queue — a documented, accepted simplification vs. exact-lot
+ * restoration. Returns the total value restored (so callers can post the
+ * balancing GL contra).
+ *
+ * Not idempotent: the caller guards against double-restore at the document level
+ * (a terminal VOID status).
+ */
+export async function restoreConsumedLayers(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  documentType: InventoryDocumentType,
+  documentId: string,
+  date: Date,
+): Promise<number> {
+  const outbound = await tx.inventoryLedgerEntry.findMany({
+    where: { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 } },
+  })
+  if (outbound.length === 0) return 0
+
+  let valueRestored = 0
+  for (const entry of outbound) {
+    const qty = toNumber(entry.qtyOut)
+    const value = asMoney(-toNumber(entry.valueChange)) // exact total removed
+    const unitCost = qty > 0 ? value / qty : 0
+    valueRestored += value
+
+    await tx.inventoryLot.create({
+      data: {
+        organizationId: orgId,
+        itemId: entry.itemId,
+        warehouseId: entry.warehouseId ?? null,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        date,
+        qtyIn: qty,
+        qtyOut: 0,
+        qtyBalance: qty,
+        unitCost,
+      },
+    })
+    await tx.inventoryLedgerEntry.create({
+      data: {
+        organizationId: orgId,
+        itemId: entry.itemId,
+        warehouseId: entry.warehouseId ?? null,
+        date,
+        documentType: InventoryDocumentType.ADJUSTMENT,
+        documentId,
+        qtyIn: qty,
+        qtyOut: 0,
+        unitCost,
+        valueChange: value,
+      },
+    })
+  }
+  return asMoney(valueRestored)
 }
 
 /**
