@@ -11,9 +11,11 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/lib/cors', () => ({ withCors: (r: Response) => r, corsPreflightResponse: () => new Response(null, { status: 204 }) }));
 vi.mock('@/lib/stock-adjustment-void', () => ({ voidStockAdjustment: vi.fn() }));
+vi.mock('@/lib/stock-count-void', () => ({ voidStockCountForAdjustment: vi.fn(async () => null) }));
 
 import { prisma } from '@/lib/prisma';
 import { voidStockAdjustment } from '@/lib/stock-adjustment-void';
+import { voidStockCountForAdjustment } from '@/lib/stock-count-void';
 import { ApiError } from '@/lib/errors';
 import { POST as voidRoute } from '../stock-adjustments/[id]/void/route';
 import { DELETE as deleteAdj } from '../stock-adjustments/[id]/route';
@@ -34,6 +36,16 @@ it('void route reverses and returns the adjustment', async () => {
   const res = await voidRoute(post(), params);
   expect(res.status).toBe(200);
   expect(voidStockAdjustment).toHaveBeenCalledWith(tx, 'org-a', 'adj-1', expect.objectContaining({ date: expect.any(Date) }));
+});
+
+it('void route cascades to the owning stock count in the same transaction', async () => {
+  const tx = { stockAdjustment: { findFirst: vi.fn(async () => ({ id: 'adj-1', status: 'VOID' })) } };
+  vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
+  await voidRoute(post(), params);
+  expect(voidStockCountForAdjustment).toHaveBeenCalledWith(tx, 'org-a', 'adj-1');
+  // cascade runs only after the adjustment itself is voided
+  expect(vi.mocked(voidStockAdjustment).mock.invocationCallOrder[0])
+    .toBeLessThan(vi.mocked(voidStockCountForAdjustment).mock.invocationCallOrder[0]);
 });
 
 it('void route maps a guard failure to its status', async () => {
