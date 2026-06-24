@@ -124,30 +124,36 @@ export async function addCostLayer(
 }
 
 /**
- * Reverse the PURCHASE cost layers a document booked (e.g. when voiding the bill
- * that created them). Only whole, untouched layers can be removed: if any layer
- * has been drawn down (consumed/sold), reversal is impossible without
- * reconstructing FIFO history, so it throws and the caller must block the void.
+ * Reverse the inbound cost layers a document booked under a given documentType
+ * (e.g. PURCHASE layers from a bill, SALES_RETURN restock layers from a sales
+ * return, ADJUSTMENT layers from a stock-increase). Only whole, untouched layers
+ * can be removed: if any layer has been drawn down (consumed/sold), reversal is
+ * impossible without reconstructing FIFO history, so it throws and the caller
+ * must block the void.
  *
  * On success each layer is deleted and a contra `InventoryLedgerEntry`
  * (ADJUSTMENT, negative valueChange) is appended for the audit trail. Returns
  * the total cost value removed (so callers can post the balancing GL contra).
+ *
+ * Not idempotent: the caller is responsible for guarding against double-reversal
+ * at the document level (e.g. a terminal VOID status).
  */
-export async function reversePurchaseLayers(
+export async function reverseAddedLayers(
   tx: Prisma.TransactionClient,
   orgId: string,
+  documentType: InventoryDocumentType,
   documentId: string,
   date: Date,
 ): Promise<number> {
   const lots = await tx.inventoryLot.findMany({
-    where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId },
+    where: { organizationId: orgId, documentType, documentId },
   })
   if (lots.length === 0) return 0
 
   for (const lot of lots) {
     if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
       throw new ApiError(
-        'Cannot void: inventory received on this bill has already been consumed or sold. Reverse the dependent transactions first.',
+        'Cannot reverse: inventory added by this document has already been consumed or sold. Reverse the dependent transactions first.',
         422,
       )
     }
@@ -176,6 +182,19 @@ export async function reversePurchaseLayers(
     await tx.inventoryLot.delete({ where: { id: lot.id } })
   }
   return asMoney(valueRemoved)
+}
+
+/**
+ * Back-compat wrapper: reverse the PURCHASE cost layers a bill / goods receipt
+ * booked. Delegates to {@link reverseAddedLayers} with documentType PURCHASE.
+ */
+export function reversePurchaseLayers(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  documentId: string,
+  date: Date,
+): Promise<number> {
+  return reverseAddedLayers(tx, orgId, InventoryDocumentType.PURCHASE, documentId, date)
 }
 
 /**
