@@ -96,6 +96,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const existing = await prisma.stockAdjustment.findFirst({ where: { id, organizationId: orgId } });
   if (!existing) return err('Not found', 404);
   if (existing.status !== 'DRAFT') return err('Only DRAFT adjustments can be deleted', 400);
+  // Posting fires on create whenever there are lines, regardless of status — so a
+  // DRAFT adjustment may already have GL + inventory movements. Deleting it would
+  // orphan them; require a void instead. (Detected via its inventory ledger rows.)
+  const postedMovements = await prisma.inventoryLedgerEntry.count({
+    where: { organizationId: orgId, documentType: 'ADJUSTMENT', documentId: id },
+  });
+  if (postedMovements > 0) {
+    return err('Cannot delete a posted stock adjustment — void it instead', 422);
+  }
   await prisma.stockAdjustment.delete({ where: { id, organizationId: orgId } });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'StockAdjustment', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
