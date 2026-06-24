@@ -47,6 +47,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const body = await req.json();
 
+    // Voiding a posted note must reverse its journal entry — that only happens
+    // through the dedicated endpoint. A bare status flip here would leave the
+    // posting entry live (the bug this guards against).
+    if (body.status === 'VOID') {
+      return withCors(
+        NextResponse.json(
+          { error: 'Void a posted debit note through POST /api/v1/debit-notes/:id/void' },
+          { status: 422 },
+        ),
+      );
+    }
+
     const dn = await prisma.$transaction(async (tx) => {
       const prior = await tx.debitNote.findFirst({
         where: { id, organizationId: orgId },
