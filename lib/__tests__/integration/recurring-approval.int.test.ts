@@ -29,6 +29,7 @@ import {
   createCustomer,
   createVendor,
   journalEntryCount,
+  assertTrialBalanced,
   cleanupOrg,
   disconnect,
 } from './harness';
@@ -186,7 +187,7 @@ describe('recurring invoice generate × approval gate', () => {
     }
   });
 
-  it('ar_invoices OFF + autoPost → invoice goes live (SENT) as before, no approval request', async () => {
+  it('ar_invoices OFF + autoPost → invoice goes live (SENT), no approval request, AND a balanced JE is posted', async () => {
     const org = await createTestOrg();
     try {
       const admin = await seedAdmin(org.orgId);
@@ -213,6 +214,11 @@ describe('recurring invoice generate × approval gate', () => {
         where: { organizationId: org.orgId, documentType: 'INVOICE', documentId: body.invoiceId },
       });
       expect(requests).toBe(0);
+
+      // Regression guard for the silent-revenue bug: a live SENT invoice must
+      // carry GL behind it. Previously this branch posted NOTHING (count 0).
+      expect(await journalEntryCount(org.orgId)).toBeGreaterThanOrEqual(1);
+      await assertTrialBalanced(org.orgId, 'invoice autoPost approval-off');
     } finally {
       await cleanupOrg(org.orgId);
     }
@@ -382,7 +388,7 @@ describe('recurring bill generate × approval gate', () => {
     }
   });
 
-  it('ap_bills OFF + autoPost → bill goes live (OPEN) as before, no approval request', async () => {
+  it('ap_bills OFF + autoPost → bill goes live (OPEN), no approval request, AND a balanced JE is posted', async () => {
     const org = await createTestOrg();
     try {
       const admin = await seedAdmin(org.orgId);
@@ -404,6 +410,11 @@ describe('recurring bill generate × approval gate', () => {
         where: { organizationId: org.orgId, documentType: 'BILL', documentId: body.billId },
       });
       expect(requests).toBe(0);
+
+      // Regression guard for the silent-expense bug: a live OPEN bill must carry
+      // GL behind it (expense + AP). Previously this branch posted NOTHING.
+      expect(await journalEntryCount(org.orgId)).toBeGreaterThanOrEqual(1);
+      await assertTrialBalanced(org.orgId, 'bill autoPost approval-off');
     } finally {
       await cleanupOrg(org.orgId);
     }

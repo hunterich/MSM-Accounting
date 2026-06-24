@@ -9,6 +9,8 @@ import {
   logAudit,
 } from '@/lib/api-utils';
 import { routeForApproval } from '@/lib/approval/engine';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -187,6 +189,18 @@ async function generateFromTemplate(
             where: { id: bill.id },
             data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
           });
+        } else {
+          // Approval off / not required → the OPEN bill is live (in AP aging),
+          // so its GL must actually post. Mirrors the BILL finalizer: assert the
+          // period, then post inventory/expense/AP. postBillToLedger needs the
+          // bill WITH its lines (PostableBill shape). A locked-period throw is
+          // caught per-doc, isolating the failure to this one template.
+          const billWithLines = await tx.bill.findFirst({
+            where: { id: bill.id, organizationId: orgId },
+            include: { lines: true },
+          });
+          await assertPeriodOpen(tx, orgId, new Date(issueDate));
+          await postBillToLedger(tx, orgId, billWithLines as never);
         }
       }
 

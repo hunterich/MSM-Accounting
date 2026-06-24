@@ -9,6 +9,8 @@ import {
   logAudit,
 } from '@/lib/api-utils';
 import { routeForApproval } from '@/lib/approval/engine';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -164,6 +166,17 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
           data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
         });
         heldForApproval = true;
+      } else {
+        // Approval off / not required → the OPEN bill is live (in AP aging), so
+        // its GL must actually post. Mirrors the BILL finalizer / bills[id]
+        // DRAFT→OPEN path: assert the period, then post inventory/expense/AP.
+        // postBillToLedger needs the bill WITH its lines (PostableBill shape).
+        const billWithLines = await tx.bill.findFirst({
+          where: { id: bill.id, organizationId: orgId },
+          include: { lines: true },
+        });
+        await assertPeriodOpen(tx, orgId, new Date(issueDate));
+        await postBillToLedger(tx, orgId, billWithLines as never);
       }
     }
 

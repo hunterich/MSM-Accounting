@@ -9,6 +9,7 @@ import {
   logAudit,
 } from '@/lib/api-utils';
 import { routeForApproval } from '@/lib/approval/engine';
+import { postInvoiceSend } from '@/lib/invoice-send-posting';
 
 export const runtime = 'nodejs';
 
@@ -176,6 +177,12 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
           data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
         });
         heldForApproval = true;
+      } else {
+        // Approval off / not required → the SENT invoice is live, so its GL must
+        // actually post. Without this, the doc was recognised as live revenue
+        // with no journal entry behind it. postInvoiceSend posts AR/Sales/(tax)/
+        // COGS and asserts the period is open internally.
+        await postInvoiceSend(tx, orgId, invoice.id);
       }
     }
 

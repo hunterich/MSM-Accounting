@@ -9,6 +9,7 @@ import {
   logAudit,
 } from '@/lib/api-utils';
 import { routeForApproval } from '@/lib/approval/engine';
+import { postInvoiceSend } from '@/lib/invoice-send-posting';
 
 export const runtime = 'nodejs';
 
@@ -191,6 +192,12 @@ async function generateFromTemplate(
             where: { id: invoice.id },
             data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
           });
+        } else {
+          // Approval off / not required → the SENT invoice is live, so its GL
+          // must actually post. postInvoiceSend posts AR/Sales/(tax)/COGS and
+          // asserts the period is open internally (throws into the per-doc
+          // catch, isolating a locked-period failure to this one template).
+          await postInvoiceSend(tx, orgId, invoice.id);
         }
       }
 
