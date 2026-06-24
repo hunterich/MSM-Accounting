@@ -110,6 +110,17 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
     const taxAmount = Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100;
     const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
 
+    // PPN classification: carry the template's tax flag onto the Bill so
+    // postBillToLedger books a separate DR Input Tax (apTax) line instead of
+    // burying the PPN inside the expense/inventory debit. postBillToLedger
+    // applies the *bill-level* taxable flag uniformly to every line (it has no
+    // per-line tax support), so we only mark the bill taxable when there is
+    // positive tax AND every line is taxable — that keeps the booked input tax
+    // equal to taxAmount and the AP credit equal to totalAmount. Mixed
+    // taxable/non-taxable templates fall back to taxable=false (no over-tax).
+    const allLinesTaxable = template.lines.every((line) => line.taxable);
+    const billTaxable = taxRate > 0 && taxAmount > 0 && allLinesTaxable;
+
     // 5. Create Bill
     const issueDate = new Date(template.nextRunDate);
     const dueDate = new Date(template.nextRunDate);
@@ -125,6 +136,11 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
         status: template.autoPost ? 'OPEN' : 'DRAFT',
         recurringBillId: template.id,
         taxRate,
+        taxable: billTaxable,
+        // Recurring templates compute tax exclusively (taxAmount added on top of
+        // subtotal), so the generated bill is tax-EXCLUSIVE — mirrors the normal
+        // bill create default.
+        taxInclusive: false,
         taxAmount,
         subtotal,
         totalAmount,

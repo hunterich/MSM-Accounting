@@ -30,6 +30,7 @@ import {
   createVendor,
   journalEntryCount,
   assertTrialBalanced,
+  accountBalance,
   cleanupOrg,
   disconnect,
 } from './harness';
@@ -129,6 +130,41 @@ async function makeRecurringBillTemplate(
     select: { id: true },
   });
   return tpl.id;
+}
+
+/**
+ * A recurring BILL template whose single line IS taxable, at the given taxRate.
+ * Used to prove PPN is booked to the Input Tax account (apTax) rather than
+ * buried in the expense debit. Returns the template id + the line amount so the
+ * test can compute the expected tax = amount * rate.
+ */
+async function makeTaxableRecurringBillTemplate(
+  orgId: string,
+  vendorId: string,
+  autoPost: boolean,
+  taxRate = 11,
+  lineAmount = 100000,
+): Promise<{ tplId: string; lineAmount: number; taxRate: number }> {
+  const tpl = await prisma.recurringBill.create({
+    data: {
+      organizationId: orgId,
+      vendorId,
+      title: `Taxable rent ${randomUUID().slice(0, 8)}`,
+      frequency: 'MONTHLY',
+      startDate: PAST,
+      nextRunDate: PAST,
+      status: 'ACTIVE',
+      autoPost,
+      taxRate,
+      lines: {
+        create: [
+          { lineNo: 1, description: 'Rent', quantity: 1, price: lineAmount, discountPct: 0, taxable: true },
+        ],
+      },
+    },
+    select: { id: true },
+  });
+  return { tplId: tpl.id, lineAmount, taxRate };
 }
 
 /** Build a NextRequest carrying the auth headers the route reads. */
@@ -415,6 +451,55 @@ describe('recurring bill generate × approval gate', () => {
       // GL behind it (expense + AP). Previously this branch posted NOTHING.
       expect(await journalEntryCount(org.orgId)).toBeGreaterThanOrEqual(1);
       await assertTrialBalanced(org.orgId, 'bill autoPost approval-off');
+    } finally {
+      await cleanupOrg(org.orgId);
+    }
+  });
+
+  it('ap_bills OFF + autoPost + TAXABLE line → PPN booked to Input Tax (apTax), not buried in expense', async () => {
+    const org = await createTestOrg();
+    try {
+      const admin = await seedAdmin(org.orgId);
+      await setRequirement(org.orgId, 'ap_bills', false);
+      const vendorId = await createVendor(org.orgId);
+      const { tplId, lineAmount, taxRate } = await makeTaxableRecurringBillTemplate(
+        org.orgId,
+        vendorId,
+        true, // autoPost
+        11,   // PPN 11%
+      );
+      const expectedTax = Math.round(lineAmount * (taxRate / 100) * 100) / 100; // 11000
+
+      const req = authedRequest(
+        `/api/v1/recurring-bills/${tplId}/generate`,
+        { orgId: org.orgId, userId: admin },
+      );
+      const res = await generateBill(req, { params: Promise.resolve({ id: tplId }) });
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body.status).toBe('OPEN');
+
+      // The generated bill carries the tax flag so postBillToLedger classifies PPN.
+      const bill = await prisma.bill.findUniqueOrThrow({
+        where: { id: body.billId },
+        select: { status: true, taxable: true, taxInclusive: true, taxAmount: true, totalAmount: true },
+      });
+      expect(bill.status).toBe('OPEN');
+      expect(bill.taxable).toBe(true);
+      expect(bill.taxInclusive).toBe(false);
+      expect(Number(bill.taxAmount)).toBeCloseTo(expectedTax, 2);
+      expect(Number(bill.totalAmount)).toBeCloseTo(lineAmount + expectedTax, 2);
+
+      // A balanced JE exists...
+      expect(await journalEntryCount(org.orgId)).toBeGreaterThanOrEqual(1);
+      await assertTrialBalanced(org.orgId, 'taxable bill autoPost approval-off');
+
+      // ...and the PPN lands as a DEBIT on the Input Tax (apTax) account equal to
+      // the expected tax. BEFORE the fix the bill was created with taxable=false,
+      // so postBillToLedger booked NO input-tax line (PPN buried in the expense
+      // debit) and this balance would be 0.
+      const inputTaxDr = await accountBalance(org.orgId, org.accounts.apTax);
+      expect(inputTaxDr).toBeCloseTo(expectedTax, 2);
     } finally {
       await cleanupOrg(org.orgId);
     }
