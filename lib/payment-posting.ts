@@ -15,7 +15,7 @@ import { toNumber } from './money';
 
 type Tx = Prisma.TransactionClient;
 
-const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'VOID']);
+const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'VOID', 'PENDING_APPROVAL']);
 
 /** Post DR Bank / CR AR for an AR receipt, once. */
 export async function postArPaymentIfNeeded(tx: Tx, orgId: string, paymentId: string): Promise<void> {

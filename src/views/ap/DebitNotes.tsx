@@ -8,7 +8,7 @@ import FilterBar from '../../components/UI/FilterBar';
 import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import { useBills } from '../../hooks/useAP';
-import { useDebitNotes, usePurchaseReturns, useWarehouses } from '../../hooks/useReturns';
+import { useDebitNotes, usePurchaseReturns, useWarehouses, useVoidDebitNote } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -39,6 +39,16 @@ const DebitNotes = () => {
     const bills = billsData?.data ?? [];
     const { data: dnData } = useDebitNotes();
     const debitNotes = dnData?.data ?? [];
+    const voidDebitNote = useVoidDebitNote();
+
+    const handleVoidDebit = (id: string) => {
+        if (!window.confirm('Void this debit note? Its journal entry will be reversed. This cannot be undone.')) return;
+        voidDebitNote.mutate(id, {
+            onError: (error: unknown) => {
+                window.alert(error instanceof Error ? error.message : 'Failed to void debit note');
+            },
+        });
+    };
     const { data: prData } = usePurchaseReturns();
     const purchaseReturns = prData?.data ?? [];
     const { data: warehouses = [] } = useWarehouses();
@@ -183,6 +193,9 @@ const DebitNotes = () => {
             label: '',
             render: (_: unknown, row: Record<string, unknown>) => (
                 <div className="row-actions-end">
+                    {(row['status'] as string) === 'Applied' && (
+                        <Button text="Void" size="small" variant="tertiary" disabled={!canEdit || voidDebitNote.isPending} onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleVoidDebit(row['id'] as string); }} />
+                    )}
                     <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); openDoc('debit', row['id'] as string); }} />
                     <Button text="Print" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); queuePrintDebit(row['id'] as string); }} />
                     <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate('/ap/debits/edit', { state: { mode: 'edit', debitId: row['id'] as string } }); }} />
@@ -338,6 +351,9 @@ const DebitNotes = () => {
                             <StatusTag status={selectedDebitNote.status === 'Applied' ? 'Success' : 'Info'} label={selectedDebitNote.status} />
                         </div>
                         <div className="detail-header-actions">
+                            {selectedDebitNote.status === 'Applied' && (
+                                <Button text="Void" size="small" variant="secondary" disabled={!canEdit || voidDebitNote.isPending} onClick={() => handleVoidDebit(selectedDebitNote.id)} />
+                            )}
                             <Button text="Print" size="small" variant="secondary" onClick={() => queuePrintDebit(selectedDebitNote.id)} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ap/debits/edit', { state: { mode: 'edit', debitId: selectedDebitNote.id } })} />
                         </div>

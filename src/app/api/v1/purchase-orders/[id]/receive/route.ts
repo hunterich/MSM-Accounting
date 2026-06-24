@@ -11,6 +11,16 @@ import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
+// FNV-1a 32-bit hash for advisory lock IDs (mirrors lib/api-utils nextNumber).
+function fnv1aHash(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash || 1;
+}
+
 export async function OPTIONS() {
   return corsPreflightResponse();
 }
@@ -47,6 +57,14 @@ export const POST = withHandler(async function POST(
   const receiptDate = new Date();
 
   const bill = await prisma.$transaction(async (tx) => {
+    // Serialize concurrent receives against the same PO. Each line validates
+    // qtyReceived against (quantity - receivedQty) without a row lock, so two
+    // concurrent receives could both pass the guard and over-receive past the
+    // ordered qty. Holding this transaction-scoped lock first means the loser
+    // blocks here and re-reads the incremented receivedQty.
+    const receiveLockId = fnv1aHash(`po-receive:${po.id}`);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${receiveLockId})`;
+
     // Refuse to receive into a closed/locked accounting period.
     await assertPeriodOpen(tx, orgId, receiptDate);
 

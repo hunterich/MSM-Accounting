@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBalanceSheetReport,
   buildBalanceSheetMultiPeriodReport,
+  buildCashFlowStatement,
   buildProfitLossReport,
   buildTrialBalanceReport,
 } from '../gl-reporting';
@@ -12,6 +13,7 @@ import type {
   ProfitLossReport,
   BalanceSheetReport,
   BalanceSheetMultiPeriodReport,
+  CashFlowStatementReport,
 } from '../gl-reporting';
 
 const accounts: GlAccount[] = [
@@ -91,5 +93,85 @@ describe('buildBalanceSheetMultiPeriodReport', () => {
     expect(cashRow!.currentAmount).toBe(1200);
     expect(cashRow!.compareAmount).toBe(900);
     expect(cashRow!.variance).toBe(300);
+  });
+});
+
+describe('buildCashFlowStatement', () => {
+  // Cash account needs a reportGroup containing "cash"/"bank" so isCashAccount() detects it.
+  const cfAccounts: GlAccount[] = [
+    { id: 'cash', code: '1-1000', name: 'Cash', type: 'ASSET', normalSide: 'DEBIT', isPostable: true, reportGroup: 'Cash & Bank' },
+    { id: 'ar', code: '1-1200', name: 'Accounts Receivable', type: 'ASSET', normalSide: 'DEBIT', isPostable: true, reportGroup: 'Current Assets' },
+    { id: 'fixed', code: '1-2000', name: 'Equipment', type: 'ASSET', normalSide: 'DEBIT', isPostable: true, reportGroup: 'Fixed Assets' },
+    { id: 'equity', code: '3-1000', name: 'Owner Equity', type: 'EQUITY', normalSide: 'CREDIT', isPostable: true, reportGroup: 'Equity' },
+    { id: 'revenue', code: '4-1000', name: 'Sales Revenue', type: 'REVENUE', normalSide: 'CREDIT', isPostable: true, reportGroup: 'Revenue' },
+    { id: 'expense', code: '5-1000', name: 'Operating Expense', type: 'EXPENSE', normalSide: 'DEBIT', isPostable: true, reportGroup: 'Operating' },
+  ];
+
+  // Beginning balances: opening cash of 1000 funded by equity.
+  const beginningLines: JournalLineRecord[] = [
+    { accountId: 'cash', debit: 1000, credit: 0 },
+    { accountId: 'equity', debit: 0, credit: 1000 },
+  ];
+
+  // Period activity touching cash + non-cash accounts:
+  //   - Credit sale:        AR +800,  Revenue +800
+  //   - Collect part of AR:  Cash +500, AR -500
+  //   - Pay expense in cash: Expense 300, Cash -300
+  //   - Buy equipment cash:  Fixed +200, Cash -200
+  // Net cash movement = +500 - 300 - 200 = 0, so ending cash == beginning cash.
+  const periodLines: JournalLineRecord[] = [
+    { accountId: 'ar', debit: 800, credit: 0 },
+    { accountId: 'revenue', debit: 0, credit: 800 },
+    { accountId: 'cash', debit: 500, credit: 0 },
+    { accountId: 'ar', debit: 0, credit: 500 },
+    { accountId: 'expense', debit: 300, credit: 0 },
+    { accountId: 'cash', debit: 0, credit: 300 },
+    { accountId: 'fixed', debit: 200, credit: 0 },
+    { accountId: 'cash', debit: 0, credit: 200 },
+  ];
+
+  it('self-reconciles: beginningCash + netCashChange === endingCash', () => {
+    const report: CashFlowStatementReport = buildCashFlowStatement(cfAccounts, beginningLines, periodLines);
+
+    expect(report.summary.beginningCash).toBe(1000);
+    expect(report.summary.endingCash).toBe(1000);
+    // Indirect-method sections tie exactly to the real cash movement.
+    expect(report.summary.reconciliationDifference).toBe(0);
+    expect(
+      report.summary.beginningCash + report.summary.netCashChange,
+    ).toBe(report.summary.endingCash);
+
+    // No reconciling line is injected when the statement already ties.
+    const operating = report.sections.find((s) => s.id === 'operating')!;
+    expect(operating.rows.some((r) => r.accountId === 'reconciling-difference')).toBe(false);
+  });
+
+  it('surfaces a non-zero reconciling difference when an account is omitted (misclassified)', () => {
+    // Drop the Fixed-asset account from the chart so its 200 outflow is never
+    // classified into the investing section. The cash account itself is always
+    // summed (the equipment purchase still credited cash), so ending cash is
+    // unchanged at 1000 — but the indirect-method sections now overstate the
+    // net change by 200, breaking the tie to actual cash movement.
+    const missingFixed = cfAccounts.filter((a) => a.id !== 'fixed');
+    const report = buildCashFlowStatement(missingFixed, beginningLines, periodLines);
+
+    // Cash account net for the period is +500 - 300 - 200 = 0, so cash is flat.
+    expect(report.summary.beginningCash).toBe(1000);
+    expect(report.summary.endingCash).toBe(1000);
+    // netCashChange = operating(200) + investing(0, the -200 was dropped) + financing(0) = 200.
+    expect(report.summary.netCashChange).toBe(200);
+    // beginningCash(1000) + netCashChange(200) - endingCash(1000) = 200.
+    expect(report.summary.reconciliationDifference).toBe(200);
+
+    // The reconciling line is appended to operating so the statement visually ties.
+    const operating = report.sections.find((s) => s.id === 'operating')!;
+    const reconcileRow = operating.rows.find((r) => r.accountId === 'reconciling-difference');
+    expect(reconcileRow).toBeDefined();
+    expect(reconcileRow!.amount).toBe(-200);
+
+    // After the reconciling line, the three subtotals tie to ending - beginning (= 0).
+    const totalSubtotals =
+      report.sections.reduce((s, sec) => s + sec.subtotal, 0);
+    expect(totalSubtotals).toBe(report.summary.endingCash - report.summary.beginningCash);
   });
 });

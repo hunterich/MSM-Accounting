@@ -4,6 +4,7 @@ export interface WidgetDefinition {
     description: string;
     permission: string;
     size: 'sm' | 'lg';
+    requiresApproveRight?: boolean;
 }
 
 export const WIDGET_REGISTRY: WidgetDefinition[] = [
@@ -14,8 +15,9 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     { id: 'recent_invoices',   label: 'Recent Invoices',          description: 'Last 5 AR invoices by date',             permission: 'ar_invoices', size: 'lg' },
     { id: 'recent_payments',   label: 'Recent Payments Received', description: 'Last 5 AR payments received',            permission: 'ar_payments', size: 'lg' },
     { id: 'recent_bills',      label: 'Recent Bills',             description: 'Last 5 AP bills by date',                permission: 'ap_bills',    size: 'lg' },
+    { id: 'pending_approvals', label: 'Pending Approvals',        description: 'Documents awaiting your approval',       permission: 'dashboard',   size: 'lg', requiresApproveRight: true },
 ];
 
 export const DEFAULT_WIDGET_IDS: string[] = [
-    'cash_on_hand', 'overdue_invoices', 'net_cash_flow', 'recent_invoices',
+    'cash_on_hand', 'overdue_invoices', 'net_cash_flow', 'recent_invoices', 'pending_approvals',
 ];

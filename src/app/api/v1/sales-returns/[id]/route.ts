@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +33,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
     const { lines, ...header } = body;
@@ -82,9 +87,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         include: { lines: true },
       });
 
-      // Post inventory leg on DRAFT → APPROVED transition (idempotent via journalEntryId).
+      // Post inventory leg on DRAFT → APPROVED transition (idempotent via journalEntryId),
+      // unless the approval engine routes the finalize for approval first. The update
+      // above may have already stamped status='APPROVED'; if approval is required,
+      // hold the return at PENDING_APPROVAL and post NO GL.
       if (prior.status === 'DRAFT' && updated.status === 'APPROVED' && !prior.journalEntryId) {
-        await postSalesReturnOnApproval(tx, id);
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'SALES_RETURN',
+          documentId: id,
+        });
+        if (routed) {
+          await tx.salesReturn.update({
+            where: { id, organizationId: orgId },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        } else {
+          await postSalesReturnOnApproval(tx, id);
+        }
       }
 
       return tx.salesReturn.findUniqueOrThrow({
@@ -93,7 +114,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       });
     });
 
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'SalesReturn', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: userId, entityType: 'SalesReturn', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(sr));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

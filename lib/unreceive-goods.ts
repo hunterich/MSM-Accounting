@@ -53,6 +53,20 @@ export async function unreceiveGoodsReceipt(
 
   await assertPeriodOpen(tx, orgId, opts.date);
 
+  // Atomically claim the un-receive before any side effect, using the soft-delete
+  // field as the claim token. The guarded `updateMany` takes a row lock; a
+  // concurrent un-receive blocks here, then sees the receipt already deleted →
+  // count 0 → 409. This makes the lot reversal, contra JE, and PO `receivedQty`
+  // decrement below run EXACTLY once (the decrement is unconditional, so a double
+  // run would corrupt the PO).
+  const claim = await tx.bill.updateMany({
+    where: { id: billId, organizationId: orgId, status: 'DRAFT', deletedAt: null },
+    data: { deletedAt: opts.date },
+  });
+  if (claim.count !== 1) {
+    throw new ApiError('Goods receipt already un-received', 409);
+  }
+
   // Remove the cost layers this receipt booked (throws if any was consumed).
   const valueRemoved = await reversePurchaseLayers(tx, orgId, bill.id, opts.date);
 
@@ -99,6 +113,5 @@ export async function unreceiveGoodsReceipt(
     data: { status: anyReceived ? 'PARTIAL_RECEIVED' : 'APPROVED' },
   });
 
-  // The receipt bill no longer represents anything — soft-delete it.
-  await tx.bill.update({ where: { id: bill.id }, data: { deletedAt: opts.date } });
+  // The receipt bill was already soft-deleted by the atomic claim above.
 }

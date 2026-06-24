@@ -7,11 +7,25 @@ import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID, formatIDR } from '../../utils/formatters';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DocumentType = 'INVOICE' | 'PURCHASE_ORDER';
-type FilterType = 'ALL' | 'INVOICE' | 'PURCHASE_ORDER';
+type DocumentType =
+    | 'INVOICE'
+    | 'PURCHASE_ORDER'
+    | 'BILL'
+    | 'SALES_ORDER'
+    | 'PAYROLL_RUN'
+    | 'CREDIT_NOTE'
+    | 'DEBIT_NOTE'
+    | 'SALES_RETURN'
+    | 'PURCHASE_RETURN'
+    | 'AR_PAYMENT'
+    | 'AP_PAYMENT'
+    | 'STOCK_ADJUSTMENT';
+
+type FilterType = 'ALL' | DocumentType;
 
 interface ApprovalRequest {
     id: string;
@@ -19,13 +33,56 @@ interface ApprovalRequest {
     documentId: string;
     requestedAt: string;
     requestedBy: { id: string; fullName: string };
+    // Normalized, type-agnostic summary from the approvals API.
     document: {
         id: string;
         number: string;
-        totalAmount: number;
-        customer?: { name: string };
-        vendor?: { name: string };
+        amount: number | null;
+        party: string | null;
     };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Human-readable label per document type.
+const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+    INVOICE: 'Invoice',
+    PURCHASE_ORDER: 'Purchase Order',
+    BILL: 'Bill',
+    SALES_ORDER: 'Sales Order',
+    PAYROLL_RUN: 'Payroll Run',
+    CREDIT_NOTE: 'Credit Note',
+    DEBIT_NOTE: 'Debit Note',
+    SALES_RETURN: 'Sales Return',
+    PURCHASE_RETURN: 'Purchase Return',
+    AR_PAYMENT: 'Receive Payment',
+    AP_PAYMENT: 'Send Payment',
+    STOCK_ADJUSTMENT: 'Stock Adjustment',
+};
+
+function labelFor(documentType: DocumentType): string {
+    return DOCUMENT_TYPE_LABELS[documentType] ?? documentType;
+}
+
+// RBAC module key per document type — gates the approve/reject buttons.
+const MODULE_KEY_BY_TYPE: Record<DocumentType, string> = {
+    INVOICE: 'ar_invoices',
+    PURCHASE_ORDER: 'ap_pos',
+    BILL: 'ap_bills',
+    SALES_ORDER: 'ar_sales_orders',
+    PAYROLL_RUN: 'hr_payroll',
+    CREDIT_NOTE: 'ar_credits',
+    DEBIT_NOTE: 'ap_debits',
+    SALES_RETURN: 'ar_credits',
+    PURCHASE_RETURN: 'ap_debits',
+    AR_PAYMENT: 'ar_payments',
+    AP_PAYMENT: 'ap_payments',
+    STOCK_ADJUSTMENT: 'inv_adj',
+};
+
+function moduleKeyFor(documentType: DocumentType): string {
+    // Unknown type → a key no one is granted, so the buttons stay hidden.
+    return MODULE_KEY_BY_TYPE[documentType] ?? '__unknown__';
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -42,6 +99,7 @@ let toastSeq = 0;
 
 const ApprovalInbox: React.FC = () => {
     const queryClient = useQueryClient();
+    const hasPermission = useAuthStore((s) => s.hasPermission);
 
     const [toasts, setToasts] = useState<Toast[]>([]);
     const pushToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -70,13 +128,8 @@ const ApprovalInbox: React.FC = () => {
     // ── Mutations ─────────────────────────────────────────────────────────────
 
     const approveMutation = useMutation({
-        mutationFn: (req: ApprovalRequest) => {
-            const baseUrl =
-                req.documentType === 'INVOICE'
-                    ? `/api/v1/invoices/${req.documentId}`
-                    : `/api/v1/purchase-orders/${req.documentId}`;
-            return api.post(`${baseUrl}/approve`);
-        },
+        mutationFn: (req: ApprovalRequest) =>
+            api.post(`/api/v1/approvals/${req.id}/approve`),
         onSuccess: (_data, req) => {
             invalidate();
             pushToast(`${req.document.number} approved.`);
@@ -85,13 +138,8 @@ const ApprovalInbox: React.FC = () => {
     });
 
     const rejectMutation = useMutation({
-        mutationFn: ({ req, note }: { req: ApprovalRequest; note: string }) => {
-            const baseUrl =
-                req.documentType === 'INVOICE'
-                    ? `/api/v1/invoices/${req.documentId}`
-                    : `/api/v1/purchase-orders/${req.documentId}`;
-            return api.post(`${baseUrl}/reject`, { note });
-        },
+        mutationFn: ({ req, note }: { req: ApprovalRequest; note: string }) =>
+            api.post(`/api/v1/approvals/${req.id}/reject`, { note }),
         onSuccess: (_data, vars) => {
             invalidate();
             setRejectingId(null);
@@ -131,8 +179,19 @@ const ApprovalInbox: React.FC = () => {
             key: 'documentType',
             label: 'Doc Type',
             render: (val) => {
-                const label = val === 'INVOICE' ? 'Invoice' : 'Purchase Order';
-                const status = val === 'INVOICE' ? 'info' : 'warning';
+                const type = val as DocumentType;
+                const label = labelFor(type);
+                // Receivable-side docs read as "info", payable-side as "warning".
+                const status =
+                    type === 'INVOICE' ||
+                    type === 'SALES_ORDER' ||
+                    type === 'CREDIT_NOTE' ||
+                    type === 'SALES_RETURN' ||
+                    type === 'PAYROLL_RUN' ||
+                    type === 'AR_PAYMENT' ||
+                    type === 'STOCK_ADJUSTMENT'
+                        ? 'info'
+                        : 'warning';
                 return <StatusTag status={status} label={label} />;
             },
         },
@@ -148,12 +207,8 @@ const ApprovalInbox: React.FC = () => {
             key: 'party',
             label: 'Party',
             render: (_val, row) => {
-                const req = row as unknown as ApprovalRequest;
-                const name =
-                    req.documentType === 'INVOICE'
-                        ? req.document.customer?.name
-                        : req.document.vendor?.name;
-                return <span>{name ?? '—'}</span>;
+                const doc = row['document'] as ApprovalRequest['document'] | undefined;
+                return <span>{doc?.party ?? '—'}</span>;
             },
         },
         {
@@ -162,7 +217,7 @@ const ApprovalInbox: React.FC = () => {
             align: 'right',
             render: (_val, row) => {
                 const doc = row['document'] as ApprovalRequest['document'] | undefined;
-                return formatIDR(doc?.totalAmount ?? 0);
+                return doc?.amount != null ? formatIDR(doc.amount) : '—';
             },
         },
         {
@@ -184,6 +239,7 @@ const ApprovalInbox: React.FC = () => {
             label: '',
             render: (_val, row) => {
                 const req = row as unknown as ApprovalRequest;
+                const canAct = hasPermission(moduleKeyFor(req.documentType), 'approve');
 
                 if (rejectingId === req.id) {
                     return (
@@ -217,6 +273,8 @@ const ApprovalInbox: React.FC = () => {
                         </div>
                     );
                 }
+
+                if (!canAct) return null;
 
                 return (
                     <div className="flex items-center gap-1 justify-end">
@@ -283,14 +341,15 @@ const ApprovalInbox: React.FC = () => {
             </div>
 
             {/* Filter tabs */}
-            <div className="flex items-center gap-1 mb-4 border-b border-neutral-200">
-                {(['ALL', 'INVOICE', 'PURCHASE_ORDER'] as FilterType[]).map((type) => {
-                    const label =
-                        type === 'ALL' ? 'All' : type === 'INVOICE' ? 'Invoices' : 'Purchase Orders';
+            <div className="flex items-center gap-1 mb-4 border-b border-neutral-200 flex-wrap">
+                {(['ALL', ...Object.keys(DOCUMENT_TYPE_LABELS)] as FilterType[]).map((type) => {
+                    const label = type === 'ALL' ? 'All' : labelFor(type as DocumentType);
                     const count =
                         type === 'ALL'
                             ? approvals.length
                             : approvals.filter((a) => a.documentType === type).length;
+                    // Hide type-specific tabs that have no pending requests, to avoid clutter.
+                    if (type !== 'ALL' && count === 0 && filterType !== type) return null;
                     return (
                         <button
                             key={type}

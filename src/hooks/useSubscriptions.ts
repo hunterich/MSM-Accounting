@@ -16,7 +16,7 @@ export interface SubscriptionPlan {
   id: string;
   name: string;
   price: number;
-  interval: 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+  interval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
   trialDays: number;
   features: string | string[];
   isActive: boolean;

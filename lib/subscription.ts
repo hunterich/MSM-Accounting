@@ -8,6 +8,9 @@ export interface ProRataResult {
   daysTotal: number;
 }
 
+/** Mirrors the Prisma BillingInterval enum exactly. */
+export type BillingInterval = 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
+
 export function calculateProRataRefund(
   plan: { price: number | string },
   subscription: { currentPeriodStart: Date | string; currentPeriodEnd: Date | string },
@@ -29,7 +32,7 @@ export function calculateProRataRefund(
 
 export function calculateNextPeriod(
   currentPeriodEnd: Date | string,
-  interval: 'MONTHLY' | 'QUARTERLY' | 'YEARLY',
+  interval: BillingInterval,
 ): { start: Date; end: Date } {
   const start = new Date(currentPeriodEnd);
   start.setDate(start.getDate() + 1);
@@ -42,9 +45,16 @@ export function calculateNextPeriod(
     case 'QUARTERLY':
       end.setMonth(end.getMonth() + 3);
       break;
-    case 'YEARLY':
+    case 'SEMI_ANNUAL':
+      end.setMonth(end.getMonth() + 6);
+      break;
+    case 'ANNUAL':
       end.setFullYear(end.getFullYear() + 1);
       break;
+    default: {
+      const _exhaustive: never = interval;
+      throw new Error(`Unknown BillingInterval: ${_exhaustive}`);
+    }
   }
   end.setDate(end.getDate() - 1);
 

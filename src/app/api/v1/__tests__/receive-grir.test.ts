@@ -33,6 +33,7 @@ it('posts Dr Inventory / Cr GR/IR at net cost and a cost layer for an inventory 
   } as any);
 
   const tx = {
+    $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(async () => ({ id: 'pol-1', quantity: 10, receivedQty: 0, purchaseOrderId: 'po-1', description: 'Widget', price: 1000, unit: 'PCS', itemId: 'item-1' })), update: vi.fn(), findMany: vi.fn(async () => [{ quantity: 10, receivedQty: 10 }]) },
     bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })) },
     purchaseOrder: { update: vi.fn() },
@@ -60,6 +61,7 @@ it('refuses to receive into a closed/locked period and posts nothing', async () 
   } as any);
 
   const tx = {
+    $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
     bill: { create: vi.fn() },
     purchaseOrder: { update: vi.fn() },
@@ -86,6 +88,7 @@ it('values a discounted PO line at its net (post-discount) cost', async () => {
   } as any);
 
   const tx = {
+    $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(async () => ({ id: 'pol-1', quantity: 10, receivedQty: 0, purchaseOrderId: 'po-1', description: 'Widget', price: 1000, discountPct: 10, unit: 'PCS', itemId: 'item-1' })), update: vi.fn(), findMany: vi.fn(async () => [{ quantity: 10, receivedQty: 10 }]) },
     bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })) },
     purchaseOrder: { update: vi.fn() },

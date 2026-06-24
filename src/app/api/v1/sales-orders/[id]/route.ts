@@ -5,6 +5,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { calculateSalesOrderTotal, CreditLimitError, enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { updateSalesOrderInputSchema } from '@/types/api';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
-    if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+    if (!orgId || !userId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
 
     const body = await req.json();
     const parsed = updateSalesOrderInputSchema.safeParse(body);
@@ -66,7 +67,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         }
       }
 
-      return tx.salesOrder.update({
+      const nextStatus = status !== undefined ? status.toUpperCase() : undefined;
+
+      const result = await tx.salesOrder.update({
         where: { id },
         data: {
           ...(customerName !== undefined && { customerName }),
@@ -75,7 +78,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
           ...(expiryDate  !== undefined && { expiryDate: expiryDate ? new Date(expiryDate) : null }),
           ...(number      !== undefined && { number }),
           ...(notes       !== undefined && { notes }),
-          ...(status      !== undefined && { status: status.toUpperCase() }),
+          ...(nextStatus  !== undefined && { status: nextStatus }),
           ...(items       !== undefined && {
             items: {
               deleteMany: {},
@@ -93,6 +96,27 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         },
         include: { items: true },
       });
+
+      // Auto-route the DRAFT → CONFIRMED finalize through the approval engine.
+      // The update above may have already stamped status='CONFIRMED'; if approval
+      // is required, hold the SO at PENDING_APPROVAL instead. (SOs post no GL.)
+      if (existing.status === 'DRAFT' && nextStatus === 'CONFIRMED') {
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'SALES_ORDER',
+          documentId: id,
+        });
+        if (routed) {
+          return tx.salesOrder.update({
+            where: { id },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+            include: { items: true },
+          });
+        }
+      }
+
+      return result;
     });
 
     if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));

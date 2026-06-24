@@ -9,7 +9,7 @@ import PageHeader from '../../components/Layout/PageHeader';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import { useInvoiceStore } from '../../stores/useInvoiceStore';
-import { useInvoices } from '../../hooks/useAR';
+import { useInvoices, useVoidInvoice } from '../../hooks/useAR';
 import { useDocumentTabs } from '../../hooks/useDocumentTabs';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportToCsv } from '../../utils/exportCsv';
@@ -32,6 +32,16 @@ const InvoiceWorkbench = () => {
     // List data comes from the API; invoiceItemTemplates stay in the local store (used for print)
     const { data: invoicesResult, isLoading: invoicesLoading } = useInvoices();
     const invoices = invoicesResult?.data ?? [];
+    const voidInvoice = useVoidInvoice();
+
+    const handleVoidInvoice = (invoiceId: string) => {
+        if (!window.confirm('Void this invoice? Its journal entries will be reversed and the sold stock returned to inventory. This cannot be undone.')) return;
+        voidInvoice.mutate(invoiceId, {
+            onError: (error: unknown) => {
+                window.alert(error instanceof Error ? error.message : 'Failed to void invoice');
+            },
+        });
+    };
     const invoiceItemTemplates = useInvoiceStore((s) => s.invoiceItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -187,9 +197,11 @@ const InvoiceWorkbench = () => {
             invoice={selectedInvoice as unknown as { id: string; [key: string]: unknown }}
             onEdit={() => handleEdit(selectedInvoice.id)}
             onPrint={() => queuePrintInvoice(selectedInvoice.id)}
+            onVoid={() => handleVoidInvoice(selectedInvoice.id)}
             canEdit={canEdit}
             canDelete={canDelete}
             canPrint={canReprint}
+            canVoid={canEdit}
         />
     ) : (
         <div className="invoice-workbench-card">

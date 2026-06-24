@@ -26,7 +26,7 @@ import {
 interface PlanFormState {
   name: string;
   price: string;
-  interval: 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+  interval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
   trialDays: string;
   isActive: boolean;
 }
@@ -371,7 +371,8 @@ const SubscriptionsPage: React.FC<SubscriptionsPageProps> = ({ tab: activeTab = 
                 >
                   <option value="MONTHLY">Monthly</option>
                   <option value="QUARTERLY">Quarterly</option>
-                  <option value="YEARLY">Yearly</option>
+                  <option value="SEMI_ANNUAL">Semi-Annual</option>
+                  <option value="ANNUAL">Annual</option>
                 </select>
               </div>
             </div>

@@ -280,7 +280,7 @@
 - [ ] Product bundles / kits
 - [ ] Multiple UOM (purchase UOM vs stock UOM vs sales UOM)
 - [ ] Auto-reorder alerts with configurable min/max levels
-- [ ] Stock opname / physical count module with variance report
+- [x] Stock opname / physical count module with variance report — Stock Count feature: count-session document auto-seeds a worksheet by scope, two-step review, on post generates a `StockAdjustment` (book = counted) via the lot-sync engine; full count→submit→post→journal lifecycle; RBAC reuses `inv_adj`
 - [ ] Multi-price tiers (wholesale, retail, VIP)
 - [ ] Quality inspection on receipt
 
@@ -410,7 +410,7 @@
 | Performance optimization (large datasets) | Not started | Medium |
 | i18n framework (proper ID/EN switching) | Not started | Low |
 | CI/CD pipeline | [x] `.github/workflows/ci.yml` — GitHub Actions: tsc + vitest + prisma db push on every push/PR; Vercel deploy via GitHub integration | Medium |
-| Backup & restore functionality | Not started | High |
+| Backup & restore functionality | [x] In-app Backup & Restore (PR #45) — automatic twice-daily `pg_dump --format=custom`, manual "Back up now", synced-folder cloud/external destinations, guarded admin-only restore (safety backup + type-RESTORE), backup history, `node-cron` scheduler via `instrumentation.ts`, `SYSTEM_BACKUP` RBAC | High |
 | API route hardening | [x] `withHandler()` + `requireOrg()`/`requireAuth()` across all routes; `@ts-nocheck` removed; duplicate utility functions consolidated; FNV-1a advisory lock hashing; body size limits | **Critical** |
 | Duplicate file cleanup | [x] Removed `apiClient.js` (kept `.ts`), `useAuthStore.js` (kept `.ts`) | Medium |
 | Frontend TypeScript migration | [x] Complete — 96 files converted (all views, components, utils, hooks, tests); only `mockData.js` and `vite.config.js` intentionally kept as JS | Medium |

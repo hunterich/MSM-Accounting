@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit, nextNumber, ApiError } from '@/lib/api-utils';
+import { ok, err, logAudit, ApiError } from '@/lib/api-utils';
+import { postPayrollRunToLedger } from '@/lib/payroll-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +13,9 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) return err('Unauthenticated', 401);
 
   try {
     const payrollRun = await prisma.payrollRun.findFirst({
@@ -51,101 +55,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return err('Required GL accounts not found (Salary Expense, Cash/Bank, Tax Payable). Please set up chart of accounts first.', 400);
     }
 
-    const totalGross = Number(payrollRun.totalGross);
-    const totalNet = Number(payrollRun.totalNet);
-    const totalTax = Number(payrollRun.totalTax);
-    const totalBpjsEmployee = payrollRun.lines.reduce((sum, l) => sum + Number(l.totalBpjsEmployee), 0);
-    const totalBpjsEmployer = payrollRun.lines.reduce((sum, l) => sum + Number(l.totalBpjsEmployer), 0);
-    const totalDeductions = payrollRun.lines.reduce((sum, l) => sum + Number(l.totalDeductions), 0);
-
-    const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const memo = `Payroll ${monthNames[payrollRun.month]} ${payrollRun.year} - ${payrollRun.number}`;
-
     const result = await prisma.$transaction(async (tx) => {
-      const entryNo = await nextNumber(tx, 'JournalEntry', 'entryNo', 'JE');
-
-      // Build journal lines
-      const journalLines: any[] = [];
-      let lineNo = 1;
-
-      // Debit: Salary Expense (total gross + employer BPJS)
-      journalLines.push({
-        lineNo: lineNo++,
-        accountId: expenseAcct.id,
-        description: `Beban Gaji - ${memo}`,
-        debit: totalGross + totalBpjsEmployer,
-        credit: 0,
+      // Auto-route the post (→ POSTED) through the approval engine. If approval
+      // is required, hold the run at PENDING_APPROVAL and post NO GL.
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'PAYROLL_RUN',
+        documentId: id,
       });
-
-      // Credit: Cash/Bank (net pay)
-      journalLines.push({
-        lineNo: lineNo++,
-        accountId: cashAcct.id,
-        description: `Pembayaran Gaji - ${memo}`,
-        debit: 0,
-        credit: totalNet,
-      });
-
-      // Credit: Tax Payable (PPh 21)
-      if (totalTax > 0) {
-        journalLines.push({
-          lineNo: lineNo++,
-          accountId: taxAcct.id,
-          description: `Hutang PPh 21 - ${memo}`,
-          debit: 0,
-          credit: totalTax,
+      if (routed) {
+        const held = await tx.payrollRun.update({
+          where: { id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
         });
+        return { payrollRun: held, journalEntry: null };
       }
 
-      // Credit: BPJS Payable (employee + employer)
-      const totalBpjsAll = totalBpjsEmployee + totalBpjsEmployer;
-      if (totalBpjsAll > 0) {
-        journalLines.push({
-          lineNo: lineNo++,
-          accountId: (bpjsAcct || taxAcct).id,
-          description: `Hutang BPJS - ${memo}`,
-          debit: 0,
-          credit: totalBpjsAll,
-        });
-      }
+      const { journalEntryId } = await postPayrollRunToLedger(tx, orgId, id);
 
-      // Credit: Deductions (employee deductions) - goes to cash
-      if (totalDeductions > 0) {
-        journalLines.push({
-          lineNo: lineNo++,
-          accountId: cashAcct.id,
-          description: `Potongan Gaji - ${memo}`,
-          debit: 0,
-          credit: totalDeductions,
-        });
-      }
-
-      const totalDebit = journalLines.reduce((s, l) => s + l.debit, 0);
-      const totalCredit = journalLines.reduce((s, l) => s + l.credit, 0);
-
-      // Create journal entry
-      const journalEntry = await tx.journalEntry.create({
-        data: {
-          organizationId: orgId,
-          entryNo,
-          date: payrollRun.periodEnd,
-          memo,
-          source: 'SYSTEM',
-          status: 'POSTED',
-          totalDebit,
-          totalCredit,
-          postedAt: new Date(),
-          lines: { create: journalLines },
-        },
-      });
-
-      // Update payroll run
+      // The route still sets POSTED — only the JE construction moved.
       const updated = await tx.payrollRun.update({
         where: { id },
-        data: {
-          status: 'POSTED',
-          journalEntryId: journalEntry.id,
-        },
+        data: { status: 'POSTED', journalEntryId },
+      });
+
+      const journalEntry = await tx.journalEntry.findUniqueOrThrow({
+        where: { id: journalEntryId },
+        select: { id: true, entryNo: true },
       });
 
       return { payrollRun: updated, journalEntry: { id: journalEntry.id, entryNo: journalEntry.entryNo } };
@@ -153,11 +90,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     logAudit({
       orgId,
-      actorId: req.headers.get('x-user-id'),
+      actorId: userId,
       entityType: 'PayrollRun',
       entityId: id,
       action: 'UPDATE',
-      payload: { action: 'POST', journalEntryId: result.journalEntry.id },
+      payload: { action: 'POST', journalEntryId: result.journalEntry?.id ?? null },
     });
 
     return ok(result);

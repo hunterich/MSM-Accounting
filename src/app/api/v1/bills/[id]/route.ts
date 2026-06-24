@@ -5,7 +5,9 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateBillInputSchema } from '@/types/api';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { routeForApproval } from '@/lib/approval/engine';
 
 function isFakturDuplicate(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
@@ -37,7 +39,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
     const parsed = updateBillInputSchema.safeParse(body);
@@ -92,17 +98,41 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           })),
         });
       }
-      // Recognize GL + inventory when the bill is finalized (DRAFT -> OPEN).
+      // Recognize GL + inventory when the bill is finalized (DRAFT -> OPEN),
+      // unless the approval engine routes the finalize for approval first.
       if (existing.status === 'DRAFT' && header.status === 'OPEN') {
-        const finalized = await tx.bill.findFirst({
-          where: { id, organizationId: orgId },
-          include: { lines: true },
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'BILL',
+          documentId: id,
         });
-        if (finalized) {
-          // Refuse to post into a closed/locked accounting period (mirrors the
-          // create-as-OPEN path in bills/route.ts).
-          await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date());
-          await postBillToLedger(tx, orgId, finalized as any);
+        if (routed) {
+          // HELD for approval: the header update above already stamped
+          // status='OPEN'; override it back to PENDING_APPROVAL and post NO GL.
+          await tx.bill.update({
+            where: { id, organizationId: orgId },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        } else {
+          const finalized = await tx.bill.findFirst({
+            where: { id, organizationId: orgId },
+            include: { lines: true },
+          });
+          if (finalized) {
+            // Refuse to post into a closed/locked accounting period (mirrors the
+            // create-as-OPEN path in bills/route.ts).
+            await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date());
+            // Apply the PO receipt on this DRAFT -> OPEN finalize, exactly once.
+            // For a direct-bill-from-PO created as DRAFT the receivedQty increment
+            // was deferred to finalize and lands here. For a goods-receipt bill
+            // (receivedQty already incremented + inventory lots booked at receipt)
+            // applyBillPoReceipt detects the existing lots and no-ops, so the
+            // receipt never double-counts. Runs BEFORE postBillToLedger books
+            // this finalize's lots.
+            await applyBillPoReceipt(tx, orgId, id);
+            await postBillToLedger(tx, orgId, finalized as any);
+          }
         }
       }
       return tx.bill.findFirst({
