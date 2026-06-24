@@ -35,35 +35,33 @@ export default function ResetPasswordModal({ account, onClose }: ResetPasswordMo
   return (
     <Modal isOpen={account !== null} onClose={handleClose}
       title={`Reset password — ${account?.fullName ?? ''}`} size="sm">
-      <div className="p-6">
-        {done ? (
-          <>
-            <p className="text-sm text-neutral-700 mb-4">
-              Temporary password set for <strong>{account?.email}</strong>. Share it with them
-              securely — they will be required to choose their own password at next login.
-            </p>
-            <div className="flex justify-end">
-              <Button text="Done" variant="primary" onClick={handleClose} />
-            </div>
-          </>
-        ) : (
-          <>
-            <Input label="Temporary password" type="password" value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)} required />
-            <Input label="Confirm password" type="password" value={confirm}
-              onChange={(e) => setConfirm(e.target.value)} required />
-            <p className="text-xs text-neutral-500 -mt-2 mb-3">
-              At least 8 characters, including a letter and a number.
-            </p>
-            {error && <p className="text-sm text-danger-600 mb-3">{error}</p>}
-            <div className="flex justify-end gap-2">
-              <Button text="Cancel" variant="secondary" onClick={handleClose} />
-              <Button text="Reset Password" variant="primary" loading={resetPassword.isPending}
-                disabled={!newPassword || !confirm} onClick={handleSubmit} />
-            </div>
-          </>
-        )}
-      </div>
+      {done ? (
+        <>
+          <p className="text-sm text-neutral-700 mb-4">
+            Temporary password set for <strong>{account?.email}</strong>. Share it with them
+            securely — they will be required to choose their own password at next login.
+          </p>
+          <div className="flex justify-end">
+            <Button text="Done" variant="primary" onClick={handleClose} />
+          </div>
+        </>
+      ) : (
+        <>
+          <Input label="Temporary password" type="password" value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)} required />
+          <Input label="Confirm password" type="password" value={confirm}
+            onChange={(e) => setConfirm(e.target.value)} required />
+          <p className="text-xs text-neutral-500 -mt-2 mb-3">
+            At least 8 characters, including a letter and a number.
+          </p>
+          {error && <p className="text-sm text-danger-600 mb-3">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button text="Cancel" variant="secondary" onClick={handleClose} />
+            <Button text="Reset Password" variant="primary" loading={resetPassword.isPending}
+              disabled={!newPassword || !confirm} onClick={handleSubmit} />
+          </div>
+        </>
+      )}
     </Modal>
   );
 }
