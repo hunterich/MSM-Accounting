@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, nextNumber, ok, requireOrg, withHandler } from '@/lib/api-utils';
 import { assetDisposalInputSchema } from '@/types/api';
 import { calculateDisposalGainLoss } from '@/lib/depreciation';
 import { toNumber, asMoney } from '@/lib/money';
@@ -48,6 +48,23 @@ export const POST = withHandler(async function POST(
       throw new ApiError('Only ACTIVE or FULLY_DEPRECIATED assets can be disposed', 422);
     }
 
+    // Atomically claim DISPOSED before building/posting the disposal JE. The
+    // guarded updateMany takes a row lock; a concurrent dispose blocks here,
+    // then sees the row already DISPOSED → count 0 → 409. This is the race
+    // guard — it MUST run before the JE is created, or two concurrent disposes
+    // both post a gain/loss JE (double GL). The remaining disposal fields are
+    // written by the follow-up update below once gain/loss is computed.
+    const claim = await tx.asset.updateMany({
+      where: {
+        id,
+        organizationId: orgId,
+        status: { in: ['ACTIVE', 'FULLY_DEPRECIATED'] },
+        deletedAt: null,
+      },
+      data: { status: 'DISPOSED' },
+    });
+    if (claim.count !== 1) throw new ApiError('Asset already disposed', 409);
+
     const bookValue = toNumber(asset.bookValue);
     const disposalAmount = parsed.data.disposalAmount;
     const { gainLoss, isGain } = calculateDisposalGainLoss(bookValue, disposalAmount);
@@ -75,14 +92,9 @@ export const POST = withHandler(async function POST(
     let journalEntryId: string | null = null;
 
     if (cashAccountId && assetAccountId) {
-      const entryRows = await tx.$queryRaw`
-        SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-        FROM "JournalEntry"
-        WHERE "organizationId" = ${orgId}
-          AND "entryNo" LIKE ${'JE-%'}
-      `;
-      const nextSeq = (Number((entryRows as any)[0]?.max_seq ?? 0)) + 1;
-      const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+      // Use the advisory-locked sequence generator (same as every other JE
+      // path) so concurrent JE inserts can't collide on entryNo.
+      const entryNo = await nextNumber(tx, 'JournalEntry', 'entryNo', 'JE');
 
       const lines: any[] = [];
       let lineNo = 1;
