@@ -945,7 +945,7 @@ export interface BankTxnFormData {
 
 export type ItemStockStatus = 'In Stock' | 'Low Stock' | 'Out of Stock';
 export type AdjType   = 'Quantity' | 'Value';
-export type AdjStatus = 'Draft' | 'Approved';
+export type AdjStatus = 'Draft' | 'Approved' | 'Void';
 
 export interface RawInventoryItem {
   id: string;

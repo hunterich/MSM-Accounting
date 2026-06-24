@@ -26,7 +26,7 @@ export const INV_KEYS = {
 const ADJ_TYPE_DOWN: Record<string, AdjType>   = { QUANTITY: 'Quantity', VALUE: 'Value' };
 const ADJ_TYPE_UP:   Record<string, string>    = { Quantity: 'QUANTITY', Value: 'VALUE' };
 
-const ADJ_STATUS_DOWN: Record<string, AdjStatus> = { DRAFT: 'Draft', APPROVED: 'Approved' };
+const ADJ_STATUS_DOWN: Record<string, AdjStatus> = { DRAFT: 'Draft', APPROVED: 'Approved', VOID: 'Void' };
 const ADJ_STATUS_UP:   Record<string, string>    = { Draft: 'DRAFT', Approved: 'APPROVED' };
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
@@ -282,6 +282,17 @@ export function useUpdateStockAdjustment() {
                 ...(updates.type   && { type:   ADJ_TYPE_UP[updates.type]     ?? updates.type }),
                 ...(updates.status && { status: ADJ_STATUS_UP[updates.status] ?? updates.status }),
             }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: INV_KEYS.adjustments });
+            qc.invalidateQueries({ queryKey: INV_KEYS.items });
+        },
+    });
+}
+
+export function useVoidStockAdjustment() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => api.post(`/api/v1/stock-adjustments/${id}/void`, {}),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: INV_KEYS.adjustments });
             qc.invalidateQueries({ queryKey: INV_KEYS.items });

@@ -1671,6 +1671,7 @@ enum StockAdjustmentStatus {
   DRAFT
   APPROVED
   PENDING_APPROVAL
+  VOID
 }
 
 enum InventoryDocumentType {
