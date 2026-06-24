@@ -55,12 +55,23 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     }
 
-    const access = await getInvoiceAccessContext(orgId, userId);
     const body = await req.json();
     const { lines, ...header } = body;
     delete header.organizationId;
     delete header.createdById;
 
+    // Voiding a posted invoice must reverse its journal entries and restore the
+    // sold stock — that only happens through the dedicated endpoint. A bare
+    // status flip here would leave the GL + inventory wrong (the bug this guards).
+    // Checked before any DB work so a rejected void is a cheap 422.
+    if (String(header.status ?? '').toUpperCase() === 'VOID') {
+      return withCors(NextResponse.json(
+        { error: 'Void a posted invoice through POST /api/v1/invoices/:id/void' },
+        { status: 422 },
+      ));
+    }
+
+    const access = await getInvoiceAccessContext(orgId, userId);
     const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1;
 
     const updated = await prisma.$transaction(async (tx) => {
