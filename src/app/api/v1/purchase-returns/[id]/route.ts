@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +33,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
     const { lines, ...header } = body;
@@ -83,8 +88,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         include: { lines: true },
       });
 
+      // Post on DRAFT → APPROVED transition (idempotent via journalEntryId),
+      // unless the approval engine routes the finalize for approval first. The update
+      // above may have already stamped status='APPROVED'; if approval is required,
+      // hold the return at PENDING_APPROVAL and post NO GL.
       if (prior.status === 'DRAFT' && updated.status === 'APPROVED' && !prior.journalEntryId) {
-        await postPurchaseReturnOnApproval(tx, id);
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'PURCHASE_RETURN',
+          documentId: id,
+        });
+        if (routed) {
+          await tx.purchaseReturn.update({
+            where: { id, organizationId: orgId },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        } else {
+          await postPurchaseReturnOnApproval(tx, id);
+        }
       }
 
       return tx.purchaseReturn.findUniqueOrThrow({
@@ -93,7 +115,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       });
     });
 
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'PurchaseReturn', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: userId, entityType: 'PurchaseReturn', entityId: id, action: 'UPDATE', payload: body });
     return withCors(NextResponse.json(pr));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

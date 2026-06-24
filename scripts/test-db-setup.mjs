@@ -50,4 +50,21 @@ execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate'], {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: testUrl },
 })
+
+// Apply the partial unique index that Prisma's schema cannot express (a
+// partial/filtered unique index). This is the DB-level backstop for Bug A:
+// at most one OPEN (PENDING) ApprovalRequest per (org, documentType, document).
+// MUST also be created in prod at merge — see the note on the ApprovalRequest
+// model in prisma/schema.prisma. Idempotent via IF NOT EXISTS.
+console.log('[test-db-setup] applying partial unique index on ApprovalRequest…')
+execFileSync(
+  'npx',
+  ['prisma', 'db', 'execute', '--url', testUrl, '--stdin'],
+  {
+    input: `CREATE UNIQUE INDEX IF NOT EXISTS "ApprovalRequest_open_pending_unique"
+ON "ApprovalRequest" ("organizationId", "documentType", "documentId")
+WHERE status = 'PENDING';`,
+    stdio: ['pipe', 'inherit', 'inherit'],
+  },
+)
 console.log('[test-db-setup] done.')

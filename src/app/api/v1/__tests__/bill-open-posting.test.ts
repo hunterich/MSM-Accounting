@@ -10,6 +10,10 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/lib/cors', () => ({ withCors: (r: Response) => r, corsPreflightResponse: () => new Response(null, { status: 204 }) }));
 vi.mock('@/lib/bill-posting', () => ({ postBillToLedger: vi.fn(async () => undefined) }));
+// The PO-receipt mutation is exercised by its own integration tests
+// (bill-po-receipt-approval.int.test.ts); stub it here so this route unit test
+// stays focused on GL posting + the period guard without mocking PO/lot tables.
+vi.mock('@/lib/bill-po-receipt', () => ({ applyBillPoReceipt: vi.fn(async () => undefined) }));
 
 import { prisma } from '@/lib/prisma';
 import { postBillToLedger } from '@/lib/bill-posting';
@@ -38,6 +42,7 @@ it('posts to the ledger when a DRAFT bill transitions to OPEN', async () => {
     vendor: { findFirst: vi.fn() },
     purchaseOrder: { findFirst: vi.fn() },
     accountingPeriod: { findFirst: vi.fn(async () => null) },
+    organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 
@@ -58,6 +63,7 @@ it('refuses to finalize a bill into a closed/locked period and does not post', a
     vendor: { findFirst: vi.fn() },
     purchaseOrder: { findFirst: vi.fn() },
     accountingPeriod: { findFirst: vi.fn(async () => ({ name: 'Mar 2026', status: 'CLOSED', isLocked: false })) },
+    organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 

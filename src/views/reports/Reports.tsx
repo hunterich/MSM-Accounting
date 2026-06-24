@@ -452,6 +452,7 @@ export interface CashFlowStatementSummary {
   netCashChange: number;
   beginningCash: number;
   endingCash: number;
+  reconciliationDifference?: number;
 }
 
 // ── PPh 21 Summary ───────────────────────────────────────────────────────────
@@ -1097,6 +1098,9 @@ const buildGlCsv = (report: ReportDefinition, data: Record<string, unknown>): st
     ]).join('\n');
     csv += `\nNet Change in Cash,,,${summary.netCashChange || 0}`;
     csv += `\nBeginning Cash,,,${summary.beginningCash || 0}`;
+    if (Math.abs(summary.reconciliationDifference || 0) > 0.005) {
+      csv += `\nUnexplained Reconciling Difference,,,${summary.reconciliationDifference || 0}`;
+    }
     csv += `\nEnding Cash,,,${summary.endingCash || 0}`;
     return csv;
   }
@@ -2508,6 +2512,12 @@ const Reports: React.FC = () => {
               <span className="text-neutral-600">Kas Awal Periode</span>
               <span className="font-semibold">{formatIDR(cfsData.summary.beginningCash || 0)}</span>
             </div>
+            {Math.abs(cfsData.summary.reconciliationDifference || 0) > 0.005 && (
+              <div className="flex items-center justify-between text-sm rounded-md bg-danger-50 px-2 py-1.5">
+                <span className="font-medium text-danger-700">Selisih Belum Terjelaskan</span>
+                <span className="font-semibold text-danger-700">{formatIDR(cfsData.summary.reconciliationDifference || 0)}</span>
+              </div>
+            )}
             <div className="border-t border-neutral-200 pt-3 flex items-center justify-between">
               <span className="font-semibold text-neutral-900">Kas Akhir Periode</span>
               <span className="font-bold text-primary-700">{formatIDR(cfsData.summary.endingCash || 0)}</span>

@@ -1,10 +1,41 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, requireOrg, withHandler, logAudit, nextNumber } from '@/lib/api-utils';
+import { ok, requireOrg, withHandler, logAudit } from '@/lib/api-utils';
 import { calculateNextPeriod } from '@/lib/subscription';
+import { routeForApproval } from '@/lib/approval/engine';
+import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { resolveRequesterId } from '@/lib/approval/requester';
 
 export const runtime = 'nodejs';
+
+// FNV-1a 32-bit hash for advisory lock IDs (same helper recurring invoices use).
+function fnv1aHash(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash || 1;
+}
+
+/**
+ * Next "INV-000000" number for the org, serialized by a per-org advisory lock so
+ * concurrent generations cannot collide. Mirrors recurring-invoices/run — note
+ * SalesInvoice is deliberately NOT a nextNumber() target (invoice numbering is
+ * centralized through this raw-MAX + advisory-lock pattern).
+ */
+async function nextInvoiceNumber(tx: any, orgId: string): Promise<string> {
+  const lockKey = fnv1aHash(`invoice-seq:${orgId}`);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+  const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
+    SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max
+    FROM "SalesInvoice"
+    WHERE "organizationId" = ${orgId}
+  `;
+  const nextSeq = Number(rows[0]?.max ?? 0) + 1;
+  return `INV-${String(nextSeq).padStart(6, '0')}`;
+}
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -12,6 +43,13 @@ export async function OPTIONS() {
 
 export const POST = withHandler(async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+  const actorId = req.headers.get('x-user-id');
+  // Resolve the user any held ApprovalRequest will be attributed to: the caller
+  // (x-user-id) when present, else the org's admin (deterministic scheduler
+  // fallback). Resolved up-front so every subscription in the batch shares it,
+  // and so the batch refuses (401) rather than routing with a null requester.
+  const requesterId = await resolveRequesterId(orgId, actorId, 'subscription invoices');
+
   const today = new Date();
 
   // Find all subscriptions due for invoicing
@@ -34,8 +72,36 @@ export const POST = withHandler(async function POST(req: NextRequest) {
   const invoices: { subscriptionId: string; invoiceId: string; invoiceNumber: string }[] = [];
 
   for (const sub of subscriptions) {
+    // One transaction per subscription so a single failure (e.g. locked period)
+    // rolls back only that subscription's work, not the whole batch.
     await prisma.$transaction(async (tx: any) => {
-      const invoiceNumber = await nextNumber(tx, 'SalesInvoice', 'number', 'INV');
+      // Compute the advanced period up-front.
+      const nextPeriod = calculateNextPeriod(sub.currentPeriodEnd, sub.plan.interval);
+      const nextInvoiceDate = new Date(nextPeriod.end);
+      nextInvoiceDate.setDate(nextInvoiceDate.getDate() - 7); // Invoice 7 days before period end
+
+      // ── Atomic claim FIRST (before creating the invoice) ──────────────────
+      // Advance the period as a guarded conditional update. Two concurrent batch
+      // runs can both select this subscription (nextInvoiceDate <= today) before
+      // either advances it; whichever runs this updateMany first flips
+      // nextInvoiceDate forward, so the loser matches 0 rows and skips — no
+      // duplicate invoice for the same period.
+      const claim = await tx.subscription.updateMany({
+        where: {
+          id: sub.id,
+          status: { in: ['ACTIVE', 'TRIALING'] },
+          nextInvoiceDate: { lte: today },
+        },
+        data: {
+          status: 'ACTIVE',
+          currentPeriodStart: nextPeriod.start,
+          currentPeriodEnd: nextPeriod.end,
+          nextInvoiceDate,
+        },
+      });
+      if (claim.count !== 1) return; // another run already generated this period — skip (no invoice)
+
+      const invoiceNumber = await nextInvoiceNumber(tx, orgId);
 
       const dueDate = new Date(sub.currentPeriodEnd);
       dueDate.setDate(dueDate.getDate() + 14); // Net 14
@@ -71,20 +137,27 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         },
       });
 
-      // Advance subscription period
-      const nextPeriod = calculateNextPeriod(sub.currentPeriodEnd, sub.plan.interval);
-      const nextInvoiceDate = new Date(nextPeriod.end);
-      nextInvoiceDate.setDate(nextInvoiceDate.getDate() - 7); // Invoice 7 days before period end
-
-      await (tx as any).subscription.update({
-        where: { id: sub.id },
-        data: {
-          status: 'ACTIVE',
-          currentPeriodStart: nextPeriod.start,
-          currentPeriodEnd: nextPeriod.end,
-          nextInvoiceDate,
-        },
+      // Gate the live SENT invoice through the approval engine. A subscription
+      // invoice is created SENT (live); if ar_invoices approval is required this
+      // must instead be HELD (PENDING_APPROVAL) so it does not go live and skip
+      // the gate.
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId: requesterId,
+        documentType: 'INVOICE',
+        documentId: invoice.id,
       });
+      if (routed) {
+        await tx.salesInvoice.update({
+          where: { id: invoice.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+      } else {
+        // Approval off / not required → the SENT invoice is live, so its GL must
+        // actually post (AR/Sales/(tax)/COGS). Previously this route posted
+        // NOTHING behind a live SENT invoice → revenue silently unrecorded.
+        await postInvoiceSend(tx, orgId, invoice.id);
+      }
 
       invoices.push({
         subscriptionId: sub.id,
@@ -96,7 +169,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
 
   logAudit({
     orgId,
-    actorId: req.headers.get('x-user-id'),
+    actorId,
     entityType: 'Subscription',
     entityId: 'batch',
     action: 'CREATE',

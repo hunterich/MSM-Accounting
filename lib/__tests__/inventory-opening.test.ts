@@ -25,6 +25,7 @@ type AnyRecord = Record<string, unknown>;
 
 function makeTx(item: AnyRecord | null, existingOpening: AnyRecord | null = null) {
   return {
+    $executeRaw: vi.fn().mockResolvedValue(undefined),
     item: { findUnique: vi.fn().mockResolvedValue(item) },
     inventoryLedgerEntry: {
       findFirst: vi.fn().mockResolvedValue(existingOpening),

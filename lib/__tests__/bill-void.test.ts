@@ -16,9 +16,12 @@ import { voidBill } from '../bill-void';
 
 const DATE = new Date('2026-06-14');
 
-function makeTx(bill: any, jeByMemo: any = null) {
+function makeTx(bill: any, jeByMemo: any = null, claimCount = 1) {
   return {
-    bill: { findFirst: vi.fn(async () => bill), update: vi.fn(async () => ({})) },
+    bill: {
+      findFirst: vi.fn(async () => bill),
+      updateMany: vi.fn(async () => ({ count: claimCount })),
+    },
     journalEntry: { findFirst: vi.fn(async () => jeByMemo) },
   };
 }
@@ -37,11 +40,21 @@ describe('voidBill', () => {
     await voidBill(tx as never, 'org-a', 'bill-1', { date: DATE });
 
     expect(assertPeriodOpen).toHaveBeenCalledWith(tx, 'org-a', DATE);
+    // VOID is claimed atomically BEFORE the reversal (the race guard).
+    const claim = (tx.bill.updateMany as any).mock.calls[0][0];
+    expect(claim.where).toMatchObject({ id: 'bill-1', status: { not: 'VOID' }, voidedAt: null });
+    expect(claim.data).toMatchObject({ status: 'VOID' });
+    expect(claim.data.voidedAt).toBeInstanceOf(Date);
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
     expect(reversePurchaseLayers).toHaveBeenCalledWith(tx, 'org-a', 'bill-1', DATE);
-    const upd = (tx.bill.update as any).mock.calls[0][0];
-    expect(upd.data).toMatchObject({ status: 'VOID' });
-    expect(upd.data.voidedAt).toBeInstanceOf(Date);
+  });
+
+  it('rejects 409 if a concurrent void already claimed VOID (claim count 0)', async () => {
+    const tx = makeTx(posted(), null, 0);
+    await expect(voidBill(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/already void/i);
+    // The claim ran but lost the race, so the reversal must NOT run.
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(reversePurchaseLayers).not.toHaveBeenCalled();
   });
 
   it('leaves inventory alone for a PO-sourced bill (the layer belongs to the receipt)', async () => {
@@ -68,7 +81,7 @@ describe('voidBill', () => {
     const tx = makeTx(posted({ status: 'DRAFT', journalEntryId: null }));
     await expect(voidBill(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/draft/i);
     expect(reverseJournalEntry).not.toHaveBeenCalled();
-    expect(tx.bill.update).not.toHaveBeenCalled();
+    expect(tx.bill.updateMany).not.toHaveBeenCalled();
   });
 
   it('refuses to void an already-voided bill', async () => {

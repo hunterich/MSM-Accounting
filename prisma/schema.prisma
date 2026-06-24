@@ -37,7 +37,9 @@ model Organization {
   dailySummary           Boolean  @default(false)
   emailFromName          String?
   emailFromDomain        String?
-  accountDefaults        Json?
+  accountDefaults                  Json?
+  approvalRequirements             Json?
+  requireDistinctApproverForAdmins Boolean @default(false)
   printSettings          Json?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -159,6 +161,7 @@ model RolePermission {
   canCreate   Boolean   @default(false)
   canEdit     Boolean   @default(false)
   canDelete   Boolean   @default(false)
+  canApprove  Boolean   @default(false)
 
   role        Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
@@ -556,6 +559,7 @@ enum SoStatus {
   CONFIRMED
   INVOICED
   CANCELLED
+  PENDING_APPROVAL
 }
 
 enum InventoryCostingMethod {
@@ -1595,6 +1599,7 @@ enum BillStatus {
   PAID
   OVERDUE
   VOID
+  PENDING_APPROVAL
 }
 
 enum PaymentMethod {
@@ -1610,6 +1615,7 @@ enum PaymentStatus {
   PROCESSING
   COMPLETED
   VOID
+  PENDING_APPROVAL
 }
 
 enum ReturnStatus {
@@ -1619,18 +1625,21 @@ enum ReturnStatus {
   PENDING_DEBIT_NOTE
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum CreditNoteStatus {
   DRAFT
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum DebitNoteStatus {
   DRAFT
   APPLIED
   VOID
+  PENDING_APPROVAL
 }
 
 enum CreditSettlementType {
@@ -1660,6 +1669,7 @@ enum StockAdjustmentType {
 enum StockAdjustmentStatus {
   DRAFT
   APPROVED
+  PENDING_APPROVAL
 }
 
 enum InventoryDocumentType {
@@ -1750,6 +1760,7 @@ enum PayrollRunStatus {
   REVIEWED
   POSTED
   VOID
+  PENDING_APPROVAL
 }
 
 enum BillImportStatus {
@@ -1958,6 +1969,16 @@ model RecurringBillLine {
 enum ApprovalDocumentType {
   INVOICE
   PURCHASE_ORDER
+  BILL
+  SALES_ORDER
+  PAYROLL_RUN
+  CREDIT_NOTE
+  DEBIT_NOTE
+  SALES_RETURN
+  PURCHASE_RETURN
+  AR_PAYMENT
+  AP_PAYMENT
+  STOCK_ADJUSTMENT
 }
 
 enum ApprovalStatus {
@@ -1984,6 +2005,13 @@ model ApprovalRequest {
 
   @@index([organizationId, status])
   @@index([organizationId, documentType, documentId])
+  // OUT-OF-BAND PARTIAL UNIQUE INDEX (Prisma cannot express filtered unique indexes):
+  //   CREATE UNIQUE INDEX "ApprovalRequest_open_pending_unique"
+  //   ON "ApprovalRequest" ("organizationId", "documentType", "documentId")
+  //   WHERE status = 'PENDING';
+  // Enforces at most one OPEN (PENDING) request per document — DB backstop for the
+  // routeForApproval advisory lock (Bug A: duplicate PENDING under concurrent finalize).
+  // Applied in scripts/test-db-setup.mjs for tests; MUST be created in prod at merge.
 }
 // ─── Asset Management ───────────────────────────────────────────────────────
 

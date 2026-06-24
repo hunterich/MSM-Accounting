@@ -1,12 +1,23 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, nextNumber, ok, requireOrg, withHandler } from '@/lib/api-utils';
 import { assetDepreciationRunInputSchema } from '@/types/api';
 import { calculateMonthlyDepreciation } from '@/lib/depreciation';
+import { assertPeriodOpen } from '@/lib/period-guard';
 import { toNumber, asMoney } from '@/lib/money';
 
 export const runtime = 'nodejs';
+
+// FNV-1a 32-bit hash for advisory lock IDs (mirrors lib/api-utils nextNumber).
+function fnv1aHash(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash || 1;
+}
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -22,7 +33,22 @@ export const POST = withHandler(async function POST(req: NextRequest) {
 
   const { month, year } = parsed.data;
 
+  // Every asset depreciates onto the 28th of the target month — one posting
+  // date for the whole run.
+  const periodDate = new Date(year, month - 1, 28);
+
   const results = await prisma.$transaction(async (tx: any) => {
+    // Serialize concurrent runs for the same org/period so two simultaneous
+    // runs can't both pass the "already processed" check and double-post (the
+    // @@unique([assetId, month, year]) loser would otherwise surface as a 500).
+    const lockId = fnv1aHash(`depreciation:${orgId}:${year}:${month}`);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+
+    // Refuse to depreciate into a closed/locked accounting period. All lines
+    // post on the same periodDate, so a single check guards the whole run; it
+    // throws ApiError(422) before any JE is created.
+    await assertPeriodOpen(tx, orgId, periodDate);
+
     // Find all active assets that haven't been depreciated for this month
     const activeAssets = await tx.asset.findMany({
       where: {
@@ -72,8 +98,12 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       return null;
     };
 
-    const defaultDepExpenseId = findAccount(['beban penyusutan', 'depreciation expense', 'penyusutan'], 'Expense');
-    const defaultAccumDepId = findAccount(['akumulasi penyusutan', 'accumulated depreciation', 'akum. penyusutan'], 'Asset');
+    // `type` must match the uppercase Prisma `AccountType` enum (`EXPENSE` /
+    // `ASSET`); capitalised 'Expense'/'Asset' never matched, leaving the keyword
+    // fallback dead. Category-wired accounts are the primary path; this fixes the
+    // fallback so an org without category defaults still posts a depreciation JE.
+    const defaultDepExpenseId = findAccount(['beban penyusutan', 'depreciation expense', 'penyusutan'], 'EXPENSE');
+    const defaultAccumDepId = findAccount(['akumulasi penyusutan', 'accumulated depreciation', 'akum. penyusutan'], 'ASSET');
 
     const processedResults: any[] = [];
 
@@ -108,14 +138,9 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       const accumDepAccountId = asset.category?.accumDepAccountId || defaultAccumDepId;
 
       if (depExpenseAccountId && accumDepAccountId) {
-        const entryRows = await tx.$queryRaw`
-          SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-          FROM "JournalEntry"
-          WHERE "organizationId" = ${orgId}
-            AND "entryNo" LIKE ${'JE-%'}
-        `;
-        const nextSeq = (Number((entryRows as any)[0]?.max_seq ?? 0)) + 1;
-        const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+        // Use the advisory-locked sequence generator (same as every other JE
+        // path) so concurrent JE inserts can't collide on entryNo.
+        const entryNo = await nextNumber(tx, 'JournalEntry', 'entryNo', 'JE');
 
         const je = await tx.journalEntry.create({
           data: {

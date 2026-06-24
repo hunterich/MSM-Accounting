@@ -647,6 +647,13 @@ export interface CashFlowSummary {
   netCashChange: number;
   beginningCash: number;
   endingCash: number;
+  /**
+   * beginningCash + netCashChange − endingCash. Should be ~0 when every account
+   * is classified correctly. A non-zero value means the indirect-method sections
+   * don't tie to actual cash movement (e.g. a misclassified account), and the
+   * statement would otherwise silently not reconcile.
+   */
+  reconciliationDifference: number;
 }
 
 export interface CashFlowStatementReport {
@@ -813,9 +820,28 @@ export const buildCashFlowStatement = (
 
   const netCashChange = asMoney(operatingSubtotal + investingSubtotal + financingSubtotal);
 
+  // Self-reconciliation: the indirect-method sections must tie to actual cash
+  // movement (endingCash − beginningCash). A non-zero difference means an account
+  // is misclassified; surface it instead of silently rendering a non-tying report.
+  const reconciliationDifference = asMoney(beginningCash + netCashChange - endingCash);
+  const RECONCILIATION_TOLERANCE = 0.005; // half a cent — matches Decimal rounding tolerance
+
+  if (Math.abs(reconciliationDifference) > RECONCILIATION_TOLERANCE) {
+    operatingRows.push({
+      accountId: 'reconciling-difference',
+      accountCode: '',
+      accountName: 'Unexplained / reconciling difference',
+      // Sign so that operating + investing + financing now ties to the real
+      // cash movement (endingCash − beginningCash).
+      amount: asMoney(-reconciliationDifference),
+    });
+  }
+
+  const operatingSubtotalFinal = asMoney(operatingRows.reduce((s, r) => s + r.amount, 0));
+
   return {
     sections: [
-      { id: 'operating', label: 'Operating Activities', rows: operatingRows, subtotal: operatingSubtotal },
+      { id: 'operating', label: 'Operating Activities', rows: operatingRows, subtotal: operatingSubtotalFinal },
       { id: 'investing', label: 'Investing Activities', rows: investingRows, subtotal: investingSubtotal },
       { id: 'financing', label: 'Financing Activities', rows: financingRows, subtotal: financingSubtotal },
     ],
@@ -823,6 +849,7 @@ export const buildCashFlowStatement = (
       netCashChange,
       beginningCash,
       endingCash,
+      reconciliationDifference,
     },
   };
 };

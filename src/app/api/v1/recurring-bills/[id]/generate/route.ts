@@ -8,6 +8,9 @@ import {
   withHandler,
   logAudit,
 } from '@/lib/api-utils';
+import { routeForApproval } from '@/lib/approval/engine';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -50,6 +53,12 @@ function fnv1aHash(input: string): number {
 
 export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const orgId = requireOrg(req);
+  // Manual "Generate now": a user clicked the button, so we require their id —
+  // it becomes the ApprovalRequest.requestedById (a required FK) when the
+  // auto-posted bill is held for approval. Refuse rather than route with a null
+  // requester, which would either crash on the FK or reintroduce a bypass.
+  const userId = req.headers.get('x-user-id');
+  if (!userId) throw new ApiError('Unauthenticated', 401);
   const { id } = await ctx.params;
 
   const result = await prisma.$transaction(async (tx) => {
@@ -101,6 +110,17 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
     const taxAmount = Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100;
     const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
 
+    // PPN classification: carry the template's tax flag onto the Bill so
+    // postBillToLedger books a separate DR Input Tax (apTax) line instead of
+    // burying the PPN inside the expense/inventory debit. postBillToLedger
+    // applies the *bill-level* taxable flag uniformly to every line (it has no
+    // per-line tax support), so we only mark the bill taxable when there is
+    // positive tax AND every line is taxable — that keeps the booked input tax
+    // equal to taxAmount and the AP credit equal to totalAmount. Mixed
+    // taxable/non-taxable templates fall back to taxable=false (no over-tax).
+    const allLinesTaxable = template.lines.every((line) => line.taxable);
+    const billTaxable = taxRate > 0 && taxAmount > 0 && allLinesTaxable;
+
     // 5. Create Bill
     const issueDate = new Date(template.nextRunDate);
     const dueDate = new Date(template.nextRunDate);
@@ -116,6 +136,11 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
         status: template.autoPost ? 'OPEN' : 'DRAFT',
         recurringBillId: template.id,
         taxRate,
+        taxable: billTaxable,
+        // Recurring templates compute tax exclusively (taxAmount added on top of
+        // subtotal), so the generated bill is tax-EXCLUSIVE — mirrors the normal
+        // bill create default.
+        taxInclusive: false,
         taxAmount,
         subtotal,
         totalAmount,
@@ -139,6 +164,38 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
       select: { id: true, number: true },
     });
 
+    // 6a. Gate the auto-posted bill through the approval engine. An autoPost
+    // template creates a live OPEN (payable) bill; if ap_bills approval is
+    // required this must instead be HELD (PENDING_APPROVAL) so it does not enter
+    // AP aging and skip the gate. DRAFT bills (autoPost false) never go live → no gating.
+    let heldForApproval = false;
+    if (template.autoPost) {
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'BILL',
+        documentId: bill.id,
+      });
+      if (routed) {
+        await tx.bill.update({
+          where: { id: bill.id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+        heldForApproval = true;
+      } else {
+        // Approval off / not required → the OPEN bill is live (in AP aging), so
+        // its GL must actually post. Mirrors the BILL finalizer / bills[id]
+        // DRAFT→OPEN path: assert the period, then post inventory/expense/AP.
+        // postBillToLedger needs the bill WITH its lines (PostableBill shape).
+        const billWithLines = await tx.bill.findFirst({
+          where: { id: bill.id, organizationId: orgId },
+          include: { lines: true },
+        });
+        await assertPeriodOpen(tx, orgId, new Date(issueDate));
+        await postBillToLedger(tx, orgId, billWithLines as never);
+      }
+    }
+
     // 7. Calculate next nextRunDate
     const newNextRunDate = calcNextRunDate(
       new Date(template.nextRunDate),
@@ -161,10 +218,13 @@ export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<
       },
     });
 
+    // Reflect the held status so callers don't show the bill as live (OPEN)
+    // when it was actually routed for approval.
     return {
       billId: bill.id,
       billNumber: bill.number,
       nextRunDate: newNextRunDate,
+      status: heldForApproval ? 'PENDING_APPROVAL' : template.autoPost ? 'OPEN' : 'DRAFT',
     };
   });
 

@@ -34,6 +34,7 @@ vi.mock('@/lib/prisma', () => {
     bankTransaction: {
       create: vi.fn(),
       delete: vi.fn(),
+      deleteMany: vi.fn(),
       findFirst: vi.fn(),
       update: vi.fn(),
     },
@@ -181,7 +182,10 @@ describe('operational route validation', () => {
       type: 'EXPENSE',
       amount: 100,
     } as never);
-    vi.mocked(prisma.bankTransaction.delete).mockResolvedValue({ id: 'txn-1' } as never);
+    // The delete is now claimed atomically via deleteMany (guarded by
+    // journalEntryId: null) BEFORE the balance is adjusted, so a concurrent
+    // double-delete cannot double-increment the balance.
+    vi.mocked(prisma.bankTransaction.deleteMany).mockResolvedValue({ count: 1 } as never);
     vi.mocked(prisma.bankAccount.update).mockResolvedValue({ id: 'bank-1' } as never);
 
     const res = await deleteBankTransaction(
@@ -190,12 +194,12 @@ describe('operational route validation', () => {
     );
 
     expect(res.status).toBe(200);
+    expect(prisma.bankTransaction.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'txn-1', organizationId: 'org-a', journalEntryId: null },
+    });
     expect(prisma.bankAccount.update).toHaveBeenCalledWith({
       where: { id: 'bank-1' },
       data: { currentBalance: { increment: 100 } },
-    });
-    expect(prisma.bankTransaction.delete).toHaveBeenCalledWith({
-      where: { id: 'txn-1', organizationId: 'org-a' },
     });
   });
 });

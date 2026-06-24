@@ -27,12 +27,30 @@ type Tx = Prisma.TransactionClient;
 
 const STOCKED_TYPES = new Set(['PRODUCT', 'RAW_MATERIAL']);
 
+// FNV-1a 32-bit hash for advisory lock IDs (mirrors lib/api-utils nextNumber).
+function fnv1aHash(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash || 1;
+}
+
 export async function postOpeningStockIfNeeded(
   tx: Tx,
   orgId: string,
   itemId: string,
   date: Date = new Date(),
 ): Promise<void> {
+  // Serialize concurrent opening-stock posts for the same item. The idempotency
+  // check below is a non-atomic findFirst with no backing unique constraint, so
+  // two concurrent item updates could both pass it and double-post. Holding this
+  // transaction-scoped lock first means the loser blocks here, then sees the
+  // committed OPENING entry and returns a no-op.
+  const lockId = fnv1aHash(`opening:${orgId}:${itemId}`);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+
   const item = await tx.item.findUnique({
     where: { id: itemId },
     select: {

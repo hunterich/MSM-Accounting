@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, ok, requireOrg, withHandler } from '@/lib/api-utils';
 import { sendInvoiceEmail } from '@/lib/email';
+import { routeForApproval } from '@/lib/approval/engine';
+import { postInvoiceSend } from '@/lib/invoice-send-posting';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +19,7 @@ export const POST = withHandler(async function POST(
   const { id } = await params;
   const orgId = requireOrg(req);
   const userId = req.headers.get('x-user-id');
+  if (!userId) return err('Unauthenticated', 401);
 
   const body = await req.json().catch(() => ({}));
   const { to, cc, message } = body as { to?: string; cc?: string; message?: string };
@@ -56,9 +59,30 @@ export const POST = withHandler(async function POST(
   }
 
   if (invoice.status === 'DRAFT') {
-    await prisma.salesInvoice.update({
-      where: { id },
-      data: { status: 'SENT' },
+    // Finalize DRAFT → SENT through the approval engine (same as the invoice
+    // PUT route): if routed for approval, hold at PENDING_APPROVAL and post NO
+    // GL; otherwise post the AR/COGS journal and mark SENT.
+    // postInvoiceSend calls assertPeriodOpen internally, so the period guard
+    // is covered.
+    await prisma.$transaction(async (tx) => {
+      const routed = await routeForApproval(tx, {
+        orgId,
+        userId,
+        documentType: 'INVOICE',
+        documentId: id,
+      });
+      if (routed) {
+        await tx.salesInvoice.update({
+          where: { id },
+          data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+        });
+      } else {
+        await postInvoiceSend(tx, orgId, id);
+        await tx.salesInvoice.update({
+          where: { id },
+          data: { status: 'SENT', updatedAt: new Date() },
+        });
+      }
     });
   }
 

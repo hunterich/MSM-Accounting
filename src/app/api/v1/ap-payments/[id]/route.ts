@@ -4,6 +4,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateApPaymentInputSchema } from '@/types/api';
 import { postApPaymentIfNeeded } from '@/lib/payment-posting';
+import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
 
@@ -29,7 +30,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const orgId = req.headers.get('x-org-id')!;
+  const orgId = req.headers.get('x-org-id');
+  const userId = req.headers.get('x-user-id');
+  if (!orgId || !userId) {
+    return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
+  }
   try {
     const body = await req.json();
     const parsed = updateApPaymentInputSchema.safeParse(body);
@@ -38,7 +43,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
     const { allocations, ...data } = parsed.data;
     const payment = await prisma.$transaction(async (tx) => {
-      const existing = await tx.aPPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true } });
+      const existing = await tx.aPPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true, journalEntryId: true } });
       if (!existing) return null;
       if (data.vendorId) {
         await validateForeignKey(tx.vendor, { id: data.vendorId, organizationId: orgId, status: 'ACTIVE' }, 'Vendor not found in organization');
@@ -64,8 +69,33 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
       }
       // A DRAFT payment completed via this update posts to the GL now;
-      // already-posted payments are a no-op (journalEntryId token).
-      await postApPaymentIfNeeded(tx, orgId, id);
+      // already-posted payments are a no-op (journalEntryId token). When this
+      // update is the finalize transition (the payment was not yet posted and
+      // is now in a postable status), the approval engine may hold it first.
+      const wasPostable = existing.status !== 'DRAFT' && existing.status !== 'VOID' && existing.status !== 'PENDING_APPROVAL';
+      const effectiveStatus = (data.status ?? existing.status) as string;
+      const nowPostable = effectiveStatus !== 'DRAFT' && effectiveStatus !== 'VOID' && effectiveStatus !== 'PENDING_APPROVAL';
+      const isFinalizeTransition = !existing.journalEntryId && nowPostable && !wasPostable;
+
+      if (isFinalizeTransition) {
+        const routed = await routeForApproval(tx, {
+          orgId,
+          userId,
+          documentType: 'AP_PAYMENT',
+          documentId: id,
+        });
+        if (routed) {
+          // HELD for approval: stamp PENDING_APPROVAL and post NO GL.
+          await tx.aPPayment.update({
+            where: { id, organizationId: orgId },
+            data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
+          });
+        } else {
+          await postApPaymentIfNeeded(tx, orgId, id);
+        }
+      } else {
+        await postApPaymentIfNeeded(tx, orgId, id);
+      }
 
       return tx.aPPayment.findFirst({
         where: { id, organizationId: orgId },
