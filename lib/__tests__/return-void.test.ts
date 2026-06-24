@@ -87,4 +87,12 @@ describe('voidPurchaseReturn', () => {
     const tx = makePrTx(pr({ debitNotes: [{ id: 'dn-1' }] }));
     await expect(voidPurchaseReturn(tx as never, 'org-a', 'pr-1', { date: DATE })).rejects.toThrow(/debit note/i);
   });
+
+  it('skips JE reversal for a services-only return (no journalEntryId) but still unwinds + voids', async () => {
+    const tx = makePrTx(pr({ journalEntryId: null }));
+    await voidPurchaseReturn(tx as never, 'org-a', 'pr-1', { date: DATE });
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(restoreConsumedLayers).toHaveBeenCalled();
+    expect((tx.purchaseReturn.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+  });
 });

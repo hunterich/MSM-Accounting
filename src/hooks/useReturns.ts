@@ -236,7 +236,10 @@ export function useVoidSalesReturn() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.post(`/api/v1/sales-returns/${id}/void`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['salesReturns'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['salesReturns'] });
+      qc.invalidateQueries({ queryKey: ['creditNotes'] });
+    },
   });
 }
 
@@ -287,7 +290,10 @@ export function useVoidPurchaseReturn() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.post(`/api/v1/purchase-returns/${id}/void`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['purchaseReturns'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['purchaseReturns'] });
+      qc.invalidateQueries({ queryKey: ['debitNotes'] });
+    },
   });
 }
 
