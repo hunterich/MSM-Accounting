@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
-import { nextNumber, ApiError } from '@/lib/api-utils';
+import { ApiError } from '@/lib/api-utils';
+import { postJournalEntry, type JournalLineInput } from '@/lib/journal-posting';
 
 /**
  * Posts the payroll-run summary journal entry and links it to the run.
@@ -57,15 +58,13 @@ export async function postPayrollRunToLedger(
   const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const memo = `Payroll ${monthNames[payrollRun.month]} ${payrollRun.year} - ${payrollRun.number}`;
 
-  const entryNo = await nextNumber(tx, 'JournalEntry', 'entryNo', 'JE');
-
-  // Build journal lines
-  const journalLines: any[] = [];
-  let lineNo = 1;
+  // Build journal lines (same accounts/amounts as before — only the posting
+  // path changes: route through postJournalEntry so the debits==credits guard
+  // and entryNo allocation are shared with every other posting lib).
+  const journalLines: JournalLineInput[] = [];
 
   // Debit: Salary Expense (total gross + employer BPJS)
   journalLines.push({
-    lineNo: lineNo++,
     accountId: expenseAcct.id,
     description: `Beban Gaji - ${memo}`,
     debit: totalGross + totalBpjsEmployer,
@@ -74,7 +73,6 @@ export async function postPayrollRunToLedger(
 
   // Credit: Cash/Bank (net pay)
   journalLines.push({
-    lineNo: lineNo++,
     accountId: cashAcct.id,
     description: `Pembayaran Gaji - ${memo}`,
     debit: 0,
@@ -84,7 +82,6 @@ export async function postPayrollRunToLedger(
   // Credit: Tax Payable (PPh 21)
   if (totalTax > 0) {
     journalLines.push({
-      lineNo: lineNo++,
       accountId: taxAcct.id,
       description: `Hutang PPh 21 - ${memo}`,
       debit: 0,
@@ -96,7 +93,6 @@ export async function postPayrollRunToLedger(
   const totalBpjsAll = totalBpjsEmployee + totalBpjsEmployer;
   if (totalBpjsAll > 0) {
     journalLines.push({
-      lineNo: lineNo++,
       accountId: (bpjsAcct || taxAcct).id,
       description: `Hutang BPJS - ${memo}`,
       debit: 0,
@@ -107,7 +103,6 @@ export async function postPayrollRunToLedger(
   // Credit: Deductions (employee deductions) - goes to cash
   if (totalDeductions > 0) {
     journalLines.push({
-      lineNo: lineNo++,
       accountId: cashAcct.id,
       description: `Potongan Gaji - ${memo}`,
       debit: 0,
@@ -115,23 +110,15 @@ export async function postPayrollRunToLedger(
     });
   }
 
-  const totalDebit = journalLines.reduce((s, l) => s + l.debit, 0);
-  const totalCredit = journalLines.reduce((s, l) => s + l.credit, 0);
-
-  // Create journal entry
-  const journalEntry = await tx.journalEntry.create({
-    data: {
-      organizationId: orgId,
-      entryNo,
-      date: payrollRun.periodEnd,
-      memo,
-      source: 'SYSTEM',
-      status: 'POSTED',
-      totalDebit,
-      totalCredit,
-      postedAt: new Date(),
-      lines: { create: journalLines },
-    },
+  // Post through the balance-guarded helper (throws if debits != credits within
+  // half-a-cent). Returns the created JE; status is POSTED by the helper, and
+  // the caller still owns payrollRun.status (mirrors postInvoiceSend).
+  const journalEntry = await postJournalEntry(tx, {
+    organizationId: orgId,
+    date: payrollRun.periodEnd,
+    memo,
+    source: 'SYSTEM',
+    lines: journalLines,
   });
 
   // Link the journal entry to the payroll run (status set by caller).
