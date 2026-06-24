@@ -8,7 +8,7 @@ import FilterBar from '../../components/UI/FilterBar';
 import { Plus, List, X, FileText, Paperclip, MoreHorizontal, Trash2, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import { useBills } from '../../hooks/useAP';
-import { useDebitNotes, usePurchaseReturns, useWarehouses } from '../../hooks/useReturns';
+import { useDebitNotes, usePurchaseReturns, useWarehouses, useVoidPurchaseReturn } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -41,6 +41,16 @@ const DebitNotes = () => {
     const debitNotes = dnData?.data ?? [];
     const { data: prData } = usePurchaseReturns();
     const purchaseReturns = prData?.data ?? [];
+    const voidPurchaseReturn = useVoidPurchaseReturn();
+
+    const handleVoidReturn = (id: string) => {
+        if (!window.confirm('Void this purchase return? Its journal entry will be reversed and the returned stock added back to inventory. This cannot be undone.')) return;
+        voidPurchaseReturn.mutate(id, {
+            onError: (error: unknown) => {
+                window.alert(error instanceof Error ? error.message : 'Failed to void purchase return');
+            },
+        });
+    };
     const { data: warehouses = [] } = useWarehouses();
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -205,7 +215,12 @@ const DebitNotes = () => {
             key: 'actions',
             label: '',
             render: (_: unknown, row: Record<string, unknown>) => (
-                <Button text="Open" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); openDoc('return', row['id'] as string); }} />
+                <div className="row-actions-end">
+                    {(row['status'] as string) === 'Approved' && (
+                        <Button text="Void" size="small" variant="tertiary" disabled={!canEdit || voidPurchaseReturn.isPending} onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleVoidReturn(row['id'] as string); }} />
+                    )}
+                    <Button text="Open" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); openDoc('return', row['id'] as string); }} />
+                </div>
             )
         }
     ];
@@ -432,6 +447,9 @@ const DebitNotes = () => {
                             <StatusTag status={selectedReturn.status === 'Approved' ? 'Success' : 'Warning'} label={selectedReturn.status} />
                         </div>
                         <div className="detail-header-actions">
+                            {selectedReturn.status === 'Approved' && (
+                                <Button text="Void" size="small" variant="secondary" disabled={!canEdit || voidPurchaseReturn.isPending} onClick={() => handleVoidReturn(selectedReturn.id)} />
+                            )}
                             <Button text="Print" size="small" variant="secondary" onClick={() => queuePrintReturn(selectedReturn.id)} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={() => navigate('/ap/returns/new', { state: { mode: 'edit', returnId: selectedReturn.id } })} />
                         </div>

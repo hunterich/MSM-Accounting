@@ -232,6 +232,14 @@ export function useUpdateSalesReturn() {
   });
 }
 
+export function useVoidSalesReturn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/api/v1/sales-returns/${id}/void`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['salesReturns'] }),
+  });
+}
+
 // ─── Purchase Returns ─────────────────────────────────────────────────────────
 
 export function usePurchaseReturns(filters: Record<string, unknown> = {}) {
@@ -271,6 +279,14 @@ export function useUpdatePurchaseReturn() {
         ...body,
         ...(body.status && { status: RETURN_STATUS_UP[body.status] ?? body.status }),
       }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['purchaseReturns'] }),
+  });
+}
+
+export function useVoidPurchaseReturn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/api/v1/purchase-returns/${id}/void`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['purchaseReturns'] }),
   });
 }
