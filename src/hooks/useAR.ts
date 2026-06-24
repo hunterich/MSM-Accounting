@@ -23,7 +23,7 @@ export const AR_KEYS = {
 const CUSTOMER_STATUS_DOWN: Record<string, CustomerStatus> = { ACTIVE: 'Active', INACTIVE: 'Inactive' };
 const CUSTOMER_STATUS_UP:   Record<string, string>         = { Active: 'ACTIVE', Inactive: 'INACTIVE' };
 
-const INVOICE_STATUS_DOWN: Record<string, InvoiceStatus> = { DRAFT: 'Draft', SENT: 'Sent', PAID: 'Paid', OVERDUE: 'Overdue' };
+const INVOICE_STATUS_DOWN: Record<string, InvoiceStatus> = { DRAFT: 'Draft', SENT: 'Sent', PAID: 'Paid', OVERDUE: 'Overdue', VOID: 'Void' };
 const INVOICE_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Sent: 'SENT', Paid: 'PAID', Overdue: 'OVERDUE' };
 
 const PAYMENT_METHOD_UP: Record<string, string> = {

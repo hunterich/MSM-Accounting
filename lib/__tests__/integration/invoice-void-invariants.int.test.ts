@@ -110,4 +110,57 @@ describe('invoice void round-trip', () => {
 
     await cleanupOrg(org.orgId);
   });
+
+  it('reverses every COGS entry on a multi-line invoice and restores both items', async () => {
+    const org = await createTestOrg();
+    const customerId = await createCustomer(org.orgId);
+    const itemA = await createItem(org.orgId);
+    const itemB = await createItem(org.orgId);
+
+    // Receive: A 5 @ 100 (=500), B 3 @ 200 (=600). Total on-hand 1100.
+    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemA, null, 5, 100, InventoryDocumentType.PURCHASE, 'po-a', DATE));
+    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemB, null, 3, 200, InventoryDocumentType.PURCHASE, 'po-b', DATE));
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(1100, 2);
+
+    const inv = await prisma.salesInvoice.create({
+      data: { organizationId: org.orgId, number: 'INV-VOID-ML', customerId, issueDate: DATE, status: 'SENT', subtotal: 2000, totalAmount: 2000, taxAmount: 0 },
+      select: { id: true, number: true },
+    });
+
+    await prisma.$transaction((tx) => postJournalEntry(tx, {
+      organizationId: org.orgId, date: DATE, memo: `Sales recognition: ${inv.number}`,
+      lines: [
+        { accountId: org.accounts.arControl, description: 'AR', debit: 2000, credit: 0 },
+        { accountId: org.accounts.salesRevenue, description: 'Sales', debit: 0, credit: 2000 },
+      ],
+    }));
+
+    // Two inventory lines → two separate COGS journals (same memo).
+    for (const [itemId, qty, cost] of [[itemA, 2, 200], [itemB, 1, 200]] as const) {
+      const cogs = await prisma.$transaction((tx) => calculateAndPostCOGS(tx, org.orgId, itemId, null, qty, InventoryDocumentType.SALES, inv.id, DATE));
+      expect(cogs).toBeCloseTo(cost, 2);
+      await prisma.$transaction((tx) => postJournalEntry(tx, {
+        organizationId: org.orgId, date: DATE, memo: `COGS auto-post: ${inv.number}`,
+        lines: [
+          { accountId: org.accounts.cogsExpense, description: 'COGS', debit: cost, credit: 0 },
+          { accountId: org.accounts.inventoryAsset, description: 'Inventory', debit: 0, credit: cost },
+        ],
+      }));
+    }
+
+    await assertTrialBalanced(org.orgId, 'multi-line posted');
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(700, 2); // 1100 - 400 sold
+
+    await prisma.$transaction((tx) => voidInvoice(tx, org.orgId, inv.id, { date: DATE }));
+
+    await assertTrialBalanced(org.orgId, 'multi-line voided');
+    expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBeCloseTo(0, 2);
+    expect(await accountBalance(org.orgId, org.accounts.arControl)).toBeCloseTo(0, 2);
+    await assertInventoryReconciled(org.orgId, 'multi-line after void');
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(1100, 2);
+    // 1 AR + 2 COGS posts, each reversed → 6 entries.
+    expect(await journalEntryCount(org.orgId)).toBe(6);
+
+    await cleanupOrg(org.orgId);
+  });
 });
