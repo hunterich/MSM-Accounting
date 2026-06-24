@@ -10,6 +10,10 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/lib/cors', () => ({ withCors: (r: Response) => r, corsPreflightResponse: () => new Response(null, { status: 204 }) }));
 vi.mock('@/lib/bill-posting', () => ({ postBillToLedger: vi.fn(async () => undefined) }));
+// The PO-receipt mutation is exercised by its own integration tests
+// (bill-po-receipt-approval.int.test.ts); stub it here so this route unit test
+// stays focused on GL posting + the period guard without mocking PO/lot tables.
+vi.mock('@/lib/bill-po-receipt', () => ({ applyBillPoReceipt: vi.fn(async () => undefined) }));
 
 import { prisma } from '@/lib/prisma';
 import { postBillToLedger } from '@/lib/bill-posting';

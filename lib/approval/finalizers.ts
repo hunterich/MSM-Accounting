@@ -2,6 +2,7 @@ import type { ApprovalDocumentType, Prisma } from '@prisma/client';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { postPayrollRunToLedger } from '@/lib/payroll-posting';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
@@ -26,6 +27,11 @@ export const FINALIZERS: Partial<Record<ApprovalDocumentType, Finalizer>> = {
     const bill = await tx.bill.findFirst({ where: { id: documentId, organizationId: orgId }, include: { lines: true } });
     if (!bill) throw new ApiError('Bill not found', 404);
     await assertPeriodOpen(tx, orgId, bill.issueDate ? new Date(bill.issueDate) : new Date());
+    // Apply the PO receipt FIRST (before postBillToLedger books the inventory
+    // lots applyBillPoReceipt uses to detect an already-booked goods receipt).
+    // This is the held -> approved finalize: the receipt deferred at create time
+    // now lands, exactly once.
+    await applyBillPoReceipt(tx, orgId, documentId);
     await postBillToLedger(tx, orgId, bill as never);
     await tx.bill.update({ where: { id: documentId }, data: { status: 'OPEN', updatedAt: new Date() } });
   },

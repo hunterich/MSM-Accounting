@@ -5,6 +5,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateBillInputSchema } from '@/types/api';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 
@@ -122,6 +123,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             // Refuse to post into a closed/locked accounting period (mirrors the
             // create-as-OPEN path in bills/route.ts).
             await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date());
+            // Apply the PO receipt on this DRAFT -> OPEN finalize, exactly once.
+            // For a direct-bill-from-PO created as DRAFT the receivedQty increment
+            // was deferred to finalize and lands here. For a goods-receipt bill
+            // (receivedQty already incremented + inventory lots booked at receipt)
+            // applyBillPoReceipt detects the existing lots and no-ops, so the
+            // receipt never double-counts. Runs BEFORE postBillToLedger books
+            // this finalize's lots.
+            await applyBillPoReceipt(tx, orgId, id);
             await postBillToLedger(tx, orgId, finalized as any);
           }
         }

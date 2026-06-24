@@ -10,6 +10,7 @@ import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requi
 import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 
@@ -87,58 +88,37 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     bill = await prisma.$transaction(async (tx: any) => {
     const createdBill = await createBillRecord(tx, orgId, parsed.data);
 
-    // --- PO line qty tracking ---
-    // Lines pulled from an existing goods receipt (alreadyReceived) bill stock that
-    // was already received — they must NOT re-increment receivedQty. Only lines that
-    // both link a PO and represent a fresh receipt update receivedQty here.
+    // --- PO line qty tracking: VALIDATE + LINK at create time ---
+    // Lines pulled from an existing goods receipt (alreadyReceived) bill stock
+    // that was already received — they must NOT re-increment receivedQty. Only
+    // lines that both link a PO and represent a fresh receipt drive receivedQty.
+    //
+    // The receivedQty INCREMENT + PO status flip is deferred to the FINALIZE
+    // path (applyBillPoReceipt) so a bill held for approval — or later rejected —
+    // never mutates the PO. Here we only do the read-only over-receive check and
+    // persist the bill-line -> PO-line link so the finalizer can read it back.
     if (parsed.data.lines && parsed.data.lines.length > 0) {
       const linesWithPO = parsed.data.lines.filter(l => l.purchaseOrderLineId && !l.alreadyReceived);
-      if (linesWithPO.length > 0) {
-        // Validate: no over-receiving
-        for (const line of linesWithPO) {
-          const poLine = await tx.purchaseOrderLine.findUnique({
-            where: { id: line.purchaseOrderLineId },
-            select: { id: true, quantity: true, receivedQty: true, purchaseOrderId: true },
-          });
-          if (!poLine) throw new ApiError(`PO line ${line.purchaseOrderLineId} not found`, 422);
-          const newTotal = Number(poLine.receivedQty) + Number(line.quantity);
-          if (newTotal > Number(poLine.quantity) + 0.0001) {
-            throw new ApiError(`Over-receiving: PO line allows ${Number(poLine.quantity) - Number(poLine.receivedQty)} more units`, 422);
-          }
-          // Increment receivedQty
-          await tx.purchaseOrderLine.update({
-            where: { id: line.purchaseOrderLineId },
-            data: { receivedQty: { increment: Number(line.quantity) } },
-          });
-          // Link the created bill line to the PO line
-          const billLine = createdBill!.lines?.find((bl: any) => bl.lineNo === line.lineNo);
-          if (billLine) {
-            await tx.billLine.update({
-              where: { id: billLine.id },
-              data: { purchaseOrderLineId: line.purchaseOrderLineId },
-            });
-          }
-        }
-        // Check PO completion and update status
-        const firstPoLineId = linesWithPO[0].purchaseOrderLineId;
-        const firstPoLine = await tx.purchaseOrderLine.findUnique({
-          where: { id: firstPoLineId },
-          select: { purchaseOrderId: true },
+      for (const line of linesWithPO) {
+        // Validate: no over-receiving (read-only).
+        const poLine = await tx.purchaseOrderLine.findUnique({
+          where: { id: line.purchaseOrderLineId },
+          select: { id: true, quantity: true, receivedQty: true },
         });
-        if (firstPoLine) {
-          const allPoLines = await tx.purchaseOrderLine.findMany({
-            where: { purchaseOrderId: firstPoLine.purchaseOrderId },
-            select: { quantity: true, receivedQty: true },
+        if (!poLine) throw new ApiError(`PO line ${line.purchaseOrderLineId} not found`, 422);
+        const newTotal = Number(poLine.receivedQty) + Number(line.quantity);
+        if (newTotal > Number(poLine.quantity) + 0.0001) {
+          throw new ApiError(`Over-receiving: PO line allows ${Number(poLine.quantity) - Number(poLine.receivedQty)} more units`, 422);
+        }
+        // Link the created bill line to the PO line (createBillRecord already
+        // persists this, but keep the explicit link so the relationship is
+        // guaranteed regardless of how the line was created).
+        const billLine = createdBill!.lines?.find((bl: any) => bl.lineNo === line.lineNo);
+        if (billLine && !billLine.purchaseOrderLineId) {
+          await tx.billLine.update({
+            where: { id: billLine.id },
+            data: { purchaseOrderLineId: line.purchaseOrderLineId },
           });
-          const allFull = allPoLines.every((pl: any) => Number(pl.receivedQty) >= Number(pl.quantity) - 0.0001);
-          const anyReceived = allPoLines.some((pl: any) => Number(pl.receivedQty) > 0.0001);
-          const newPoStatus = allFull ? 'CLOSED' : anyReceived ? 'PARTIAL_RECEIVED' : undefined;
-          if (newPoStatus) {
-            await tx.purchaseOrder.update({
-              where: { id: firstPoLine.purchaseOrderId },
-              data: { status: newPoStatus as any },
-            });
-          }
         }
       }
     }
@@ -155,14 +135,18 @@ export const POST = withHandler(async function POST(req: NextRequest) {
       });
       if (routed) {
         // HELD for approval: createBillRecord stamped the live status above;
-        // override it back to PENDING_APPROVAL and post NO GL (skip assertPeriodOpen).
+        // override it back to PENDING_APPROVAL, apply NO PO receipt, post NO GL
+        // (skip assertPeriodOpen). The PO receipt happens on approval (finalizer).
         await tx.bill.update({
           where: { id: createdBill.id },
           data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
         });
         (createdBill as any).status = 'PENDING_APPROVAL';
       } else {
-        // Refuse to post into a closed/locked accounting period.
+        // Finalized directly. Apply the PO receipt FIRST (before postBillToLedger
+        // books the inventory lots applyBillPoReceipt uses to detect an already-
+        // booked goods receipt), then post GL into an open accounting period.
+        await applyBillPoReceipt(tx, orgId, createdBill.id);
         await assertPeriodOpen(
           tx,
           orgId,
