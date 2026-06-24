@@ -65,9 +65,16 @@ function pgEnvFromUrl(databaseUrl: string): NodeJS.ProcessEnv {
   if (u.port) env.PGPORT = u.port;
   if (u.username) env.PGUSER = decodeURIComponent(u.username);
   if (u.password) env.PGPASSWORD = decodeURIComponent(u.password);
-  const db = u.pathname.replace(/^\//, '');
+  const db = decodeURIComponent(u.pathname.replace(/^\//, ''));
   if (db) env.PGDATABASE = db;
   return env;
+}
+
+function pgDatabaseName(databaseUrl: string): string {
+  const u = new URL(toLibpqUrl(databaseUrl));
+  const db = decodeURIComponent(u.pathname.replace(/^\//, ''));
+  if (!db) throw new Error('DATABASE_URL must include a database name.');
+  return db;
 }
 
 /** Remove DB URLs / passwords from a string before it is stored or returned. */
@@ -82,10 +89,14 @@ export async function runPgDump(args: {
   databaseUrl: string;
   outFile: string;
 }): Promise<void> {
-  await execFile(args.toolPath, ['--format=custom', '--file', args.outFile], {
+  await execFile(args.toolPath, buildPgDumpArgs(args.databaseUrl, args.outFile), {
     maxBuffer: 64 * 1024 * 1024,
     env: pgEnvFromUrl(args.databaseUrl),
   });
+}
+
+export function buildPgDumpArgs(databaseUrl: string, outFile: string): string[] {
+  return ['--dbname', pgDatabaseName(databaseUrl), '--format=custom', '--file', outFile];
 }
 
 export async function runPgRestore(args: {
@@ -93,8 +104,12 @@ export async function runPgRestore(args: {
   databaseUrl: string;
   inFile: string;
 }): Promise<void> {
-  await execFile(args.toolPath, ['--clean', '--if-exists', '--no-owner', args.inFile], {
+  await execFile(args.toolPath, buildPgRestoreArgs(args.databaseUrl, args.inFile), {
     maxBuffer: 64 * 1024 * 1024,
     env: pgEnvFromUrl(args.databaseUrl),
   });
+}
+
+export function buildPgRestoreArgs(databaseUrl: string, inFile: string): string[] {
+  return ['--clean', '--if-exists', '--no-owner', '--dbname', pgDatabaseName(databaseUrl), inFile];
 }
