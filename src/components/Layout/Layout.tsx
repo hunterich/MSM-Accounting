@@ -1,15 +1,18 @@
 import React from 'react';
+import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { UserCircle } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Button from '../UI/Button';
 import { useAuthStore } from '../../stores/useAuthStore';
+import ChangePasswordModal from '../auth/ChangePasswordModal';
 
 const Layout = (): React.ReactElement => {
     const navigate = useNavigate();
     const user = useAuthStore((s) => s.user);
     const org = useAuthStore((s) => s.org);
     const logout = useAuthStore((s) => s.logout);
+    const [showChangePassword, setShowChangePassword] = useState(false);
 
     const handleLogout = async (): Promise<void> => {
         await logout();
@@ -27,7 +30,9 @@ const Layout = (): React.ReactElement => {
                         <UserCircle size={20} className="text-neutral-400" />
                         <span className="text-sm text-neutral-600">{org?.name || 'Organization'}</span>
                         <span className="text-sm font-medium text-neutral-800">{user?.fullName || 'User'}</span>
+                        <Button text="Change Password" size="small" variant="tertiary" onClick={() => setShowChangePassword(true)} />
                         <Button text="Logout" size="small" variant="tertiary" onClick={handleLogout} />
+                        <ChangePasswordModal isOpen={showChangePassword} onClose={() => setShowChangePassword(false)} />
                     </div>
                 </header>
                 <main id="main-content" className="overflow-y-auto flex-1 p-8 bg-neutral-50 relative pt-14 md:pt-8">
