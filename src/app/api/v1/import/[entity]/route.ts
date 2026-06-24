@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, ok, ApiError } from '@/lib/api-utils';
+import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -181,21 +182,30 @@ export const POST = withHandler(async function POST(
     }
 
     if (entity === 'items') {
+      const importDate = new Date();
       for (const row of valid as z.infer<typeof ItemRowSchema>[]) {
-        await prisma.item.create({
-          data: {
-            organizationId: orgId,
-            name: row.name,
-            // Item.sku is required — generate from name when not supplied.
-            sku: row.sku || row.name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 32),
-            type: row.type,
-            unit: row.unit,
-            sellingPrice: row.salePrice,
-            costPrice: row.openingValue != null && row.openingStock
-              ? row.openingValue / row.openingStock
-              : row.purchasePrice,
-            openingStock: row.openingStock ?? 0,
-          },
+        await prisma.$transaction(async (tx) => {
+          const createdItem = await tx.item.create({
+            data: {
+              organizationId: orgId,
+              name: row.name,
+              // Item.sku is required — generate from name when not supplied.
+              sku: row.sku || row.name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 32),
+              type: row.type,
+              unit: row.unit,
+              sellingPrice: row.salePrice,
+              costPrice: row.openingValue != null && row.openingStock
+                ? row.openingValue / row.openingStock
+                : row.purchasePrice,
+              openingStock: row.openingStock ?? 0,
+            },
+          });
+          // Post opening stock as a real cost layer + opening journal entry so the
+          // inventory asset and on-hand quantity agree from day one, matching what
+          // the normal item creation route produces.
+          if ((row.openingStock ?? 0) > 0) {
+            await postOpeningStockIfNeeded(tx, orgId, createdItem.id, importDate);
+          }
         });
         created++;
       }
