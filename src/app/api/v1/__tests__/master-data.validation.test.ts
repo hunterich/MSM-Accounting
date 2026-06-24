@@ -44,6 +44,7 @@ vi.mock('@/lib/prisma', () => {
       update: vi.fn(),
       findUnique: vi.fn(),
     },
+    $executeRaw: vi.fn(async () => undefined),
     $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
   };
 

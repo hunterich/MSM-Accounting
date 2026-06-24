@@ -77,13 +77,18 @@ export const POST = withHandler(async function POST(
 
     const settings = await loadOrgAccountDefaults(tx, orgId);
     const cashAccountId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
+    // NOTE: `type` must match the Prisma `AccountType` enum, which is uppercase
+    // (`ASSET` / `REVENUE` / `EXPENSE`). Filtering on capitalised 'Revenue' /
+    // 'Expense' / 'Asset' never matched, so keyword-resolved gain/loss accounts
+    // silently failed to resolve → the gain/loss line was dropped → the disposal
+    // JE was unbalanced.
     const accumDepAccountId = asset.category?.accumDepAccountId
-      || findAccountByKeyword(accounts, ['akumulasi penyusutan', 'accumulated depreciation', 'akum. penyusutan'], 'Asset');
+      || findAccountByKeyword(accounts, ['akumulasi penyusutan', 'accumulated depreciation', 'akum. penyusutan'], 'ASSET');
     const assetAccountId = asset.category?.assetAccountId
-      || findAccountByKeyword(accounts, ['aset tetap', 'fixed asset', 'peralatan', 'equipment'], 'Asset');
+      || findAccountByKeyword(accounts, ['aset tetap', 'fixed asset', 'peralatan', 'equipment'], 'ASSET');
     const gainLossAccountId = isGain
-      ? findAccountByKeyword(accounts, ['keuntungan pelepasan', 'gain on disposal', 'pendapatan lain'], 'Revenue')
-      : findAccountByKeyword(accounts, ['kerugian pelepasan', 'loss on disposal', 'beban lain'], 'Expense');
+      ? findAccountByKeyword(accounts, ['keuntungan pelepasan', 'gain on disposal', 'pendapatan lain'], 'REVENUE')
+      : findAccountByKeyword(accounts, ['kerugian pelepasan', 'loss on disposal', 'beban lain'], 'EXPENSE');
 
     const acquisitionCost = toNumber(asset.acquisitionCost);
     const accumulatedDep = toNumber(asset.accumulatedDepreciation);
