@@ -3,11 +3,14 @@ import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
-import { Save, Plus, Edit2, Clock, Shield, Check } from 'lucide-react';
+import { Save, Plus, Edit2, Clock, Shield, Check, KeyRound } from 'lucide-react';
 import Table, { TableColumn } from '../../components/UI/Table';
 import { useAccessStore, MODULE_KEYS, MODULE_EXTRA_ACTIONS, noPermissions } from '../../stores/useAccessStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import type { AccessRole, AccessUser } from '../../stores/useAccessStore';
+import { useLoginAccounts, type LoginAccount } from '../../hooks/useUsers';
+import { useAuthStore } from '../../stores/useAuthStore';
+import ResetPasswordModal from '../../components/auth/ResetPasswordModal';
 
 interface SecuritySettings {
     allowInvites: boolean;
@@ -48,6 +51,11 @@ const groupOrder: string[] = [
 
 const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: SecurityRolesTabProps) => {
     const { canCreate, canEdit } = useModulePermissions('settings');
+    const roleType = useAuthStore((s) => s.roleType);
+    const isAdmin = roleType === 'ADMIN';
+    const { data: loginAccountsData } = useLoginAccounts(isAdmin);
+    const [resetTarget, setResetTarget] = useState<LoginAccount | null>(null);
+    const loginAccounts = loginAccountsData?.data ?? [];
     /* ---- Pull from Zustand store ---- */
     const roles = useAccessStore(s => s.roles);
     const users = useAccessStore(s => s.users);
@@ -460,6 +468,32 @@ const SecurityRolesTab = ({ securitySettings, setSecuritySettings, onSave }: Sec
             >
                 <Table columns={roleColumns as unknown as TableColumn<Record<string, unknown>>[]} data={roles as unknown as Record<string, unknown>[]} />
             </Card>
+
+            {isAdmin && (
+              <Card title="Login Accounts">
+                <p className="settings-muted">
+                  Real sign-in accounts. Resetting a password sets a temporary one and forces the
+                  user to choose their own at next login. (This is separate from the role list above,
+                  which configures permissions.)
+                </p>
+                <div className="mt-3 divide-y divide-neutral-200">
+                  {loginAccounts.map((acct) => (
+                    <div key={acct.id} className="flex items-center justify-between py-2.5">
+                      <div>
+                        <div className="text-sm font-medium text-neutral-800">{acct.fullName}</div>
+                        <div className="text-xs text-neutral-500">{acct.email} · {acct.roleName}</div>
+                      </div>
+                      <Button text="Reset password" size="small" variant="secondary"
+                        icon={<KeyRound size={14} />} onClick={() => setResetTarget(acct)} />
+                    </div>
+                  ))}
+                  {loginAccounts.length === 0 && (
+                    <p className="py-2.5 text-sm text-neutral-500">No login accounts found.</p>
+                  )}
+                </div>
+              </Card>
+            )}
+            <ResetPasswordModal account={resetTarget} onClose={() => setResetTarget(null)} />
 
             <Card title="Global Security Settings">
                 <p className="settings-muted">System-wide security controls that apply regardless of role.</p>
