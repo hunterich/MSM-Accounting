@@ -673,7 +673,23 @@ async function main() {
     }
   }
 
+  await applyRawIndexes();
+
   console.log('Seed complete. Login: admin@demo.com / admin123 or cashier@demo.com / cashier123');
+}
+
+// Indexes Prisma's schema cannot express (partial / filtered uniques). `prisma db push`
+// will NEVER create these, so they must be applied out-of-band on every fresh DB.
+// Running them here (idempotent via IF NOT EXISTS) means a `db push` + reseed always
+// leaves the DB fully indexed. Keep in sync with scripts/apply-db-indexes.mjs.
+async function applyRawIndexes() {
+  // Bug-A backstop: at most one OPEN (PENDING) ApprovalRequest per (org, docType, doc).
+  await prisma.$executeRawUnsafe(
+    `CREATE UNIQUE INDEX IF NOT EXISTS "ApprovalRequest_open_pending_unique"
+     ON "ApprovalRequest" ("organizationId", "documentType", "documentId")
+     WHERE status = 'PENDING';`
+  );
+  console.log('Applied raw indexes (ApprovalRequest_open_pending_unique).');
 }
 
 main()
