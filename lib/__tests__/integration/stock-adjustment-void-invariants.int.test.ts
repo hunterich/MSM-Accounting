@@ -75,4 +75,31 @@ describe('stock adjustment void round-trip (mixed increase + decrease)', () => {
 
     await cleanupOrg(org.orgId);
   });
+
+  it('reverses an increase-only adjustment back to zero', async () => {
+    const org = await createTestOrg();
+    const itemUp = await createItem(org.orgId);
+
+    const adj = await prisma.stockAdjustment.create({
+      data: { organizationId: org.orgId, number: 'ADJ-VOID-INC', date: DATE, reason: 'Increase only' },
+      select: { id: true, number: true },
+    });
+
+    // +8 @ 50 = +400.
+    await prisma.$transaction((tx) => postStockAdjustmentToLedger(tx, org.orgId, {
+      id: adj.id, number: adj.number, date: DATE, warehouseId: null,
+      lines: [{ itemId: itemUp, oldQty: 0, newQty: 8, unitCost: 50 }],
+    }));
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(400, 2);
+    await assertInventoryReconciled(org.orgId, 'increase posted');
+
+    await prisma.$transaction((tx) => voidStockAdjustment(tx, org.orgId, adj.id, { date: DATE }));
+
+    await assertTrialBalanced(org.orgId, 'increase voided');
+    await assertInventoryReconciled(org.orgId, 'increase voided');
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(0, 2);
+    expect(await journalEntryCount(org.orgId)).toBe(2);
+
+    await cleanupOrg(org.orgId);
+  });
 });
