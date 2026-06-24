@@ -1661,6 +1661,7 @@ enum StockAdjustmentType {
 enum StockAdjustmentStatus {
   DRAFT
   APPROVED
+  VOID
 }
 
 enum InventoryDocumentType {
