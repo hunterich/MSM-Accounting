@@ -27,7 +27,7 @@ const CreditNoteForm = lazy(() => import('./views/ar/CreditNoteForm'))
 const SalesReturnForm = lazy(() => import('./views/ar/SalesReturnForm'))
 const RecurringBilling = lazy(() => import('./views/ar/RecurringBilling'))
 const ApprovalInbox = lazy(() => import('./views/ar/ApprovalInbox'))
-const SOForm = lazy(() => import('./components/ar/salesorders/SOForm'))
+const SOForm = lazy(() => import('./components/ar/salesorders/SOFormV2'))
 
 const Bills = lazy(() => import('./views/ap/Bills'))
 const BillForm = lazy(() => import('./views/ap/BillForm'))
