@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { hasModulePermission } from '../../stores/useAuthStore';
 import { useHydrateCompanyInfoFromOrg } from '../../hooks/useOrganizationSettings';
+import ForcedPasswordChange from './ForcedPasswordChange';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -14,6 +15,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps): React
   const isLoading = useAuthStore((s) => s.isLoading);
   const permissions = useAuthStore((s) => s.permissions);
   const needsInventoryValuationSetup = useAuthStore((s) => s.needsInventoryValuationSetup);
+  const mustChangePassword = useAuthStore((s) => s.mustChangePassword);
   const checkSession = useAuthStore((s) => s.checkSession);
 
   // Hydrate companyInfo from the org record once authenticated (DB is source of truth).
@@ -33,6 +35,10 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps): React
 
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  if (mustChangePassword) {
+    return <ForcedPasswordChange />;
   }
 
   if (needsInventoryValuationSetup) {
