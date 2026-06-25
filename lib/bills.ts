@@ -96,9 +96,21 @@ export async function createBillRecord(
     });
   }
 
-  if (charges && charges.length > 0) {
+  // A bill raised against a PO with no charges of its own inherits the PO's
+  // additional costs (which never journaled on the PO) — they post here on the
+  // bill. Explicit bill charges always win.
+  let effectiveCharges: Array<{ lineNo?: number; label: string; accountId?: string | null; amount: unknown; taxRate?: unknown }> =
+    charges ?? [];
+  if (effectiveCharges.length === 0 && header.poId) {
+    const poCharges = await tx.purchaseOrderCharge.findMany({
+      where: { purchaseOrderId: header.poId },
+      orderBy: { lineNo: 'asc' },
+    });
+    effectiveCharges = poCharges.map((c) => ({ label: c.label, accountId: c.accountId, amount: c.amount, taxRate: c.taxRate }));
+  }
+  if (effectiveCharges.length > 0) {
     await tx.billCharge.createMany({
-      data: charges.map((charge, index) => ({
+      data: effectiveCharges.map((charge, index) => ({
         billId: created.id,
         lineNo: charge.lineNo ?? index + 1,
         label: charge.label,

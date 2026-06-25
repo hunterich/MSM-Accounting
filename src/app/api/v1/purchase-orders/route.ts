@@ -59,7 +59,7 @@ export const POST = withHandler(async function POST(req: NextRequest) {
   if (!parsed.success) {
     throw new ApiError(parsed.error.issues[0]?.message || 'Invalid purchase order payload', 400);
   }
-  const { lines, ...header } = parsed.data;
+  const { lines, charges, ...header } = parsed.data;
   const number = await nextNumber(prisma, 'PurchaseOrder', 'number', 'PO');
 
   const po = await prisma.$transaction(async (tx) => {
@@ -91,9 +91,21 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         }),
       });
     }
+    if (charges && charges.length > 0) {
+      await tx.purchaseOrderCharge.createMany({
+        data: charges.map((c: any, idx: number) => ({
+          purchaseOrderId: created.id,
+          lineNo: c.lineNo ?? idx + 1,
+          label: c.label,
+          accountId: c.accountId || null,
+          amount: c.amount ?? 0,
+          taxRate: c.taxRate ?? 0,
+        })),
+      });
+    }
     return tx.purchaseOrder.findUnique({
       where: { id: created.id },
-      include: { vendor: true, lines: true },
+      include: { vendor: true, lines: true, charges: true },
     });
   });
 

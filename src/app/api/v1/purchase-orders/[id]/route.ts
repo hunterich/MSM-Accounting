@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const po = await prisma.purchaseOrder.findFirst({
       where: { id, organizationId: orgId },
-      include: { vendor: true, lines: true },
+      include: { vendor: true, lines: true, charges: true },
     });
     if (!po) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     return withCors(NextResponse.json(po));
@@ -40,7 +40,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid purchase order payload', issues: parsed.error.issues }, { status: 400 }));
     }
-    const { lines, ...header } = parsed.data;
+    const { lines, charges, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
@@ -91,9 +91,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           })),
         });
       }
+      if (charges) {
+        await tx.purchaseOrderCharge.deleteMany({ where: { purchaseOrderId: id } });
+        if (charges.length > 0) {
+          await tx.purchaseOrderCharge.createMany({
+            data: charges.map((c: any, idx: number) => ({
+              purchaseOrderId: id,
+              lineNo: c.lineNo ?? idx + 1,
+              label: c.label,
+              accountId: c.accountId || null,
+              amount: c.amount ?? 0,
+              taxRate: c.taxRate ?? 0,
+            })),
+          });
+        }
+      }
       return tx.purchaseOrder.findFirst({
         where: { id, organizationId: orgId },
-        include: { vendor: true, lines: true },
+        include: { vendor: true, lines: true, charges: true },
       });
     });
     if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));

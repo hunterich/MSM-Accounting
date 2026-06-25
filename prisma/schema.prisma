@@ -781,11 +781,29 @@ model PurchaseOrder {
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   vendor         Vendor             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   lines          PurchaseOrderLine[]
+  charges        PurchaseOrderCharge[]
   bills          Bill[]
 
   @@unique([organizationId, number])
   @@index([organizationId, date, status])
   @@index([vendorId])
+}
+
+// Additional cost on a purchase order. POs never journal, so these are advisory
+// — they carry into the Bill (which does journal) when a bill is raised against
+// the PO. accountId is a plain string like PurchaseOrderLine.accountId.
+model PurchaseOrderCharge {
+  id              String   @id @default(cuid())
+  purchaseOrderId String
+  lineNo          Int
+  label           String
+  accountId       String?
+  amount          Decimal  @default(0) @db.Decimal(18, 2)
+  taxRate         Decimal  @default(0) @db.Decimal(5, 2)
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseOrderId, lineNo])
 }
 
 model PurchaseOrderLine {

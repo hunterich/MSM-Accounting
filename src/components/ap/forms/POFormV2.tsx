@@ -22,6 +22,7 @@ import {
     useUpdatePurchaseOrder,
 } from '../../../hooks/useAP';
 import { useItems } from '../../../hooks/useInventory';
+import { useAccountsByType } from '../../../hooks/useGL';
 
 /**
  * POFormV2 — Purchase Order on the shared document-form system.
@@ -29,9 +30,9 @@ import { useItems } from '../../../hooks/useInventory';
  * Vendor-side sibling of SOFormV2: same shell, tabs, totals; uses VendorContextRail
  * instead of the credit-limit rail, and posts the PO create/update payload.
  *
- * Persistence parity note: like SOFormV2 / InvoiceFormV2, the Additional-costs
- * breakdown is not sent to the API yet (no field) — it renders and folds into the
- * on-screen total only. Wire it once the PO schema gains a charges field.
+ * Additional costs ARE persisted (PurchaseOrderCharge) but a PO never journals,
+ * so they're advisory here — they carry into the Bill (which posts them to GL)
+ * when a bill is raised against this PO. Each charge codes to an Expense account.
  */
 
 const TAX_RATE = 11;
@@ -60,6 +61,11 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
     const { data: posResult } = usePurchaseOrders();
     const { data: editingPORaw } = usePurchaseOrder(isEdit ? poId : undefined);
     const editingPO = editingPORaw as unknown as Rec | undefined;
+    const { data: expenseAccountsData } = useAccountsByType('Expense');
+    const accountOptions = useMemo(
+        () => (expenseAccountsData ?? []).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })),
+        [expenseAccountsData],
+    );
 
     const createPO = useCreatePurchaseOrder();
     const updatePO = useUpdatePurchaseOrder();
@@ -93,8 +99,20 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
         }));
     }, [editingPO]);
 
-    const doc = useDocumentLines(seedLines, []);
-    const { setLines } = doc;
+    const seedCharges = useMemo(() => {
+        const src = (editingPO?.charges || []) as Rec[];
+        return src.map((c, i) => ({
+            id: str(c.id) || `ch-${i}`,
+            label: firstStr(c.label),
+            accountId: firstStr(c.accountId),
+            accountLabel: '',
+            amount: num(c.amount),
+            taxRate: num(c.taxRate),
+        }));
+    }, [editingPO]);
+
+    const doc = useDocumentLines(seedLines, seedCharges);
+    const { setLines, setCharges } = doc;
 
     useEffect(() => {
         if (!editingPO) return;
@@ -103,7 +121,8 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
         setExpectedDate(str(editingPO.expectedDate ?? editingPO.expiryDate));
         setNotes(str(editingPO.notes));
         setLines(seedLines);
-    }, [editingPO, seedLines, setLines]);
+        setCharges(seedCharges);
+    }, [editingPO, seedLines, seedCharges, setLines, setCharges]);
 
     const [activeTab, setActiveTab] = useState<'items' | 'costs' | 'info'>('items');
     const [saving, setSaving] = useState(false);
@@ -211,6 +230,15 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
                 price: num(l.price),
                 discountPct: num(l.discount),
                 lineTotal: Math.round(num(l.qty) * num(l.price) * (1 - num(l.discount) / 100) * 100) / 100,
+            })),
+        charges: doc.charges
+            .filter((c) => c.label.trim() && num(c.amount) !== 0)
+            .map((c, idx) => ({
+                lineNo: idx + 1,
+                label: c.label.trim(),
+                ...(c.accountId && { accountId: c.accountId }),
+                amount: num(c.amount),
+                taxRate: num(c.taxRate),
             })),
     });
 
@@ -320,7 +348,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
                 <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} onAddLine={doc.addLine} searchSlot={searchSlot} />
             )}
             {activeTab === 'costs' && (
-                <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} />
+                <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} accountOptions={accountOptions} />
             )}
             {activeTab === 'info' && (
                 <AdditionalInfoTab

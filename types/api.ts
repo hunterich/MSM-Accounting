@@ -505,6 +505,7 @@ export const purchaseOrderInputSchema = z.object({
   totalAmount: positiveDecimal.default(0),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).default([]),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 export const updatePurchaseOrderInputSchema = z.object({
@@ -520,6 +521,7 @@ export const updatePurchaseOrderInputSchema = z.object({
   totalAmount: positiveDecimal.optional(),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).optional(),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 const paymentAllocationBaseSchema = z.object({
