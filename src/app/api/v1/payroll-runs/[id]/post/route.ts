@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit, ApiError } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { postPayrollRunToLedger } from '@/lib/payroll-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 
@@ -11,7 +12,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
   const userId = req.headers.get('x-user-id');
@@ -103,4 +104,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const message = error instanceof Error ? error.message : 'Failed to post payroll';
     return err(message, 500);
   }
-}
+});

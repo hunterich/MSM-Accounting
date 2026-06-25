@@ -18,6 +18,7 @@
  * Run with:  npm run test:int -- recalculate-costing
  */
 import { afterAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import {
   prisma,
@@ -38,9 +39,20 @@ afterAll(async () => {
 const EFFECTIVE = '2026-03-20';
 const EFFECTIVE_DATE = new Date(`${EFFECTIVE}T00:00:00.000Z`);
 
-/** Build a NextRequest carrying the org header + JSON body the route reads. */
+/**
+ * Build a NextRequest carrying the org header + JSON body the route reads. The
+ * actor is an ADMIN (production middleware injects `x-role-type: 'ADMIN'` from
+ * the verified JWT, which makes the route's `requirePermission` SETTINGS:edit
+ * check bypass). The route is keyed by orgId and never looks the user up, so a
+ * synthetic `x-user-id` (required by `authActor`) is sufficient here.
+ */
 function buildRequest(orgId: string, body: unknown): NextRequest {
-  const h = new Headers({ 'x-org-id': orgId, 'content-type': 'application/json' });
+  const h = new Headers({
+    'x-org-id': orgId,
+    'x-user-id': `costing-admin-${randomUUID()}`,
+    'x-role-type': 'ADMIN',
+    'content-type': 'application/json',
+  });
   return new NextRequest(new URL('http://localhost/api/v1/inventory/recalculate-costing'), {
     method: 'POST',
     headers: h,

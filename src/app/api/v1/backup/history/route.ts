@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { err, listResponse, withHandler, parsePaginationParams } from '@/lib/api-utils';
+import { listResponse, parsePaginationParams } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listBackups } from '@/lib/backup/backup-service';
 
@@ -9,8 +10,7 @@ export function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
-  if (req.headers.get('x-role-type') !== 'ADMIN') return err('Forbidden: ADMIN role required', 403);
+export const GET = withPermission({ module: 'SYSTEM_BACKUP', action: 'view' }, async function GET(req: NextRequest) {
   const { page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const { data, total } = await listBackups(page, limit);
   return listResponse(data, total, page, limit);

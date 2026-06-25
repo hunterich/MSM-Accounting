@@ -58,13 +58,17 @@ async function seedUser(): Promise<string> {
   return user.id;
 }
 
-/** Build a NextRequest carrying the auth headers the routes read. */
+/**
+ * Build a NextRequest carrying the auth headers the routes read. The actor is an
+ * ADMIN (production middleware injects `x-role-type: 'ADMIN'` from the verified
+ * JWT, which makes the routes' `requirePermission` GL_JOURNAL check bypass).
+ */
 function authedRequest(
   url: string,
   headers: { orgId: string; userId?: string },
   body?: unknown,
 ): NextRequest {
-  const h = new Headers({ 'x-org-id': headers.orgId });
+  const h = new Headers({ 'x-org-id': headers.orgId, 'x-role-type': 'ADMIN' });
   if (headers.userId) h.set('x-user-id', headers.userId);
   if (body !== undefined) h.set('content-type', 'application/json');
   return new NextRequest(new URL(url, 'http://localhost'), {

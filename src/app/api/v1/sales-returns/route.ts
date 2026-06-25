@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
@@ -36,7 +37,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);

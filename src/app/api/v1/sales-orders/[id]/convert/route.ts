@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -41,7 +42,7 @@ const nextInvoiceNumber = async (tx: any, organizationId: string): Promise<strin
   return `${INVOICE_PREFIX}-${String(nextSeq).padStart(INVOICE_DIGITS, '0')}`;
 };
 
-export async function POST(req: NextRequest, context: RouteContext) {
+export const POST = withPermission({ module: 'AR_SALES_ORDERS', action: 'create' }, async (req: NextRequest, context: RouteContext) => {
   try {
     const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
@@ -111,4 +112,4 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const message = error instanceof Error ? error.message : 'Failed to convert sales order';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

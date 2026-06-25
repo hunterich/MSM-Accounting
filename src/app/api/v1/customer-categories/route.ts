@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { customerCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AR_CUSTOMERS', action: 'create' }, async (req: NextRequest) => {
   try {
     const orgId = req.headers.get('x-org-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -59,4 +60,4 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to create category';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

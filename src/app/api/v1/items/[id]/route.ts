@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, softDelete, validateForeignKey } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateItemInputSchema } from '@/types/api';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok(item);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'INV_ITEMS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
@@ -96,9 +97,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed to update item';
     return err(message, 500);
   }
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'INV_ITEMS', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const deleted = await softDelete(
@@ -109,4 +110,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!deleted) return err('Not found', 404);
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Item', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
-}
+});

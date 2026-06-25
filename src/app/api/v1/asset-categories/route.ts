@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { assetCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -34,7 +35,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
   const parsed = assetCategoryInputSchema.safeParse({ ...body, organizationId: orgId });

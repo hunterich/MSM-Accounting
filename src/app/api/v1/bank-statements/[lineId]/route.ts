@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
+import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -9,7 +10,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const PUT = withHandler(async function PUT(
+export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async function PUT(
   req: NextRequest,
   ctx: { params: Promise<{ lineId: string }> },
 ) {

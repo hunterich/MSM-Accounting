@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { purchaseOrderInputSchema } from '@/types/api';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -49,7 +50,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
   const parsed = purchaseOrderInputSchema.safeParse({

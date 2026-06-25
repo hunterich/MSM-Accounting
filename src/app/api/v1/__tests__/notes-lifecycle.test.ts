@@ -183,7 +183,7 @@ import { PUT as updateDebitNote, DELETE as deleteDebitNote } from '../debit-note
 function makePost(path: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost${path}`, {
     method: 'POST',
-    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
@@ -191,7 +191,7 @@ function makePost(path: string, body: unknown): NextRequest {
 function makePut(path: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost${path}`, {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
@@ -199,7 +199,7 @@ function makePut(path: string, body: unknown): NextRequest {
 function makeDelete(path: string): NextRequest {
   return new NextRequest(`http://localhost${path}`, {
     method: 'DELETE',
-    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1' },
+    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' },
   });
 }
 

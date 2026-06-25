@@ -7,6 +7,7 @@ import {
   createJournalEntryResponseSchema,
 } from '@/types/api';
 import { corsPreflightResponse } from '@/lib/cors';
+import { withPermission } from '@/lib/authz';
 import {
   ok,
   err,
@@ -126,7 +127,7 @@ export const GET = withHandler(async (req: NextRequest) => {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async (request: NextRequest) => {
+export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, async (request: NextRequest) => {
   const { orgId, userId } = requireAuth(request);
 
   const rawPayload = await request.json();

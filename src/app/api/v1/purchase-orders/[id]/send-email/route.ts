@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, logAudit, ok, requireOrg, withHandler } from '@/lib/api-utils';
 import { sendPurchaseOrderEmail } from '@/lib/email';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +11,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(
+export const POST = withPermission({ module: 'AP_POS', action: 'edit' }, async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

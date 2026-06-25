@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateBankTransactionInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok(txn);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const body = await req.json();
@@ -93,9 +94,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed to update bank transaction';
     return err(message, 500);
   }
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'BANKING', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
@@ -143,4 +144,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const message = error instanceof Error ? error.message : 'Failed to delete bank transaction';
     return err(message, 500);
   }
-}
+});

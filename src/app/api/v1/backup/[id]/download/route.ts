@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { err, withHandler } from '@/lib/api-utils';
+import { err } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { prisma } from '@/lib/prisma';
 import { getSettings } from '@/lib/backup/backup-service';
@@ -12,11 +13,12 @@ export function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  if (req.headers.get('x-role-type') !== 'ADMIN') return err('Forbidden: ADMIN role required', 403);
+export const GET = withPermission(
+  { module: 'SYSTEM_BACKUP', action: 'view' },
+  async function GET(
+    req: NextRequest,
+    { params }: { params: Promise<{ id: string }> },
+  ) {
   const { id } = await params;
   const record = await prisma.backupRecord.findUnique({ where: { id } });
   if (!record || record.fileName === '(failed)') return err('Backup file not found', 404);

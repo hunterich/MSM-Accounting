@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, ok, listResponse, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { itemCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'INV_CATEGORIES', action: 'create' }, async (req: NextRequest) => {
   const orgId = req.headers.get('x-org-id')!;
   const body  = await req.json();
   const parsed = itemCategoryInputSchema.safeParse(body);
@@ -40,4 +41,4 @@ export async function POST(req: NextRequest) {
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ItemCategory', entityId: category.id, action: 'CREATE', payload: { name: category.name } });
   return ok(category, 201);
-}
+});

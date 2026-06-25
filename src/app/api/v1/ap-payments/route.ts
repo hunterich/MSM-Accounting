@@ -9,6 +9,7 @@ import { nextNumber } from '@/lib/api-utils';
 import { apPaymentInputSchema } from '@/types/api';
 import { postApPaymentIfNeeded } from '@/lib/payment-posting';
 import { routeForApproval } from '@/lib/approval/engine';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -38,7 +39,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AP_PAYMENTS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);

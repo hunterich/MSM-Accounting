@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { sendPaymentReminderEmail } from '@/lib/email';
 
 export const runtime = 'nodejs';
@@ -10,7 +11,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AR_INVOICES', action: 'edit' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
 
   const invoices = await prisma.salesInvoice.findMany({

@@ -79,7 +79,7 @@ import { PUT as updateVendor } from '../vendors/[id]/route';
 import { PUT as updateOrganizationSettings } from '../organization/settings/route';
 
 function makeReq(path: string, method = 'PUT', body?: unknown) {
-  const init = { method, headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' } } as any;
+  const init = { method, headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } } as any;
   if (body !== undefined) {
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);

@@ -8,6 +8,7 @@ import { ApiError, ok, err, requireOrg, nextNumber, withHandler } from '@/lib/ap
 import { asMoney } from '@/lib/money';
 import { postGoodsReceiptToLedger } from '@/lib/goods-receipt-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -25,7 +26,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(
+export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {

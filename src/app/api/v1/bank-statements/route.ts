@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { parseStatement } from '@/lib/bank-statement-parser';
 
 export const runtime = 'nodejs';
@@ -96,7 +97,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return ok({ data });
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'BANKING', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
 
   const formData = await req.formData();

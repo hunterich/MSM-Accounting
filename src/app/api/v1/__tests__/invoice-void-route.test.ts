@@ -13,12 +13,12 @@ import { PUT as putInvoice } from '../invoices/[id]/route';
 
 const params = { params: Promise.resolve({ id: 'inv-1' }) };
 function post() {
-  return new NextRequest('http://localhost/api/v1/invoices/inv-1/void', { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' } });
+  return new NextRequest('http://localhost/api/v1/invoices/inv-1/void', { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } });
 }
 function putVoid() {
   return new NextRequest('http://localhost/api/v1/invoices/inv-1', {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'content-type': 'application/json' },
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
     body: JSON.stringify({ status: 'VOID' }),
   });
 }

@@ -11,6 +11,7 @@ import { routeForApproval } from '@/lib/approval/engine';
 import { resolveRequesterId } from '@/lib/approval/requester';
 import { postBillToLedger } from '@/lib/bill-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -227,7 +228,7 @@ async function generateFromTemplate(
 
 // ─── Route ───────────────────────────────────────────────────────────────────
 
-export const POST = withHandler(async (req: NextRequest) => {
+export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, async (req: NextRequest) => {
   const orgId = requireOrg(req);
   const actorId = req.headers.get('x-user-id');
   // Resolve the user any held ApprovalRequest will be attributed to: the caller

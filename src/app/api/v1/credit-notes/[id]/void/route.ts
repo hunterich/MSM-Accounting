@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, requireOrg, withHandler, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { voidCreditNote } from '@/lib/note-void';
 
 export const runtime = 'nodejs';
@@ -12,7 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(
+export const POST = withPermission({ module: 'AR_CREDITS', action: 'delete' }, async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

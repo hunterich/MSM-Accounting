@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { ok, err, withHandler, requireOrg } from '@/lib/api-utils';
+import { ok, requireOrg } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 
 export const runtime = 'nodejs';
@@ -9,8 +10,7 @@ export function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
-  if (req.headers.get('x-role-type') !== 'ADMIN') return err('Forbidden: ADMIN role required', 403);
+export const GET = withPermission({ module: 'SETTINGS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
 
   const memberships = await prisma.userOrganization.findMany({

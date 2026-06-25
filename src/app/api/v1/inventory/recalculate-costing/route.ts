@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, requireOrg, withHandler, logAudit, ApiError } from '@/lib/api-utils';
+import { ok, err, requireOrg, logAudit, ApiError } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
@@ -13,7 +14,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
 

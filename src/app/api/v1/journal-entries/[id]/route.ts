@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
 
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok(entry);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const body = await req.json();
@@ -125,9 +126,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'JournalEntry', entityId: id, action: 'UPDATE', payload: body });
   return ok(updated);
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'GL_JOURNAL', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const existing = await prisma.journalEntry.findFirst({
@@ -142,4 +143,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'JournalEntry', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
-}
+});
