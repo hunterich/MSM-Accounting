@@ -79,7 +79,7 @@ import { DELETE as deleteBankTransaction } from '../bank-transactions/[id]/route
 import { PUT as updateBankTransaction } from '../bank-transactions/[id]/route';
 
 function makeReq(path: string, orgId: string, method = 'GET', body?: unknown) {
-  const init = { method, headers: { 'x-org-id': orgId, 'x-user-id': 'u1' } } as any;
+  const init = { method, headers: { 'x-org-id': orgId, 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } } as any;
   if (body !== undefined) {
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);

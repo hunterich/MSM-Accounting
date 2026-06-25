@@ -22,7 +22,7 @@ import { PUT as putBill } from '../bills/[id]/route';
 function req(body: unknown) {
   return new NextRequest('http://localhost/api/v1/bills/bill-1', {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }

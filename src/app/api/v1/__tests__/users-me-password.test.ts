@@ -28,7 +28,7 @@ import { POST } from '../users/me/password/route';
 import { prisma } from '@/lib/prisma';
 import { comparePassword } from '@/lib/password';
 
-const headers = { 'x-org-id': 'org-a', 'x-user-id': 'u2', 'content-type': 'application/json' };
+const headers = { 'x-org-id': 'org-a', 'x-user-id': 'u2', 'x-role-type': 'ADMIN', 'content-type': 'application/json' };
 const makeReq = (body: unknown) =>
   new NextRequest('http://localhost/api/v1/users/me/password', {
     method: 'POST', headers, body: JSON.stringify(body),

@@ -138,7 +138,7 @@ import { PUT as updateDebitNote } from '../debit-notes/[id]/route';
 function makePut(path: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost${path}`, {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }

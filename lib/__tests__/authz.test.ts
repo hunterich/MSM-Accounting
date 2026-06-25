@@ -41,6 +41,11 @@ describe('requirePermission', () => {
   it('throws 401 when identity headers are missing', async () => {
     await expect(requirePermission(req({}), 'GL_JOURNAL', 'view')).rejects.toMatchObject({ status: 401 });
   });
+
+  it('denies (no throw) when membership exists but has no role/permission rows', async () => {
+    findFirst.mockResolvedValue({ id: 'm1' }); // truthy membership, role/permissions absent
+    await expect(requirePermission(req(VIEWER), 'SETTINGS', 'edit')).rejects.toMatchObject({ status: 403 });
+  });
 });
 
 describe('authActor', () => {

@@ -17,7 +17,7 @@ import { POST as receive } from '../purchase-orders/[id]/receive/route';
 function req(body: unknown) {
   return new NextRequest('http://localhost/api/v1/purchase-orders/po-1/receive', {
     method: 'POST',
-    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }

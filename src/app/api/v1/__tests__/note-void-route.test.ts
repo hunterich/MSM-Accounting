@@ -19,7 +19,7 @@ import { PUT as putCredit } from '../credit-notes/[id]/route';
 import { PUT as putDebit } from '../debit-notes/[id]/route';
 
 function post(path: string) {
-  return new NextRequest(`http://localhost${path}`, { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' } });
+  return new NextRequest(`http://localhost${path}`, { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } });
 }
 const cnParams = { params: Promise.resolve({ id: 'cn-1' }) };
 const dnParams = { params: Promise.resolve({ id: 'dn-1' }) };
@@ -54,7 +54,7 @@ it('debit-note void route reverses and returns the note', async () => {
 function putVoid(path: string) {
   return new NextRequest(`http://localhost${path}`, {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'content-type': 'application/json' },
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
     body: JSON.stringify({ status: 'VOID' }),
   });
 }
@@ -74,7 +74,7 @@ it('PUT status:VOID is rejected on a debit note (422, directs to /void)', async 
 it('PUT rejects a mixed-case void status too (case-insensitive guard)', async () => {
   const req = new NextRequest('http://localhost/api/v1/credit-notes/cn-1', {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'content-type': 'application/json' },
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
     body: JSON.stringify({ status: 'Void' }),
   });
   const res = await putCredit(req, cnParams);

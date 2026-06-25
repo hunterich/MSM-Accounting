@@ -73,6 +73,7 @@ function makeReq(path: string, orgId: string | null, method = 'GET'): NextReques
   if (orgId !== null) {
     headers['x-org-id'] = orgId;
     headers['x-user-id'] = 'u1';
+    headers['x-role-type'] = 'ADMIN';
   }
   return new NextRequest(`http://localhost${path}`, { method, headers });
 }

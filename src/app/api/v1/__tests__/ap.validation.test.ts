@@ -88,6 +88,7 @@ function makeReq(path: string, orgId: string | null, method = 'GET', body?: unkn
   if (orgId !== null) {
     headers['x-org-id'] = orgId;
     headers['x-user-id'] = 'u1';
+    headers['x-role-type'] = 'ADMIN';
   }
   const init = { method, headers } as any;
   if (body !== undefined) {

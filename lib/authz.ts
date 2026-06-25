@@ -58,7 +58,7 @@ export async function requirePermission(
     },
   });
 
-  const allowed = membership?.role.permissions[0]?.[COLUMN[action]] ?? false;
+  const allowed = membership?.role?.permissions?.[0]?.[COLUMN[action]] ?? false;
   if (!allowed) {
     throw new ApiError(`Forbidden: missing ${action} permission for ${moduleKey}`, 403);
   }
