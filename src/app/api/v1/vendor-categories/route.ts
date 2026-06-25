@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { vendorCategoryInputSchema } from '@/types/api';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AP_VENDORS', action: 'create' }, async (req: NextRequest) => {
   try {
     const orgId = req.headers.get('x-org-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -78,4 +79,4 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to create vendor category';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

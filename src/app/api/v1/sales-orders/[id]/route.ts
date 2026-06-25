@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { calculateSalesOrderTotal, CreditLimitError, enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { updateSalesOrderInputSchema } from '@/types/api';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   }
 }
 
-export async function PUT(req: NextRequest, context: RouteContext) {
+export const PUT = withPermission({ module: 'AR_SALES_ORDERS', action: 'edit' }, async (req: NextRequest, context: RouteContext) => {
   try {
     const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
@@ -133,9 +134,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const message = error instanceof Error ? error.message : 'Failed to update sales order';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
-export async function DELETE(req: NextRequest, context: RouteContext) {
+export const DELETE = withPermission({ module: 'AR_SALES_ORDERS', action: 'delete' }, async (req: NextRequest, context: RouteContext) => {
   try {
     const { id } = await context.params;
     const orgId  = req.headers.get('x-org-id');
@@ -150,4 +151,4 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const message = error instanceof Error ? error.message : 'Failed to delete sales order';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

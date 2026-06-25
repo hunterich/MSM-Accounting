@@ -11,6 +11,7 @@ import {
   withHandler,
 } from '@/lib/api-utils';
 import { accountingPeriodInputSchema } from '@/types/api';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -74,7 +75,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
 

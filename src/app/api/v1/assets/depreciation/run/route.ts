@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, nextNumber, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, nextNumber, ok, requireOrg } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { assetDepreciationRunInputSchema } from '@/types/api';
 import { calculateMonthlyDepreciation } from '@/lib/depreciation';
 import { assertPeriodOpen } from '@/lib/period-guard';
@@ -23,7 +24,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
   const parsed = assetDepreciationRunInputSchema.safeParse(body);

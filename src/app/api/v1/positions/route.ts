@@ -10,6 +10,7 @@ import {
   parsePaginationParams,
   withHandler,
 } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { positionInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -61,7 +62,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'HR_ATTENDANCE', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
 

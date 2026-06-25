@@ -5,6 +5,7 @@ import { logAudit } from '@/lib/api-utils';
 import { billImportReviewDataSchema, finalizeBillImportInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
 import { normalizeSupplierLabel, summarizeBillImportReview } from '@/lib/bill-imports';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -14,10 +15,10 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function POST(
+export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
-) {
+) => {
   try {
     const orgId = request.headers.get('x-org-id');
     const userId = request.headers.get('x-user-id');
@@ -237,4 +238,4 @@ export async function POST(
     const message = error instanceof Error ? error.message : 'Failed to finalize bill import';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

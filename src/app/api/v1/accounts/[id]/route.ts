@@ -3,6 +3,7 @@ import { Prisma, type AccountType, type NormalSide } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateAccountInputSchema } from '@/types/api';
 import {
   fromPrismaAccountType,
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok(account);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'GL_COA', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
@@ -151,9 +152,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed to update account';
     return err(message, 500);
   }
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'GL_COA', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
@@ -169,4 +170,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   await prisma.account.delete({ where: { id, organizationId: orgId } });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Account', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
-}
+});

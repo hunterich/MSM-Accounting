@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, requireOrg, withHandler, logAudit } from '@/lib/api-utils';
 import { voidDebitNote } from '@/lib/note-void';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -12,7 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(
+export const POST = withPermission({ module: 'AP_DEBITS', action: 'delete' }, async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

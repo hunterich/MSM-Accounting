@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, err, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
+import { requireOrg, ok, err, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { employeeInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -89,7 +90,7 @@ async function resolvePositionId(
   return created.id;
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'HR_EMPLOYEES', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const search = searchParams.get('search');
@@ -116,7 +117,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data.map(serializeEmployee), total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'HR_EMPLOYEES', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
   const normalizedBody = {

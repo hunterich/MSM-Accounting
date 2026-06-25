@@ -11,6 +11,7 @@ import {
   requireOrg,
   withHandler,
 } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -45,7 +46,7 @@ export const GET = withHandler(async (req: NextRequest) => {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async (req: NextRequest) => {
+export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, async (req: NextRequest) => {
   const orgId = requireOrg(req);
   const body = await req.json();
 
