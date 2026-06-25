@@ -367,7 +367,6 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
                     showTax={tax.on}
                     onChange={doc.updateLine}
                     onRemove={doc.removeLine}
-                    onAddLine={doc.addLine}
                     searchSlot={searchSlot}
                 />
             )}
