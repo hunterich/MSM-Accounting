@@ -4,6 +4,9 @@ import type { WorkspaceTab } from '../../stores/workspace/types';
 import SOFormV2 from '../ar/salesorders/SOFormV2';
 import SalesOrderListPane from '../ar/salesorders/SalesOrderListPane';
 import SODetailPane from '../ar/salesorders/SODetailPane';
+import InvoiceForm from '../../views/ar/InvoiceForm';
+import InvoiceListPane from '../ar/invoices/InvoiceListPane';
+import InvoiceDetailPane from '../ar/invoices/InvoiceDetailPane';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -15,6 +18,14 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
             return <SOFormV2 mode={mode === 'edit' ? 'edit' : 'create'} workspaceTabId={tab.id} recordId={recordId ?? undefined} />;
         }
         if (tab.kind === 'doc-view') return <SODetailPane soId={recordId ?? ''} workspaceTabId={tab.id} />;
+    }
+
+    if (module === 'ar' && entity === 'invoice') {
+        if (tab.kind === 'list') return <InvoiceListPane />;
+        if (tab.kind === 'doc-form') {
+            return <InvoiceForm mode={mode === 'edit' ? 'edit' : 'create'} workspaceTabId={tab.id} recordId={recordId ?? undefined} />;
+        }
+        if (tab.kind === 'doc-view') return <InvoiceDetailPane invoiceId={recordId ?? ''} workspaceTabId={tab.id} />;
     }
 
     return (

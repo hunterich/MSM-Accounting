@@ -19,22 +19,29 @@ const WorkspaceTabBar = (): React.ReactElement | null => {
         close(id);
     };
 
-    // Context-aware "New" affordance: when the active tab belongs to a module
-    // that supports creating documents, offer a one-click new doc.
+    // Context-aware "New" affordance: when the active tab belongs to an entity
+    // that supports creating documents, offer a one-click new doc. Keyed by
+    // `${module}/${entity}` so new entities slot in cleanly.
+    const NEW_DOC_BY_ENTITY: Record<string, { label: string; title: string; path: string }> = {
+        'ar/sales-order': { label: 'New sales order', title: 'New sales order', path: '/ar/sales-orders/new' },
+        'ar/invoice': { label: 'New invoice', title: 'New invoice', path: '/ar/invoices/new' },
+    };
+
     const activeTab = tabs.find((t) => t.id === activeTabId);
-    const newAction =
-        activeTab?.target.module === 'ar' && activeTab.target.entity === 'sales-order'
-            ? {
-                  label: 'New sales order',
-                  onClick: () => open({
-                      kind: 'doc-form',
-                      target: { module: 'ar', entity: 'sales-order', recordId: null, mode: 'create' },
-                      title: 'New sales order',
-                      path: '/ar/sales-orders/new',
-                      unique: true,
-                  }),
-              }
-            : null;
+    const activeEntityKey = activeTab ? `${activeTab.target.module}/${activeTab.target.entity}` : '';
+    const newDoc = activeTab ? NEW_DOC_BY_ENTITY[activeEntityKey] : undefined;
+    const newAction = activeTab && newDoc
+        ? {
+              label: newDoc.label,
+              onClick: () => open({
+                  kind: 'doc-form',
+                  target: { module: activeTab.target.module, entity: activeTab.target.entity, recordId: null, mode: 'create' },
+                  title: newDoc.title,
+                  path: newDoc.path,
+                  unique: true,
+              }),
+          }
+        : null;
 
     return (
         <div className="workbench-doc-tabs">

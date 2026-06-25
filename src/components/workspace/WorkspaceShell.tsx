@@ -30,7 +30,9 @@ const WorkspaceShell = (): React.ReactElement => {
     // spawning a fresh draft on every reload.
     useEffect(() => {
         const path = location.pathname;
-        const soId = new URLSearchParams(location.search).get('soId');
+        const params = new URLSearchParams(location.search);
+        const soId = params.get('soId');
+        const invoiceId = params.get('invoiceId');
 
         if (path.startsWith('/ar/sales-orders/new')) {
             return;
@@ -41,6 +43,19 @@ const WorkspaceShell = (): React.ReactElement => {
             open({ kind: 'doc-view', target: { module: 'ar', entity: 'sales-order', recordId: soId, mode: 'view' }, title: soId, path: `/ar/sales-orders?soId=${soId}` });
         } else if (path.startsWith('/ar/sales-orders')) {
             open({ kind: 'list', target: { module: 'ar', entity: 'sales-order', recordId: 'catalog', mode: 'view' }, title: 'Sales Orders', path: '/ar/sales-orders' });
+        }
+
+        // New/blank invoices come from the "New" button (unique tabs) or are
+        // restored from the persisted store — so ignore `/new` here.
+        if (path.startsWith('/ar/invoices/new')) {
+            return;
+        }
+        if (path.startsWith('/ar/invoices/edit') && invoiceId) {
+            open({ kind: 'doc-form', target: { module: 'ar', entity: 'invoice', recordId: invoiceId, mode: 'edit' }, title: `Edit ${invoiceId}`, path: `/ar/invoices/edit?invoiceId=${invoiceId}` });
+        } else if (path.startsWith('/ar/invoices') && invoiceId) {
+            open({ kind: 'doc-view', target: { module: 'ar', entity: 'invoice', recordId: invoiceId, mode: 'view' }, title: invoiceId, path: `/ar/invoices?invoiceId=${invoiceId}` });
+        } else if (path.startsWith('/ar/invoices')) {
+            open({ kind: 'list', target: { module: 'ar', entity: 'invoice', recordId: 'catalog', mode: 'view' }, title: 'Invoices', path: '/ar/invoices' });
         }
         // other modules: handled as they are migrated in later phases.
     }, [location.pathname, location.search, open]);
