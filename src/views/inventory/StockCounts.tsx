@@ -212,6 +212,8 @@ const StockCounts = () => {
             label: '',
             render: (_val, row) => {
                 const r = row as unknown as StockCount;
+                // "Open worksheet" = edit the count; only editable statuses qualify.
+                if (r.status !== 'DRAFT' && r.status !== 'SUBMITTED') return null;
                 return (
                     <div className="row-actions-end">
                         <Button
@@ -367,7 +369,7 @@ const StockCounts = () => {
                             <StatusTag {...countStatusTag(selected.status)} />
                         </div>
                         <div className="detail-header-actions">
-                            {selected.status !== 'POSTED' && selected.status !== 'CANCELLED' && (
+                            {(selected.status === 'DRAFT' || selected.status === 'SUBMITTED') && (
                                 <Button
                                     text="Open worksheet"
                                     size="small"
