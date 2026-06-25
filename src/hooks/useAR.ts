@@ -54,6 +54,7 @@ function normalizeCustomer(raw: RawCustomer): Customer {
         useCategoryDefaults: raw.useCategoryDefaults ?? true,
         billingAddress:  raw.billingAddress  || '',
         shippingAddress: raw.shippingAddress || '',
+        shippingSameAsBilling: raw.shippingSameAsBilling ?? true,
     };
 }
 

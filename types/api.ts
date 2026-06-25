@@ -204,6 +204,7 @@ export const updateCustomerInputSchema = z.object({
   contactPerson: optionalNullableString,
   billingAddress: optionalNullableString,
   shippingAddress: optionalNullableString,
+  shippingSameAsBilling: z.boolean().optional(),
   address1: optionalNullableString,
   city: optionalNullableString,
   province: optionalNullableString,

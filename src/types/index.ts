@@ -30,6 +30,7 @@ export interface RawCustomer {
   useCategoryDefaults?: boolean | null;
   billingAddress?: string | null;
   shippingAddress?: string | null;
+  shippingSameAsBilling?: boolean | null;
 }
 
 export interface RawInvoiceLine {
@@ -482,6 +483,7 @@ export interface Customer {
   useCategoryDefaults: boolean;
   billingAddress: string;
   shippingAddress: string;
+  shippingSameAsBilling: boolean;
 }
 
 export interface InvoiceLine {

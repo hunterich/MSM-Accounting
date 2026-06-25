@@ -20,6 +20,8 @@ interface CustomerFormData {
     creditLimit: number;
     useCategoryDefaults: boolean;
     address1: string;
+    shippingAddress: string;
+    shippingSameAsBilling: boolean;
     city: string;
     province: string;
     contactPerson: string;
@@ -44,6 +46,8 @@ const buildCustomerState = (customer: any, masterCreditSettings: any): CustomerF
             creditLimit: masterCreditSettings.defaultLimit,
             useCategoryDefaults: false,
             address1: '',
+            shippingAddress: '',
+            shippingSameAsBilling: true,
             city: '',
             province: '',
             contactPerson: '',
@@ -65,6 +69,8 @@ const buildCustomerState = (customer: any, masterCreditSettings: any): CustomerF
         creditLimit: customer.creditLimit || 0,
         useCategoryDefaults: customer.useCategoryDefaults ?? true,
         address1: customer.address1 || customer.billingAddress || '',
+        shippingAddress: customer.shippingAddress || '',
+        shippingSameAsBilling: customer.shippingSameAsBilling ?? true,
         city: customer.city || '',
         province: customer.province || '',
         contactPerson: customer.contactPerson || '',
@@ -404,7 +410,7 @@ const CustomerForm = () => {
                     </div>
 
                     <div className="col-span-12">
-                        <label className="block mb-2 text-sm font-medium text-neutral-700">Address 1 (Street)</label>
+                        <label className="block mb-2 text-sm font-medium text-neutral-700">Billing address</label>
                         <textarea
                             className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] py-2"
                             rows={2}
@@ -415,6 +421,32 @@ const CustomerForm = () => {
                             placeholder="Street address, building, suite..."
                         />
                     </div>
+
+                    <div className="col-span-12">
+                        <label className="flex items-center gap-2 text-sm font-medium text-neutral-700 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                name="shippingSameAsBilling"
+                                checked={formData.shippingSameAsBilling}
+                                onChange={handleChange}
+                                disabled={isViewMode}
+                                className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <span>Shipping address same as billing</span>
+                        </label>
+                        {!formData.shippingSameAsBilling && (
+                            <textarea
+                                className="block w-full mt-2 px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] py-2"
+                                rows={2}
+                                name="shippingAddress"
+                                value={formData.shippingAddress}
+                                onChange={handleChange}
+                                disabled={isViewMode}
+                                placeholder="Where goods are delivered, if different from billing…"
+                            />
+                        )}
+                    </div>
+
                     <div className="col-span-6">
                         <Input
                             label="City / Municipality"

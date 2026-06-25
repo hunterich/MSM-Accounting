@@ -293,6 +293,7 @@ model Customer {
   contactPerson     String?
   billingAddress    String?
   shippingAddress   String?
+  shippingSameAsBilling Boolean    @default(true)
   city              String?
   province          String?
   status            PartnerStatus  @default(ACTIVE)
