@@ -22,6 +22,7 @@ import {
     useUpdateBill,
 } from '../../../hooks/useAP';
 import { useItems } from '../../../hooks/useInventory';
+import { useAccountsByType } from '../../../hooks/useGL';
 
 /**
  * BillFormV2 — Vendor Bill on the shared document-form system.
@@ -32,8 +33,9 @@ import { useItems } from '../../../hooks/useInventory';
  *
  * Parity notes (decide before cutover):
  *  - Additional costs aren't persisted yet (no API field) — same gap as the others.
- *  - PPh (withholding) and per-line expense GL accounts from the old form are not
- *    wired here; add them if your bill flow needs them (see README).
+ *  - Per-line expense GL accounts ARE wired: an expense line (no item) codes to an
+ *    Expense account, sent as line `accountId` and posted by `postBillToLedger`.
+ *  - PPh (withholding) from the old form is not wired here yet (see README).
  */
 
 const TAX_RATE = 11;
@@ -70,6 +72,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
     const { data: vendorsResult } = useVendors();
     const { data: itemsResult } = useItems({ limit: 100 });
     const { data: billsResult } = useBills();
+    const { data: expenseAccountsData } = useAccountsByType('Expense');
     const { data: editingBillRaw } = useBill(isEdit ? billId : undefined);
     const editingBill = editingBillRaw as unknown as Rec | undefined;
 
@@ -79,6 +82,15 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
     const vendors = useMemo<Rec[]>(() => ((vendorsResult?.data as unknown as Rec[]) || []), [vendorsResult?.data]);
     const inventoryItems = useMemo<Rec[]>(() => ((itemsResult?.data as unknown as Rec[]) || []), [itemsResult?.data]);
     const bills = useMemo<Rec[]>(() => ((billsResult?.data as unknown as Rec[]) || []), [billsResult?.data]);
+
+    // Expense accounts let an expense line (no item) post to its own GL account.
+    const accountOptions = useMemo(
+        () => (expenseAccountsData ?? []).map((a) => ({
+            value: a.id,
+            label: `${a.code} · ${a.name}`,
+        })),
+        [expenseAccountsData],
+    );
 
     // ── Header ──────────────────────────────────────────────────────────────
     const [vendorId, setVendorId] = useState('');
@@ -102,6 +114,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
             price: num(l.price),
             discount: num(l.discountPct ?? l.discount),
             taxRate: TAX_RATE,
+            accountId: firstStr(l.accountId),
         }));
     }, [editingBill]);
 
@@ -228,6 +241,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
             .map((l, idx) => ({
                 lineNo: idx + 1,
                 ...(l.productId && { itemId: l.productId }),
+                ...(!l.productId && l.accountId && { accountId: l.accountId }),
                 description: l.description.trim(),
                 quantity: num(l.qty),
                 unit: l.unit || 'PCS',
@@ -348,7 +362,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
             </div>
 
             {activeTab === 'items' && (
-                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} onAddLine={doc.addLine} searchSlot={searchSlot} />
+                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} onAddLine={doc.addLine} searchSlot={searchSlot} accountOptions={accountOptions} />
             )}
             {activeTab === 'costs' && (
                 <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} />

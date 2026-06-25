@@ -27,6 +27,14 @@ export interface DocLine {
     taxRate?: number;
     /** optional stock-on-hand for the low-stock badge */
     stock?: number;
+    /**
+     * GL account for an expense line (a line with no `productId`). Lets an
+     * expense bill code each line to its own account (e.g. "6310 · Internet").
+     * Ignored for product lines, whose posting account comes from the item.
+     */
+    accountId?: string;
+    /** human label for the coded account, e.g. "6310 · Internet" (display only) */
+    accountLabel?: string;
 }
 
 /** A non-product cost: delivery, insurance, entertainment, handling, etc. */
