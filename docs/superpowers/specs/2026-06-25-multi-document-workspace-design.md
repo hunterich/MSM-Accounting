@@ -92,7 +92,7 @@ of duplicating it.
 
 Constraints/behavior:
 
-- **Tab cap ~12.** Opening past the cap prompts the user to close a tab first.
+- **Tab cap ~10.** Opening past the cap prompts the user to close a tab first.
 - **Close-dirty guard.** Closing a tab whose `status` is `dirty`/`new` shows a
   "Discard unsaved changes?" confirm.
 - **Stale-data refresh.** `doc-view` tabs refetch on activation (React Query
