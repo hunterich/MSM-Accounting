@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react';
 import SOCatalogPanel from './SOCatalogPanel';
 import PageHeader from '../../Layout/PageHeader';
 import Button from '../../UI/Button';
-import { useSalesOrders } from '../../../hooks/useAR';
+import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions } from '../../../hooks/useModulePermissions';
 
@@ -13,8 +13,9 @@ interface SOFilters { searchTerm: string; status: string; dateFrom: string; date
 const SalesOrderListPane = (): React.ReactElement => {
     const { canCreate, canEdit } = useModulePermissions('ar_sales_orders');
     const { open } = useWorkspaceNav();
-    const { data: soResult } = useSalesOrders();
-    const salesOrders = soResult?.data ?? [];
+    // Read from the same store the form writes to, so seeded + just-saved
+    // orders both appear here and can be opened as tabs.
+    const salesOrders = useSalesOrderStore((s) => s.salesOrders);
 
     const [filters, setFilters] = useState<SOFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
 
@@ -34,21 +35,19 @@ const SalesOrderListPane = (): React.ReactElement => {
     }), [filters, salesOrders]);
 
     const openView = (soId: string) => {
-        const so = salesOrders.find((s) => s.id === soId);
         open({
             kind: 'doc-view',
             target: { module: 'ar', entity: 'sales-order', recordId: soId, mode: 'view' },
-            title: so?.number || soId,
+            title: soId,
             path: `/ar/sales-orders?soId=${soId}`,
         });
     };
 
     const openEdit = (soId: string) => {
-        const so = salesOrders.find((s) => s.id === soId);
         open({
             kind: 'doc-form',
             target: { module: 'ar', entity: 'sales-order', recordId: soId, mode: 'edit' },
-            title: `Edit ${so?.number || soId}`,
+            title: `Edit ${soId}`,
             path: `/ar/sales-orders/edit?soId=${soId}`,
         });
     };
