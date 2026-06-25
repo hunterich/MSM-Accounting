@@ -18,6 +18,12 @@ interface PostableBillLine {
   lineTotal: unknown;
   purchaseOrderLineId: string | null;
 }
+interface PostableBillCharge {
+  label?: string | null;
+  accountId?: string | null;
+  amount: unknown;
+  taxRate?: unknown;
+}
 interface PostableBill {
   id: string;
   number: string;
@@ -29,6 +35,8 @@ interface PostableBill {
   /** PPh withholding rate (%) on the pre-tax net; 0/absent → no withholding. */
   withholdingRate?: unknown;
   lines: PostableBillLine[];
+  /** additional costs (freight/insurance/handling); each posts to its own account. */
+  charges?: PostableBillCharge[];
 }
 
 /**
@@ -132,7 +140,34 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   const withholdingBase = asMoney(grirNet + inventoryNet + expenseTotal);
   const withholding = withholdingRate > 0 ? asMoney(withholdingBase * (withholdingRate / 100)) : 0;
 
-  const apTotal = asMoney(grirNet + inventoryNet + expenseTotal + taxTotal - withholding);
+  // Additional costs (charges): each posts to its own account, like an expense
+  // line, and is folded into AP. Tax follows the same inclusive/exclusive rule as
+  // lines. Charges are NOT part of the withholding base (PPh is on the
+  // goods/services lines only — matches computeTotals on the client), so they are
+  // computed AFTER `withholding` above and kept in a separate bucket.
+  const chargesByAccount = new Map<string, number>();
+  let chargesTax = 0;
+  for (const charge of bill.charges ?? []) {
+    const gross = toNumber(charge.amount);
+    if (gross === 0) continue;
+    const chargeTaxable = taxable && toNumber(charge.taxRate) > 0;
+    const cnet = chargeTaxable && taxInclusive ? asMoney(gross / (1 + rate)) : gross;
+    const ctax = !chargeTaxable ? 0 : taxInclusive ? asMoney(gross - cnet) : asMoney(cnet * rate);
+    chargesTax += ctax;
+    const codedId = charge.accountId && postableById.has(charge.accountId) ? charge.accountId : expenseAccountId;
+    if (codedId) chargesByAccount.set(codedId, (chargesByAccount.get(codedId) ?? 0) + cnet);
+  }
+  chargesTax = asMoney(chargesTax);
+  let chargesTotal = 0;
+  for (const [accountId, amount] of chargesByAccount) {
+    const rounded = asMoney(amount);
+    chargesByAccount.set(accountId, rounded);
+    chargesTotal += rounded;
+  }
+  chargesTotal = asMoney(chargesTotal);
+  const inputTaxTotal = asMoney(taxTotal + chargesTax);
+
+  const apTotal = asMoney(grirNet + inventoryNet + expenseTotal + chargesTotal + inputTaxTotal - withholding);
 
   for (const m of manualInventoryLines) {
     await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate);
@@ -151,8 +186,13 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
       journalLines.push({ accountId, description: `Expense - ${bill.number}`, debit: amount, credit: 0 });
     }
   }
-  if (taxTotal > 0 && inputTaxAccountId) {
-    journalLines.push({ accountId: inputTaxAccountId, description: `Input tax - ${bill.number}`, debit: taxTotal, credit: 0 });
+  for (const [accountId, amount] of chargesByAccount) {
+    if (amount > 0) {
+      journalLines.push({ accountId, description: `Additional cost - ${bill.number}`, debit: amount, credit: 0 });
+    }
+  }
+  if (inputTaxTotal > 0 && inputTaxAccountId) {
+    journalLines.push({ accountId: inputTaxAccountId, description: `Input tax - ${bill.number}`, debit: inputTaxTotal, credit: 0 });
   }
   if (withholding > 0) {
     const pphAccountId = await ensurePphPayableAccount(tx, orgId);

@@ -389,6 +389,16 @@ const documentLineSchema = z.object({
   lineTotal: positiveDecimal.optional(),
 });
 
+// Additional cost on a document (freight, insurance, handling). Posts to its own
+// GL account. Shared by bill/invoice/PO charge arrays.
+export const documentChargeSchema = z.object({
+  lineNo: z.number().int().positive().optional(),
+  label: z.string().trim().min(1, 'Cost label is required'),
+  accountId: z.string().trim().optional(),
+  amount: positiveDecimal.default(0),
+  taxRate: positiveDecimal.max(100).optional(),
+});
+
 export const billInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   vendorId: z.string().trim().min(1, 'Vendor is required'),
@@ -408,6 +418,7 @@ export const billInputSchema = z.object({
   totalAmount: positiveDecimal.default(0),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).default([]),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 export const updateBillInputSchema = z.object({
@@ -428,6 +439,7 @@ export const updateBillInputSchema = z.object({
   totalAmount: positiveDecimal.optional(),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).optional(),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 const nullableLooseString = z.union([z.string().trim(), z.literal(''), z.null()]).optional();

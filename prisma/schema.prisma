@@ -823,6 +823,7 @@ model Bill {
   purchaseOrder  PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: SetNull)
   recurringBill  RecurringBill? @relation(fields: [recurringBillId], references: [id], onDelete: SetNull)
   lines          BillLine[]
+  charges        BillCharge[]
   attachments    BillAttachment[]
   importSession  BillImportSession? @relation("ImportedBill")
   paymentAllocations APPaymentAllocation[]
@@ -856,6 +857,23 @@ model BillLine {
   @@unique([billId, lineNo])
   @@index([itemId])
   @@index([purchaseOrderLineId])
+}
+
+// Additional cost on a bill (freight, insurance, handling, customs). Each posts
+// to its own GL account so landed costs hit the right expense/asset instead of
+// being faked as a product line. accountId is a plain string (like BillLine).
+model BillCharge {
+  id        String   @id @default(cuid())
+  billId    String
+  lineNo    Int
+  label     String
+  accountId String?
+  amount    Decimal  @default(0) @db.Decimal(18, 2)
+  taxRate   Decimal  @default(0) @db.Decimal(5, 2)
+
+  bill      Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@unique([billId, lineNo])
 }
 
 model BillAttachment {

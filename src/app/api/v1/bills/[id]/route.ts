@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const bill = await prisma.bill.findFirst({
       where: { id, organizationId: orgId },
-      include: { vendor: true, lines: true, attachments: true },
+      include: { vendor: true, lines: true, charges: true, attachments: true },
     });
     if (!bill) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     return withCors(NextResponse.json(bill));
@@ -50,7 +50,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid bill payload', issues: parsed.error.issues }, { status: 400 }));
     }
-    const { lines, ...header } = parsed.data;
+    const { lines, charges, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true, vendorInvoiceNo: true } });
@@ -98,6 +98,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           })),
         });
       }
+      if (charges) {
+        await tx.billCharge.deleteMany({ where: { billId: id } });
+        if (charges.length > 0) {
+          await tx.billCharge.createMany({
+            data: charges.map((c, idx: number) => ({
+              billId: id,
+              lineNo: c.lineNo ?? idx + 1,
+              label: c.label,
+              accountId: c.accountId || null,
+              amount: c.amount,
+              taxRate: c.taxRate ?? 0,
+            })),
+          });
+        }
+      }
       // Recognize GL + inventory when the bill is finalized (DRAFT -> OPEN),
       // unless the approval engine routes the finalize for approval first.
       if (existing.status === 'DRAFT' && header.status === 'OPEN') {
@@ -117,7 +132,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         } else {
           const finalized = await tx.bill.findFirst({
             where: { id, organizationId: orgId },
-            include: { lines: true },
+            include: { lines: true, charges: true },
           });
           if (finalized) {
             // Refuse to post into a closed/locked accounting period (mirrors the
@@ -137,7 +152,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
       return tx.bill.findFirst({
         where: { id, organizationId: orgId },
-        include: { vendor: true, lines: true, attachments: true },
+        include: { vendor: true, lines: true, charges: true, attachments: true },
       });
     });
     if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));

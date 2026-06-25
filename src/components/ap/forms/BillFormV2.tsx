@@ -32,7 +32,8 @@ import { useAccountsByType } from '../../../hooks/useGL';
  * the bill (status "Unpaid") on save, or keeps it as a "Draft".
  *
  * Parity notes (decide before cutover):
- *  - Additional costs aren't persisted yet (no API field) — same gap as the others.
+ *  - Additional costs ARE persisted + journaled: each charge codes to its own GL
+ *    account (BillCharge), posted as an extra expense debit by `postBillToLedger`.
  *  - Per-line expense GL accounts ARE wired: an expense line (no item) codes to an
  *    Expense account, sent as line `accountId` and posted by `postBillToLedger`.
  *  - PPh withholding IS wired: a rate on the pre-tax net is withheld from the
@@ -120,8 +121,20 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
         }));
     }, [editingBill]);
 
-    const doc = useDocumentLines(seedLines, []);
-    const { setLines } = doc;
+    const seedCharges = useMemo(() => {
+        const src = (editingBill?.charges || []) as Rec[];
+        return src.map((c, i) => ({
+            id: str(c.id) || `ch-${i}`,
+            label: firstStr(c.label),
+            accountId: firstStr(c.accountId),
+            accountLabel: firstStr(c.accountLabel),
+            amount: num(c.amount),
+            taxRate: num(c.taxRate),
+        }));
+    }, [editingBill]);
+
+    const doc = useDocumentLines(seedLines, seedCharges);
+    const { setLines, setCharges } = doc;
 
     useEffect(() => {
         if (!editingBill) return;
@@ -133,7 +146,8 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
         if (typeof editingBill.taxAmount === 'number') setTax((t) => ({ ...t, on: num(editingBill.taxAmount) > 0 }));
         setWithholdingRate(num(editingBill.withholdingRate));
         setLines(seedLines);
-    }, [editingBill, seedLines, setLines]);
+        setCharges(seedCharges);
+    }, [editingBill, seedLines, seedCharges, setLines, setCharges]);
 
     const [activeTab, setActiveTab] = useState<'items' | 'costs' | 'info'>('items');
     const [saving, setSaving] = useState(false);
@@ -254,6 +268,15 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
                 discountPct: num(l.discount),
                 lineTotal: Math.round(num(l.qty) * num(l.price) * (1 - num(l.discount) / 100) * 100) / 100,
             })),
+        charges: doc.charges
+            .filter((c) => c.label.trim() && num(c.amount) !== 0)
+            .map((c, idx) => ({
+                lineNo: idx + 1,
+                label: c.label.trim(),
+                ...(c.accountId && { accountId: c.accountId }),
+                amount: num(c.amount),
+                taxRate: num(c.taxRate),
+            })),
     });
 
     const persist = async (status: 'Draft' | 'Unpaid'): Promise<boolean> => {
@@ -370,7 +393,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
                 <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} onAddLine={doc.addLine} searchSlot={searchSlot} accountOptions={accountOptions} />
             )}
             {activeTab === 'costs' && (
-                <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} />
+                <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} accountOptions={accountOptions} />
             )}
             {activeTab === 'info' && (
                 <AdditionalInfoTab

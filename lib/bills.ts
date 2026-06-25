@@ -47,7 +47,7 @@ export async function createBillRecord(
   input: BillInput,
   options: CreateBillOptions = {},
 ) {
-  const { lines, ...header } = input;
+  const { lines, charges, ...header } = input;
   const number = await nextNumber(tx, 'Bill', 'number', 'BILL');
 
   await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
@@ -96,6 +96,19 @@ export async function createBillRecord(
     });
   }
 
+  if (charges && charges.length > 0) {
+    await tx.billCharge.createMany({
+      data: charges.map((charge, index) => ({
+        billId: created.id,
+        lineNo: charge.lineNo ?? index + 1,
+        label: charge.label,
+        accountId: charge.accountId || null,
+        amount: toDecimal(charge.amount).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
+        taxRate: toDecimal(charge.taxRate ?? 0).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
+      })),
+    });
+  }
+
   if (options.attachment) {
     await tx.billAttachment.create({
       data: {
@@ -113,6 +126,7 @@ export async function createBillRecord(
     include: {
       vendor: true,
       lines: true,
+      charges: true,
       attachments: true,
     },
   });
