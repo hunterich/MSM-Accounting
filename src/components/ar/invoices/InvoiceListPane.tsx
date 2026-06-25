@@ -43,11 +43,14 @@ const InvoiceListPane = (): React.ReactElement => {
         return matchesSearch && matchesStatus && matchesDate;
     }), [filters, invoices]);
 
+    // Invoice ids are cuids; the human-facing label is the invoice number.
+    const labelFor = (invoiceId: string) => invoices.find((inv) => inv.id === invoiceId)?.number || invoiceId;
+
     const openView = (invoiceId: string) => {
         open({
             kind: 'doc-view',
             target: { module: 'ar', entity: 'invoice', recordId: invoiceId, mode: 'view' },
-            title: invoiceId,
+            title: labelFor(invoiceId),
             path: `/ar/invoices?invoiceId=${invoiceId}`,
         });
     };
@@ -56,7 +59,7 @@ const InvoiceListPane = (): React.ReactElement => {
         open({
             kind: 'doc-form',
             target: { module: 'ar', entity: 'invoice', recordId: invoiceId, mode: 'edit' },
-            title: `Edit ${invoiceId}`,
+            title: `Edit ${labelFor(invoiceId)}`,
             path: `/ar/invoices/edit?invoiceId=${invoiceId}`,
         });
     };
