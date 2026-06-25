@@ -28,12 +28,15 @@ const SalesReturnForm = lazy(() => import('./views/ar/SalesReturnForm'))
 const RecurringBilling = lazy(() => import('./views/ar/RecurringBilling'))
 const ApprovalInbox = lazy(() => import('./views/ar/ApprovalInbox'))
 const SOForm = lazy(() => import('./components/ar/salesorders/SOFormV2'))
+const InvoiceFormV2 = lazy(() => import('./components/ar/invoices/InvoiceFormV2'))
 
 const Bills = lazy(() => import('./views/ap/Bills'))
 const BillForm = lazy(() => import('./views/ap/BillForm'))
 const BillImport = lazy(() => import('./views/ap/BillImport'))
 const PurchaseOrders = lazy(() => import('./views/ap/PurchaseOrders'))
 const POForm = lazy(() => import('./views/ap/POForm'))
+const POFormV2 = lazy(() => import('./components/ap/forms/POFormV2'))
+const BillFormV2 = lazy(() => import('./components/ap/forms/BillFormV2'))
 const Vendors = lazy(() => import('./views/ap/Vendors'))
 const VendorCategories = lazy(() => import('./views/ap/VendorCategories'))
 const VendorForm = lazy(() => import('./views/ap/VendorForm'))
@@ -116,6 +119,8 @@ function App(): JSX.Element {
                     <Route path="ar/invoices/workbench" element={withPermission(<InvoiceWorkbench />, 'ar_invoices')} />
                     <Route path="ar/invoices/new" element={withPermission(<InvoiceForm />, 'ar_invoices', 'create')} />
                     <Route path="ar/invoices/edit" element={withPermission(<InvoiceForm />, 'ar_invoices', 'edit')} />
+                    <Route path="ar/invoices/v2/new" element={withPermission(<InvoiceFormV2 mode="create" />, 'ar_invoices', 'create')} />
+                    <Route path="ar/invoices/v2/edit" element={withPermission(<InvoiceFormV2 mode="edit" />, 'ar_invoices', 'edit')} />
                     <Route path="ar/sales-orders" element={withPermission(<SalesOrderWorkbench />, 'ar_sales_orders')} />
                     <Route path="ar/sales-orders/new" element={withPermission(<SOForm mode="create" />, 'ar_sales_orders', 'create')} />
                     <Route path="ar/sales-orders/edit" element={withPermission(<SOForm mode="edit" />, 'ar_sales_orders', 'edit')} />
@@ -140,11 +145,15 @@ function App(): JSX.Element {
                     <Route path="ap/pos" element={withPermission(<PurchaseOrders />, 'ap_pos')} />
                     <Route path="ap/pos/new" element={withPermission(<POForm />, 'ap_pos', 'create')} />
                     <Route path="ap/pos/edit" element={withPermission(<POForm />, 'ap_pos', 'edit')} />
+                    <Route path="ap/pos/v2/new" element={withPermission(<POFormV2 mode="create" />, 'ap_pos', 'create')} />
+                    <Route path="ap/pos/v2/edit" element={withPermission(<POFormV2 mode="edit" />, 'ap_pos', 'edit')} />
                     <Route path="ap/receiving" element={withPermission(<PurchaseOrders receivingMode />, 'ap_pos')} />
                     <Route path="ap/bills" element={withPermission(<Bills />, 'ap_bills')} />
                     <Route path="ap/bills/import" element={withPermission(<BillImport />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/new" element={withPermission(<BillForm />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/edit" element={withPermission(<BillForm />, 'ap_bills', 'edit')} />
+                    <Route path="ap/bills/v2/new" element={withPermission(<BillFormV2 mode="create" />, 'ap_bills', 'create')} />
+                    <Route path="ap/bills/v2/edit" element={withPermission(<BillFormV2 mode="edit" />, 'ap_bills', 'edit')} />
                     <Route path="ap/payments" element={withPermission(<APPayments />, 'ap_payments')} />
                     <Route path="ap/payments/new" element={withPermission(<APPaymentForm />, 'ap_payments', 'create')} />
                     <Route path="ap/payments/edit" element={withPermission(<APPaymentForm />, 'ap_payments', 'edit')} />
