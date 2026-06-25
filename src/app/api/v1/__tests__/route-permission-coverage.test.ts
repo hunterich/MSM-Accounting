@@ -1,10 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, globSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 // The v1 API root (this test lives in v1/__tests__/).
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+// Recursive walk for every `route.ts` under ROOT (relative, forward-slash
+// paths). Avoids fs.globSync, which is only stable on Node >= 22 — CI runs an
+// older Node where it is undefined.
+function listRouteFiles(dir: string, base = ''): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (entry.name === '__tests__' || entry.name === 'node_modules') continue;
+      out.push(...listRouteFiles(path.join(dir, entry.name), base ? `${base}/${entry.name}` : entry.name));
+    } else if (entry.name === 'route.ts') {
+      out.push(base ? `${base}/route.ts` : 'route.ts');
+    }
+  }
+  return out;
+}
 
 // Routes intentionally NOT permission-wrapped (public / self-service / pure lookup).
 // Keep this list tight and justified.
@@ -27,7 +43,7 @@ const ENFORCED_READS = new Set([
   'inventory/valuation/route.ts',
 ]);
 
-const files = globSync('**/route.ts', { cwd: ROOT }).filter((f) => !f.includes('__tests__'));
+const files = listRouteFiles(ROOT).filter((f) => !f.includes('__tests__'));
 
 describe('route permission coverage', () => {
   it('found the route files', () => {
