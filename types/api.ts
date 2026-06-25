@@ -30,6 +30,16 @@ export const invoiceTaxInputSchema = z.object({
   rate: positiveDecimal.max(100).default(11),
 });
 
+// Additional cost on a document (freight, insurance, handling). Posts to its own
+// GL account. Shared by bill/invoice/PO charge arrays.
+export const documentChargeSchema = z.object({
+  lineNo: z.number().int().positive().optional(),
+  label: z.string().trim().min(1, 'Cost label is required'),
+  accountId: z.string().trim().optional(),
+  amount: positiveDecimal.default(0),
+  taxRate: positiveDecimal.max(100).optional(),
+});
+
 export const createInvoiceInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   customerId: z.string().trim().min(1),
@@ -46,6 +56,7 @@ export const createInvoiceInputSchema = z.object({
   tax: invoiceTaxInputSchema.optional(),
   notes: z.string().trim().optional(),
   lines: z.array(invoiceLineInputSchema).min(1, 'At least one invoice line is required'),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 export const createInvoiceResponseSchema = z.object({
@@ -387,16 +398,6 @@ const documentLineSchema = z.object({
   price: positiveDecimal.default(0),
   discountPct: positiveDecimal.max(100).optional(),
   lineTotal: positiveDecimal.optional(),
-});
-
-// Additional cost on a document (freight, insurance, handling). Posts to its own
-// GL account. Shared by bill/invoice/PO charge arrays.
-export const documentChargeSchema = z.object({
-  lineNo: z.number().int().positive().optional(),
-  label: z.string().trim().min(1, 'Cost label is required'),
-  accountId: z.string().trim().optional(),
-  amount: positiveDecimal.default(0),
-  taxRate: positiveDecimal.max(100).optional(),
 });
 
 export const billInputSchema = z.object({

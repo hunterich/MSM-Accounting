@@ -496,6 +496,7 @@ model SalesInvoice {
   customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   recurringInvoice   RecurringInvoice?  @relation(fields: [recurringInvoiceId], references: [id], onDelete: SetNull)
   lines              SalesInvoiceLine[]
+  charges            SalesInvoiceCharge[]
   attachments        SalesInvoiceAttachment[]
   auditLogs          SalesInvoiceAuditLog[]
   paymentAllocations ARPaymentAllocation[]
@@ -527,6 +528,24 @@ model SalesInvoiceLine {
 
   @@unique([invoiceId, lineNo])
   @@index([itemId])
+}
+
+// Additional charge on a sales invoice (delivery, handling). On the AR side these
+// are income/recovery, so each posts a CREDIT to its own account (typically a
+// revenue account) instead of being lumped into sales revenue. accountId is a
+// plain string like SalesInvoiceLine.itemId.
+model SalesInvoiceCharge {
+  id        String   @id @default(cuid())
+  invoiceId String
+  lineNo    Int
+  label     String
+  accountId String?
+  amount    Decimal  @default(0) @db.Decimal(18, 2)
+  taxRate   Decimal  @default(0) @db.Decimal(5, 2)
+
+  invoice   SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, lineNo])
 }
 
 model SalesInvoiceAttachment {

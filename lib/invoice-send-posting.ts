@@ -27,6 +27,9 @@ export async function postInvoiceSend(
       discountAmount: true,
       totalAmount: true,
       taxAmount: true,
+      taxInclusive: true,
+      taxRate: true,
+      charges: { select: { accountId: true, amount: true, taxRate: true } },
     },
   });
 
@@ -66,11 +69,34 @@ export async function postInvoiceSend(
     || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
   const arInvoiceDate = new Date(invoice.issueDate);
 
+  // Additional costs (charges) on a sale are income/recovery: each credits its
+  // own account (typically a freight/other-income revenue account) instead of
+  // inflating sales revenue. The charge amount is already inside totalAmount
+  // (and its tax inside taxAmount), so we split the charge net OUT of the sales
+  // credit. A charge with no/invalid account (or coded to sales) stays folded
+  // into sales revenue. NET extraction mirrors computeTotals for tax-inclusive.
+  const taxInclusive = Boolean(invoice.taxInclusive);
+  const rate = toNumber(invoice.taxRate) / 100;
+  const postableById = new Set(accounts.filter((a) => a.isPostable).map((a) => a.id));
+  const chargesByAccount = new Map<string, number>();
+  let chargesCreditTotal = 0;
+  for (const charge of invoice.charges ?? []) {
+    const amt = toNumber(charge.amount);
+    if (amt === 0) continue;
+    const chargeTaxable = taxAmount > 0 && toNumber(charge.taxRate) > 0;
+    const cnet = chargeTaxable && taxInclusive && rate > 0 ? asMoney(amt / (1 + rate)) : amt;
+    const acc = charge.accountId;
+    if (!acc || !postableById.has(acc) || acc === salesAccountId) continue; // folds into sales
+    chargesByAccount.set(acc, (chargesByAccount.get(acc) ?? 0) + cnet);
+    chargesCreditTotal += cnet;
+  }
+  chargesCreditTotal = asMoney(chargesCreditTotal);
+
   if (totalAmount > 0 && arAccountId && salesAccountId && (taxAmount === 0 || taxAccountId)) {
     const splitDiscount = discountAmount > 0 && Boolean(salesDiscountAccountId);
-    const revenueCredit = splitDiscount
-      ? asMoney(baseRevenue + discountAmount)
-      : baseRevenue;
+    const revenueCredit = asMoney(
+      (splitDiscount ? asMoney(baseRevenue + discountAmount) : baseRevenue) - chargesCreditTotal,
+    );
     const arLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [
       {
         accountId: arAccountId,
@@ -85,6 +111,11 @@ export async function postInvoiceSend(
         credit: revenueCredit,
       },
     ];
+    for (const [accountId, amount] of chargesByAccount) {
+      if (amount > 0) {
+        arLines.push({ accountId, description: `Additional cost - ${invoice.number}`, debit: 0, credit: asMoney(amount) });
+      }
+    }
     if (splitDiscount && salesDiscountAccountId) {
       arLines.push({
         accountId: salesDiscountAccountId,

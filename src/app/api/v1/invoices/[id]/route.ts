@@ -28,6 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         customer: true,
         createdBy: { select: { id: true, fullName: true, email: true } },
         lines: true,
+        charges: true,
       },
     });
     if (!invoice) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
@@ -52,7 +53,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const body = await req.json();
-    const { lines, ...header } = body;
+    const { lines, charges, ...header } = body;
     delete header.organizationId;
     delete header.createdById;
 
@@ -100,6 +101,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         });
       }
 
+      if (charges) {
+        await tx.salesInvoiceCharge.deleteMany({ where: { invoiceId: id } });
+        if (charges.length > 0) {
+          await tx.salesInvoiceCharge.createMany({
+            data: charges.map((c: any, idx: number) => ({
+              invoiceId: id,
+              lineNo: c.lineNo ?? idx + 1,
+              label: c.label,
+              accountId: c.accountId || null,
+              amount: c.amount ?? 0,
+              taxRate: c.taxRate ?? 0,
+            })),
+          });
+        }
+      }
+
       // Post AR + COGS journals when invoice transitions DRAFT → SENT,
       // unless the approval engine routes the finalize for approval first.
       // The AR-side post (DR AR / CR Sales / CR Tax) runs for every invoice;
@@ -131,6 +148,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           customer: true,
           createdBy: { select: { id: true, fullName: true, email: true } },
           lines: true,
+          charges: true,
         },
       });
     });

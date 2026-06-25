@@ -72,6 +72,13 @@ function normalizeInvoice(raw: RawInvoice): Invoice {
         discountPct:  Number(l.discountPct   ?? 0),
         discount:     Number(l.discountPct   ?? 0),
     }));
+    const charges = (raw.charges || []).map((c) => ({
+        id:        c.id || undefined,
+        label:     c.label || '',
+        accountId: c.accountId || '',
+        amount:    Number(c.amount  ?? 0),
+        taxRate:   Number(c.taxRate ?? 0),
+    }));
     return {
         id:           raw.id,
         number:       raw.number    || '',
@@ -100,6 +107,7 @@ function normalizeInvoice(raw: RawInvoice): Invoice {
         createdByName: raw.createdBy?.fullName || '',
         lines,
         items: lines,
+        charges,
     };
 }
 

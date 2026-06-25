@@ -23,6 +23,7 @@ import {
     useUpdateInvoice,
 } from '../../../hooks/useAR';
 import { useItems } from '../../../hooks/useInventory';
+import { useAccountsByType } from '../../../hooks/useGL';
 
 /**
  * InvoiceFormV2 — Sales Invoice on the shared document-form system.
@@ -37,11 +38,10 @@ import { useItems } from '../../../hooks/useInventory';
  *  - PO reference maps to the invoice's poNumber
  *  - Optional document-level discount %
  *
- * Persistence parity note (same gap SOFormV2 documents): the create API computes
- * its own totals from lines + tax + discountPct, and has no field for the
- * "Additional costs" breakdown yet. Those costs render and fold into the on-screen
- * total, but are NOT sent to the server until the invoice schema gains a charges
- * field. The Additional-costs tab is wired and ready for when it does.
+ * Additional costs ARE persisted + journaled: each charge codes to its own
+ * (income) account via SalesInvoiceCharge; calculateInvoiceTotals folds them into
+ * the invoice total/tax, and postInvoiceSend credits each charge account on SEND
+ * instead of inflating sales revenue.
  */
 
 const TAX_RATE = 11; // PPN
@@ -95,6 +95,13 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
     const createInvoice = useCreateInvoice();
     const updateInvoice = useUpdateInvoice();
 
+    // Sales-side charges are income/recovery → code them to a Revenue account.
+    const { data: revenueAccountsData } = useAccountsByType('Revenue');
+    const accountOptions = useMemo(
+        () => (revenueAccountsData ?? []).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })),
+        [revenueAccountsData],
+    );
+
     const customers = useMemo<Rec[]>(() => {
         const byId = new Map<string, Rec>();
         [...seedCustomers, ...((customersResult?.data as unknown as Rec[]) || [])].forEach((c) => {
@@ -138,8 +145,20 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
         }));
     }, [editingInvoice]);
 
-    const doc = useDocumentLines(seedLines, []);
-    const { setLines } = doc;
+    const seedCharges = useMemo(() => {
+        const src = editingInvoice?.charges || [];
+        return src.map((c, i) => ({
+            id: str(c.id) || `ch-${i}`,
+            label: firstStr(c.label),
+            accountId: firstStr(c.accountId),
+            accountLabel: '',
+            amount: num(c.amount),
+            taxRate: num(c.taxRate),
+        }));
+    }, [editingInvoice]);
+
+    const doc = useDocumentLines(seedLines, seedCharges);
+    const { setLines, setCharges } = doc;
 
     // Seed header + lines once the edited invoice arrives.
     useEffect(() => {
@@ -155,7 +174,8 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
             setTax((t) => ({ ...t, on: num(editingInvoice.taxAmount) > 0 }));
         }
         setLines(seedLines);
-    }, [editingInvoice, seedLines, setLines]);
+        setCharges(seedCharges);
+    }, [editingInvoice, seedLines, seedCharges, setLines, setCharges]);
 
     const [activeTab, setActiveTab] = useState<'items' | 'costs' | 'info'>('items');
     const [saving, setSaving] = useState(false);
@@ -288,6 +308,17 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
                     Math.round(num(l.qty) * num(l.price) * (1 - num(l.discount) / 100) * 100) / 100,
             }));
 
+    const cleanedCharges = () =>
+        doc.charges
+            .filter((c) => c.label.trim() && num(c.amount) !== 0)
+            .map((c, idx) => ({
+                lineNo: idx + 1,
+                label: c.label.trim(),
+                ...(c.accountId && { accountId: c.accountId }),
+                amount: num(c.amount),
+                taxRate: num(c.taxRate),
+            }));
+
     const persist = async (saveAsDraft: boolean): Promise<boolean> => {
         if (!validate()) return false;
         setSaving(true);
@@ -312,6 +343,7 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
                     taxAmount: totals.tax,
                     totalAmount: totals.grandTotal,
                     lines: cleanedLines(),
+                    charges: cleanedCharges(),
                     ...(saveAsDraft ? {} : { status: 'Sent' }),
                 } as { id: string } & Record<string, unknown>);
             } else {
@@ -327,6 +359,7 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
                     tax: { enabled: tax.on, inclusive: tax.mode === 'inclusive', rate: tax.rate },
                     ...(notes && { notes }),
                     lines: cleanedLines().map(({ lineNo, lineSubtotal, ...rest }) => rest),
+                    ...(cleanedCharges().length > 0 && { charges: cleanedCharges() }),
                 }) as { id: string; number: string };
 
                 // "Save & send" posts the draft to GL via a status transition.
@@ -454,6 +487,7 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
                     onChange={doc.updateCharge}
                     onRemove={doc.removeCharge}
                     onAdd={doc.addCharge}
+                    accountOptions={accountOptions}
                 />
             )}
 
