@@ -4,6 +4,7 @@ import { postBillToLedger } from '../bill-posting';
 vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined) }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('../grir', () => ({ ensureGrIrAccount: vi.fn(async () => 'acc-grir') }));
+vi.mock('../withholding', () => ({ ensurePphPayableAccount: vi.fn(async () => 'acc-pph') }));
 
 import { addCostLayer } from '../inventory-costing';
 import { postJournalEntry } from '../journal-posting';
@@ -137,6 +138,44 @@ describe('postBillToLedger', () => {
     await postBillToLedger(tx as any, 'org-a', b);
     const je = (postJournalEntry as any).mock.calls[0][1];
     expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(5000);
+  });
+
+  it('PPh withholding -> Cr PPh payable for the withheld amount, AP reduced to the net payable', async () => {
+    const tx = makeTx();
+    const b = bill({
+      taxable: false,
+      withholdingRate: 2, // PPh 23 @ 2% on services
+      lines: [{ id: 'e1', itemId: null, accountId: 'acc-rent', quantity: 1, price: 100000, lineTotal: 100000, purchaseOrderLineId: null }],
+    });
+    await postBillToLedger(tx as any, 'org-a', b);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    // Expense debited at the full (pre-withholding) value.
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(100000);
+    // The withheld 2% becomes a liability owed to the tax office.
+    expect(je.lines.find((l: any) => l.accountId === 'acc-pph').credit).toBe(2000);
+    // The vendor is only owed the net: 100000 - 2000.
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(98000);
+    const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
+    const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
+    expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
+  });
+
+  it('withholding computes off the pre-tax net even when PPN applies', async () => {
+    const tx = makeTx();
+    const b = bill({
+      taxable: true, taxInclusive: false, taxRate: 11,
+      withholdingRate: 2,
+      lines: [{ id: 'e1', itemId: null, accountId: 'acc-rent', quantity: 1, price: 100000, lineTotal: 100000, purchaseOrderLineId: null }],
+    });
+    await postBillToLedger(tx as any, 'org-a', b);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(100000);   // expense net
+    expect(je.lines.find((l: any) => l.accountId === 'acc-tax').debit).toBe(11000);      // PPN 11% (exclusive)
+    expect(je.lines.find((l: any) => l.accountId === 'acc-pph').credit).toBe(2000);       // PPh 2% on net, not on net+PPN
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(109000);      // 100000 + 11000 - 2000
+    const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
+    const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
+    expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
   });
 
   it('VAT-inclusive received line values GR/IR at net and adds input tax', async () => {

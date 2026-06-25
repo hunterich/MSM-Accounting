@@ -32,14 +32,34 @@ interface AdditionalInfoTabProps {
     isOrder?: boolean;
     autoClose?: string;
     onAutoCloseChange?: (v: string) => void;
+    /**
+     * AP bills only — PPh income-tax withholding. When supplied, a withholding
+     * selector is shown; `amount` is the computed rupiah withheld (display).
+     */
+    withholding?: {
+        rate: number;
+        onChange: (rate: number) => void;
+        amount: number;
+    };
 }
+
+/** Common Indonesian PPh withholding presets. Operators can pick the article. */
+const PPH_PRESETS: { value: number; label: string }[] = [
+    { value: 0, label: 'No withholding' },
+    { value: 2, label: 'PPh 23 — services / rent / royalty (2%)' },
+    { value: 4, label: 'PPh 23 — non-NPWP vendor (4%)' },
+    { value: 10, label: 'PPh 4(2) — land / building rent (10%)' },
+];
 
 const ctl =
     'w-full h-9 px-2.5 text-[13px] text-neutral-900 bg-white border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0 focus:ring-2 focus:ring-primary-100';
 
+const fmtIDR = (n: number): string => `Rp ${Math.round(n).toLocaleString('id-ID')}`;
+
 const AdditionalInfoTab = ({
     party, tax, onTaxChange, deliveryDate, onDeliveryDateChange,
     reference, onReferenceChange, referenceError, isOrder, autoClose, onAutoCloseChange,
+    withholding,
 }: AdditionalInfoTabProps): React.ReactElement => {
     const refLabel = party === 'vendor' ? "Supplier's invoice #" : 'Customer order # (PO)';
     const refMissing = referenceError && !reference.trim();
@@ -98,6 +118,41 @@ const AdditionalInfoTab = ({
                     </div>
                 </div>
             </div>
+
+            {/* PPh withholding — AP bills only */}
+            {withholding && (
+                <div className="mt-4 pt-4 border-t border-neutral-200">
+                    <div className="text-[11px] uppercase tracking-wide text-neutral-500 font-semibold mb-2">PPh withholding</div>
+                    <div className="flex items-end gap-4">
+                        <div>
+                            <label className="block mb-1 text-[12px] font-medium text-neutral-700">Withholding type</label>
+                            <select
+                                value={PPH_PRESETS.some((p) => p.value === withholding.rate) ? withholding.rate : 'custom'}
+                                onChange={(e) => { if (e.target.value !== 'custom') withholding.onChange(Number(e.target.value)); }}
+                                className="w-80 h-9 px-2.5 text-[13px] bg-white border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
+                            >
+                                {PPH_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                                <option value="custom">Custom rate…</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block mb-1 text-[12px] font-medium text-neutral-700">Rate %</label>
+                            <input
+                                type="number" min={0} max={100} step={0.5}
+                                value={withholding.rate}
+                                onChange={(e) => withholding.onChange(Number(e.target.value) || 0)}
+                                className="w-24 h-9 px-2.5 text-[13px] text-right tabular-nums bg-white border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
+                            />
+                        </div>
+                        {withholding.rate > 0 && (
+                            <div className="text-[12px] text-neutral-600 pb-2">
+                                Withheld: <span className="font-semibold tabular-nums text-neutral-900">{fmtIDR(withholding.amount)}</span>
+                                <span className="block text-[11px] text-neutral-500">Deducted from the vendor payment, owed to the tax office.</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Order settings — orders only */}
             {isOrder && (

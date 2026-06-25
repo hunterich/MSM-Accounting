@@ -805,6 +805,8 @@ model Bill {
   taxRate        Decimal     @default(0) @db.Decimal(5, 2)
   taxable        Boolean     @default(false)
   taxInclusive   Boolean     @default(false)
+  withholdingRate   Decimal  @default(0) @db.Decimal(5, 2)
+  withholdingAmount Decimal  @default(0) @db.Decimal(18, 2)
   subtotal       Decimal     @default(0) @db.Decimal(18, 2)
   taxAmount      Decimal     @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal     @default(0) @db.Decimal(18, 2)

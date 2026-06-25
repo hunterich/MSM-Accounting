@@ -4,6 +4,7 @@ import { toNumber, asMoney } from './money';
 import { addCostLayer } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
+import { ensurePphPayableAccount } from './withholding';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 
 type Tx = Prisma.TransactionClient;
@@ -25,6 +26,8 @@ interface PostableBill {
   taxable: boolean;
   taxInclusive: boolean;
   taxRate: unknown;
+  /** PPh withholding rate (%) on the pre-tax net; 0/absent → no withholding. */
+  withholdingRate?: unknown;
   lines: PostableBillLine[];
 }
 
@@ -120,7 +123,16 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
     expenseTotal += rounded;
   }
   expenseTotal = asMoney(expenseTotal);
-  const apTotal = asMoney(grirNet + inventoryNet + expenseTotal + taxTotal);
+
+  // PPh withholding: a slice of the pre-tax net is withheld from the vendor and
+  // owed to the tax office instead. Base is the goods/services net (excludes
+  // PPN), matching computeTotals on the client. The withheld amount reduces the
+  // AP credit (vendor is paid less) and is credited to PPh-payable.
+  const withholdingRate = toNumber(bill.withholdingRate);
+  const withholdingBase = asMoney(grirNet + inventoryNet + expenseTotal);
+  const withholding = withholdingRate > 0 ? asMoney(withholdingBase * (withholdingRate / 100)) : 0;
+
+  const apTotal = asMoney(grirNet + inventoryNet + expenseTotal + taxTotal - withholding);
 
   for (const m of manualInventoryLines) {
     await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate);
@@ -141,6 +153,10 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   }
   if (taxTotal > 0 && inputTaxAccountId) {
     journalLines.push({ accountId: inputTaxAccountId, description: `Input tax - ${bill.number}`, debit: taxTotal, credit: 0 });
+  }
+  if (withholding > 0) {
+    const pphAccountId = await ensurePphPayableAccount(tx, orgId);
+    journalLines.push({ accountId: pphAccountId, description: `PPh withholding - ${bill.number}`, debit: 0, credit: withholding });
   }
   if (apTotal > 0 && apAccountId) {
     journalLines.push({ accountId: apAccountId, description: `AP - ${bill.number}`, debit: 0, credit: apTotal });

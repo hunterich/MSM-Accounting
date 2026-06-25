@@ -35,7 +35,8 @@ import { useAccountsByType } from '../../../hooks/useGL';
  *  - Additional costs aren't persisted yet (no API field) — same gap as the others.
  *  - Per-line expense GL accounts ARE wired: an expense line (no item) codes to an
  *    Expense account, sent as line `accountId` and posted by `postBillToLedger`.
- *  - PPh (withholding) from the old form is not wired here yet (see README).
+ *  - PPh withholding IS wired: a rate on the pre-tax net is withheld from the
+ *    vendor and credited to PPh-payable by `postBillToLedger`.
  */
 
 const TAX_RATE = 11;
@@ -99,6 +100,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
     const [dueDate, setDueDate] = useState('');
     const [notes, setNotes] = useState('');
     const [tax, setTax] = useState<TaxState>({ on: false, rate: TAX_RATE, mode: 'exclusive' });
+    const [withholdingRate, setWithholdingRate] = useState(0);
     const [refError, setRefError] = useState(false);
 
     // ── Lines ───────────────────────────────────────────────────────────────
@@ -129,6 +131,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
         setDueDate(str(editingBill.dueDate ?? editingBill.due));
         setNotes(str(editingBill.notes));
         if (typeof editingBill.taxAmount === 'number') setTax((t) => ({ ...t, on: num(editingBill.taxAmount) > 0 }));
+        setWithholdingRate(num(editingBill.withholdingRate));
         setLines(seedLines);
     }, [editingBill, seedLines, setLines]);
 
@@ -177,8 +180,8 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
 
     // ── Totals ──────────────────────────────────────────────────────────────
     const totals = useMemo(
-        () => computeTotals(doc.lines, doc.charges, { taxOn: tax.on, taxRate: tax.rate, taxMode: tax.mode }),
-        [doc.lines, doc.charges, tax],
+        () => computeTotals(doc.lines, doc.charges, { taxOn: tax.on, taxRate: tax.rate, taxMode: tax.mode, withholdingRate }),
+        [doc.lines, doc.charges, tax, withholdingRate],
     );
 
     // ── Vendor context ──────────────────────────────────────────────────────
@@ -232,6 +235,8 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
         taxRate: tax.on ? tax.rate : 0,
         taxable: tax.on,
         taxInclusive: tax.mode === 'inclusive',
+        withholdingRate,
+        withholdingAmount: totals.withholding,
         subtotal: totals.subtotal,
         taxAmount: totals.tax,
         totalAmount: totals.grandTotal,
@@ -377,6 +382,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
                     reference={vendorInvoiceNo}
                     onReferenceChange={(v) => { setVendorInvoiceNo(v); setRefError(false); }}
                     referenceError={refError}
+                    withholding={{ rate: withholdingRate, onChange: setWithholdingRate, amount: totals.withholding }}
                 />
             )}
 
@@ -389,7 +395,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
 
     const rail = (
         <>
-            <DocumentTotals totals={totals} taxRate={tax.on ? tax.rate : undefined} />
+            <DocumentTotals totals={totals} taxRate={tax.on ? tax.rate : undefined} withholdingRate={withholdingRate || undefined} />
             <VendorContextRail
                 hasVendor={!!vendorId}
                 vendorName={firstStr(vendor?.name) || 'Vendor'}

@@ -121,6 +121,13 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredCodes: ['121'],
     keywords: ['ppn masukan', 'tax receivable', 'piutang pajak', 'piutang'],
   },
+  pphPayable: {
+    label: 'PPh Withholding Payable',
+    description: 'Liability for income tax (PPh) withheld from vendor bills, owed to the tax office.',
+    allowedTypes: ['Liability'],
+    preferredCodes: ['2160', '216', '2120'],
+    keywords: ['hutang pph', 'utang pph', 'pph payable', 'withholding tax payable', 'pph 23', 'pph 21', 'pph pasal'],
+  },
   inventoryAsset: {
     label: 'Inventory Asset',
     description: 'Inventory control account used for stocked items.',
