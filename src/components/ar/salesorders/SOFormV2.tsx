@@ -16,8 +16,10 @@ import SearchableSelect from '../../UI/SearchableSelect';
 import { formatIDR } from '../../../utils/formatters';
 import { useCustomerStore } from '../../../stores/useCustomerStore';
 import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
+import { useWorkspaceStore } from '../../../stores/useWorkspaceStore';
 import { useCustomers, useInvoices } from '../../../hooks/useAR';
 import { useItems } from '../../../hooks/useInventory';
+import { useDraftAutosave } from '../../../hooks/useDraftAutosave';
 
 /**
  * SOFormV2 — Sales Order on the shared document-form system.
@@ -53,12 +55,16 @@ const OPEN_STATUSES = new Set(['unpaid', 'overdue', 'partial', 'sent', 'pending'
 
 interface SOFormV2Props {
     mode?: 'create' | 'edit';
+    /** Present only when rendered inside the workspace shell. */
+    workspaceTabId?: string;
+    /** Record id when rendered inside the workspace (replaces the soId search param). */
+    recordId?: string;
 }
 
-const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
+const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, recordId }) => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const soId = searchParams.get('soId') || '';
+    const soId = recordId ?? searchParams.get('soId') ?? '';
     const isEdit = mode === 'edit';
 
     // ── Stores & server data ────────────────────────────────────────────────
@@ -76,6 +82,12 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
     const selectedSO = useMemo(
         () => salesOrders.find((so) => so.id === soId) || null,
         [salesOrders, soId],
+    );
+
+    const draftSeed = useWorkspaceStore((s) =>
+        (workspaceTabId ? s.tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
+            | Partial<{ customerId: string; orderDate: string; expectedDate: string; shippingAddress: string; deliveryNotes: string; reference: string; lines: DocLine[]; tax: TaxState }>
+            | undefined,
     );
 
     const customers = useMemo<Rec[]>(() => {
@@ -96,17 +108,18 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
     );
 
     // ── Header state ────────────────────────────────────────────────────────
-    const [customerId, setCustomerId] = useState(selectedSO?.customerId || '');
-    const [orderDate, setOrderDate] = useState(selectedSO?.date || todayString());
-    const [expectedDate, setExpectedDate] = useState(selectedSO?.expectedDate || '');
-    const [shippingAddress, setShippingAddress] = useState(selectedSO?.shippingAddress || '');
-    const [deliveryNotes, setDeliveryNotes] = useState(selectedSO?.deliveryNotes || '');
-    const [reference, setReference] = useState('');
+    const [customerId, setCustomerId] = useState(draftSeed?.customerId ?? selectedSO?.customerId ?? '');
+    const [orderDate, setOrderDate] = useState(draftSeed?.orderDate ?? selectedSO?.date ?? todayString());
+    const [expectedDate, setExpectedDate] = useState(draftSeed?.expectedDate ?? selectedSO?.expectedDate ?? '');
+    const [shippingAddress, setShippingAddress] = useState(draftSeed?.shippingAddress ?? selectedSO?.shippingAddress ?? '');
+    const [deliveryNotes, setDeliveryNotes] = useState(draftSeed?.deliveryNotes ?? selectedSO?.deliveryNotes ?? '');
+    const [reference, setReference] = useState(draftSeed?.reference ?? '');
     const [autoClose, setAutoClose] = useState('60');
-    const [tax, setTax] = useState<TaxState>({ on: false, rate: TAX_RATE, mode: 'exclusive' });
+    const [tax, setTax] = useState<TaxState>(draftSeed?.tax ?? { on: false, rate: TAX_RATE, mode: 'exclusive' });
 
     // ── Lines + charges (shared hook) ───────────────────────────────────────
     const seedLines = useMemo<DocLine[]>(() => {
+        if (draftSeed?.lines && draftSeed.lines.length) return draftSeed.lines;
         if (!selectedSO) return [];
         return (soItemTemplates[selectedSO.id] || []).map((l, i) => ({
             id: l.id || `li-${i}`,
@@ -117,7 +130,7 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
             price: num(l.price),
             discount: num(l.discount),
         }));
-    }, [selectedSO, soItemTemplates]);
+    }, [draftSeed, selectedSO, soItemTemplates]);
 
     const doc = useDocumentLines(seedLines, []);
     const { setLines } = doc;
@@ -219,6 +232,21 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
 
     const dirty = doc.dirty || !!expectedDate || !!deliveryNotes || !!reference;
 
+    const snapshot = useMemo(() => ({
+        customerId, orderDate, expectedDate, shippingAddress, deliveryNotes, reference, tax, lines: doc.lines,
+    }), [customerId, orderDate, expectedDate, shippingAddress, deliveryNotes, reference, tax, doc.lines]);
+
+    useDraftAutosave(workspaceTabId, snapshot);
+
+    const setStatus = useWorkspaceStore((s) => s.setStatus);
+    useEffect(() => {
+        if (!workspaceTabId) return;
+        setStatus(workspaceTabId, dirty ? (isEdit ? 'dirty' : 'new') : (isEdit ? 'clean' : 'new'));
+    }, [workspaceTabId, dirty, isEdit, setStatus]);
+
+    const closeTab = useWorkspaceStore((s) => s.closeTab);
+    const clearDraft = useWorkspaceStore((s) => s.clearDraft);
+
     // ── Save ────────────────────────────────────────────────────────────────
     const validate = (): boolean => {
         if (!customerId) { setActiveTab('items'); return false; }
@@ -270,18 +298,19 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
         }
     };
 
-    const handleSaveDraft = async () => {
-        const id = await persist('Draft');
-        if (id) navigate('/ar/sales-orders');
+    const finishSave = (id: string | null) => {
+        if (!id) return;
+        if (workspaceTabId) {
+            clearDraft(workspaceTabId);
+            closeTab(workspaceTabId);
+        } else {
+            navigate('/ar/sales-orders');
+        }
     };
-    const handleConfirm = async () => {
-        const id = await persist('Confirmed');
-        if (id) navigate('/ar/sales-orders');
-    };
-    const handleSaveAndInvoice = async () => {
-        const id = await persist('Confirmed');
-        if (id) navigate('/ar/sales-orders');
-    };
+
+    const handleSaveDraft = async () => finishSave(await persist('Draft'));
+    const handleConfirm = async () => finishSave(await persist('Confirmed'));
+    const handleSaveAndInvoice = async () => finishSave(await persist('Confirmed'));
 
     // ── UI helpers ──────────────────────────────────────────────────────────
     const lbl = 'block mb-1 text-[12px] font-medium text-neutral-700';
