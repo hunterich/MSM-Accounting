@@ -9,14 +9,24 @@ interface OpenArgs {
     title: string;
     path: string;
     initialStatus?: WorkspaceTab['status'];
+    /**
+     * Force a unique tab id so repeated calls open SEPARATE tabs instead of
+     * focusing an existing one. Used for new/blank documents — you can have
+     * several unsaved "New sales order" drafts open at once.
+     */
+    unique?: boolean;
 }
+
+let uniqueSeq = 0;
 
 export function useWorkspaceNav() {
     const openTab = useWorkspaceStore((s) => s.openTab);
 
     const open = useCallback((args: OpenArgs): boolean => {
+        const baseId = makeTabId(args.target);
+        const id = args.unique ? `${baseId}#${Date.now().toString(36)}-${uniqueSeq++}` : baseId;
         const tab: WorkspaceTab = {
-            id: makeTabId(args.target),
+            id,
             kind: args.kind,
             title: args.title,
             target: args.target,
