@@ -13,6 +13,15 @@ const WorkspaceShell = (): React.ReactElement => {
     const activePath = tabs.find((t) => t.id === activeTabId)?.path;
 
     useEffect(() => {
+        if (import.meta.env.DEV) {
+            (window as unknown as Record<string, unknown>).__MSM_WORKSPACE__ = useWorkspaceStore.getState();
+            return useWorkspaceStore.subscribe((s) => {
+                (window as unknown as Record<string, unknown>).__MSM_WORKSPACE__ = s;
+            });
+        }
+    }, []);
+
+    useEffect(() => {
         if (activePath && activePath !== window.location.pathname + window.location.search) {
             navigate(activePath, { replace: true });
         }
