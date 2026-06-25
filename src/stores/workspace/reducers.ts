@@ -34,7 +34,7 @@ export function closeOthers(state: WorkspaceState, id: string): WorkspaceState {
     return { tabs: [keep], activeTabId: keep.id };
 }
 
-export function closeAll(): WorkspaceState {
+export function closeAll(_state?: WorkspaceState): WorkspaceState {
     return { tabs: [], activeTabId: null };
 }
 
