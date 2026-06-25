@@ -18,6 +18,7 @@ import {
   listResponse,
   ApiError,
 } from '@/lib/api-utils';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -146,6 +147,7 @@ export const POST = withHandler(async (request: NextRequest) => {
   const payload = parsedPayload.data;
 
   const createdEntry = await prisma.$transaction(async (tx) => {
+    const entryDate = parseIsoDate(payload.date);
     const organization = await tx.organization.findUnique({
       where: { id: payload.organizationId },
       select: { id: true },
@@ -165,6 +167,8 @@ export const POST = withHandler(async (request: NextRequest) => {
           id: true,
           status: true,
           isLocked: true,
+          startDate: true,
+          endDate: true,
         },
       });
 
@@ -175,6 +179,14 @@ export const POST = withHandler(async (request: NextRequest) => {
       if (period.status === 'CLOSED' || period.isLocked) {
         throw new ApiError('Accounting period is closed/locked', 422);
       }
+
+      if (entryDate < period.startDate || entryDate > period.endDate) {
+        throw new ApiError('Journal entry date is outside the selected accounting period', 422);
+      }
+    }
+
+    if (payload.status === 'POSTED') {
+      await assertPeriodOpen(tx, payload.organizationId, entryDate);
     }
 
     const { lines, totalDebit, totalCredit } = normalizeLines(payload);
@@ -211,7 +223,7 @@ export const POST = withHandler(async (request: NextRequest) => {
       data: {
         organizationId: payload.organizationId,
         entryNo,
-        date: parseIsoDate(payload.date),
+        date: entryDate,
         memo: payload.memo,
         source: payload.source,
         status: payload.status,

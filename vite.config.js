@@ -11,11 +11,11 @@ export default defineConfig({
     plugins: [react(), tailwindcss()],
     server: {
         watch: {
-            ignored: ['**/.claude/**', '**/dist/**', '**/.next/**'],
+            ignored: ['**/.claude/**', '**/.claire/**', '**/dist/**', '**/.next/**'],
         },
     },
     test: {
-        exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/.claude/**', '**/__tests__/integration/**'],
+        exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/.claude/**', '**/.claire/**', '**/__tests__/integration/**'],
     },
     resolve: {
         extensions: ['.mjs', '.ts', '.tsx', '.js', '.jsx', '.json'],

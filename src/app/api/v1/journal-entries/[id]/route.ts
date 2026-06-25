@@ -2,9 +2,10 @@ import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit } from '@/lib/api-utils';
+import { ok, err, logAudit, ApiError, withHandler } from '@/lib/api-utils';
 import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 const ZERO = new Prisma.Decimal(0);
 const TOLERANCE = new Prisma.Decimal('0.005');
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok(entry);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withHandler(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const body = await req.json();
@@ -96,10 +97,35 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   ]));
 
   const updated = await prisma.$transaction(async (tx) => {
+    const entryDate = new Date(payload.date);
+
+    if (payload.periodId) {
+      const period = await tx.accountingPeriod.findFirst({
+        where: { id: payload.periodId, organizationId: orgId },
+        select: { id: true, status: true, isLocked: true, startDate: true, endDate: true },
+      });
+
+      if (!period) {
+        throw new ApiError('Accounting period not found', 404);
+      }
+
+      if (period.status === 'CLOSED' || period.isLocked) {
+        throw new ApiError('Accounting period is closed/locked', 422);
+      }
+
+      if (entryDate < period.startDate || entryDate > period.endDate) {
+        throw new ApiError('Journal entry date is outside the selected accounting period', 422);
+      }
+    }
+
+    if (payload.status === 'POSTED') {
+      await assertPeriodOpen(tx, orgId, entryDate);
+    }
+
     await tx.journalEntry.update({
       where: { id, organizationId: orgId },
       data: {
-        date: new Date(payload.date),
+        date: entryDate,
         memo: payload.memo,
         source: payload.source,
         status: payload.status,
@@ -125,7 +151,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'JournalEntry', entityId: id, action: 'UPDATE', payload: body });
   return ok(updated);
-}
+});
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

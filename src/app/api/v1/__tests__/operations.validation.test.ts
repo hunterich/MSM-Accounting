@@ -59,6 +59,14 @@ vi.mock('@/lib/api-utils', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/approval/engine', () => ({
+  routeForApproval: vi.fn(async () => false),
+}));
+
+vi.mock('@/lib/stock-adjustment-posting', () => ({
+  postStockAdjustmentToLedger: vi.fn(async () => undefined),
+}));
+
 vi.mock('@/lib/credit-limit', () => ({
   calculateSalesOrderTotal: vi.fn((items: Array<{ quantity?: number; price?: number; discount?: number }>) =>
     items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.price || 0)), 0)),
@@ -77,6 +85,7 @@ import { POST as createSalesOrder } from '../sales-orders/route';
 import { POST as createStockAdjustment } from '../stock-adjustments/route';
 import { DELETE as deleteBankTransaction } from '../bank-transactions/[id]/route';
 import { PUT as updateBankTransaction } from '../bank-transactions/[id]/route';
+import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
 
 function makeReq(path: string, orgId: string, method = 'GET', body?: unknown) {
   const init = { method, headers: { 'x-org-id': orgId, 'x-user-id': 'u1' } } as any;
@@ -117,6 +126,34 @@ describe('operational route validation', () => {
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toEqual({ error: 'Item not found in organization' });
     expect(prisma.stockAdjustment.create).not.toHaveBeenCalled();
+  });
+
+  it('does not post inventory or GL for draft stock adjustments', async () => {
+    vi.mocked(prisma.item.findFirst).mockResolvedValue({ id: 'item-1' } as never);
+    vi.mocked(prisma.stockAdjustment.create).mockResolvedValue({
+      id: 'adj-1',
+      number: 'ADJ-0001',
+      date: new Date('2026-04-06'),
+      status: 'DRAFT',
+    } as never);
+    vi.mocked(prisma.stockAdjustmentLine.createMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.stockAdjustment.findUnique).mockResolvedValue({
+      id: 'adj-1',
+      number: 'ADJ-0001',
+      status: 'DRAFT',
+      lines: [],
+    } as never);
+
+    const res = await createStockAdjustment(makeReq('/api/v1/stock-adjustments', 'org-a', 'POST', {
+      date: '2026-04-06',
+      type: 'QUANTITY',
+      reason: 'Draft worksheet',
+      status: 'DRAFT',
+      lines: [{ itemId: 'item-1', oldQty: 5, newQty: 3, unitCost: 10 }],
+    }));
+
+    expect(res.status).toBe(201);
+    expect(postStockAdjustmentToLedger).not.toHaveBeenCalled();
   });
 
   it('rebalances bank account totals when a transaction amount changes on the same account', async () => {

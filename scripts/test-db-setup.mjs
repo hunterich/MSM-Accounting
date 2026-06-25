@@ -5,8 +5,9 @@
  *   npm run test:int:setup   # then: npm run test:int
  *
  * Reads DATABASE_URL from the environment or `.env`, derives the `_test`
- * variant, creates it if missing, and runs `prisma db push` against it.
- * Safe to re-run.
+ * variant, creates it if missing, resets it, and runs `prisma db push`
+ * against it. Safe to re-run because it only targets the derived `_test`
+ * database.
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -45,8 +46,8 @@ try {
   }
 }
 
-console.log('[test-db-setup] pushing schema…')
-execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate'], {
+console.log('[test-db-setup] resetting test database and pushing schema…')
+execFileSync('npx', ['prisma', 'db', 'push', '--force-reset'], {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: testUrl },
 })

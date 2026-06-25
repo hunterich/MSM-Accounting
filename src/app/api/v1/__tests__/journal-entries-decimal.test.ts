@@ -18,10 +18,32 @@ import { Prisma } from '@prisma/client';
 
 let putExistingEntry: { id: string; status: string; organizationId: string; lines: { accountId: string }[] } | null = null;
 const putUpdates: Record<string, unknown>[] = [];
+let periodLookupResult: Record<string, unknown> | null = null;
+const journalCreateMock = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+  id: 'je-post-1',
+  entryNo: 'JE-000100',
+  totalDebit: data.totalDebit,
+  totalCredit: data.totalCredit,
+  status: data.status,
+}));
 
 const txStub = () => ({
   $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 99 }]),
+  $executeRaw: vi.fn(async () => 0),
+  organization: {
+    findUnique: vi.fn(async () => ({ id: 'org-1' })),
+  },
+  accountingPeriod: {
+    findFirst: vi.fn(async () => periodLookupResult),
+  },
+  account: {
+    findMany: vi.fn(async () => [
+      { id: 'acc-ar', isPostable: true, isActive: true },
+      { id: 'acc-cash', isPostable: true, isActive: true },
+    ]),
+  },
   journalEntry: {
+    create: journalCreateMock,
     update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
       putUpdates.push(data);
       return { id: 'je-put-1', ...data };
@@ -65,6 +87,15 @@ vi.mock('@/lib/account-postings', () => ({
 }));
 
 import { PUT as updateJournalEntry } from '../journal-entries/[id]/route';
+import { POST as createJournalEntry } from '../journal-entries/route';
+
+function makePostReq(body: unknown): NextRequest {
+  return new NextRequest('http://localhost/api/v1/journal-entries', {
+    method: 'POST',
+    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
 
 function makePutReq(id: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost/api/v1/journal-entries/${id}`, {
@@ -77,10 +108,71 @@ function makePutReq(id: string, body: unknown): NextRequest {
 beforeEach(() => {
   putUpdates.length = 0;
   putExistingEntry = null;
+  periodLookupResult = null;
+  journalCreateMock.mockClear();
   vi.clearAllMocks();
 });
 
 describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit', () => {
+  it('rejects posted journal creation dated inside a closed period even without periodId', async () => {
+    periodLookupResult = {
+      name: 'May 2026',
+      status: 'CLOSED',
+      isLocked: false,
+    };
+
+    const res = await createJournalEntry(makePostReq({
+      date: '2026-05-01',
+      memo: 'Closed period entry',
+      source: 'MANUAL',
+      status: 'POSTED',
+      lines: [
+        { accountId: 'acc-ar', debit: 100, credit: 0 },
+        { accountId: 'acc-cash', debit: 0, credit: 100 },
+      ],
+    }));
+
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toEqual({
+      error: 'Accounting period "May 2026" is closed/locked — cannot post on 2026-05-01',
+    });
+    expect(journalCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects posting an edited draft dated inside a closed period', async () => {
+    putExistingEntry = {
+      id: 'je-existing',
+      status: 'DRAFT',
+      organizationId: 'org-1',
+      lines: [{ accountId: 'acc-ar' }],
+    };
+    periodLookupResult = {
+      name: 'May 2026',
+      status: 'CLOSED',
+      isLocked: false,
+    };
+
+    const res = await updateJournalEntry(
+      makePutReq('je-existing', {
+        date: '2026-05-01',
+        memo: 'Closed period update',
+        source: 'MANUAL',
+        status: 'POSTED',
+        lines: [
+          { accountId: 'acc-ar', debit: 100, credit: 0 },
+          { accountId: 'acc-cash', debit: 0, credit: 100 },
+        ],
+      }),
+      { params: Promise.resolve({ id: 'je-existing' }) },
+    );
+
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toEqual({
+      error: 'Accounting period "May 2026" is closed/locked — cannot post on 2026-05-01',
+    });
+    expect(putUpdates).toHaveLength(0);
+  });
+
   it('balances under sub-cent float drift that bare-Number arithmetic would reject', async () => {
     putExistingEntry = {
       id: 'je-existing',
