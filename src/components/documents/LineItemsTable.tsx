@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, X, Plus } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { formatIDR } from '../../utils/formatters';
 import { lineNet } from './computeTotals';
 import type { DocLine } from './types';
@@ -21,7 +21,6 @@ interface LineItemsTableProps {
     showTax?: boolean;
     onChange: (id: string, key: keyof DocLine, value: string | number) => void;
     onRemove: (id: string) => void;
-    onAddLine: () => void;
     /** search box is presentational here; host wires the product autocomplete */
     searchSlot?: React.ReactNode;
 }
@@ -37,7 +36,6 @@ const LineItemsTable = ({
     showTax = false,
     onChange,
     onRemove,
-    onAddLine,
     searchSlot,
 }: LineItemsTableProps): React.ReactElement => {
     const handle = (id: string, key: keyof DocLine) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,7 +76,7 @@ const LineItemsTable = ({
                         <tr>
                             <td colSpan={showTax ? 8 : 7} className="text-center py-8">
                                 <div className="text-neutral-500 font-medium mb-0.5">No items yet</div>
-                                <div className="text-neutral-400 text-xs">Use the search above to add products, or “Add line”.</div>
+                                <div className="text-neutral-400 text-xs">Use the search above to add a product or a custom line.</div>
                             </td>
                         </tr>
                     ) : (
@@ -116,10 +114,6 @@ const LineItemsTable = ({
                     )}
                 </tbody>
             </table>
-
-            <button type="button" onClick={onAddLine} className="w-full text-left px-3 py-2 text-[13px] text-primary-700 hover:bg-primary-50 inline-flex items-center gap-1.5">
-                <Plus size={14} /> Add line
-            </button>
         </div>
     );
 };
