@@ -351,7 +351,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
         <>
             {isPosted && (
                 <div className="bg-warning-50 border border-warning-200 rounded-lg px-4 py-2.5 text-[12px] text-warning-800">
-                    This bill is already posted. Saving your changes will <strong>reverse and re-post</strong> its journal entry (only while the period is open). Bills with payments, returns, or inventory items must be voided to change.
+                    This bill is already posted. Saving your changes will <strong>reverse and re-post</strong> its journal entry (only while the period is open). Bills with payments or returns, or those raised from a purchase order, must be voided to change.
                 </div>
             )}
             <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4">

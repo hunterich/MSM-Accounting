@@ -64,7 +64,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         select: {
           id: true, status: true, vendorInvoiceNo: true, poId: true,
           number: true, issueDate: true, journalEntryId: true,
-          lines: { select: { itemId: true } },
           _count: { select: { paymentAllocations: true, purchaseReturns: true, debitNotes: true } },
         },
       });
@@ -81,13 +80,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
 
       if (isPostedEdit) {
-        // v1 keeps the reverse+re-post pure-GL: inventory/PO-sourced bills involve
-        // cost-layer + GR/IR re-syncing that must be voided + re-received instead.
+        // PO-sourced bills couple to receivedQty + GR/IR clearing on the PO, so
+        // editing them in place isn't supported — void + re-receive instead.
+        // Inventory bills ARE supported: reverseBillPosting deletes the cost layers
+        // (and throws a clear 422 if the stock has already been consumed/sold) and
+        // the re-post re-books them, so GL + ledger + lots stay reconciled.
         if (existing.poId) {
           throw new ApiError('This bill came from a purchase order — void it to change (its receipt must be unwound first).', 422);
-        }
-        if (existing.lines.some((l) => l.itemId) || (lines ?? []).some((l) => l.itemId)) {
-          throw new ApiError('This bill has inventory items — void it to change (editing posted stock movements is not supported yet).', 422);
         }
         if (existing._count.paymentAllocations > 0) {
           throw new ApiError('Cannot edit a bill with payments applied — unallocate its payments first.', 422);
@@ -163,9 +162,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           });
         }
       }
-      // Edit-after-post: re-post the bill's GL from the freshly-edited lines/charges
-      // (the old entry was reversed above). No PO receipt / inventory here — v1
-      // edit-after-post is restricted to non-inventory, non-PO bills.
+      // Edit-after-post: re-post the bill's GL + inventory from the freshly-edited
+      // lines/charges (the old entry + cost layers were reversed above). No PO
+      // receipt — edit-after-post is restricted to non-PO bills.
       if (isPostedEdit) {
         const finalized = await tx.bill.findFirst({
           where: { id, organizationId: orgId },

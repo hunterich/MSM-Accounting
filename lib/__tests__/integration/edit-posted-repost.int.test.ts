@@ -11,8 +11,12 @@ import {
   prisma,
   createTestOrg,
   createVendor,
+  createItem,
   assertTrialBalanced,
+  assertInventoryReconciled,
   accountBalance,
+  inventoryLotValue,
+  inventoryLedgerValue,
   cleanupOrg,
   disconnect,
 } from './harness';
@@ -91,6 +95,42 @@ describe('edit-after-post: reverse + re-post keeps the GL balanced and correct',
     // Net of original(50k) − reversal(50k) + re-post(80k) = 80k exactly.
     expect(await accountBalance(org.orgId, org.accounts.apControl)).toBeCloseTo(-80000, 2);
     expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBeCloseTo(80000, 2);
+
+    await cleanupOrg(org.orgId);
+  });
+
+  it('editing an INVENTORY bill re-books the cost layer: GL, ledger, and lots all reflect the new qty', async () => {
+    const org = await createTestOrg();
+    const vendorId = await createVendor(org.orgId);
+    const itemId = await createItem(org.orgId);
+    const bill = await prisma.bill.create({
+      data: { organizationId: org.orgId, number: 'BILL-INV', vendorId, issueDate: DATE, status: 'OPEN' },
+      select: { id: true, number: true },
+    });
+
+    // Post 10 @ 1000 = 10,000 of inventory, then "edit" to 15 @ 1000 = 15,000.
+    const invLine = (qty: number, total: number) => ({
+      id: 'l1', itemId, quantity: qty, price: 1000, lineTotal: total, purchaseOrderLineId: null,
+    });
+    await prisma.$transaction((tx) =>
+      postBillToLedger(tx, org.orgId, { id: bill.id, number: bill.number, issueDate: DATE, apAccountId: null, taxable: false, taxInclusive: false, taxRate: 0, lines: [invLine(10, 10000)] }),
+    );
+    await assertInventoryReconciled(org.orgId, 'after first post');
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(10000, 2);
+
+    const posted = await prisma.bill.findUniqueOrThrow({ where: { id: bill.id }, select: { journalEntryId: true } });
+    await prisma.$transaction(async (tx) => {
+      await reverseBillPosting(tx, org.orgId, { id: bill.id, number: bill.number, poId: null, journalEntryId: posted.journalEntryId }, { date: DATE });
+      await postBillToLedger(tx, org.orgId, { id: bill.id, number: bill.number, issueDate: DATE, apAccountId: null, taxable: false, taxInclusive: false, taxRate: 0, lines: [invLine(15, 15000)] });
+    });
+
+    await assertTrialBalanced(org.orgId, 'after inventory edit');
+    await assertInventoryReconciled(org.orgId, 'after inventory edit');
+    expect(await accountBalance(org.orgId, org.accounts.apControl)).toBeCloseTo(-15000, 2);
+    expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBeCloseTo(15000, 2);
+    // The original lot was deleted on reverse; only the re-booked 15,000 remains.
+    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(15000, 2);
+    expect(await inventoryLedgerValue(org.orgId)).toBeCloseTo(15000, 2);
 
     await cleanupOrg(org.orgId);
   });
