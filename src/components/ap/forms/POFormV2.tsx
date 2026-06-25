@@ -248,7 +248,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
         try {
             const payload = buildPayload(status);
             if (isEdit && editingPO) {
-                await updatePO.mutateAsync({ id: str(editingPO.id), ...payload });
+                await updatePO.mutateAsync({ id: str(editingPO._id || editingPO.id), ...payload });
             } else {
                 await createPO.mutateAsync(payload);
             }

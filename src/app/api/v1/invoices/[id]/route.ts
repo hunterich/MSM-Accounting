@@ -4,6 +4,8 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit } from '@/lib/api-utils';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { reverseInvoicePosting } from '@/lib/repost';
+import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
@@ -71,23 +73,61 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const access = await getInvoiceAccessContext(orgId, userId);
     const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1;
 
+    // Captured inside the transaction for the audit trail of an edit-after-post.
+    let postedEditBefore: unknown = null;
+
     const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.salesInvoice.findFirst({
         where: applyInvoiceAccessScope({ id, organizationId: orgId }, access),
-        select: { id: true, status: true, number: true, issueDate: true, organizationId: true },
+        select: {
+          id: true, status: true, number: true, issueDate: true, organizationId: true,
+          lines: { select: { itemId: true } },
+          _count: { select: { paymentAllocations: true, salesReturns: true, creditNotes: true } },
+        },
       });
 
       if (!existing) {
         throw new AccessError('Invoice not found', 404);
       }
 
-      if (existing.status !== 'DRAFT' && !isStatusOnlyUpdate) {
-        throw new AccessError('Only DRAFT invoices can be modified', 403);
+      // DRAFT → edit freely. SENT/OVERDUE field edit → edit-after-post: reverse the
+      // posting, apply the edit, re-post — bounded by the open period. A status-only
+      // update (e.g. marking paid) is NOT an edit and skips this. Everything else
+      // (PAID/VOID/PENDING_APPROVAL) → must be voided to change.
+      const isDraft = existing.status === 'DRAFT';
+      const isPostedEdit =
+        !isDraft && !isStatusOnlyUpdate && (existing.status === 'SENT' || existing.status === 'OVERDUE');
+      if (!isDraft && !isPostedEdit && !isStatusOnlyUpdate) {
+        throw new AccessError(`Cannot edit a ${existing.status} invoice — void it to change.`, 403);
+      }
+
+      if (isPostedEdit) {
+        // v1 keeps the reverse+re-post pure-GL: inventory invoices involve cost-layer
+        // re-consumption that must be voided + re-sent instead.
+        if (existing.lines.some((l) => l.itemId) || (lines ?? []).some((l: any) => l.itemId)) {
+          throw new AccessError('This invoice has inventory items — void it to change (editing posted stock movements is not supported yet).', 422);
+        }
+        if (existing._count.paymentAllocations > 0) {
+          throw new AccessError('Cannot edit an invoice with receipts applied — unallocate them first.', 422);
+        }
+        if (existing._count.salesReturns > 0 || existing._count.creditNotes > 0) {
+          throw new AccessError('Cannot edit an invoice with returns or credit notes against it — reverse those first.', 422);
+        }
+        const newDate = header.issueDate ? new Date(header.issueDate) : new Date(existing.issueDate);
+        await assertPeriodOpen(tx, existing.organizationId, new Date(existing.issueDate)); // posted period
+        await assertPeriodOpen(tx, existing.organizationId, newDate);                       // re-post period
+        postedEditBefore = await tx.salesInvoice.findFirst({ where: { id }, include: { lines: true, charges: true } });
+        await reverseInvoicePosting(tx, existing.organizationId, { id: existing.id, number: existing.number }, { date: newDate });
       }
 
       await tx.salesInvoice.update({
         where: { id },
-        data: { ...header, updatedAt: new Date() },
+        data: {
+          ...header,
+          // An edit never un-posts an invoice — keep it SENT/OVERDUE.
+          ...(isPostedEdit && { status: existing.status }),
+          updatedAt: new Date(),
+        },
       });
 
       if (lines) {
@@ -115,6 +155,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             })),
           });
         }
+      }
+
+      // Edit-after-post: re-post AR (+ charges) from the freshly-edited invoice
+      // (its prior entries were reversed above). v1 edit-after-post is restricted
+      // to non-inventory invoices, so no COGS re-consumption happens here.
+      if (isPostedEdit) {
+        await postInvoiceSend(tx, existing.organizationId, existing.id);
       }
 
       // Post AR + COGS journals when invoice transitions DRAFT → SENT,
@@ -152,7 +199,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         },
       });
     });
-    logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'SalesInvoice', entityId: id, action: 'UPDATE', payload: body });
+    // For an edit-after-post, log before→after so the journal re-post is
+    // attributable (who changed what); a plain draft edit logs the submitted body.
+    logAudit({
+      orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'SalesInvoice', entityId: id, action: 'UPDATE',
+      payload: postedEditBefore ? { reposted: true, before: postedEditBefore, after: body } : body,
+    });
     return withCors(NextResponse.json(updated));
   } catch (error) {
     if (error instanceof AccessError || error instanceof ApiError) {

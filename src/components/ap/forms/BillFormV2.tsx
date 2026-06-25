@@ -285,7 +285,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
         try {
             const payload = buildPayload(status);
             if (isEdit && editingBill) {
-                await updateBill.mutateAsync({ id: str(editingBill.id), ...payload });
+                await updateBill.mutateAsync({ id: str(editingBill._id || editingBill.id), ...payload });
             } else {
                 await createBill.mutateAsync(payload);
             }
@@ -345,8 +345,15 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
         </div>
     );
 
+    const isPosted = isEdit && !!editingBill && !['DRAFT', 'PENDING_APPROVAL', ''].includes(str(editingBill.status).toUpperCase());
+
     const main = (
         <>
+            {isPosted && (
+                <div className="bg-warning-50 border border-warning-200 rounded-lg px-4 py-2.5 text-[12px] text-warning-800">
+                    This bill is already posted. Saving your changes will <strong>reverse and re-post</strong> its journal entry (only while the period is open). Bills with payments, returns, or inventory items must be voided to change.
+                </div>
+            )}
             <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4">
                 <div className="grid grid-cols-12 gap-3">
                     <div className="col-span-4">

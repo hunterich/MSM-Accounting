@@ -15,8 +15,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
+    // The list/edit links use the display id, which is the PO NUMBER; resolve
+    // either the cuid or the number so edit-loading works from any entry point.
     const po = await prisma.purchaseOrder.findFirst({
-      where: { id, organizationId: orgId },
+      where: { organizationId: orgId, OR: [{ id }, { number: id }] },
       include: { vendor: true, lines: true, charges: true },
     });
     if (!po) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));

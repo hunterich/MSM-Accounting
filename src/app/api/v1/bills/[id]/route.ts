@@ -7,6 +7,7 @@ import { updateBillInputSchema } from '@/types/api';
 import { postBillToLedger } from '@/lib/bill-posting';
 import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { reverseBillPosting } from '@/lib/repost';
 import { routeForApproval } from '@/lib/approval/engine';
 
 function isFakturDuplicate(error: unknown): boolean {
@@ -25,8 +26,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
+    // The list/edit links use the display id, which is the bill NUMBER; resolve
+    // either the cuid or the number so edit-loading works from any entry point.
     const bill = await prisma.bill.findFirst({
-      where: { id, organizationId: orgId },
+      where: { organizationId: orgId, OR: [{ id }, { number: id }] },
       include: { vendor: true, lines: true, charges: true, attachments: true },
     });
     if (!bill) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
@@ -52,11 +55,55 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
     const { lines, charges, ...header } = parsed.data;
 
+    // Captured inside the transaction for the audit trail of an edit-after-post.
+    let postedEditBefore: unknown = null;
+
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true, vendorInvoiceNo: true } });
+      const existing = await tx.bill.findFirst({
+        where: { id, organizationId: orgId },
+        select: {
+          id: true, status: true, vendorInvoiceNo: true, poId: true,
+          number: true, issueDate: true, journalEntryId: true,
+          lines: { select: { itemId: true } },
+          _count: { select: { paymentAllocations: true, purchaseReturns: true, debitNotes: true } },
+        },
+      });
       if (!existing) return null;
-      if (existing.status !== 'DRAFT') {
-        throw new ApiError('Only DRAFT bills can be modified', 403);
+
+      // DRAFT → edit freely (no GL yet). OPEN/OVERDUE → edit-after-post: reverse
+      // the posting, apply the edit, re-post — all here so the GL stays in sync,
+      // bounded by the open period (the monthly-close window). Everything else
+      // (PAID/VOID/PENDING_APPROVAL/PENDING) → must be voided to change.
+      const isDraft = existing.status === 'DRAFT';
+      const isPostedEdit = !isDraft && (existing.status === 'OPEN' || existing.status === 'OVERDUE');
+      if (!isDraft && !isPostedEdit) {
+        throw new ApiError(`Cannot edit a ${existing.status} bill — void it to change.`, 403);
+      }
+
+      if (isPostedEdit) {
+        // v1 keeps the reverse+re-post pure-GL: inventory/PO-sourced bills involve
+        // cost-layer + GR/IR re-syncing that must be voided + re-received instead.
+        if (existing.poId) {
+          throw new ApiError('This bill came from a purchase order — void it to change (its receipt must be unwound first).', 422);
+        }
+        if (existing.lines.some((l) => l.itemId) || (lines ?? []).some((l) => l.itemId)) {
+          throw new ApiError('This bill has inventory items — void it to change (editing posted stock movements is not supported yet).', 422);
+        }
+        if (existing._count.paymentAllocations > 0) {
+          throw new ApiError('Cannot edit a bill with payments applied — unallocate its payments first.', 422);
+        }
+        if (existing._count.purchaseReturns > 0 || existing._count.debitNotes > 0) {
+          throw new ApiError('Cannot edit a bill with returns or debit notes against it — reverse those first.', 422);
+        }
+        const newDate = header.issueDate ? new Date(header.issueDate) : new Date(existing.issueDate);
+        await assertPeriodOpen(tx, orgId, new Date(existing.issueDate)); // the period it's posted in
+        await assertPeriodOpen(tx, orgId, newDate);                       // the period it re-posts into
+        postedEditBefore = await tx.bill.findFirst({ where: { id, organizationId: orgId }, include: { lines: true, charges: true } });
+        await reverseBillPosting(
+          tx, orgId,
+          { id: existing.id, number: existing.number, poId: existing.poId, journalEntryId: existing.journalEntryId },
+          { date: newDate },
+        );
       }
       if (header.vendorId) {
         await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
@@ -76,6 +123,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         where: { id, organizationId: orgId },
         data: {
           ...header,
+          // An edit never un-posts a bill — keep it OPEN/OVERDUE (a draft downgrade
+          // would be a void, which has its own endpoint).
+          ...(isPostedEdit && { status: existing.status }),
           // Empty faktur # stores as NULL so the per-vendor unique index ignores it.
           ...(header.vendorInvoiceNo !== undefined && { vendorInvoiceNo: header.vendorInvoiceNo || null }),
           updatedAt: new Date(),
@@ -113,6 +163,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           });
         }
       }
+      // Edit-after-post: re-post the bill's GL from the freshly-edited lines/charges
+      // (the old entry was reversed above). No PO receipt / inventory here — v1
+      // edit-after-post is restricted to non-inventory, non-PO bills.
+      if (isPostedEdit) {
+        const finalized = await tx.bill.findFirst({
+          where: { id, organizationId: orgId },
+          include: { lines: true, charges: true },
+        });
+        if (finalized) await postBillToLedger(tx, orgId, finalized as any);
+      }
+
       // Recognize GL + inventory when the bill is finalized (DRAFT -> OPEN),
       // unless the approval engine routes the finalize for approval first.
       if (existing.status === 'DRAFT' && header.status === 'OPEN') {
@@ -156,7 +217,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       });
     });
     if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Bill', entityId: id, action: 'UPDATE', payload: body });
+    // For an edit-after-post, log the full before→after so the journal re-post is
+    // attributable (who changed what); a plain draft edit logs the submitted body.
+    logAudit({
+      orgId, actorId: req.headers.get('x-user-id'), entityType: 'Bill', entityId: id, action: 'UPDATE',
+      payload: postedEditBefore ? { reposted: true, before: postedEditBefore, after: body } : body,
+    });
     return withCors(NextResponse.json(updated));
   } catch (error) {
     if (error instanceof ApiError) {
