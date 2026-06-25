@@ -34,4 +34,14 @@ describe('sanitizePdfName', () => {
     expect(sanitizePdfName('')).toBe('document.pdf');
     expect(sanitizePdfName(undefined)).toBe('document.pdf');
   });
+  it('does not double the .pdf extension', () => {
+    expect(sanitizePdfName('Invoice.pdf')).toBe('Invoice.pdf');
+    expect(sanitizePdfName('Report.PDF')).toBe('Report.pdf');
+  });
+  it('collapses consecutive underscores', () => {
+    expect(sanitizePdfName('a//b')).toBe('a_b.pdf');
+  });
+  it('returns document.pdf for a bare .pdf title', () => {
+    expect(sanitizePdfName('.pdf')).toBe('document.pdf');
+  });
 });
