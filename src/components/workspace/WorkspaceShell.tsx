@@ -1,49 +1,17 @@
 // src/components/workspace/WorkspaceShell.tsx
 import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import WorkspaceTabBar from './WorkspaceTabBar';
+import TwoLevelTabBar from './TwoLevelTabBar';
 import TabContentHost from './TabContentHost';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-
-// Friendly titles for the single shared "page" tab (non-migrated modules).
-// Longest-prefix match; falls back to a title-cased last path segment.
-const PAGE_TITLES: Array<[string, string]> = [
-    ['/banking', 'Banking'],
-    ['/reports', 'Reports'],
-    ['/settings', 'Settings'],
-    ['/company-setup', 'Company setup'],
-    ['/integrations', 'Integrations'],
-    ['/inventory', 'Inventory'],
-    ['/ap/bills', 'Bills'],
-    ['/ap/pos', 'Purchase orders'],
-    ['/ap/receiving', 'Receive goods'],
-    ['/ap/payments', 'Payments (AP)'],
-    ['/ap/vendors', 'Vendors'],
-    ['/ap', 'Purchases'],
-    ['/ar/customers', 'Customers'],
-    ['/ar/payments', 'Payments (AR)'],
-    ['/ar/credits', 'Credit notes'],
-    ['/ar/delivery-notes', 'Delivery notes'],
-    ['/ar', 'Sales'],
-    ['/hr', 'HR & payroll'],
-    ['/assets', 'Assets'],
-    ['/gl', 'General ledger'],
-];
-
-const titleForPath = (path: string): string => {
-    if (path === '/') return 'Dashboard';
-    const hit = PAGE_TITLES.find(([prefix]) => path.startsWith(prefix));
-    if (hit) return hit[1];
-    const seg = path.split('/').filter(Boolean).pop() || 'Page';
-    return seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' ');
-};
+import { pageModuleForPath } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
     const navigate = useNavigate();
     const location = useLocation();
     const { open } = useWorkspaceNav();
-    const setPageTab = useWorkspaceStore((s) => s.setPageTab);
+    const setPageModuleTab = useWorkspaceStore((s) => s.setPageModuleTab);
     const tabs = useWorkspaceStore((s) => s.tabs);
     const activeTabId = useWorkspaceStore((s) => s.activeTabId);
     const activePath = tabs.find((t) => t.id === activeTabId)?.path;
@@ -57,18 +25,15 @@ const WorkspaceShell = (): React.ReactElement => {
         }
     }, []);
 
-    // Open or focus the tab matching the current URL on every navigation
-    // (sidebar clicks, deep links, in-app links). New/blank docs are NOT opened
-    // from the URL — they come from the "New" button (unique tabs) or are
-    // restored from the persisted store — so we ignore `/new` here to avoid
-    // spawning a fresh draft on every reload.
+    // Map every navigation to a tab. AR sales-orders/invoices are document
+    // modules (multi-tab); `/new` is ignored (new docs come from the "New"
+    // button or store restore). Everything else lands in its page module tab.
     useEffect(() => {
         const path = location.pathname;
         const params = new URLSearchParams(location.search);
 
-        // AR — Sales Orders (workspace-native, multi-tab)
         if (path.startsWith('/ar/sales-orders')) {
-            if (path.startsWith('/ar/sales-orders/new')) return; // new from button / restore
+            if (path.startsWith('/ar/sales-orders/new')) return;
             const soId = params.get('soId');
             if (path.startsWith('/ar/sales-orders/edit') && soId) {
                 open({ kind: 'doc-form', target: { module: 'ar', entity: 'sales-order', recordId: soId, mode: 'edit' }, title: `Edit ${soId}`, path: `/ar/sales-orders/edit?soId=${soId}` });
@@ -80,7 +45,6 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
-        // AR — Invoices (workspace-native, multi-tab)
         if (path.startsWith('/ar/invoices')) {
             if (path.startsWith('/ar/invoices/new')) return;
             const invoiceId = params.get('invoiceId');
@@ -94,10 +58,9 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
-        // Everything else (not yet migrated): one shared "page" tab rendering
-        // the matched route through <Outlet/>.
-        setPageTab(path + location.search, titleForPath(path));
-    }, [location.pathname, location.search, open, setPageTab]);
+        const pm = pageModuleForPath(path);
+        setPageModuleTab(pm.key, pm.title, path + location.search);
+    }, [location.pathname, location.search, open, setPageModuleTab]);
 
     useEffect(() => {
         if (activePath && activePath !== window.location.pathname + window.location.search) {
@@ -107,7 +70,7 @@ const WorkspaceShell = (): React.ReactElement => {
 
     return (
         <div className="flex flex-col h-full">
-            <WorkspaceTabBar />
+            <TwoLevelTabBar />
             <div className="flex-1 min-h-0">
                 <TabContentHost />
             </div>
