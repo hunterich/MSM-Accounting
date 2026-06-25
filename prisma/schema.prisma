@@ -1101,6 +1101,7 @@ enum StockCountStatus {
   SUBMITTED
   POSTED
   CANCELLED
+  VOIDED
 }
 
 model StockCount {

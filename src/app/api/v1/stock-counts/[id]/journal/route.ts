@@ -27,9 +27,12 @@ export const GET = withHandler(async function GET(req: NextRequest, ctx: { param
 
   const adj = await prisma.stockAdjustment.findFirst({
     where: { id: count.generatedAdjustmentId, organizationId: orgId },
-    select: { number: true },
+    select: { number: true, status: true },
   });
   if (!adj) return ok(null);
+  // A voided adjustment's variance JE has been reversed (append-only storno), so
+  // there is no live posted journal — don't resolve the superseded entry by memo.
+  if (adj.status === 'VOID') return ok(null);
 
   const entry = await prisma.journalEntry.findFirst({
     where: { organizationId: orgId, memo: `Stock adjustment: ${adj.number}`, status: 'POSTED' },
