@@ -10,6 +10,7 @@ import {
   parseFakturPajakFields,
   validateImageUpload,
 } from '@/lib/faktur-ocr';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -27,7 +28,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(request: NextRequest) {
+export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, async function POST(request: NextRequest) {
   const { orgId, userId } = requireAuth(request);
 
   const formData = await request.formData();

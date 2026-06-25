@@ -19,12 +19,12 @@ import { DELETE as deletePayment } from '../ap-payments/[id]/route';
 
 function post() {
   return new NextRequest('http://localhost/api/v1/ap-payments/pay-1/void', {
-    method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' },
+    method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' },
   });
 }
 function del() {
   return new NextRequest('http://localhost/api/v1/ap-payments/pay-1', {
-    method: 'DELETE', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' },
+    method: 'DELETE', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' },
   });
 }
 const params = { params: Promise.resolve({ id: 'pay-1' }) };

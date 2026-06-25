@@ -22,10 +22,10 @@ import { DELETE as deleteAdj } from '../stock-adjustments/[id]/route';
 
 const params = { params: Promise.resolve({ id: 'adj-1' }) };
 function post() {
-  return new NextRequest('http://localhost/api/v1/stock-adjustments/adj-1/void', { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' } });
+  return new NextRequest('http://localhost/api/v1/stock-adjustments/adj-1/void', { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } });
 }
 function del() {
-  return new NextRequest('http://localhost/api/v1/stock-adjustments/adj-1', { method: 'DELETE', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' } });
+  return new NextRequest('http://localhost/api/v1/stock-adjustments/adj-1', { method: 'DELETE', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } });
 }
 
 beforeEach(() => vi.clearAllMocks());

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 //     prevents the VOID → DRAFT → APPLIED path that would otherwise re-post.
 //   - Edits to a posted note (any field beyond `status`) are rejected (422).
 //     The recommended path is APPLIED → VOID, then create a replacement.
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
   const userId = req.headers.get('x-user-id');
@@ -138,11 +139,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status }));
   }
-}
+});
 
 // DELETE only allowed on DRAFT (or a never-posted note). A posted note must
 // be voided through PUT — deleting it would orphan its journal entry.
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'AR_CREDITS', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
@@ -168,4 +169,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit, softDelete } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateItemCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok(category);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'INV_CATEGORIES', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId  = req.headers.get('x-org-id')!;
   const body = await req.json();
@@ -42,9 +43,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!category) return err('Not found', 404);
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ItemCategory', entityId: id, action: 'UPDATE', payload: parsed.data });
   return ok(category);
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'INV_CATEGORIES', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId  = req.headers.get('x-org-id')!;
   const deleted = await prisma.$transaction(async (tx) => {
@@ -61,4 +62,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!deleted) return err('Not found', 404);
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ItemCategory', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
-}
+});

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, ok, err, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateOrganizationSettingsInputSchema } from '@/types/api';
 import {
   ACCOUNT_DEFAULT_SPECS,
@@ -112,7 +113,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   });
 });
 
-export const PUT = withHandler(async function PUT(req: NextRequest) {
+export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async function PUT(req: NextRequest) {
   const orgId = requireOrg(req);
   const userId = req.headers.get('x-user-id');
 

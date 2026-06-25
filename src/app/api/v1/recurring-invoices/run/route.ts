@@ -7,6 +7,7 @@ import {
   withHandler,
   logAudit,
 } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { routeForApproval } from '@/lib/approval/engine';
 import { resolveRequesterId } from '@/lib/approval/requester';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
@@ -208,7 +209,7 @@ async function generateFromTemplate(
 
 // ─── Route ───────────────────────────────────────────────────────────────────
 
-export const POST = withHandler(async (req: NextRequest) => {
+export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, async (req: NextRequest) => {
   // 1. Load org from header
   const orgId = requireOrg(req);
   const actorId = req.headers.get('x-user-id');

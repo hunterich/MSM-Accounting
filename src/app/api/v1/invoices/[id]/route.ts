@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -42,7 +43,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   }
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   try {
     const orgId = req.headers.get('x-org-id');
@@ -144,9 +145,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'AR_INVOICES', action: 'delete' }, async (_req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   try {
     const orgId = _req.headers.get('x-org-id');
@@ -180,4 +181,4 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

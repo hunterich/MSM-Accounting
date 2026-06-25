@@ -8,6 +8,7 @@ import {
   withHandler,
   logAudit,
 } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { routeForApproval } from '@/lib/approval/engine';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 
@@ -50,7 +51,7 @@ function fnv1aHash(input: string): number {
 
 // ─── Route ───────────────────────────────────────────────────────────────────
 
-export const POST = withHandler(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
+export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const orgId = requireOrg(req);
   // Manual "Generate now": a user clicked the button, so we require their id —
   // it becomes the ApprovalRequest.requestedById (a required FK) when the

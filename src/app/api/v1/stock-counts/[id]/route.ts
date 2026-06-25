@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, ok } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { ApiError } from '@/lib/errors';
 import { stockCountUpdateSchema } from '@/types/api';
 
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok({ ...count, lines });
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
   const { id } = await params;
@@ -92,4 +93,4 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (error instanceof ApiError) return err(error.message, error.status);
     return err('Failed to update stock count', 500);
   }
-}
+});

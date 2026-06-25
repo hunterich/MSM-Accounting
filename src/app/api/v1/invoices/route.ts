@@ -7,6 +7,7 @@ import {
   createInvoiceResponseSchema,
 } from '@/types/api';
 import { ApiError, logAudit, withHandler, ok, err, requireAuth, parsePaginationParams, listResponse } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { toNumber, asMoney } from '@/lib/money';
 import { enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
@@ -174,7 +175,7 @@ const calculateInvoiceTotals = (
   };
 };
 
-export const POST = withHandler(async (request: NextRequest) => {
+export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, async (request: NextRequest) => {
   const { orgId, userId } = requireAuth(request);
 
   await getInvoiceAccessContext(orgId, userId);
