@@ -454,8 +454,8 @@ const StockCounts = () => {
                                             </div>
                                         )}
 
-                                        {/* Generated adjustment link (POSTED) */}
-                                        {selected.status === 'POSTED' && selected.generatedAdjustmentId && (
+                                        {/* Generated adjustment link (POSTED, or VOIDED — link kept for audit) */}
+                                        {(selected.status === 'POSTED' || selected.status === 'VOIDED') && selected.generatedAdjustmentId && (
                                             <div className="detail-field">
                                                 <label>Generated Adjustment</label>
                                                 <button
@@ -466,13 +466,15 @@ const StockCounts = () => {
                                                         )
                                                     }
                                                 >
-                                                    View generated adjustment →
+                                                    {selected.status === 'VOIDED'
+                                                        ? 'View generated adjustment (voided) →'
+                                                        : 'View generated adjustment →'}
                                                 </button>
                                             </div>
                                         )}
 
-                                        {/* Open worksheet button (non-POSTED) */}
-                                        {selected.status !== 'POSTED' && selected.status !== 'CANCELLED' && (
+                                        {/* Open worksheet button (editable statuses only) */}
+                                        {(selected.status === 'DRAFT' || selected.status === 'SUBMITTED') && (
                                             <div className="detail-field">
                                                 <Button
                                                     text="Open worksheet"
