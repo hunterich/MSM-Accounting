@@ -9,6 +9,7 @@ import {
   requireOrg,
   withHandler,
 } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,7 @@ export const GET = withHandler(async (req: NextRequest, ctx: { params: Promise<{
   return ok(template);
 });
 
-export const PUT = withHandler(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
+export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const orgId = requireOrg(req);
   const { id } = await ctx.params;
   const body = await req.json();
@@ -158,7 +159,7 @@ export const PUT = withHandler(async (req: NextRequest, ctx: { params: Promise<{
   return ok(updated);
 });
 
-export const DELETE = withHandler(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
+export const DELETE = withPermission({ module: 'AR_INVOICES', action: 'delete' }, async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const orgId = requireOrg(req);
   const { id } = await ctx.params;
 

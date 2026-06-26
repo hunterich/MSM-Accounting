@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    userOrganization: { findMany: vi.fn() },
+    userOrganization: { findMany: vi.fn(), findFirst: vi.fn() },
   },
 }));
 vi.mock('@/lib/cors', () => ({

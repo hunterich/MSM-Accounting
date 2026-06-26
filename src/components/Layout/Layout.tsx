@@ -6,6 +6,8 @@ import Sidebar from './Sidebar';
 import Button from '../UI/Button';
 import { useAuthStore } from '../../stores/useAuthStore';
 import ChangePasswordModal from '../auth/ChangePasswordModal';
+import { WORKSPACE_TABS_ENABLED } from '../../config/featureFlags';
+import WorkspaceShell from '../workspace/WorkspaceShell';
 
 const Layout = (): React.ReactElement => {
     const navigate = useNavigate();
@@ -36,7 +38,7 @@ const Layout = (): React.ReactElement => {
                     </div>
                 </header>
                 <main id="main-content" className="overflow-y-auto flex-1 p-8 bg-neutral-50 relative pt-14 md:pt-8">
-                    <Outlet />
+                    {WORKSPACE_TABS_ENABLED ? <WorkspaceShell /> : <Outlet />}
                 </main>
             </div>
         </div>

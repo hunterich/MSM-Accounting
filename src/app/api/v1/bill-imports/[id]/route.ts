@@ -4,6 +4,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { updateBillImportSessionInputSchema } from '@/types/api';
 import { summarizeBillImportReview } from '@/lib/bill-imports';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -43,10 +44,10 @@ export async function GET(
   }
 }
 
-export async function PUT(
+export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
-) {
+) => {
   try {
     const orgId = request.headers.get('x-org-id');
     const userId = request.headers.get('x-user-id');
@@ -115,4 +116,4 @@ export async function PUT(
     const message = error instanceof Error ? error.message : 'Failed to update bill import';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

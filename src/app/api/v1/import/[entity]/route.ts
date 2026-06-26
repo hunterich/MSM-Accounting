@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, ApiError } from '@/lib/api-utils';
+import { requireOrg, ok, ApiError } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { z } from 'zod';
 
@@ -111,10 +112,12 @@ function validateRows(entity: ImportEntity, rows: unknown[]): { valid: unknown[]
 
 // ── POST handler ──────────────────────────────────────────────────────────────
 
-export const POST = withHandler(async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ entity: string }> },
-) {
+export const POST = withPermission(
+  { module: 'SETTINGS', action: 'create' },
+  async function POST(
+    req: NextRequest,
+    { params }: { params: Promise<{ entity: string }> },
+  ) {
     const orgId = requireOrg(req);
     const { entity } = await params;
 

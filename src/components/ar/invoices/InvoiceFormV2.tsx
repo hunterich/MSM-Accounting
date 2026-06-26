@@ -483,7 +483,6 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
                     showTax={tax.on}
                     onChange={doc.updateLine}
                     onRemove={doc.removeLine}
-                    onAddLine={doc.addLine}
                     searchSlot={searchSlot}
                 />
             )}

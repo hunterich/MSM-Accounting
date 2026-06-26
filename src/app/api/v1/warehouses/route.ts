@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, logAudit, ok, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { warehouseInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -39,7 +40,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return ok(data);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'INV_ITEMS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
 

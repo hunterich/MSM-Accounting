@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, nextNumber, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, nextNumber, ok, requireOrg } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { assetDisposalInputSchema } from '@/types/api';
 import { calculateDisposalGainLoss } from '@/lib/depreciation';
 import { toNumber, asMoney } from '@/lib/money';
@@ -26,7 +27,7 @@ function findAccountByKeyword(accounts: any[], keywords: string[], type?: string
   return null;
 }
 
-export const POST = withHandler(async function POST(
+export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

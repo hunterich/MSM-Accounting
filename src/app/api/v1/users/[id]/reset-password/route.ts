@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { ok, err, withHandler, requireAuth, logAudit } from '@/lib/api-utils';
+import { ok, err, requireAuth, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { hashPassword, passwordSchema } from '@/lib/password';
 
@@ -13,11 +14,12 @@ export function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  if (req.headers.get('x-role-type') !== 'ADMIN') return err('Forbidden: ADMIN role required', 403);
+export const POST = withPermission(
+  { module: 'SETTINGS', action: 'edit' },
+  async function POST(
+    req: NextRequest,
+    { params }: { params: Promise<{ id: string }> },
+  ) {
   const { orgId, userId: actorId } = requireAuth(req);
   const { id: targetUserId } = await params;
 

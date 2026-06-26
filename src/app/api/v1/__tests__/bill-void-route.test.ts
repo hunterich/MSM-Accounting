@@ -13,7 +13,7 @@ import { POST as voidRoute } from '../bills/[id]/void/route';
 function req() {
   return new NextRequest('http://localhost/api/v1/bills/bill-1/void', {
     method: 'POST',
-    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'Content-Type': 'application/json' },
   });
 }
 

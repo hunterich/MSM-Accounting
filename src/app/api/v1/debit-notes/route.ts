@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -38,7 +39,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 // is deferred to the DRAFT → APPLIED transition handled in `[id]/route.ts`,
 // so an unapproved draft never hits the ledger. Any client-supplied status
 // is ignored — applying happens through the PUT handler only.
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
 

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateStockAdjustmentInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return ok(adj);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const body = await req.json();
@@ -88,9 +89,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed to update stock adjustment';
     return err(message, 500);
   }
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'INV_ADJ', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const existing = await prisma.stockAdjustment.findFirst({ where: { id, organizationId: orgId } });
@@ -108,4 +109,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   await prisma.stockAdjustment.delete({ where: { id, organizationId: orgId } });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'StockAdjustment', entityId: id, action: 'DELETE', payload: null });
   return ok({ deleted: true });
-}
+});

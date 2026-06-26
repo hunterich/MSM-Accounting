@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, listResponse, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { integrationInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'INTEGRATIONS', action: 'create' }, async (req: NextRequest) => {
   try {
     const orgId = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
@@ -170,4 +171,4 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to create integration';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

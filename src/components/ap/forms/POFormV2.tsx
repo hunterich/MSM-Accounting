@@ -345,7 +345,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
             </div>
 
             {activeTab === 'items' && (
-                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} onAddLine={doc.addLine} searchSlot={searchSlot} />
+                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} searchSlot={searchSlot} />
             )}
             {activeTab === 'costs' && (
                 <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} accountOptions={accountOptions} />

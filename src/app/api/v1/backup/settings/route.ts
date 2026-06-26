@@ -1,18 +1,14 @@
 import { NextRequest } from 'next/server';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { ok, err, withHandler } from '@/lib/api-utils';
+import { ok, err } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { getSettings, updateSettings } from '@/lib/backup/backup-service';
 import { resolvePgToolPath, assertPgToolAvailable } from '@/lib/backup/pg-tools';
 import { updateBackupSettingsInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
-
-function requireAdmin(req: NextRequest): string | null {
-  if (req.headers.get('x-role-type') !== 'ADMIN') return 'Forbidden: ADMIN role required';
-  return null;
-}
 
 async function settingsResponsePayload() {
   const settings = await getSettings();
@@ -45,17 +41,11 @@ export function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
-  const forbidden = requireAdmin(req);
-  if (forbidden) return err(forbidden, 403);
-
+export const GET = withPermission({ module: 'SYSTEM_BACKUP', action: 'view' }, async function GET(_req: NextRequest) {
   return ok(await settingsResponsePayload());
 });
 
-export const PUT = withHandler(async function PUT(req: NextRequest) {
-  const forbidden = requireAdmin(req);
-  if (forbidden) return err(forbidden, 403);
-
+export const PUT = withPermission({ module: 'SYSTEM_BACKUP', action: 'edit' }, async function PUT(req: NextRequest) {
   const body = await req.json();
   const parsed = updateBackupSettingsInputSchema.safeParse(body);
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid backup settings', 400);

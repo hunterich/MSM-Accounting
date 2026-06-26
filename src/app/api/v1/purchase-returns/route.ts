@@ -5,6 +5,7 @@ import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, req
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -36,7 +37,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);

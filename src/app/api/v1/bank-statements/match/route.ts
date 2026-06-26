@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, err } from '@/lib/api-utils';
+import { requireOrg, ok, err } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -12,7 +13,7 @@ export async function OPTIONS() {
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const THREE_DAYS_MS = 3 * MS_PER_DAY;
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams } = new URL(req.url);
   const statementId = searchParams.get('statementId');

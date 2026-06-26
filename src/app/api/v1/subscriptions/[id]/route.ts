@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, requireOrg, withHandler, logAudit, ApiError } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -25,7 +26,7 @@ export const GET = withHandler(async function GET(req: NextRequest, ctx: { param
   return ok(subscription);
 });
 
-export const PUT = withHandler(async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const orgId = requireOrg(req);
   const { id } = await ctx.params;
   const body = await req.json();
