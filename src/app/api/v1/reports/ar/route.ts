@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { computeStatement, computeAging, type StatementTxn, type OpenDocument } from '@/lib/statement-reporting';
+import type { InvoiceStatus } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +12,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-const OPEN_INVOICE_STATUSES = ['SENT', 'OVERDUE', 'PAID'];
+const OPEN_INVOICE_STATUSES: InvoiceStatus[] = ['SENT', 'OVERDUE', 'PAID'];
 const OVERDUE_STATUSES = new Set(['SENT', 'OVERDUE', 'PAID']);
 
 const toNumber = (value: unknown): number => {
@@ -29,6 +31,15 @@ const endOfDay = (value: string | null): Date => {
     throw new ApiError(`Invalid date: ${value}`, 400);
   }
   date.setHours(23, 59, 59, 999);
+  return date;
+};
+
+const startOfDay = (value: string | null): Date => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    throw new ApiError(`Invalid date: ${value}`, 400);
+  }
+  date.setHours(0, 0, 0, 0);
   return date;
 };
 
@@ -93,6 +104,122 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     const asOfDate = endOfDay(searchParams.get('asOfDate'));
     const customerSearch = searchParams.get('customerSearch') || '';
     const status = searchParams.get('status') || '';
+
+    if (type === 'statement') {
+      const customerId = searchParams.get('customerId') || '';
+      if (!customerId) return err('customerId is required for a statement', 400);
+
+      const periodStart = startOfDay(searchParams.get('dateFrom'));
+      const periodEnd = endOfDay(searchParams.get('dateTo'));
+
+      const customer = await prisma.customer.findFirst({
+        where: { id: customerId, organizationId: orgId },
+        select: { id: true, code: true, name: true, openingBalance: true },
+      });
+      if (!customer) return err('Customer not found', 404);
+
+      const [invoices, payments, creditNotes] = await Promise.all([
+        prisma.salesInvoice.findMany({
+          where: {
+            organizationId: orgId,
+            customerId,
+            status: { in: OPEN_INVOICE_STATUSES },
+            issueDate: { lte: periodEnd },
+          },
+          select: { id: true, number: true, issueDate: true, dueDate: true, totalAmount: true },
+        }),
+        prisma.aRPayment.findMany({
+          where: {
+            organizationId: orgId,
+            customerId,
+            status: 'COMPLETED',
+            date: { lte: periodEnd },
+          },
+          select: { number: true, date: true, totalAmount: true },
+        }),
+        prisma.creditNote.findMany({
+          where: {
+            organizationId: orgId,
+            customerId,
+            status: 'APPLIED',
+            date: { lte: periodEnd },
+          },
+          select: { number: true, date: true, amount: true, taxAmount: true },
+        }),
+      ]);
+
+      const txns: StatementTxn[] = [
+        ...invoices.map((inv) => ({
+          date: inv.issueDate,
+          type: 'Invoice',
+          number: inv.number,
+          debit: asMoney(toNumber(inv.totalAmount)),
+          credit: 0,
+          order: 0,
+        })),
+        ...creditNotes.map((cn) => ({
+          date: cn.date,
+          type: 'Credit Note',
+          number: cn.number,
+          debit: 0,
+          credit: asMoney(toNumber(cn.amount) + toNumber(cn.taxAmount)),
+          order: 1,
+        })),
+        ...payments.map((pay) => ({
+          date: pay.date,
+          type: 'Payment',
+          number: pay.number,
+          debit: 0,
+          credit: asMoney(toNumber(pay.totalAmount)),
+          order: 2,
+        })),
+      ];
+
+      const stmt = computeStatement({
+        openingSeed: asMoney(toNumber(customer.openingBalance)),
+        txns,
+        periodStart,
+        periodEnd,
+      });
+
+      // Aging of still-open invoice balances as of the period end.
+      const allocations = invoices.length
+        ? await prisma.aRPaymentAllocation.groupBy({
+            by: ['invoiceId'],
+            where: {
+              invoiceId: { in: invoices.map((inv) => inv.id) },
+              payment: { organizationId: orgId, status: 'COMPLETED', date: { lte: periodEnd } },
+            },
+            _sum: { amountApplied: true, discountAmount: true },
+          })
+        : [];
+      const clearedByInvoice = new Map(
+        allocations.map((row) => [
+          row.invoiceId,
+          asMoney(toNumber(row._sum.amountApplied) + toNumber(row._sum.discountAmount)),
+        ]),
+      );
+      const openDocs: OpenDocument[] = invoices.map((inv) => {
+        const original = asMoney(toNumber(inv.totalAmount));
+        const cleared = Math.min(original, clearedByInvoice.get(inv.id) ?? 0);
+        return { dueDate: inv.dueDate, balance: asMoney(Math.max(original - cleared, 0)) };
+      });
+      const aging = computeAging(openDocs, periodEnd);
+
+      return ok({
+        type,
+        party: { id: customer.id, code: customer.code, name: customer.name },
+        period: { dateFrom: periodStart.toISOString(), dateTo: periodEnd.toISOString() },
+        openingBalance: stmt.openingBalance,
+        rows: stmt.rows,
+        summary: {
+          totalDebits: stmt.totalDebits,
+          totalCredits: stmt.totalCredits,
+          closingBalance: stmt.closingBalance,
+          aging,
+        },
+      });
+    }
 
     const invoiceWhere: any = {
       organizationId: orgId,

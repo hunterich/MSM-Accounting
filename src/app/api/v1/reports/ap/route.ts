@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { computeStatement, computeAging, type StatementTxn, type OpenDocument } from '@/lib/statement-reporting';
+import type { BillStatus } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -31,6 +33,17 @@ const endOfDay = (value: string | null): Date => {
   date.setHours(23, 59, 59, 999);
   return date;
 };
+
+const startOfDay = (value: string | null): Date => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    throw new ApiError(`Invalid date: ${value}`, 400);
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const STATEMENT_BILL_STATUSES: BillStatus[] = ['OPEN', 'PENDING', 'OVERDUE', 'PAID'];
 
 const daysOverdue = (dueDate: Date | null, asOf: Date): number => {
   if (!dueDate) return 0;
@@ -92,6 +105,122 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const type = searchParams.get('type') || 'aging';
   const asOfDate = endOfDay(searchParams.get('asOfDate'));
   const vendorSearch = searchParams.get('vendorSearch') || '';
+
+  if (type === 'statement') {
+    const vendorId = searchParams.get('vendorId') || '';
+    if (!vendorId) return err('vendorId is required for a statement', 400);
+
+    const periodStart = startOfDay(searchParams.get('dateFrom'));
+    const periodEnd = endOfDay(searchParams.get('dateTo'));
+
+    const vendor = await prisma.vendor.findFirst({
+      where: { id: vendorId, organizationId: orgId },
+      select: { id: true, code: true, name: true, openingBalance: true },
+    });
+    if (!vendor) return err('Vendor not found', 404);
+
+    const [bills, payments, debitNotes] = await Promise.all([
+      prisma.bill.findMany({
+        where: {
+          organizationId: orgId,
+          vendorId,
+          status: { in: STATEMENT_BILL_STATUSES },
+          issueDate: { lte: periodEnd },
+        },
+        select: { id: true, number: true, issueDate: true, dueDate: true, totalAmount: true },
+      }),
+      prisma.aPPayment.findMany({
+        where: {
+          organizationId: orgId,
+          vendorId,
+          status: 'COMPLETED',
+          date: { lte: periodEnd },
+        },
+        select: { number: true, date: true, totalAmount: true },
+      }),
+      prisma.debitNote.findMany({
+        where: {
+          organizationId: orgId,
+          vendorId,
+          status: 'APPLIED',
+          date: { lte: periodEnd },
+        },
+        select: { number: true, date: true, amount: true, taxAmount: true },
+      }),
+    ]);
+
+    const txns: StatementTxn[] = [
+      ...bills.map((bill) => ({
+        date: bill.issueDate,
+        type: 'Bill',
+        number: bill.number,
+        debit: asMoney(toNumber(bill.totalAmount)),
+        credit: 0,
+        order: 0,
+      })),
+      ...debitNotes.map((dn) => ({
+        date: dn.date,
+        type: 'Debit Note',
+        number: dn.number,
+        debit: 0,
+        credit: asMoney(toNumber(dn.amount) + toNumber(dn.taxAmount)),
+        order: 1,
+      })),
+      ...payments.map((pay) => ({
+        date: pay.date,
+        type: 'Payment',
+        number: pay.number,
+        debit: 0,
+        credit: asMoney(toNumber(pay.totalAmount)),
+        order: 2,
+      })),
+    ];
+
+    const stmt = computeStatement({
+      openingSeed: asMoney(toNumber(vendor.openingBalance)),
+      txns,
+      periodStart,
+      periodEnd,
+    });
+
+    // Aging of still-open bill balances as of the period end.
+    const allocations = bills.length
+      ? await prisma.aPPaymentAllocation.groupBy({
+          by: ['billId'],
+          where: {
+            billId: { in: bills.map((bill) => bill.id) },
+            payment: { organizationId: orgId, status: 'COMPLETED', date: { lte: periodEnd } },
+          },
+          _sum: { amountApplied: true, discountAmount: true },
+        })
+      : [];
+    const clearedByBill = new Map(
+      allocations.map((row) => [
+        row.billId,
+        asMoney(toNumber(row._sum.amountApplied) + toNumber(row._sum.discountAmount)),
+      ]),
+    );
+    const openDocs: OpenDocument[] = bills.map((bill) => {
+      const original = asMoney(toNumber(bill.totalAmount));
+      const cleared = Math.min(original, clearedByBill.get(bill.id) ?? 0);
+      return { dueDate: bill.dueDate, balance: asMoney(Math.max(original - cleared, 0)) };
+    });
+    const aging = computeAging(openDocs, periodEnd);
+
+    return ok({
+      type,
+      party: { id: vendor.id, code: vendor.code, name: vendor.name },
+      period: { dateFrom: periodStart.toISOString(), dateTo: periodEnd.toISOString() },
+      openingBalance: stmt.openingBalance,
+      rows: stmt.rows,
+      summary: {
+        totalDebits: stmt.totalDebits,
+        totalCredits: stmt.totalCredits,
+        closingBalance: stmt.closingBalance,
+        aging,
+      },
+    });
+  }
 
   const billWhere: any = {
     organizationId: orgId,

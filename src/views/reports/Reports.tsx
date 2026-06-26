@@ -9,6 +9,7 @@ import { formatIDR, formatDateID } from '../../utils/formatters';
 import { exportCsvToPdf } from '../../utils/exportPdf';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers } from '../../hooks/useAR';
+import { useVendors } from '../../hooks/useAP';
 import { useItems, useWarehouses, useItemCategories } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import Button from '../../components/UI/Button';
@@ -29,6 +30,7 @@ export type ReportType =
   | 'aging'
   | 'customer-balance'
   | 'overdue-list'
+  | 'statement'
   | 'trial-balance'
   | 'balance-sheet'
   | 'balance-sheet-multi-period'
@@ -39,6 +41,7 @@ export type ReportType =
   | 'ap-aging'
   | 'ap-vendor-balance'
   | 'ap-overdue-list'
+  | 'ap-statement'
   | 'cash-flow'
   | 'stock-movement'
   | 'stock-valuation'
@@ -48,9 +51,10 @@ export type ReportType =
 /** Category IDs available in the sidebar. */
 export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inventory' | 'hr';
 
-/** How a report is filtered: by date-range, as-of a single date, or a current
- *  inventory snapshot (category/warehouse filters, no date). */
-export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot';
+/** How a report is filtered: by date-range, as-of a single date, a current
+ *  inventory snapshot (category/warehouse filters), or a per-party statement
+ *  (party picker + date range). */
+export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot' | 'statement';
 
 /** Report card visual type. */
 export type ReportCardType = 'table' | 'chart';
@@ -83,6 +87,8 @@ export interface ReportParams {
   accountId?: string;
   categoryId?: string;
   warehouseId?: string;
+  customerId?: string;
+  vendorId?: string;
 }
 
 /** One open report tab entry. */
@@ -358,6 +364,30 @@ export interface StockMovementRow {
   totalIn: number;
   totalOut: number;
   closingBalance: number;
+}
+
+// ── Customer / Vendor Statement ─────────────────────────────────────────────────
+// Shape returned by GET /api/v1/reports/{ar,ap}?type=statement.
+export interface StatementRow {
+  date: string;
+  type: string;
+  number: string;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+}
+
+export interface StatementData {
+  party: { id: string; code: string | null; name: string };
+  period: { dateFrom: string; dateTo: string };
+  openingBalance: number;
+  rows: StatementRow[];
+  summary: {
+    totalDebits: number;
+    totalCredits: number;
+    closingBalance: number;
+    aging: { current: number; d1To30: number; d31To60: number; d61To90: number; d90Plus: number };
+  };
 }
 
 // ── Stock Valuation ────────────────────────────────────────────────────────────
@@ -652,6 +682,15 @@ const AR_REPORTS: ReportDefinition[] = [
     type: 'table',
     filterMode: 'as-of',
   },
+  {
+    id: 'statement',
+    category: 'ar',
+    apiPath: '/api/v1/reports/ar',
+    name: 'Customer Statement',
+    description: 'Statement of account for one customer: opening balance, transactions, running balance, and aging.',
+    type: 'table',
+    filterMode: 'statement',
+  },
 ];
 
 const GL_REPORTS: ReportDefinition[] = [
@@ -747,6 +786,15 @@ const AP_REPORTS: ReportDefinition[] = [
     description: 'Lists past-due AP bills.',
     type: 'table',
     filterMode: 'as-of',
+  },
+  {
+    id: 'ap-statement',
+    category: 'ap',
+    apiPath: '/api/v1/reports/ap',
+    name: 'Vendor Statement',
+    description: 'Statement of account for one vendor: opening balance, transactions, running balance, and aging.',
+    type: 'table',
+    filterMode: 'statement',
   },
 ];
 
@@ -930,7 +978,33 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
   return '';
 };
 
+// Shared by the customer (AR) and vendor (AP) statement reports.
+const buildStatementCsv = (data: Record<string, unknown>): string => {
+  const stmt = data as unknown as StatementData;
+  const ag = stmt.summary.aging;
+  let csv = 'Tanggal,Tipe,No.,Debit,Kredit,Saldo\n';
+  csv += `,Saldo Awal,,,,${stmt.openingBalance}`;
+  for (const row of stmt.rows) {
+    csv += `\n${[
+      escapeCsvCell(formatDateID(row.date)),
+      escapeCsvCell(row.type),
+      escapeCsvCell(row.number),
+      row.debit,
+      row.credit,
+      row.runningBalance,
+    ].join(',')}`;
+  }
+  csv += `\nTotal,,,${stmt.summary.totalDebits},${stmt.summary.totalCredits},${stmt.summary.closingBalance}`;
+  csv += `\nAging Current,,,,,${ag.current}`;
+  csv += `\nAging 1-30,,,,,${ag.d1To30}`;
+  csv += `\nAging 31-60,,,,,${ag.d31To60}`;
+  csv += `\nAging 61-90,,,,,${ag.d61To90}`;
+  csv += `\nAging 90+,,,,,${ag.d90Plus}`;
+  return csv;
+};
+
 const buildArCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
+  if (report.id === 'statement') return buildStatementCsv(data);
   const summary = (data.summary || {}) as Record<string, number>;
 
   if (report.id === 'aging') {
@@ -1132,11 +1206,13 @@ const buildGlCsv = (report: ReportDefinition, data: Record<string, unknown>): st
 const Reports: React.FC = () => {
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
+  const { data: vendorsData } = useVendors({ limit: 200 });
   const { data: itemsData } = useItems({ limit: 100 });
   const { data: accountsData } = useChartOfAccounts();
   const { data: warehousesData } = useWarehouses();
   const { data: categoriesData } = useItemCategories();
   const customers = customersData?.data || [];
+  const vendors = vendorsData?.data || [];
   const items = itemsData?.data || [];
   const accounts = accountsData || [];
   const warehouses = warehousesData ?? [];
@@ -1148,6 +1224,11 @@ const Reports: React.FC = () => {
     value: customer.id,
     label: customer.name ?? '',
     subLabel: customer.code || undefined,
+  }));
+  const vendorOptions = vendors.map((vendor) => ({
+    value: vendor.id,
+    label: vendor.name ?? '',
+    subLabel: vendor.code || undefined,
   }));
   const itemOptions = items.map((item) => ({
     value: item.id,
@@ -1178,6 +1259,7 @@ const Reports: React.FC = () => {
   const [overdueStatus, setOverdueStatus] = useState<string>('');
   const [valuationCategoryId, setValuationCategoryId] = useState<string>('');
   const [valuationWarehouseId, setValuationWarehouseId] = useState<string>('');
+  const [selectedVendorId, setSelectedVendorId] = useState<string>('');
   const [compareDateFrom, setCompareDateFrom] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)));
   const [compareDateTo, setCompareDateTo] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
@@ -1247,6 +1329,7 @@ const Reports: React.FC = () => {
     setSelectedItemId('');
     setValuationCategoryId('');
     setValuationWarehouseId('');
+    setSelectedVendorId('');
   };
 
   const closeReportTab = (reportId: ReportType) => {
@@ -1294,6 +1377,8 @@ const Reports: React.FC = () => {
     setOverdueStatus(params.status || '');
     setValuationCategoryId(params.categoryId || '');
     setValuationWarehouseId(params.warehouseId || '');
+    if (report.id === 'statement') setSelectedCustomerId(params.customerId || '');
+    setSelectedVendorId(params.vendorId || '');
     setParamModal(report);
   };
 
@@ -1317,6 +1402,7 @@ const Reports: React.FC = () => {
     setOverdueStatus('');
     setValuationCategoryId('');
     setValuationWarehouseId('');
+    setSelectedVendorId('');
     setReportPresets((prev) => {
       const next = { ...prev };
       delete next[paramModal.id];
@@ -1349,6 +1435,9 @@ const Reports: React.FC = () => {
     }
 
     if (report.category === 'ar') {
+      if (report.id === 'statement') {
+        return { type: report.id, customerId: selectedCustomerId, dateFrom, dateTo };
+      }
       const params: ReportParams = { type: report.id, asOfDate };
       if (filterCustomer) params.customerSearch = filterCustomer;
       if (report.id === 'overdue-list' && overdueStatus) params.status = overdueStatus;
@@ -1373,6 +1462,9 @@ const Reports: React.FC = () => {
 
     if (report.category === 'ap') {
       const apiType = report.id.replace(/^ap-/, '');
+      if (report.id === 'ap-statement') {
+        return { type: apiType as ReportType, vendorId: selectedVendorId, dateFrom, dateTo };
+      }
       return { type: apiType as ReportType, asOfDate };
     }
 
@@ -1397,6 +1489,15 @@ const Reports: React.FC = () => {
   const handleRunReport = async () => {
     if (!paramModal) return;
     const reportToRun = paramModal;
+    // Statements need a party selected before they can run.
+    if (reportToRun.id === 'statement' && !selectedCustomerId) {
+      setError('Pilih pelanggan terlebih dahulu.');
+      return;
+    }
+    if (reportToRun.id === 'ap-statement' && !selectedVendorId) {
+      setError('Pilih vendor terlebih dahulu.');
+      return;
+    }
     setParamModal(null);
     setIsLoading(true);
     setError(null);
@@ -1414,8 +1515,8 @@ const Reports: React.FC = () => {
         report: reportToRun,
         data,
         params,
-        dateFrom: reportToRun.filterMode === 'date-range' ? dateFrom : null,
-        dateTo:   reportToRun.filterMode === 'date-range' ? dateTo   : null,
+        dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateFrom : null,
+        dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateTo   : null,
         asOfDate: reportToRun.filterMode === 'as-of'      ? asOfDate : null,
       };
 
@@ -1437,6 +1538,7 @@ const Reports: React.FC = () => {
   };
 
   const buildApCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
+    if (report.id === 'ap-statement') return buildStatementCsv(data);
     if (report.id === 'ap-aging') {
       const rows = (data.rows || []) as APAgingRow[];
       const summary = (data.summary || {}) as APAgingSummary;
@@ -1630,6 +1732,84 @@ const Reports: React.FC = () => {
     if (!activeReport) return null;
 
     const { report, data } = activeReport;
+
+    if (report.id === 'statement' || report.id === 'ap-statement') {
+      const stmt = data as StatementData;
+      const ag = stmt.summary.aging;
+      return (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3">
+            <div className="text-sm font-semibold text-neutral-900">
+              {stmt.party.code ? `${stmt.party.code} · ` : ''}{stmt.party.name}
+            </div>
+            <div className="text-xs text-neutral-500 mt-0.5">
+              {formatDateID(stmt.period.dateFrom)} s/d {formatDateID(stmt.period.dateTo)}
+            </div>
+          </div>
+
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-3 text-left font-semibold border border-neutral-300 w-[110px]">Tanggal</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300 w-[130px]">Tipe</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">No.</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300 w-[140px]">Debit</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300 w-[140px]">Kredit</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300 w-[160px]">Saldo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="bg-neutral-50">
+                <td className="p-3 border border-neutral-200 text-neutral-500 italic" colSpan={5}>Saldo Awal</td>
+                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(stmt.openingBalance)}</td>
+              </tr>
+              {stmt.rows.map((row, i) => (
+                <tr key={i} className="hover:bg-neutral-50">
+                  <td className="p-3 border border-neutral-200">{formatDateID(row.date)}</td>
+                  <td className="p-3 border border-neutral-200">{row.type}</td>
+                  <td className="p-3 border border-neutral-200 font-mono text-xs">{row.number}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{row.debit ? formatIDR(row.debit) : '—'}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{row.credit ? formatIDR(row.credit) : '—'}</td>
+                  <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.runningBalance)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-neutral-50 font-semibold">
+                <td className="p-3 border border-neutral-300 text-right" colSpan={3}>Total</td>
+                <td className="p-3 border border-neutral-300 text-right">{formatIDR(stmt.summary.totalDebits)}</td>
+                <td className="p-3 border border-neutral-300 text-right">{formatIDR(stmt.summary.totalCredits)}</td>
+                <td className="p-3 border border-neutral-300 text-right text-primary-700">{formatIDR(stmt.summary.closingBalance)}</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div>
+            <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">Aging Saldo Akhir</div>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-blue-50">
+                  <th className="p-2 text-right font-semibold border border-neutral-300">Current</th>
+                  <th className="p-2 text-right font-semibold border border-neutral-300">1-30</th>
+                  <th className="p-2 text-right font-semibold border border-neutral-300">31-60</th>
+                  <th className="p-2 text-right font-semibold border border-neutral-300">61-90</th>
+                  <th className="p-2 text-right font-semibold border border-neutral-300">90+</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(ag.current)}</td>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(ag.d1To30)}</td>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(ag.d31To60)}</td>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(ag.d61To90)}</td>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(ag.d90Plus)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
 
     if (report.id === 'by-customer') {
       const rows = (data as { rows: SalesByCustomerRow[]; grandTotal: number });
@@ -2874,7 +3054,9 @@ const Reports: React.FC = () => {
     : '';
 
   const periodLabel = activeReport
-    ? activeReport.report.id === 'stock-valuation'
+    ? activeReport.report.filterMode === 'statement'
+      ? `${(activeReport.data as StatementData)?.party?.name ?? ''} · ${formatDateID(activeReport.dateFrom ?? '')} s/d ${formatDateID(activeReport.dateTo ?? '')}`
+      : activeReport.report.id === 'stock-valuation'
       ? `Snapshot saat ini · ${valuationFilterLabel}`
       : activeReport.report.id === 'balance-sheet-multi-period'
       ? `${formatDateID(activeReport.asOfDate ?? '')} vs ${formatDateID(activeReport.params.compareAsOfDate ?? '')}`
@@ -3083,7 +3265,57 @@ const Reports: React.FC = () => {
           size="sm"
         >
           <div className="space-y-4">
-            {paramModal.filterMode === 'inventory-snapshot' ? (
+            {paramModal.filterMode === 'statement' ? (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">
+                    {paramModal.category === 'ap' ? 'Pilih Vendor' : 'Pilih Pelanggan'}
+                  </div>
+                  {paramModal.category === 'ap' ? (
+                    <SearchableSelect
+                      label="Vendor"
+                      options={vendorOptions}
+                      value={selectedVendorId}
+                      onChange={(vendorId) => setSelectedVendorId(vendorId)}
+                      placeholder="Pilih vendor..."
+                      className="mb-0"
+                    />
+                  ) : (
+                    <SearchableSelect
+                      label="Pelanggan"
+                      options={customerOptions}
+                      value={selectedCustomerId}
+                      onChange={(customerId) => setSelectedCustomerId(customerId)}
+                      placeholder="Pilih pelanggan..."
+                      className="mb-0"
+                    />
+                  )}
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Periode</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-neutral-600 mb-1">Dari</label>
+                      <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-neutral-600 mb-1">s/d</label>
+                      <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : paramModal.filterMode === 'inventory-snapshot' ? (
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Persediaan</div>
                 <div className="space-y-3">
@@ -3377,6 +3609,10 @@ const Reports: React.FC = () => {
                 text="Tampilkan"
                 variant="primary"
                 onClick={handleRunReport}
+                disabled={
+                  (paramModal.id === 'statement' && !selectedCustomerId) ||
+                  (paramModal.id === 'ap-statement' && !selectedVendorId)
+                }
               />
             </div>
           </div>
