@@ -2,8 +2,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { WorkspaceTab, TabStatus } from './workspace/types';
 import { moduleKeyOf } from './workspace/modules';
-import { isAtCap } from './workspace/reducers';
+import { isAtCap, pushClosed } from './workspace/reducers';
 import * as R from './workspace/reducers';
+
+/** How many recently-closed tabs we remember for "reopen closed". */
+const CLOSED_STACK_MAX = 10;
+/** Only real document tabs are worth reopening (not catalogs / page shells). */
+const isReopenable = (t: WorkspaceTab) => t.kind === 'doc-form' || t.kind === 'doc-view';
+const removedTabs = (before: WorkspaceTab[], after: WorkspaceTab[]) =>
+    before.filter((t) => !after.some((n) => n.id === t.id));
 
 /**
  * Two-level workspace store: a flat `tabs` array tagged by module (via
@@ -15,6 +22,10 @@ interface WorkspaceStore {
     tabs: WorkspaceTab[];
     activeTabId: string | null;
     moduleActive: Record<string, string>;
+    /** Recently-closed document tabs (most-recent last) for "reopen closed". */
+    closedStack: WorkspaceTab[];
+    /** A tab blocked by the cap, awaiting the user's "close one to make room" choice. */
+    capPrompt: WorkspaceTab | null;
 
     /** Opens (or focuses) a tab. Returns false if dropped for hitting the cap. */
     openTab: (tab: WorkspaceTab) => boolean;
@@ -25,7 +36,17 @@ interface WorkspaceStore {
     /** Close a whole module (row-1 close): drops all its document tabs. */
     closeModule: (moduleKey: string) => void;
     closeOthers: (id: string) => void;
+    /** Close every tab to the right of the given one within its row. */
+    closeToRight: (id: string) => void;
     closeAll: () => void;
+    /** Reopen the most-recently-closed document tab. Returns false if none / at cap. */
+    reopenClosed: () => boolean;
+    /** Stash a tab the cap blocked so the UI can offer to make room. */
+    promptForCap: (tab: WorkspaceTab) => void;
+    /** Close `closeId` to free a slot, then open the stashed tab. */
+    resolveCapPrompt: (closeId: string) => void;
+    /** Dismiss the cap prompt, leaving tabs untouched. */
+    dismissCapPrompt: () => void;
     reorderTab: (id: string, toIndex: number) => void;
     setStatus: (id: string, status: TabStatus) => void;
     saveDraft: (id: string, draft: unknown) => void;
@@ -46,6 +67,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             tabs: [],
             activeTabId: null,
             moduleActive: {},
+            closedStack: [],
+            capPrompt: null,
 
             openTab: (tab) => {
                 const state = get();
@@ -85,7 +108,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                     const mk = moduleKeyOfId(next.tabs, next.activeTabId);
                     if (mk) moduleActive[mk] = next.activeTabId;
                 }
-                set({ ...next, moduleActive });
+                const closedStack = pushClosed(state.closedStack, removedTabs(state.tabs, next.tabs).filter(isReopenable), CLOSED_STACK_MAX);
+                set({ ...next, moduleActive, closedStack });
             },
 
             closeModule: (moduleKey) => {
@@ -98,11 +122,49 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 if (activeKey === moduleKey || !tabs.some((t) => t.id === activeTabId)) {
                     activeTabId = tabs.length ? tabs[tabs.length - 1].id : null;
                 }
-                set({ tabs, activeTabId, moduleActive });
+                const closedStack = pushClosed(state.closedStack, removedTabs(state.tabs, tabs).filter(isReopenable), CLOSED_STACK_MAX);
+                set({ tabs, activeTabId, moduleActive, closedStack });
             },
 
-            closeOthers: (id) => set({ ...R.closeOthers(get(), id) }),
-            closeAll: () => set({ ...R.closeAll(), moduleActive: {} }),
+            closeOthers: (id) => {
+                const state = get();
+                const next = R.closeOthers(state, id);
+                const closedStack = pushClosed(state.closedStack, removedTabs(state.tabs, next.tabs).filter(isReopenable), CLOSED_STACK_MAX);
+                set({ ...next, closedStack });
+            },
+
+            closeToRight: (id) => {
+                const state = get();
+                const next = R.closeToRight(state, id);
+                const closedStack = pushClosed(state.closedStack, removedTabs(state.tabs, next.tabs).filter(isReopenable), CLOSED_STACK_MAX);
+                set({ ...next, closedStack });
+            },
+
+            closeAll: () => {
+                const state = get();
+                const closedStack = pushClosed(state.closedStack, state.tabs.filter(isReopenable), CLOSED_STACK_MAX);
+                set({ ...R.closeAll(), moduleActive: {}, closedStack });
+            },
+
+            reopenClosed: () => {
+                const { closedStack } = get();
+                if (closedStack.length === 0) return false;
+                const tab = closedStack[closedStack.length - 1];
+                const opened = get().openTab(tab); // false if at cap; leaves the stack intact
+                if (!opened) return false;
+                set({ closedStack: closedStack.slice(0, -1) });
+                return true;
+            },
+
+            promptForCap: (tab) => set({ capPrompt: tab }),
+            dismissCapPrompt: () => set({ capPrompt: null }),
+            resolveCapPrompt: (closeId) => {
+                const pending = get().capPrompt;
+                get().closeTab(closeId); // frees a slot (and records the victim as reopenable)
+                if (pending) get().openTab(pending);
+                set({ capPrompt: null });
+            },
+
             reorderTab: (id, toIndex) => set(R.reorderTab(get(), id, toIndex)),
             setStatus: (id, status) => set(R.setStatus(get(), id, status)),
             saveDraft: (id, draft) => set(R.saveDraft(get(), id, draft)),
@@ -129,7 +191,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             name: 'msm-workspace',
             version: 2,
             // The shape changed from the flat single-row model — start fresh.
-            migrate: () => ({ tabs: [], activeTabId: null, moduleActive: {} }),
+            migrate: () => ({ tabs: [], activeTabId: null, moduleActive: {}, closedStack: [] }),
+            // capPrompt is transient UI state — never persist a half-open prompt.
+            partialize: (s) => ({ tabs: s.tabs, activeTabId: s.activeTabId, moduleActive: s.moduleActive, closedStack: s.closedStack }),
         },
     ),
 );

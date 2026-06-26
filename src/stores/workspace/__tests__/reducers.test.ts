@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-    openTab, closeTab, closeOthers, closeAll,
-    activateTab, setStatus, saveDraft, clearDraft, isAtCap,
+    openTab, closeTab, closeOthers, closeAll, closeToRight,
+    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed,
 } from '../reducers';
 import { makeTabId, TAB_CAP, type WorkspaceState, type TabTarget } from '../types';
 
@@ -81,6 +81,57 @@ describe('closeOthers / closeAll', () => {
         s = openTab(s, tab('sales-order', 'B'));
         const cleared = closeAll(s);
         expect(cleared).toEqual(empty);
+    });
+});
+
+describe('closeToRight', () => {
+    it('closes every tab to the right of the given one, keeping it and those to its left', () => {
+        let s: WorkspaceState = empty;
+        s = openTab(s, tab('sales-order', 'A'));
+        s = openTab(s, tab('sales-order', 'B'));
+        s = openTab(s, tab('sales-order', 'C'));
+        s = openTab(s, tab('sales-order', 'D'));
+        const trimmed = closeToRight(s, s.tabs[1].id); // keep A, B
+        expect(trimmed.tabs.map((t) => t.target.recordId)).toEqual(['A', 'B']);
+    });
+
+    it('moves active onto the anchor tab when the active tab was to the right', () => {
+        let s: WorkspaceState = empty;
+        s = openTab(s, tab('sales-order', 'A'));
+        s = openTab(s, tab('sales-order', 'B'));
+        s = openTab(s, tab('sales-order', 'C')); // active = C (to the right of A)
+        const trimmed = closeToRight(s, s.tabs[0].id); // keep A only
+        expect(trimmed.tabs.map((t) => t.target.recordId)).toEqual(['A']);
+        expect(trimmed.activeTabId).toBe(s.tabs[0].id);
+    });
+
+    it('is a no-op when the anchor is the rightmost tab', () => {
+        let s: WorkspaceState = empty;
+        s = openTab(s, tab('sales-order', 'A'));
+        s = openTab(s, tab('sales-order', 'B'));
+        const same = closeToRight(s, s.tabs[1].id);
+        expect(same.tabs).toHaveLength(2);
+        expect(same.activeTabId).toBe(s.tabs[1].id);
+    });
+});
+
+describe('pushClosed', () => {
+    const t = (id: string) => ({ ...tab('sales-order', id), id });
+
+    it('appends closed tabs so the most-recently-closed is last', () => {
+        const stack = pushClosed([t('A')], [t('B'), t('C')], 10);
+        expect(stack.map((x) => x.id)).toEqual(['A', 'B', 'C']);
+    });
+
+    it('caps the stack length, dropping the oldest entries', () => {
+        const start = [t('a'), t('b'), t('c')];
+        const stack = pushClosed(start, [t('d')], 3);
+        expect(stack.map((x) => x.id)).toEqual(['b', 'c', 'd']);
+    });
+
+    it('drops an earlier entry with the same id so reopening is unambiguous', () => {
+        const stack = pushClosed([t('A'), t('B')], [t('A')], 10);
+        expect(stack.map((x) => x.id)).toEqual(['B', 'A']);
     });
 });
 
