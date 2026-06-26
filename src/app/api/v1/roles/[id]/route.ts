@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ok, err, requireAuth, logAudit } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, authActor } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { updateRoleInputSchema } from '@/types/api';
 import { normalizePermissionMatrix, roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
@@ -48,6 +48,12 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
     ? normalizePermissionMatrix(d.permissions as never)
     : existing.permissions.map((p) => ({ moduleKey: p.moduleKey, canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete, canApprove: p.canApprove }));
   const nextActive = d.isActive ?? existing.isActive;
+
+  // Privilege-escalation guard: only an ADMIN actor may leave a role
+  // admin-capable (ADMIN type or SETTINGS.canEdit grants a full check-bypass).
+  if (roleGrantsSettingsEdit(nextType, nextRows) && authActor(req).roleType !== 'ADMIN') {
+    return err('Only an administrator can manage an admin-level role', 403);
+  }
 
   // Lockout guard: only worth checking when this role would lose admin-capability
   // (deactivated, or no longer grants SETTINGS edit).

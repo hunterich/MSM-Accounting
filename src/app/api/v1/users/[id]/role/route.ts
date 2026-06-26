@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ok, err, requireAuth, logAudit } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, authActor } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { assignUserRoleInputSchema } from '@/types/api';
 import { roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
@@ -25,6 +25,11 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
     include: { permissions: { where: { moduleKey: 'SETTINGS' }, select: { moduleKey: true, canEdit: true } } },
   });
   if (!newRole) return err('Role not found', 404);
+
+  // Privilege-escalation guard: only an ADMIN actor may assign an admin-capable role.
+  if (roleGrantsSettingsEdit(newRole.roleType, newRole.permissions) && authActor(req).roleType !== 'ADMIN') {
+    return err('Only an administrator can assign an admin-level role', 403);
+  }
 
   // Lockout guard: if the new role isn't admin-capable, ensure some OTHER active
   // member still is, before moving this user off an admin-capable role.

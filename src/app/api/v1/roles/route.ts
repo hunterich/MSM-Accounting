@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ok, err, requireOrg, requireAuth, logAudit } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, authActor } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { createRoleInputSchema } from '@/types/api';
-import { normalizePermissionMatrix } from '@/lib/rbac/role-permissions';
+import { normalizePermissionMatrix, roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
 import type { ModuleKey, RoleType, InvoiceAccessScope } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
@@ -38,6 +38,12 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, asy
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid role payload', 400);
   const d = parsed.data;
   const matrix = normalizePermissionMatrix(d.permissions as never);
+
+  // Privilege-escalation guard: only an ADMIN actor may mint an admin-capable
+  // role (ADMIN type or SETTINGS.canEdit grants a full check-bypass).
+  if (roleGrantsSettingsEdit(d.roleType ?? 'CUSTOM', matrix) && authActor(req).roleType !== 'ADMIN') {
+    return err('Only an administrator can create an admin-level role', 403);
+  }
 
   try {
     const role = await prisma.role.create({
