@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { computeLedgerValuation } from '@/lib/inventory-valuation';
 
 export const runtime = 'nodejs';
 
@@ -42,43 +43,19 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
 
   const itemIds = itemsList.map((i) => i.id);
 
-  // Fetch InventoryLot data for these items
-  const lotWhere: any = {
-    organizationId: orgId,
-    itemId: { in: itemIds },
-    qtyBalance: { gt: 0 },
-  };
-  if (warehouseId) lotWhere.warehouseId = warehouseId;
-
-  const lots = await prisma.inventoryLot.findMany({
-    where: lotWhere,
-    select: {
-      itemId: true,
-      warehouseId: true,
-      qtyBalance: true,
-      unitCost: true,
-    },
+  // Value on-hand from the immutable inventory ledger — the same source the GL
+  // inventory account is posted from — so this report reconciles to the trial
+  // balance under both FIFO and weighted-average. (Open cost layers can diverge
+  // from GL under WA; see lib/inventory-valuation.ts.)
+  const valuationByItem = await computeLedgerValuation(prisma, orgId, {
+    itemIds,
+    warehouseId: warehouseId ?? null,
   });
-
-  // Aggregate lots per item
-  type LotAgg = { totalQty: number; totalValue: number };
-  const lotsByItem = new Map<string, LotAgg>();
-
-  for (const lot of lots) {
-    const qty = Number(lot.qtyBalance);
-    const cost = Number(lot.unitCost);
-    const value = qty * cost;
-    const prev = lotsByItem.get(lot.itemId) || { totalQty: 0, totalValue: 0 };
-    lotsByItem.set(lot.itemId, {
-      totalQty: prev.totalQty + qty,
-      totalValue: prev.totalValue + value,
-    });
-  }
 
   let summaryTotalValue = 0;
 
   const items = itemsList.map((item) => {
-    const agg = lotsByItem.get(item.id);
+    const agg = valuationByItem.get(item.id);
     const totalQty = agg ? agg.totalQty : 0;
     const totalValue = agg ? agg.totalValue : 0;
     const costPriceFallback = Number(item.costPrice);

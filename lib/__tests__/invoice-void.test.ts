@@ -18,7 +18,11 @@ const DATE = new Date('2026-06-20');
 
 function makeTx(invoice: any, entries: any[] = []) {
   return {
-    salesInvoice: { findFirst: vi.fn(async () => invoice), update: vi.fn(async () => ({})) },
+    salesInvoice: {
+      findFirst: vi.fn(async () => invoice),
+      // Claim-first guard: updateMany returns the affected count (1 = winner).
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     journalEntry: { findMany: vi.fn(async () => entries) },
   };
 }
@@ -41,7 +45,11 @@ describe('voidInvoice', () => {
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-ar', expect.objectContaining({ date: DATE }));
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-cogs', expect.objectContaining({ date: DATE }));
     expect(restoreConsumedLayers).toHaveBeenCalledWith(tx, 'org-a', 'SALES', 'inv-1', DATE);
-    expect((tx.salesInvoice.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    // VOID is claimed atomically (updateMany guarded by status != VOID).
+    expect((tx.salesInvoice.updateMany as any).mock.calls[0][0]).toMatchObject({
+      where: expect.objectContaining({ status: { not: 'VOID' } }),
+      data: { status: 'VOID' },
+    });
   });
 
   it('throws 404 when the invoice does not exist', async () => {

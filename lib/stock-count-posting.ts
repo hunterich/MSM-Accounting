@@ -48,10 +48,17 @@ export async function postStockCount(
   count: { id: string; number: string; date: Date; warehouseId: string | null; lines: CountLineInput[] },
 ): Promise<string | null> {
   const itemIds = count.lines.map((l) => l.itemId);
+  // Scope live on-hand to the counted warehouse so the variance is measured
+  // against THAT warehouse's stock — not company-wide totals. A null warehouseId
+  // (org-wide / single-warehouse count) sums every layer, as before.
   const lotRows = itemIds.length
     ? await tx.inventoryLot.groupBy({
         by: ['itemId'],
-        where: { organizationId: orgId, itemId: { in: itemIds } },
+        where: {
+          organizationId: orgId,
+          itemId: { in: itemIds },
+          ...(count.warehouseId ? { warehouseId: count.warehouseId } : {}),
+        },
         _sum: { qtyBalance: true },
       })
     : [];
@@ -89,7 +96,9 @@ export async function postStockCount(
     id: adj.id,
     number: adj.number,
     date: count.date,
-    warehouseId: null, // cost layers are warehouse-agnostic; StockCount.warehouseId is metadata-only (multi-warehouse deferred)
+    // Post into the counted warehouse so the relief/added layers stay
+    // warehouse-scoped and reconcile with the warehouse-scoped variance above.
+    warehouseId: count.warehouseId,
     lines: adjLines,
   });
   return adj.id;

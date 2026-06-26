@@ -108,11 +108,12 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
     }
 
     // Post the perpetual inventory ledger + balancing GL entry only when the
-    // adjustment was not held for approval and there are lines to post. This
-    // preserves prior behavior: a non-routed adjustment with lines posts as
-    // before; an empty-lines adjustment posts nothing either way. Shared with
-    // the integration tests via lib/stock-adjustment-posting.ts.
-    if (!routed && lines.length > 0) {
+    // adjustment is LIVE (APPROVED) and was not held for approval. A DRAFT must
+    // post nothing — it is a work-in-progress document with no GL impact; it
+    // posts later when approved/finalised. (PENDING_APPROVAL likewise waits.)
+    // An empty-lines adjustment posts nothing either way. Shared with the
+    // integration tests via lib/stock-adjustment-posting.ts.
+    if (adj.status === 'APPROVED' && !routed && lines.length > 0) {
       await postStockAdjustmentToLedger(tx, orgId, {
         id: adj.id,
         number: adj.number,

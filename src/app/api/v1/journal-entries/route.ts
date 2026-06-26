@@ -8,6 +8,7 @@ import {
 } from '@/types/api';
 import { corsPreflightResponse } from '@/lib/cors';
 import { withPermission } from '@/lib/authz';
+import { assertPeriodOpen } from '@/lib/period-guard';
 import {
   ok,
   err,
@@ -156,6 +157,8 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       throw new ApiError('Organization not found', 404);
     }
 
+    const entryDate = parseIsoDate(payload.date);
+
     if (payload.periodId) {
       const period = await tx.accountingPeriod.findFirst({
         where: {
@@ -166,6 +169,8 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
           id: true,
           status: true,
           isLocked: true,
+          startDate: true,
+          endDate: true,
         },
       });
 
@@ -173,9 +178,22 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
         throw new ApiError('Accounting period not found', 404);
       }
 
+      // A supplied periodId must actually contain the entry date — otherwise the
+      // date-based closed-period guard could be bypassed by tagging an OPEN period.
+      if (entryDate < period.startDate || entryDate > period.endDate) {
+        throw new ApiError('Accounting period does not match the entry date', 422);
+      }
+
       if (period.status === 'CLOSED' || period.isLocked) {
         throw new ApiError('Accounting period is closed/locked', 422);
       }
+    }
+
+    // A POSTED entry writes to the ledger immediately, so resolve the period by
+    // the entry DATE (not just an optional periodId) and refuse a closed/locked
+    // one — mirroring the automatic posting paths (invoices/bills/payments).
+    if (payload.status === 'POSTED') {
+      await assertPeriodOpen(tx, payload.organizationId, entryDate);
     }
 
     const { lines, totalDebit, totalCredit } = normalizeLines(payload);
@@ -212,7 +230,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       data: {
         organizationId: payload.organizationId,
         entryNo,
-        date: parseIsoDate(payload.date),
+        date: entryDate,
         memo: payload.memo,
         source: payload.source,
         status: payload.status,

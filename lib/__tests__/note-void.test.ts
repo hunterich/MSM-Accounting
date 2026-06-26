@@ -14,10 +14,10 @@ import { voidCreditNote, voidDebitNote } from '../note-void';
 const DATE = new Date('2026-06-20');
 
 function makeCnTx(note: any) {
-  return { creditNote: { findFirst: vi.fn(async () => note), update: vi.fn(async () => ({})) } };
+  return { creditNote: { findFirst: vi.fn(async () => note), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
 function makeDnTx(note: any) {
-  return { debitNote: { findFirst: vi.fn(async () => note), update: vi.fn(async () => ({})) } };
+  return { debitNote: { findFirst: vi.fn(async () => note), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
 
 const cnApplied = (over: any = {}) => ({ id: 'cn-1', number: 'CN-0001', status: 'APPLIED', journalEntryId: 'je-1', ...over });
@@ -32,7 +32,10 @@ describe('voidCreditNote', () => {
 
     expect(assertPeriodOpen).toHaveBeenCalledWith(tx, 'org-a', DATE);
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
-    expect((tx.creditNote.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    expect((tx.creditNote.updateMany as any).mock.calls[0][0]).toMatchObject({
+      where: expect.objectContaining({ status: { not: 'VOID' } }),
+      data: { status: 'VOID' },
+    });
   });
 
   it('throws 404 when the note does not exist', async () => {
@@ -51,7 +54,7 @@ describe('voidCreditNote', () => {
     const tx = makeCnTx(cnApplied({ journalEntryId: null, status: 'DRAFT' }));
     await expect(voidCreditNote(tx as never, 'org-a', 'cn-1', { date: DATE })).rejects.toThrow(/not posted|delete/i);
     expect(reverseJournalEntry).not.toHaveBeenCalled();
-    expect(tx.creditNote.update).not.toHaveBeenCalled();
+    expect(tx.creditNote.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -63,6 +66,9 @@ describe('voidDebitNote', () => {
     await voidDebitNote(tx as never, 'org-a', 'dn-1', { date: DATE });
 
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-2', expect.objectContaining({ date: DATE }));
-    expect((tx.debitNote.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    expect((tx.debitNote.updateMany as any).mock.calls[0][0]).toMatchObject({
+      where: expect.objectContaining({ status: { not: 'VOID' } }),
+      data: { status: 'VOID' },
+    });
   });
 });

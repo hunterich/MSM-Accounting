@@ -62,6 +62,18 @@ export async function voidInvoice(
 
   await assertPeriodOpen(tx, orgId, opts.date);
 
+  // Atomically claim VOID before any GL/inventory side effect. The guarded
+  // `updateMany` takes a row lock; a concurrent void blocks here, then sees the
+  // invoice already VOID → count 0 → 409, so the reversal + restock run exactly
+  // once and the ledger/inventory can never be double-reversed.
+  const claim = await tx.salesInvoice.updateMany({
+    where: { id: inv.id, organizationId: orgId, status: { not: 'VOID' } },
+    data: { status: 'VOID' },
+  });
+  if (claim.count !== 1) {
+    throw new ApiError('Invoice is already voided', 409);
+  }
+
   // Reverse the AR-recognition + COGS posting entries (resolved by memo — no
   // journalEntryId column on invoices; there is one COGS entry per inventory line).
   const entries = await tx.journalEntry.findMany({
@@ -78,6 +90,4 @@ export async function voidInvoice(
 
   // Put the sold stock back (un-consume the SALES draw-down).
   await restoreConsumedLayers(tx, orgId, InventoryDocumentType.SALES, inv.id, opts.date);
-
-  await tx.salesInvoice.update({ where: { id: inv.id, organizationId: orgId }, data: { status: 'VOID' } });
 }

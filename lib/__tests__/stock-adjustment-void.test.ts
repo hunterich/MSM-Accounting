@@ -21,7 +21,11 @@ const DATE = new Date('2026-06-20');
 
 function makeTx(adj: any, entry: any = { id: 'je-1' }) {
   return {
-    stockAdjustment: { findFirst: vi.fn(async () => adj), update: vi.fn(async () => ({})) },
+    stockAdjustment: {
+      findFirst: vi.fn(async () => adj),
+      // Claim-first guard: updateMany returns the affected count (1 = winner).
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     journalEntry: { findFirst: vi.fn(async () => entry) },
   };
 }
@@ -40,7 +44,11 @@ describe('voidStockAdjustment', () => {
     );
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
     expect(reverseAdjustmentInventory).toHaveBeenCalledWith(tx, 'org-a', 'adj-1', DATE);
-    expect((tx.stockAdjustment.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    // VOID is claimed atomically (updateMany guarded by status != VOID).
+    expect((tx.stockAdjustment.updateMany as any).mock.calls[0][0]).toMatchObject({
+      where: expect.objectContaining({ status: { not: 'VOID' } }),
+      data: { status: 'VOID' },
+    });
   });
 
   it('throws 404 when missing', async () => {
@@ -59,6 +67,6 @@ describe('voidStockAdjustment', () => {
     await voidStockAdjustment(tx as never, 'org-a', 'adj-1', { date: DATE });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     expect(reverseAdjustmentInventory).toHaveBeenCalled();
-    expect((tx.stockAdjustment.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    expect((tx.stockAdjustment.updateMany as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
   });
 });
