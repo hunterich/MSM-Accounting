@@ -234,6 +234,7 @@ describe('RBAC role persistence + guard conditions', () => {
         organizationId: orgId,
         isActive: true,
         userId: { not: adminUser.id },
+        user: { status: 'ACTIVE' },
         role: {
           OR: [
             { roleType: 'ADMIN' },
@@ -300,6 +301,7 @@ describe('RBAC role persistence + guard conditions', () => {
         organizationId: orgId,
         isActive: true,
         userId: { not: targetUser.id },
+        user: { status: 'ACTIVE' },
         role: {
           OR: [
             { roleType: 'ADMIN' },
@@ -314,5 +316,55 @@ describe('RBAC role persistence + guard conditions', () => {
     await cleanupOrg(orgId);
     await prisma.user.delete({ where: { id: targetUser.id } }).catch(() => {});
     await prisma.user.delete({ where: { id: otherAdminUser.id } }).catch(() => {});
+  });
+
+  // 5. Lockout guard ignores DEACTIVATED users (User.status !== ACTIVE)
+  // ------------------------------------------------------------------
+  it('lockout guard treats an INACTIVE admin user as no admin (status filter)', async () => {
+    const { orgId } = await createTestOrg();
+
+    const adminRole = await prisma.role.create({
+      data: { organizationId: orgId, name: 'Admin Role', roleType: 'ADMIN' },
+    });
+
+    // The org's only admin-capable member has a DEACTIVATED user account, but an
+    // active membership row. The guard must not treat them as a live administrator.
+    const inactiveAdmin = await prisma.user.create({
+      data: {
+        email: `test-inactive-admin-${Date.now()}@example.com`,
+        fullName: 'Deactivated Admin',
+        passwordHash: 'x',
+        status: 'INACTIVE',
+      },
+    });
+
+    await prisma.userOrganization.create({
+      data: { userId: inactiveAdmin.id, organizationId: orgId, roleId: adminRole.id, isActive: true },
+    });
+
+    // The OLD (status-blind) query would have counted the deactivated user as an admin…
+    const blindCount = await prisma.userOrganization.count({
+      where: {
+        organizationId: orgId,
+        isActive: true,
+        role: { OR: [{ roleType: 'ADMIN' }, { permissions: { some: { moduleKey: 'SETTINGS', canEdit: true } } }] },
+      },
+    });
+    expect(blindCount).toBe(1); // demonstrates the gap the fix closes
+
+    // …the FIXED query the guards now use additionally requires User.status === ACTIVE,
+    // so the org correctly reads as having no live administrator.
+    const activeAdminCount = await prisma.userOrganization.count({
+      where: {
+        organizationId: orgId,
+        isActive: true,
+        user: { status: 'ACTIVE' },
+        role: { OR: [{ roleType: 'ADMIN' }, { permissions: { some: { moduleKey: 'SETTINGS', canEdit: true } } }] },
+      },
+    });
+    expect(activeAdminCount).toBe(0);
+
+    await cleanupOrg(orgId);
+    await prisma.user.delete({ where: { id: inactiveAdmin.id } }).catch(() => {});
   });
 });

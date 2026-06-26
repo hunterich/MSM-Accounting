@@ -36,7 +36,10 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
   if (!roleGrantsSettingsEdit(newRole.roleType, newRole.permissions)) {
     const otherAdmins = await prisma.userOrganization.count({
       where: {
+        // Active membership AND active user account — a deactivated user does not
+        // count as an admin who could keep the org from being locked out.
         organizationId: orgId, isActive: true, userId: { not: targetUserId },
+        user: { status: 'ACTIVE' },
         role: { OR: [{ roleType: 'ADMIN' }, { permissions: { some: { moduleKey: 'SETTINGS', canEdit: true } } }] },
       },
     });
