@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatIDR } from '../../utils/formatters';
 import {
-    CompanyBlock, Letterhead, DocumentFooter, SignatureBlock,
+    CompanyBlock, Letterhead, DocumentFooter, SignatureBlock, BankBlock, TerbilangLine,
     pageStyle, cellStyle, cellRightStyle, titleStyle, tableHeadCellStyle, totalAccent,
     DEFAULT_PRINT_OPTIONS, type PrintOptions,
 } from './printShared';
@@ -113,6 +113,11 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({ invoice, li
     const taxAmount = subtotal * (safeTaxRate / 100);
     const totalAmount = subtotal + taxAmount;
 
+    // Down-payment / partial settlement, read defensively (field name varies by record).
+    const paid = toNumber(invoice.amountPaid ?? invoice.paidAmount ?? invoice.paid ?? invoice.downPayment ?? invoice.dp);
+    const showDp = paid > 0 && paid < totalAmount;
+    const remaining = totalAmount - paid;
+
     const invoiceNo = invoice.number || invoice.id;
     const issueDate = invoice.issueDate || invoice.date;
     const dueDate = invoice.dueDate || invoice.due;
@@ -181,6 +186,10 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({ invoice, li
                     <strong>{formatIDR(subtotal)}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                    <span>DPP</span>
+                    <strong>{formatIDR(subtotal)}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                     <span>PPN {safeTaxRate}%</span>
                     <strong>{formatIDR(taxAmount)}</strong>
                 </div>
@@ -188,12 +197,27 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({ invoice, li
                     <span>TOTAL</span>
                     <strong>{formatIDR(totalAmount)}</strong>
                 </div>
+                {showDp ? (
+                    <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                            <span>DP / Uang Muka</span>
+                            <strong>- {formatIDR(paid)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontWeight: 700, color: totalAccent(options) }}>
+                            <span>Sisa Tagihan</span>
+                            <strong>{formatIDR(remaining)}</strong>
+                        </div>
+                    </>
+                ) : null}
             </div>
+
+            <TerbilangLine amount={showDp ? remaining : totalAmount} options={options} />
 
             <div style={{ borderTop: '1px solid #d1d5db', paddingTop: '10px' }}>
                 <strong>Notes:</strong> {invoice.notes || '-'}
             </div>
 
+            <BankBlock options={options} />
             <DocumentFooter options={options} />
             <SignatureBlock options={options} />
         </div>
