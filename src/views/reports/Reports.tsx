@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package, Users,
-  Search, Printer, Download, X, LayoutGrid, BarChart3,
+  Search, Printer, Download, FileText, X, LayoutGrid, BarChart3,
   type LucideIcon,
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { formatIDR, formatDateID } from '../../utils/formatters';
+import { exportCsvToPdf } from '../../utils/exportPdf';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
@@ -1522,23 +1523,26 @@ const Reports: React.FC = () => {
     return '';
   };
 
+  const buildActiveReportCsv = (report: ReportDefinition, data: Record<string, unknown>): string =>
+    report.category === 'ar'
+      ? buildArCsv(report, data)
+      : report.category === 'gl'
+        ? buildGlCsv(report, data)
+        : report.category === 'ap'
+          ? buildApCsv(report, data)
+          : report.category === 'banking'
+            ? buildBankingCsv(report, data)
+            : report.category === 'inventory'
+              ? buildInventoryCsv(report, data)
+              : report.category === 'hr'
+                ? buildHrCsv(report, data)
+                : buildSalesCsv(report, data);
+
   const handleExportCsv = () => {
     if (!activeReport) return;
 
     const { report, data } = activeReport;
-    const csv = report.category === 'ar'
-      ? buildArCsv(report, data as Record<string, unknown>)
-      : report.category === 'gl'
-        ? buildGlCsv(report, data as Record<string, unknown>)
-        : report.category === 'ap'
-          ? buildApCsv(report, data as Record<string, unknown>)
-          : report.category === 'banking'
-            ? buildBankingCsv(report, data as Record<string, unknown>)
-            : report.category === 'inventory'
-              ? buildInventoryCsv(report, data as Record<string, unknown>)
-              : report.category === 'hr'
-                ? buildHrCsv(report, data as Record<string, unknown>)
-                : buildSalesCsv(report, data as Record<string, unknown>);
+    const csv = buildActiveReportCsv(report, data as Record<string, unknown>);
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -1547,6 +1551,22 @@ const Reports: React.FC = () => {
     a.download = `${report.id}-${activeReport.asOfDate || activeReport.dateFrom || 'report'}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportPdf = () => {
+    if (!activeReport) return;
+
+    const { report, data } = activeReport;
+    const csv = buildActiveReportCsv(report, data as Record<string, unknown>);
+    if (!csv.trim()) return;
+
+    exportCsvToPdf(
+      `${report.id}-${activeReport.asOfDate || activeReport.dateFrom || 'report'}`,
+      report.name,
+      csv,
+      company ? { name: company.companyName, address: company.address, npwp: company.npwp } : null,
+      periodLabel,
+    );
   };
 
   const renderEmptyReport = (message: string): React.ReactElement => (
@@ -2888,6 +2908,12 @@ const Reports: React.FC = () => {
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
                       >
                         <Download size={14} /> Export CSV
+                      </button>
+                      <button
+                        onClick={handleExportPdf}
+                        className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
+                      >
+                        <FileText size={14} /> Export PDF
                       </button>
                     </div>
                   </div>
