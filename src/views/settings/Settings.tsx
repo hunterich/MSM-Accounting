@@ -115,6 +115,18 @@ const Settings = () => {
     const [requireDistinctApproverForAdmins, setRequireDistinctApproverForAdmins] = useState(false);
     const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
     const [printForm, setPrintForm] = useState(storePrintSettings);
+    const [logoPreview, setLogoPreview] = useState<string | null>(null);
+
+    const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { window.alert('Please choose an image file (PNG or JPG).'); return; }
+        if (file.size > 500 * 1024) { window.alert('Logo is larger than 500 KB. Please use a smaller image.'); return; }
+        const reader = new FileReader();
+        reader.onload = () => setLogoPreview(typeof reader.result === 'string' ? reader.result : null);
+        reader.readAsDataURL(file);
+    };
 
     // Keep the Print tab form in sync once org-backed print settings hydrate.
     useEffect(() => { setPrintForm(storePrintSettings); }, [storePrintSettings]);
@@ -153,7 +165,7 @@ const Settings = () => {
         { id: 'restrictions', label: 'Restrictions', icon: Lock },
         { id: 'approvals', label: 'Approval Rules', icon: ClipboardCheck },
         { id: 'accounts', label: 'Account Defaults', icon: Briefcase },
-        { id: 'print', label: 'Print Settings', icon: Printer },
+        { id: 'print', label: 'Print & Branding', icon: Printer },
         { id: 'numbering', label: 'Document Numbering', icon: Hash },
         { id: 'security', label: 'Security & Roles', icon: Shield },
         { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -269,8 +281,10 @@ const Settings = () => {
             // Print settings live on the org (DB is source of truth, shared across
             // devices), then mirror into the local store for instant rendering.
             try {
-                await updateOrgSettings.mutateAsync({ printSettings: printForm } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+                const body = { printSettings: printForm, ...(logoPreview ? { logoUrl: logoPreview } : {}) };
+                await updateOrgSettings.mutateAsync(body as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
                 updatePrintSettings(printForm);
+                if (logoPreview) { updateCompanyInfo({ logoUrl: logoPreview }); setLogoPreview(null); }
             } catch (e) {
                 window.alert(`Failed to save print settings: ${e instanceof Error ? e.message : 'Unknown error'}`);
                 return;
@@ -728,11 +742,26 @@ const Settings = () => {
                 )}
 
                 {activeTab === 'print' && (
-                    <Card title="Print Settings">
+                    <Card title="Print & Branding">
                         <p className="settings-muted">Customize how printed documents (invoices, receipts, delivery notes, etc.) look. Changes preview live and apply to every document.</p>
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {/* ── Controls ─────────────────────────────────── */}
                             <div className="space-y-4">
+                                <div>
+                                    <label className="form-label">Company logo</label>
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-12 w-12 rounded border border-neutral-300 bg-neutral-50 flex items-center justify-center overflow-hidden">
+                                            {(logoPreview ?? storeCompanyInfo.logoUrl)
+                                                ? <img src={logoPreview ?? storeCompanyInfo.logoUrl} alt="Logo" className="max-h-12 max-w-12 object-contain" />
+                                                : <span className="text-neutral-400 text-xs">None</span>}
+                                        </div>
+                                        <label className="inline-flex items-center px-3 h-10 rounded-md border border-neutral-300 bg-neutral-0 text-sm font-medium cursor-pointer hover:bg-neutral-100">
+                                            Upload logo…
+                                            <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleLogoUpload} />
+                                        </label>
+                                    </div>
+                                    <p className="settings-muted mt-1">PNG or JPG, up to 500&nbsp;KB. Saved with this book.</p>
+                                </div>
                                 <div>
                                     <label className="form-label">Brand accent color</label>
                                     <div className="flex items-center gap-3">
@@ -788,6 +817,31 @@ const Settings = () => {
                                     <label className="form-label">Footer line</label>
                                     <Input value={printForm.footerText} placeholder="e.g. Terima kasih atas kepercayaan Anda." onChange={(e) => setPrintForm((p) => ({ ...p, footerText: e.target.value }))} />
                                 </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <label className="settings-checkbox-label"><input type="checkbox" className="settings-checkbox-input" checked={printForm.showTerbilang} onChange={(e) => setPrintForm((p) => ({ ...p, showTerbilang: e.target.checked }))} /><span className="settings-label-strong">Terbilang</span></label>
+                                    <label className="settings-checkbox-label"><input type="checkbox" className="settings-checkbox-input" checked={printForm.showBankDetails} onChange={(e) => setPrintForm((p) => ({ ...p, showBankDetails: e.target.checked }))} /><span className="settings-label-strong">Bank / payment block</span></label>
+                                </div>
+
+                                {printForm.showBankDetails && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="form-label">Bank</label>
+                                            <Input value={printForm.bankName} placeholder="e.g. BCA" onChange={(e) => setPrintForm((p) => ({ ...p, bankName: e.target.value }))} />
+                                        </div>
+                                        <div>
+                                            <label className="form-label">Account no.</label>
+                                            <Input value={printForm.bankAccountNo} placeholder="e.g. 1234567890" onChange={(e) => setPrintForm((p) => ({ ...p, bankAccountNo: e.target.value }))} />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="form-label">Account name</label>
+                                            <Input value={printForm.bankAccountName} placeholder="e.g. PT. Murni Sukses Mandiri" onChange={(e) => setPrintForm((p) => ({ ...p, bankAccountName: e.target.value }))} />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="form-label">Payment note (optional)</label>
+                                            <Input value={printForm.paymentNote} placeholder="e.g. Mohon transfer sesuai Sisa Tagihan." onChange={(e) => setPrintForm((p) => ({ ...p, paymentNote: e.target.value }))} />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {/* ── Live preview ─────────────────────────────── */}
@@ -801,7 +855,7 @@ const Settings = () => {
                                                 { description: 'Jasa Konsultasi', qty: 2, unit: 'JAM', price: 500000, discount: 0 },
                                                 { description: 'Lisensi Software', qty: 1, unit: 'PCS', price: 1500000, discount: 10 },
                                             ]}
-                                            company={storeCompanyInfo as unknown as Record<string, unknown>}
+                                            company={{ ...storeCompanyInfo, logoUrl: logoPreview ?? storeCompanyInfo.logoUrl } as unknown as Record<string, unknown>}
                                             taxRate={storeTaxSettings.defaultRate}
                                             options={printForm}
                                         />
