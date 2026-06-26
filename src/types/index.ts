@@ -232,6 +232,12 @@ export interface PrintOptions {
   showSignature: boolean;
   signatureLabel: string;
   signerName: string;
+  showTerbilang: boolean;
+  showBankDetails: boolean;
+  bankName: string;
+  bankAccountNo: string;
+  bankAccountName: string;
+  paymentNote: string;
 }
 
 export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
@@ -247,6 +253,12 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   showSignature: false,
   signatureLabel: '',
   signerName: '',
+  showTerbilang: true,
+  showBankDetails: true,
+  bankName: '',
+  bankAccountNo: '',
+  bankAccountName: '',
+  paymentNote: '',
 };
 
 export interface ApprovalRequirementsMap {
