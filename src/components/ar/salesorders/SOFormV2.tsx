@@ -18,6 +18,9 @@ import { useCustomerStore } from '../../../stores/useCustomerStore';
 import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
 import { useCustomers, useInvoices } from '../../../hooks/useAR';
 import { useItems } from '../../../hooks/useInventory';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import PrintPreviewModal from '../../UI/PrintPreviewModal';
+import SalesOrderPrintTemplate from '../../print/SalesOrderPrintTemplate';
 
 /**
  * SOFormV2 — Sales Order on the shared document-form system.
@@ -104,6 +107,10 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
     const [reference, setReference] = useState('');
     const [autoClose, setAutoClose] = useState('60');
     const [tax, setTax] = useState<TaxState>({ on: false, rate: TAX_RATE, mode: 'exclusive' });
+
+    const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
+    const [isPrintOpen, setIsPrintOpen] = useState(false);
 
     // ── Lines + charges (shared hook) ───────────────────────────────────────
     const seedLines = useMemo<DocLine[]>(() => {
@@ -436,9 +443,7 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
                 onBack={() => navigate('/ar/sales-orders')}
                 backLabel="Sales Orders"
                 printOptions={[
-                    { label: 'Print A4', hint: 'Standard paper', onClick: () => window.print() },
-                    { label: 'Print A5', hint: 'Half-page', onClick: () => window.print() },
-                    { label: 'Email PDF', onClick: () => {} },
+                    { label: 'Print / PDF', hint: 'Preview, print, or download', onClick: () => setIsPrintOpen(true) },
                 ]}
                 onSaveDraft={handleSaveDraft}
                 primaryLabel="Save & confirm"
@@ -452,6 +457,28 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create' }) => {
                 main={main}
                 rail={rail}
             />
+            <PrintPreviewModal
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+                title="Sales Order Print Preview"
+                documentTitle={`SalesOrder_${selectedSO?.id || 'DRAFT'}`}
+                defaultPaperSize={printSettings.defaultPaperSize}
+            >
+                <SalesOrderPrintTemplate
+                    salesOrder={{
+                        id: selectedSO?.id || 'DRAFT',
+                        customerName: firstStr(customer?.name) || selectedSO?.customerName || '',
+                        date: orderDate,
+                        expectedDate,
+                        status: selectedSO?.status || 'Draft',
+                        notes: deliveryNotes,
+                        amount: totals.grandTotal,
+                    } as unknown as Record<string, unknown>}
+                    lineItems={doc.lines as unknown as Record<string, unknown>[]}
+                    company={company as unknown as Record<string, unknown>}
+                    options={printSettings}
+                />
+            </PrintPreviewModal>
         </div>
     );
 };
