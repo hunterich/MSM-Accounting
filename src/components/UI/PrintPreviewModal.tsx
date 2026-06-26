@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { X, Printer } from 'lucide-react';
+import { X, Printer, Download } from 'lucide-react';
 import Button from './Button';
+import { downloadElementAsPdf } from '../../utils/downloadPdf';
 
 type PaperSize = 'A4' | 'A5';
 
@@ -53,6 +54,22 @@ const PrintPreviewModal = ({ isOpen, onClose, title = "Print Preview", documentT
         try { localStorage.setItem(PAPER_PREF_KEY, size); } catch { /* ignore storage failures */ }
     };
 
+    const [isExporting, setIsExporting] = useState(false);
+
+    const handleDownloadPdf = async () => {
+        if (!printRef.current) return;
+        setIsExporting(true);
+        try {
+            await downloadElementAsPdf(printRef.current, { documentTitle, paperSize });
+        } catch (err) {
+            console.error('PDF export failed', err);
+            window.alert('Could not generate the PDF. Opening the print dialog instead — choose "Save as PDF" there.');
+            handlePrint();
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     // Close on escape key
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -94,6 +111,13 @@ const PrintPreviewModal = ({ isOpen, onClose, title = "Print Preview", documentT
                             text="Cancel"
                             variant="secondary"
                             onClick={onClose}
+                        />
+                        <Button
+                            text={isExporting ? 'Preparing…' : 'Download PDF'}
+                            variant="secondary"
+                            icon={<Download size={16} />}
+                            onClick={handleDownloadPdf}
+                            disabled={isExporting}
                         />
                         <Button
                             text="Print Document"

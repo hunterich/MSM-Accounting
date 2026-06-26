@@ -76,6 +76,8 @@ import { Printer, Save, Search, Info, Package, Paperclip, FileText, X, AlertTria
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import DocumentActionBar from '../../components/UI/DocumentActionBar';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -163,6 +165,9 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
     // Sales policy enforcement (org-wide rules + role overrides)
     const salesPolicy = useSettingsStore((s) => s.salesPolicy);
+    const company = useSettingsStore((s) => s.companyInfo);
+    const printSettings = useSettingsStore((s) => s.printSettings);
+    const [isPrintOpen, setIsPrintOpen] = useState(false);
     const canBypassBelowCost = useExtraAction('ar_invoices', 'sellBelowCost');
     const canBypassRequireSO = useExtraAction('ar_invoices', 'invoiceWithoutSO');
     const canOverridePrice   = useExtraAction('ar_invoices', 'overridePrice');
@@ -615,7 +620,17 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     };
 
     const handlePrint = () => {
-        window.print();
+        setIsPrintOpen(true);
+    };
+
+    const printInvoice = {
+        number: formData.number || autoNumberPreview,
+        customerName: customerList.find((c) => c.id === formData.customerId)?.name || '',
+        issueDate: formData.issueDate,
+        dueDate: formData.dueDate,
+        status: (editingInvoiceId ? invoices.find((inv) => inv.id === editingInvoiceId)?.status : undefined) || 'Draft',
+        notes: formData.notes,
+        amount: calculateSubtotal(),
     };
 
     // Attachment Logic
@@ -682,6 +697,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     };
 
     return (
+      <>
         <FormPage
             containerClassName="ar-module invoice-form"
             title="Sales Invoice"
@@ -1128,6 +1144,22 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
                 </form>
         </FormPage>
+        <PrintPreviewModal
+            isOpen={isPrintOpen}
+            onClose={() => setIsPrintOpen(false)}
+            title="Invoice Print Preview"
+            documentTitle={`Invoice_${printInvoice.number || ''}`}
+            defaultPaperSize={printSettings.defaultPaperSize}
+        >
+            <InvoicePrintTemplate
+                invoice={printInvoice}
+                lineItems={formData.items as unknown as Record<string, unknown>[]}
+                company={company as unknown as Record<string, unknown>}
+                options={printSettings}
+                taxRate={globalTaxSettings.defaultRate}
+            />
+        </PrintPreviewModal>
+      </>
     );
 };
 
