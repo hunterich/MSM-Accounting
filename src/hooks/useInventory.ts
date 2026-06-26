@@ -265,10 +265,54 @@ export interface StockValuationResult {
     totalValue: number;
 }
 
-export function useStockValuation(filters: Record<string, unknown> = {}) {
+// Raw payload returned by GET /api/v1/inventory/valuation.
+interface RawStockValuationItem {
+    itemId: string;
+    sku: string;
+    name: string;
+    categoryId: string | null;
+    unit: string;
+    totalQty: number;
+    avgCost: number;
+    totalValue: number;
+}
+
+interface RawStockValuationResponse {
+    items: RawStockValuationItem[];
+    summary: { totalItems: number; totalValue: number };
+}
+
+/**
+ * Maps the endpoint's `{ items, summary }` payload onto the view's
+ * `{ rows, totalValue }` shape: remaps item field names (`name`→`itemName`,
+ * `totalQty`→`qtyOnHand`, `avgCost`→`avgUnitCost`) and resolves each item's
+ * `categoryId` to a category name via `categoryNameById`.
+ */
+export function normalizeStockValuation(
+    res: RawStockValuationResponse,
+    categoryNameById: Record<string, string> = {},
+): StockValuationResult {
+    const rows: StockValuationRow[] = (res?.items ?? []).map((it) => ({
+        itemId:      it.itemId,
+        sku:         it.sku  || '',
+        itemName:    it.name || '',
+        categoryId:  it.categoryId ?? undefined,
+        category:    it.categoryId ? (categoryNameById[it.categoryId] ?? '') : '',
+        qtyOnHand:   Number(it.totalQty   ?? 0),
+        avgUnitCost: Number(it.avgCost    ?? 0),
+        totalValue:  Number(it.totalValue ?? 0),
+    }));
+    return { rows, totalValue: Number(res?.summary?.totalValue ?? 0) };
+}
+
+export function useStockValuation(
+    filters: Record<string, unknown> = {},
+    categoryNameById: Record<string, string> = {},
+) {
     return useQuery({
         queryKey: INV_KEYS.valuation(filters),
-        queryFn:  () => api.get<StockValuationResult>('/api/v1/inventory/valuation', filters),
+        queryFn:  () => api.get<RawStockValuationResponse>('/api/v1/inventory/valuation', filters),
+        select:   (res) => normalizeStockValuation(res, categoryNameById),
         staleTime: 30_000,
     });
 }

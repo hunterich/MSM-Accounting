@@ -11,6 +11,8 @@ import { exportToExcel } from '../../utils/exportExcel';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+const EMPTY_ROWS: StockValuationRow[] = [];
+
 const StockValuation: React.FC = () => {
     const [categoryId, setCategoryId] = useState('');
     const [warehouseId, setWarehouseId] = useState('');
@@ -20,11 +22,18 @@ const StockValuation: React.FC = () => {
         ...(warehouseId ? { warehouseId } : {}),
     }), [categoryId, warehouseId]);
 
-    const { data, isLoading } = useStockValuation(filters);
     const categories = useItemCategories().data ?? [];
     const warehouses = useWarehouses().data ?? [];
 
-    const rows: StockValuationRow[] = data?.rows ?? [];
+    // The endpoint returns only categoryId; resolve names client-side for display.
+    const categoryNameById = useMemo(
+        () => Object.fromEntries(categories.map((c) => [c.id, c.name])),
+        [categories],
+    );
+
+    const { data, isLoading } = useStockValuation(filters, categoryNameById);
+
+    const rows: StockValuationRow[] = data?.rows ?? EMPTY_ROWS;
     const totalValue: number = data?.totalValue ?? rows.reduce((s, r) => s + r.totalValue, 0);
 
     const handleExportExcel = () => {
