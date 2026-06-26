@@ -185,10 +185,12 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({ invoice, li
                     <span>Subtotal</span>
                     <strong>{formatIDR(subtotal)}</strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                    <span>DPP</span>
-                    <strong>{formatIDR(subtotal)}</strong>
-                </div>
+                {safeTaxRate > 0 ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                        <span>DPP</span>
+                        <strong>{formatIDR(subtotal)}</strong>
+                    </div>
+                ) : null}
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                     <span>PPN {safeTaxRate}%</span>
                     <strong>{formatIDR(taxAmount)}</strong>
