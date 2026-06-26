@@ -11,6 +11,11 @@ import {
   type AccountDefaultsConfig,
 } from '@/lib/account-defaults';
 import { normalizeApprovalRequirements } from '@/lib/approval/config';
+import {
+  normalizeFeatures,
+  normalizeDocumentNumbering,
+  normalizeSalesPolicy,
+} from '@/lib/organization/settings-config';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +39,10 @@ type OrganizationSettingsRecord = {
   printSettings: unknown;
   approvalRequirements: unknown;
   requireDistinctApproverForAdmins: boolean;
+  defaultPaymentTerms: number;
+  features: unknown;
+  documentNumbering: unknown;
+  salesPolicy: unknown;
 };
 
 const DEFAULT_PRINT_SETTINGS = {
@@ -109,6 +118,10 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     printSettings: normalizePrintSettings(organization.printSettings),
     approvalRequirements: normalizeApprovalRequirements(organization.approvalRequirements),
     requireDistinctApproverForAdmins: organization.requireDistinctApproverForAdmins ?? false,
+    defaultPaymentTerms: organization.defaultPaymentTerms ?? 0,
+    features: normalizeFeatures(organization.features),
+    documentNumbering: normalizeDocumentNumbering(organization.documentNumbering),
+    salesPolicy: normalizeSalesPolicy(organization.salesPolicy),
     needsInventoryValuationSetup: !organization.costingMethod,
   });
 });
@@ -233,6 +246,30 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
     updateData.requireDistinctApproverForAdmins = !!parsed.data.requireDistinctApproverForAdmins;
   }
 
+  if (parsed.data.defaultPaymentTerms !== undefined) {
+    updateData.defaultPaymentTerms = parsed.data.defaultPaymentTerms;
+  }
+  if (parsed.data.features !== undefined) {
+    updateData.features = normalizeFeatures(parsed.data.features);
+  }
+  if (parsed.data.salesPolicy !== undefined) {
+    updateData.salesPolicy = normalizeSalesPolicy(parsed.data.salesPolicy);
+  }
+  if (parsed.data.documentNumbering !== undefined) {
+    const existing = normalizeDocumentNumbering(
+      ((await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { documentNumbering: true },
+      })) as unknown as { documentNumbering: unknown } | null)?.documentNumbering,
+    );
+    // Merge incoming per-doc edits over existing, then normalize.
+    const merged: Record<string, unknown> = { ...existing };
+    for (const [k, v] of Object.entries(parsed.data.documentNumbering)) {
+      merged[k] = { ...((existing as Record<string, unknown>)[k] as object), ...(v as object) };
+    }
+    updateData.documentNumbering = normalizeDocumentNumbering(merged);
+  }
+
   if (Object.keys(updateData).length === 0) {
     return err('No changes provided', 400);
   }
@@ -263,6 +300,10 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
     printSettings: normalizePrintSettings(updated.printSettings),
     approvalRequirements: normalizeApprovalRequirements(updated.approvalRequirements),
     requireDistinctApproverForAdmins: updated.requireDistinctApproverForAdmins ?? false,
+    defaultPaymentTerms: updated.defaultPaymentTerms ?? 0,
+    features: normalizeFeatures(updated.features),
+    documentNumbering: normalizeDocumentNumbering(updated.documentNumbering),
+    salesPolicy: normalizeSalesPolicy(updated.salesPolicy),
     needsInventoryValuationSetup: !updated.costingMethod,
   });
 });
