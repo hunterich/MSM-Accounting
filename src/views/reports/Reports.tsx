@@ -2785,7 +2785,7 @@ const Reports: React.FC = () => {
       </div>
 
       <div className="flex-1 min-w-0 overflow-y-auto">
-        {categoryReports.length > 0 ? (
+        {categoryReports.length > 0 && (
           <div className="p-6">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-xl font-bold text-neutral-900">{activeCategoryMeta?.label}</h2>
@@ -2940,15 +2940,6 @@ const Reports: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
-        ) : (
-          <div className="p-6">
-            <h2 className="text-xl font-bold text-neutral-900 mb-2">{activeCategoryMeta?.label}</h2>
-            <div className="mt-12 text-center">
-              <div className="text-neutral-400 text-5xl mb-4">📊</div>
-              <div className="text-neutral-600 font-medium">Laporan akan segera tersedia</div>
-              <div className="text-neutral-400 text-sm mt-1">Coming soon</div>
-            </div>
           </div>
         )}
       </div>

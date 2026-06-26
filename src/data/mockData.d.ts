@@ -241,24 +241,6 @@ export interface MockJournalEntry extends AnyRecord {
     lines?: Array<{ accountId: string; debit?: number; credit?: number; description?: string }>;
 }
 
-export interface MockSaleLine extends AnyRecord {
-    month: string;
-    revenue: number;
-    cogs: number;
-    grossProfit: number;
-}
-
-export interface MockAgingInvoice extends AnyRecord {
-    customerId: string;
-    customerName: string;
-    current?: number;
-    days1_30?: number;
-    days31_60?: number;
-    days61_90?: number;
-    over90?: number;
-    total?: number;
-}
-
 export declare const customers: MockCustomer[];
 export declare const initialCustomerCategories: MockCustomerCategory[];
 export declare const products: MockProduct[];
@@ -278,5 +260,3 @@ export declare const creditNotes: MockCreditNote[];
 export declare const chartOfAccounts: MockAccount[];
 export declare const accountBalancesById: Record<string, number>;
 export declare const journalEntries: MockJournalEntry[];
-export declare const salesLines: MockSaleLine[];
-export declare const agingInvoices: MockAgingInvoice[];
