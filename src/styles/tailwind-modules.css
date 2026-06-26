@@ -504,6 +504,10 @@
     @apply flex flex-col gap-1;
   }
 
+  .settings-nav-group-label {
+    @apply px-4 pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-neutral-400 first:pt-0;
+  }
+
   .settings-nav-item {
     @apply flex w-full items-center gap-3 rounded-r-lg border-none border-l-[3px] border-l-transparent bg-transparent px-4 py-3 text-left text-[0.95rem] text-neutral-600;
   }

@@ -17,6 +17,7 @@ import {
     BarChart3,
     Building2,
     Settings,
+    Wrench,
     ArrowRightLeft,
     ArrowUpRight,
     ArrowDownLeft,
@@ -121,6 +122,7 @@ const NAV_GROUPS: NavGroup[] = [
         items: [
             { label: 'HR & Payroll',  path: '/hr',         icon: Users },
             { label: 'Assets',        path: '/assets',     icon: Building2 },
+            { label: 'Data & Tools',  path: '/tools',      icon: Wrench },
             { label: 'Settings',      path: '/settings',   icon: Settings },
         ],
     },

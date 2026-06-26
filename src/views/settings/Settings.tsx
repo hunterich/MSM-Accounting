@@ -1,15 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, ScrollText, DatabaseZap, Hash, Mail, Upload, ToggleLeft, Lock, ClipboardCheck, Printer, DatabaseBackup } from 'lucide-react';
+import { Save, Briefcase, User, Shield, Bell, Hash, Mail, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import SecurityRolesTab from './SecurityRolesTab';
-import AuditLogPanel from '../../components/UI/AuditLogPanel';
-import DataMigrationPanel from './DataMigrationPanel';
 import EmailTemplates from './EmailTemplates';
-import CsvImportPanel from './CsvImportPanel';
-import BackupPanel from './BackupPanel';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useAccountDefaults, useOrganizationSettings, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
@@ -77,8 +74,58 @@ const ApprovalRow = ({ label, checked, onChange }: ToggleRowProps) => (
     </div>
 );
 
+interface MenuGroup {
+    label: string;
+    items: MenuItem[];
+}
+
+// Grouped settings navigation. Data-management tools (audit log, migration,
+// CSV import, backup) deliberately live on the separate /tools page — this
+// rail is configuration only.
+const MENU_GROUPS: MenuGroup[] = [
+    {
+        label: 'Organization',
+        items: [
+            { id: 'general', label: 'Company Info', icon: Briefcase },
+            { id: 'accounts', label: 'Account Defaults', icon: Briefcase },
+            { id: 'numbering', label: 'Document Numbering', icon: Hash },
+            { id: 'features', label: 'Features', icon: ToggleLeft },
+        ],
+    },
+    {
+        label: 'Sales & purchasing',
+        items: [
+            { id: 'customers', label: 'Customers & Sales', icon: User },
+            { id: 'restrictions', label: 'Restrictions', icon: Lock },
+            { id: 'approvals', label: 'Approval Rules', icon: ClipboardCheck },
+        ],
+    },
+    {
+        label: 'Branding & templates',
+        items: [
+            { id: 'print', label: 'Print & Branding', icon: Printer },
+            { id: 'email-templates', label: 'Email Templates', icon: Mail },
+        ],
+    },
+    {
+        label: 'Users & security',
+        items: [
+            { id: 'security', label: 'Security & Roles', icon: Shield },
+            { id: 'notifications', label: 'Notifications', icon: Bell },
+        ],
+    },
+];
+
+const ALL_MENU_ITEMS: MenuItem[] = MENU_GROUPS.flatMap((g) => g.items);
+const VALID_TAB_IDS = new Set(ALL_MENU_ITEMS.map((i) => i.id));
+
 const Settings = () => {
-    const [activeTab, setActiveTab] = useState('customers');
+    // Active tab is driven by the ?tab= query param so it's deep-linkable and
+    // bookmarkable. Defaults to Company Info; unknown ids fall back to it too.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const rawTab = searchParams.get('tab') || 'general';
+    const activeTab = VALID_TAB_IDS.has(rawTab) ? rawTab : 'general';
+    const setActiveTab = (id: string) => setSearchParams(id === 'general' ? {} : { tab: id });
     const storeCompanyInfo = useSettingsStore(s => s.companyInfo);
     const storeTaxSettings = useSettingsStore(s => s.taxSettings);
     const storeCustomerCreditSettings = useSettingsStore(s => s.customerCreditSettings);
@@ -116,6 +163,10 @@ const Settings = () => {
     const [accountDefaults, setAccountDefaults] = useState(storeAccountDefaults);
     const [printForm, setPrintForm] = useState(storePrintSettings);
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
+    // Draft copy of document numbering — edits stay local until Save, so this
+    // tab behaves like every other tab instead of writing on each keystroke.
+    const [numberingForm, setNumberingForm] = useState(documentNumbering);
+    useEffect(() => { setNumberingForm(documentNumbering); }, [documentNumbering]);
 
     const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -157,24 +208,6 @@ const Settings = () => {
         dailySummary: false
     });
     const [lastSavedTab, setLastSavedTab] = useState('');
-
-    const menuItems: MenuItem[] = [
-        { id: 'general', label: 'Company Info', icon: Briefcase },
-        { id: 'customers', label: 'Customers & Sales', icon: User },
-        { id: 'features', label: 'Features', icon: ToggleLeft },
-        { id: 'restrictions', label: 'Restrictions', icon: Lock },
-        { id: 'approvals', label: 'Approval Rules', icon: ClipboardCheck },
-        { id: 'accounts', label: 'Account Defaults', icon: Briefcase },
-        { id: 'print', label: 'Print & Branding', icon: Printer },
-        { id: 'numbering', label: 'Document Numbering', icon: Hash },
-        { id: 'security', label: 'Security & Roles', icon: Shield },
-        { id: 'notifications', label: 'Notifications', icon: Bell },
-        { id: 'audit', label: 'Audit Log', icon: ScrollText },
-        { id: 'migration', label: 'Migrasi Data', icon: DatabaseZap },
-        { id: 'email-templates', label: 'Email Templates', icon: Mail },
-        { id: 'csv-import', label: 'CSV Import', icon: Upload },
-        { id: 'backup', label: 'Backup & Restore', icon: DatabaseBackup },
-    ];
 
     const saveCustomerCreditSettings = (): boolean => {
         const defaultLimit = Number(creditLimitSettings.defaultLimit);
@@ -307,6 +340,11 @@ const Settings = () => {
             }
         }
 
+        if (sectionId === 'numbering') {
+            // Commit the local draft to the store in one go.
+            Object.entries(numberingForm).forEach(([k, v]) => updateDocumentNumbering(k, v));
+        }
+
         setLastSavedTab(sectionId);
     };
 
@@ -317,18 +355,23 @@ const Settings = () => {
             <div>
                 <h2 className="settings-title">Settings</h2>
                 <div className="settings-nav-list">
-                    {menuItems.map(item => {
-                        const Icon = item.icon;
-                        return (
-                            <button
-                                key={item.id}
-                                onClick={() => setActiveTab(item.id)}
-                                className={`settings-nav-item ${activeTab === item.id ? 'active' : ''}`}
-                            >
-                                <Icon size={18} /> {item.label}
-                            </button>
-                        );
-                    })}
+                    {MENU_GROUPS.map(group => (
+                        <React.Fragment key={group.label}>
+                            <div className="settings-nav-group-label">{group.label}</div>
+                            {group.items.map(item => {
+                                const Icon = item.icon;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => setActiveTab(item.id)}
+                                        className={`settings-nav-item ${activeTab === item.id ? 'active' : ''}`}
+                                    >
+                                        <Icon size={18} /> {item.label}
+                                    </button>
+                                );
+                            })}
+                        </React.Fragment>
+                    ))}
                 </div>
             </div>
 
@@ -336,7 +379,7 @@ const Settings = () => {
             <div>
                 <div className="settings-content-title-wrap">
                     <h1 className="settings-content-title">
-                        {menuItems.find(i => i.id === activeTab)?.label || 'Settings'}
+                        {ALL_MENU_ITEMS.find(i => i.id === activeTab)?.label || 'Settings'}
                     </h1>
                     {lastSavedTab === activeTab ? (
                         <div className="settings-help-text">Changes saved locally.</div>
@@ -644,7 +687,7 @@ const Settings = () => {
                                 { key: 'ar_payment',  label: 'AR Payment' },
                                 { key: 'ap_payment',  label: 'AP Payment' },
                             ].map(({ key, label }) => {
-                                const cfg = documentNumbering[key] || {};
+                                const cfg = numberingForm[key] || {};
                                 return (
                                     <div key={key} className="grid grid-cols-12 gap-3 items-end pb-4 border-b border-neutral-100 last:border-0 last:pb-0">
                                         <div className="col-span-3">
@@ -657,7 +700,7 @@ const Settings = () => {
                                             <label className="form-label">Prefix</label>
                                             <Input
                                                 value={cfg.prefix || ''}
-                                                onChange={(e) => updateDocumentNumbering(key, { prefix: e.target.value.toUpperCase() })}
+                                                onChange={(e) => setNumberingForm((prev) => ({ ...prev, [key]: { ...prev[key], prefix: e.target.value.toUpperCase() } }))}
                                                 placeholder="e.g. INV"
                                                 inputClassName="font-mono uppercase"
                                             />
@@ -667,7 +710,7 @@ const Settings = () => {
                                             <select
                                                 className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
                                                 value={cfg.resetPeriod || 'monthly'}
-                                                onChange={(e) => updateDocumentNumbering(key, { resetPeriod: e.target.value })}
+                                                onChange={(e) => setNumberingForm((prev) => ({ ...prev, [key]: { ...prev[key], resetPeriod: e.target.value } }))}
                                             >
                                                 <option value="monthly">Monthly</option>
                                                 <option value="yearly">Yearly</option>
@@ -679,7 +722,7 @@ const Settings = () => {
                                             <select
                                                 className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
                                                 value={cfg.seqLength || 6}
-                                                onChange={(e) => updateDocumentNumbering(key, { seqLength: Number(e.target.value) })}
+                                                onChange={(e) => setNumberingForm((prev) => ({ ...prev, [key]: { ...prev[key], seqLength: Number(e.target.value) } }))}
                                             >
                                                 <option value={4}>4 digits</option>
                                                 <option value={5}>5 digits</option>
@@ -690,6 +733,9 @@ const Settings = () => {
                                     </div>
                                 );
                             })}
+                        </div>
+                        <div className="settings-save-wrap">
+                            <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('numbering')} />
                         </div>
                     </Card>
                 )}
@@ -927,33 +973,8 @@ const Settings = () => {
                     </Card>
                 )}
 
-                {activeTab === 'audit' && (
-                    <Card title="Audit Log">
-                        <p className="settings-muted">Riwayat seluruh perubahan data — siapa mengubah apa dan kapan.</p>
-                        <AuditLogPanel />
-                    </Card>
-                )}
-
-                {activeTab === 'migration' && (
-                    <Card title="Migrasi Data">
-                        <p className="settings-muted">Pindahkan data dari localStorage (versi lama) ke database PostgreSQL.</p>
-                        <DataMigrationPanel />
-                    </Card>
-                )}
-
                 {activeTab === 'email-templates' && (
                     <EmailTemplates />
-                )}
-
-                {activeTab === 'csv-import' && (
-                    <Card title="CSV Import">
-                        <p className="settings-muted mb-4">Bulk-import customers, vendors, items, or chart of accounts from a CSV file. Download the template, fill in your data, then upload.</p>
-                        <CsvImportPanel />
-                    </Card>
-                )}
-
-                {activeTab === 'backup' && (
-                    <BackupPanel />
                 )}
             </div>
         </div>
