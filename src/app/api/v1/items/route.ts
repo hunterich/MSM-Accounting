@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { createItemInputSchema } from '@/types/api';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 
@@ -42,7 +43,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(enriched, total, page, limit);
 });
 
-export async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'INV_ITEMS', action: 'create' }, async (req: NextRequest) => {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
 
@@ -109,4 +110,4 @@ export async function POST(req: NextRequest) {
   }
   logAudit({ orgId: orgId!, actorId: req.headers.get('x-user-id'), entityType: 'Item', entityId: item.id, action: 'CREATE', payload: { name: item.name } });
   return ok(item, 201);
-}
+});

@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, logAudit, ok, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { warehouseInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -43,7 +44,7 @@ export const GET = withHandler(async function GET(
   return ok(warehouse);
 });
 
-export const PUT = withHandler(async function PUT(
+export const PUT = withPermission({ module: 'INV_ITEMS', action: 'edit' }, async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -77,7 +78,7 @@ export const PUT = withHandler(async function PUT(
   return ok(warehouse);
 });
 
-export const DELETE = withHandler(async function DELETE(
+export const DELETE = withPermission({ module: 'INV_ITEMS', action: 'delete' }, async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

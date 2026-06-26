@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateIntegrationInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withPermission({ module: 'INTEGRATIONS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const orgId = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
@@ -146,9 +147,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed to update integration';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission({ module: 'INTEGRATIONS', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const orgId = req.headers.get('x-org-id');
     const userId = req.headers.get('x-user-id');
@@ -182,4 +183,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const message = error instanceof Error ? error.message : 'Failed to delete integration';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

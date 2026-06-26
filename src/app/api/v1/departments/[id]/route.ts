@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, logAudit, ok, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { departmentInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -44,7 +45,7 @@ export const GET = withHandler(async function GET(
   return ok(department);
 });
 
-export const PUT = withHandler(async function PUT(
+export const PUT = withPermission({ module: 'HR_ATTENDANCE', action: 'edit' }, async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -72,7 +73,7 @@ export const PUT = withHandler(async function PUT(
   return ok(department);
 });
 
-export const DELETE = withHandler(async function DELETE(
+export const DELETE = withPermission({ module: 'HR_ATTENDANCE', action: 'delete' }, async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

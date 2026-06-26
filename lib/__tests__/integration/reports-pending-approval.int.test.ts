@@ -40,14 +40,29 @@ afterAll(async () => {
 
 const ISSUE_DATE = new Date('2026-03-15T00:00:00.000Z');
 
-/** Build a NextRequest carrying the auth headers the route reads. */
+/**
+ * Build a NextRequest carrying the auth headers the route reads. The actor is an
+ * ADMIN (production middleware injects `x-role-type: 'ADMIN'` from the verified
+ * JWT, which makes `requirePermission` bypass). The sales report GET is read by
+ * orgId only and never looks the user up, so a synthetic `x-user-id` (required
+ * by `authActor`) is sufficient here.
+ */
 function makeGet(url: string, orgId: string): NextRequest {
-  const h = new Headers({ 'x-org-id': orgId });
+  const h = new Headers({
+    'x-org-id': orgId,
+    'x-user-id': `reports-reader-${randomUUID()}`,
+    'x-role-type': 'ADMIN',
+  });
   return new NextRequest(new URL(url, 'http://localhost'), { method: 'GET', headers: h });
 }
 
 function makePost(url: string, orgId: string, userId: string, body: unknown): NextRequest {
-  const h = new Headers({ 'x-org-id': orgId, 'x-user-id': userId, 'content-type': 'application/json' });
+  const h = new Headers({
+    'x-org-id': orgId,
+    'x-user-id': userId,
+    'x-role-type': 'ADMIN',
+    'content-type': 'application/json',
+  });
   return new NextRequest(new URL(url, 'http://localhost'), {
     method: 'POST',
     headers: h,

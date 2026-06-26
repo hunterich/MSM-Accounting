@@ -167,12 +167,16 @@ async function makeTaxableRecurringBillTemplate(
   return { tplId: tpl.id, lineAmount, taxRate };
 }
 
-/** Build a NextRequest carrying the auth headers the route reads. */
+/**
+ * Build a NextRequest carrying the auth headers the route reads. The seeded
+ * actor is an ADMIN (seedAdmin), so we mirror what `src/middleware.ts` injects
+ * from the verified JWT: `x-role-type: 'ADMIN'` makes `requirePermission` bypass.
+ */
 function authedRequest(
   url: string,
   headers: { orgId: string; userId?: string },
 ): NextRequest {
-  const h = new Headers({ 'x-org-id': headers.orgId });
+  const h = new Headers({ 'x-org-id': headers.orgId, 'x-role-type': 'ADMIN' });
   if (headers.userId) h.set('x-user-id', headers.userId);
   return new NextRequest(new URL(url, 'http://localhost'), { method: 'POST', headers: h });
 }
@@ -347,32 +351,26 @@ describe('recurring invoice run (batch) × approval gate', () => {
     }
   });
 
-  it('ar_invoices ON + autoPost, run with NO x-user-id → falls back to org admin as requester (no bypass)', async () => {
+  it('run with NO x-user-id → 401 (server-side authz requires authentication; no unauthenticated batch run)', async () => {
     const org = await createTestOrg();
     try {
-      const admin = await seedAdmin(org.orgId);
+      await seedAdmin(org.orgId);
       await setRequirement(org.orgId, 'ar_invoices', true);
       const customerId = await createCustomer(org.orgId);
       await makeRecurringInvoiceTemplate(org.orgId, customerId, true);
 
-      const req = authedRequest('/api/v1/recurring-invoices/run', { orgId: org.orgId }); // scheduler path
+      // No x-user-id header. With the server-side authorization layer, every
+      // /api/v1 route is authenticated by middleware (which injects x-user-id
+      // from the verified session). A request without it is rejected up-front,
+      // so an unauthenticated caller can NOT trigger a batch run. The real
+      // scheduler invokes a lib function, not this HTTP route.
+      const req = authedRequest('/api/v1/recurring-invoices/run', { orgId: org.orgId });
       const res = await runInvoices(req);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
 
-      const invoices = await prisma.salesInvoice.findMany({
-        where: { organizationId: org.orgId },
-        select: { status: true },
-      });
-      expect(invoices).toHaveLength(1);
-      expect(invoices[0].status).toBe('PENDING_APPROVAL');
-
-      const pending = await prisma.approvalRequest.findMany({
-        where: { organizationId: org.orgId, documentType: 'INVOICE', status: 'PENDING' },
-        select: { requestedById: true },
-      });
-      expect(pending).toHaveLength(1);
-      // Attributed to the seeded org admin, not skipped.
-      expect(pending[0].requestedById).toBe(admin);
+      // Nothing was generated — no bypass.
+      expect(await prisma.salesInvoice.count({ where: { organizationId: org.orgId } })).toBe(0);
+      expect(await prisma.approvalRequest.count({ where: { organizationId: org.orgId } })).toBe(0);
       expect(await journalEntryCount(org.orgId)).toBe(0);
     } finally {
       await cleanupOrg(org.orgId);

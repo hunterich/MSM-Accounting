@@ -73,7 +73,7 @@ function makeJsonReq(path: string, method: string, body: unknown) {
     method,
     headers: {
       'x-org-id': 'org-a',
-      'x-user-id': 'user-1',
+      'x-user-id': 'user-1', 'x-role-type': 'ADMIN',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -85,7 +85,7 @@ function makeFormReq(path: string, formData: FormData) {
     method: 'POST',
     headers: {
       'x-org-id': 'org-a',
-      'x-user-id': 'user-1',
+      'x-user-id': 'user-1', 'x-role-type': 'ADMIN',
     },
     body: formData,
   });

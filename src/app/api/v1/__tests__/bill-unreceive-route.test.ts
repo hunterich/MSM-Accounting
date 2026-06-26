@@ -12,7 +12,7 @@ import { POST as unreceive } from '../bills/[id]/unreceive/route';
 
 function req() {
   return new NextRequest('http://localhost/api/v1/bills/bill-1/unreceive', {
-    method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' },
+    method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' },
   });
 }
 const params = { params: Promise.resolve({ id: 'bill-1' }) };

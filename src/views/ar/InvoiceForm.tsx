@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 interface InvoiceLineItem {
@@ -80,9 +80,11 @@ import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useExtraAction } from '../../hooks/useModulePermissions';
 import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
+import { useDraftAutosave } from '../../hooks/useDraftAutosave';
 
 class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
     constructor(props: TableErrorBoundaryProps) {
@@ -103,10 +105,46 @@ class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableE
     }
 }
 
-const InvoiceForm = () => {
+interface InvoiceFormProps {
+    mode?: 'create' | 'edit';
+    /** Present only when rendered inside the workspace shell. */
+    workspaceTabId?: string;
+    /** Record id when rendered inside the workspace (replaces location.state.openInvoiceId). */
+    recordId?: string;
+}
+
+/** Shape of the recoverable draft autosaved into a workspace tab. */
+interface InvoiceDraft {
+    customerId: string;
+    email: string;
+    billingAddress: string;
+    shippingAddress: string;
+    poNumber: string;
+    issueDate: string;
+    dueDate: string;
+    shippingDate: string;
+    number: string;
+    discount: number;
+    notes: string;
+    invoiceType: string;
+    items: InvoiceLineItem[];
+    taxSettings: InvoiceTaxSettings;
+}
+
+const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const navigate = useNavigate();
     const location = useLocation() as { state?: InvoiceEditorState };
+    // In workspace mode the editing target comes from the tab's recordId; in
+    // route mode it comes from location.state (set by the workbench's Edit action).
+    const resolvedEditId = recordId ?? location.state?.openInvoiceId ?? null;
     const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+
+    // Recover an autosaved draft for this workspace tab (workspace mode only).
+    const draftSeed = useWorkspaceStore((s) =>
+        (workspaceTabId ? s.tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
+            | Partial<InvoiceDraft>
+            | undefined,
+    );
     const [activeTab, setActiveTab] = useState<'items' | 'info' | 'attachments'>('items');
     const [numberingMode, setNumberingMode] = useState<'auto' | 'manual'>('auto');
     const [selectedCustomerTerms, setSelectedCustomerTerms] = useState<number | null>(null);
@@ -134,30 +172,31 @@ const InvoiceForm = () => {
     const canBypassRequireSO = useExtraAction('ar_invoices', 'invoiceWithoutSO');
     const canOverridePrice   = useExtraAction('ar_invoices', 'overridePrice');
 
-    const [formData, setFormData] = useState<InvoiceFormData>({
-        customerId: '',
-        email: '',
-        billingAddress: '',
-        shippingAddress: '',
-        poNumber: '',
-        issueDate: new Date().toISOString().split('T')[0],
-        dueDate: '',
-        shippingDate: new Date().toISOString().split('T')[0],
-        number: '',
-        discount: 0,
-        notes: '',
-        items: [],
-        attachments: [],
-        currency: 'IDR',
-        invoiceType: 'Sales Invoice'
-    });
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
     const docNumbering = useSettingsStore(s => s.documentNumbering?.ar_invoice ?? { prefix: 'INV', resetPeriod: 'monthly', seqLength: 6 });
 
+    const [formData, setFormData] = useState<InvoiceFormData>({
+        customerId: draftSeed?.customerId ?? '',
+        email: draftSeed?.email ?? '',
+        billingAddress: draftSeed?.billingAddress ?? '',
+        shippingAddress: draftSeed?.shippingAddress ?? '',
+        poNumber: draftSeed?.poNumber ?? '',
+        issueDate: draftSeed?.issueDate ?? new Date().toISOString().split('T')[0],
+        dueDate: draftSeed?.dueDate ?? '',
+        shippingDate: draftSeed?.shippingDate ?? new Date().toISOString().split('T')[0],
+        number: draftSeed?.number ?? '',
+        discount: draftSeed?.discount ?? 0,
+        notes: draftSeed?.notes ?? '',
+        items: draftSeed?.items ?? [],
+        attachments: [],
+        currency: 'IDR',
+        invoiceType: draftSeed?.invoiceType ?? 'Sales Invoice'
+    });
+
     const [taxSettings, setTaxSettings] = useState({
-        enabled: globalTaxSettings.enabled,
-        inclusive: globalTaxSettings.inclusiveByDefault,
-        rate: globalTaxSettings.defaultRate
+        enabled: draftSeed?.taxSettings?.enabled ?? globalTaxSettings.enabled,
+        inclusive: draftSeed?.taxSettings?.inclusive ?? globalTaxSettings.inclusiveByDefault,
+        rate: draftSeed?.taxSettings?.rate ?? globalTaxSettings.defaultRate
     } as InvoiceTaxSettings);
 
 
@@ -199,9 +238,17 @@ const InvoiceForm = () => {
     const autoNumberPreview = buildAutoNumber(formData.issueDate);
 
     useEffect(() => {
-        const state = location.state || {};
-        if (state.openInvoiceId && state.mode === 'edit' && invoices.length > 0) {
-            const exists = invoices.find((inv) => inv.id === state.openInvoiceId);
+        // A recovered draft already holds the user's in-progress edits — don't
+        // overwrite it from the saved record.
+        if (draftSeed) {
+            if (resolvedEditId) setEditingInvoiceId(resolvedEditId);
+            return;
+        }
+        // Route mode requires location.state.mode === 'edit'; workspace mode
+        // signals edit via a non-null recordId.
+        const isEditTarget = recordId ? true : location.state?.mode === 'edit';
+        if (resolvedEditId && isEditTarget && invoices.length > 0) {
+            const exists = invoices.find((inv) => inv.id === resolvedEditId);
             if (exists) {
                 setEditingInvoiceId(exists.id);
                 setNumberingMode('manual');
@@ -217,7 +264,7 @@ const InvoiceForm = () => {
                 setActiveTab('items');
             }
         }
-    }, [location.state, invoices.length]);
+    }, [location.state, recordId, resolvedEditId, draftSeed, invoices.length]);
 
     // Click outside to close item search range
     useEffect(() => {
@@ -381,6 +428,74 @@ const InvoiceForm = () => {
     const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
     const isPageLoading = customersLoading || invoicesLoading || itemsLoading;
 
+    // ── Workspace draft autosave + dirty mirroring (workspace mode only) ──────
+    const isEditMode = Boolean(editingInvoiceId);
+    const snapshot = useMemo<InvoiceDraft>(() => ({
+        customerId: formData.customerId,
+        email: formData.email,
+        billingAddress: formData.billingAddress,
+        shippingAddress: formData.shippingAddress,
+        poNumber: formData.poNumber,
+        issueDate: formData.issueDate,
+        dueDate: formData.dueDate,
+        shippingDate: formData.shippingDate,
+        number: formData.number,
+        discount: formData.discount,
+        notes: formData.notes,
+        invoiceType: formData.invoiceType,
+        items: formData.items,
+        taxSettings,
+    }), [formData, taxSettings]);
+
+    useDraftAutosave(workspaceTabId, snapshot);
+
+    const dirty = formData.items.length > 0 || !!formData.customerId
+        || !!formData.poNumber || !!formData.notes || formData.discount > 0;
+
+    const setStatus = useWorkspaceStore((s) => s.setStatus);
+    useEffect(() => {
+        if (!workspaceTabId) return;
+        setStatus(workspaceTabId, dirty ? (isEditMode ? 'dirty' : 'new') : (isEditMode ? 'clean' : 'new'));
+    }, [workspaceTabId, dirty, isEditMode, setStatus]);
+
+    const closeTab = useWorkspaceStore((s) => s.closeTab);
+    const clearDraft = useWorkspaceStore((s) => s.clearDraft);
+
+    /**
+     * Finalize a save. In workspace mode the tab owns navigation — clear the
+     * recovered draft and close the tab. In route mode run the legacy
+     * post-save navigation (workbench return or list redirect), byte-for-byte.
+     */
+    const finishSave = (savedInvoiceId: string, savedNumber: string): boolean => {
+        if (workspaceTabId) {
+            clearDraft(workspaceTabId);
+            closeTab(workspaceTabId);
+            return true;
+        }
+        if (location.state?.returnToWorkbench) {
+            const targetInvoiceId = location.state?.openInvoiceId || savedInvoiceId;
+            const query = new URLSearchParams();
+            const catalogState = location.state?.catalogState || {};
+            if (catalogState.searchTerm) query.set('search', catalogState.searchTerm);
+            if (catalogState.status) query.set('status', catalogState.status);
+            if (catalogState.dateFrom) query.set('from', catalogState.dateFrom);
+            if (catalogState.dateTo) query.set('to', catalogState.dateTo);
+            if (targetInvoiceId) query.set('invoiceId', targetInvoiceId);
+
+            navigate(`/ar/invoices/workbench?${query.toString()}`, {
+                state: {
+                    invoiceId: targetInvoiceId,
+                    catalogState,
+                    updatedNumber: savedNumber
+                }
+            });
+            return true;
+        }
+
+        navigate('/ar/invoices');
+        return true;
+    };
+
     const persistInvoice = async (saveAsDraft: boolean) => {
         // Org-wide sales policy enforcement applies when approving; drafts are
         // work-in-progress that can be parked without passing policy gates.
@@ -501,27 +616,7 @@ const InvoiceForm = () => {
             return;
         }
 
-        if (location.state?.returnToWorkbench) {
-            const targetInvoiceId = location.state?.openInvoiceId || savedInvoiceId;
-            const query = new URLSearchParams();
-            const catalogState = location.state?.catalogState || {};
-            if (catalogState.searchTerm) query.set('search', catalogState.searchTerm);
-            if (catalogState.status) query.set('status', catalogState.status);
-            if (catalogState.dateFrom) query.set('from', catalogState.dateFrom);
-            if (catalogState.dateTo) query.set('to', catalogState.dateTo);
-            if (targetInvoiceId) query.set('invoiceId', targetInvoiceId);
-
-            navigate(`/ar/invoices/workbench?${query.toString()}`, {
-                state: {
-                    invoiceId: targetInvoiceId,
-                    catalogState,
-                    updatedNumber: savedNumber
-                }
-            });
-            return;
-        }
-
-        navigate('/ar/invoices');
+        finishSave(savedInvoiceId, savedNumber);
     };
 
     const handlePrint = () => {

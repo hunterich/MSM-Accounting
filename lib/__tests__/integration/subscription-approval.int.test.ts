@@ -121,9 +121,13 @@ async function makeDueSubscription(orgId: string, customerId: string): Promise<s
   return sub.id;
 }
 
-/** Build a NextRequest carrying the auth headers the route reads. */
+/**
+ * Build a NextRequest carrying the auth headers the route reads. The seeded
+ * actor is an ADMIN (seedAdmin), so we mirror what `src/middleware.ts` injects
+ * from the verified JWT: `x-role-type: 'ADMIN'` makes `requirePermission` bypass.
+ */
 function authedRequest(headers: { orgId: string; userId?: string }): NextRequest {
-  const h = new Headers({ 'x-org-id': headers.orgId });
+  const h = new Headers({ 'x-org-id': headers.orgId, 'x-role-type': 'ADMIN' });
   if (headers.userId) h.set('x-user-id', headers.userId);
   return new NextRequest(new URL('/api/v1/subscriptions/generate-invoices', 'http://localhost'), {
     method: 'POST',

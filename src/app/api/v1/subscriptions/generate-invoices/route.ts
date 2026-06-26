@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, requireOrg, withHandler, logAudit } from '@/lib/api-utils';
+import { ok, requireOrg, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { calculateNextPeriod } from '@/lib/subscription';
 import { routeForApproval } from '@/lib/approval/engine';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
@@ -41,7 +42,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(req: NextRequest) {
+export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const actorId = req.headers.get('x-user-id');
   // Resolve the user any held ApprovalRequest will be attributed to: the caller

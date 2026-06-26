@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, logAudit, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { updateAssetInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -31,7 +32,7 @@ export const GET = withHandler(async function GET(
   return ok(asset);
 });
 
-export const PUT = withHandler(async function PUT(
+export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -75,7 +76,7 @@ export const PUT = withHandler(async function PUT(
   return ok(updated);
 });
 
-export const DELETE = withHandler(async function DELETE(
+export const DELETE = withPermission({ module: 'GL_JOURNAL', action: 'delete' }, async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

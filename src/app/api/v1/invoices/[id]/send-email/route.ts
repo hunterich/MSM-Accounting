@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { sendInvoiceEmail } from '@/lib/email';
 import { routeForApproval } from '@/lib/approval/engine';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
@@ -12,7 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withHandler(async function POST(
+export const POST = withPermission({ module: 'AR_INVOICES', action: 'edit' }, async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

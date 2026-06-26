@@ -16,12 +16,12 @@ import { PUT as putPurchase } from '../purchase-returns/[id]/route';
 const srParams = { params: Promise.resolve({ id: 'sr-1' }) };
 const prParams = { params: Promise.resolve({ id: 'pr-1' }) };
 function post(path: string) {
-  return new NextRequest(`http://localhost${path}`, { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1' } });
+  return new NextRequest(`http://localhost${path}`, { method: 'POST', headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } });
 }
 function putVoid(path: string) {
   return new NextRequest(`http://localhost${path}`, {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'content-type': 'application/json' },
+    headers: { 'x-org-id': 'org-a', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
     body: JSON.stringify({ status: 'VOID' }),
   });
 }

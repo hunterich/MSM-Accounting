@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, logAudit } from '@/lib/api-utils';
+import { requireOrg, ok, logAudit } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 import { ApiError } from '@/lib/errors';
 import { postStockCount } from '@/lib/stock-count-posting';
 
 export const runtime = 'nodejs';
 export async function OPTIONS() { return corsPreflightResponse(); }
 
-export const POST = withHandler(async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const orgId = requireOrg(req);
   const { id } = await params;
   const result = await prisma.$transaction(async (tx) => {

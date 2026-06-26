@@ -69,7 +69,7 @@ import { PUT as updateJournalEntry } from '../journal-entries/[id]/route';
 function makePutReq(id: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost/api/v1/journal-entries/${id}`, {
     method: 'PUT',
-    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'Content-Type': 'application/json' },
+    headers: { 'x-org-id': 'org-1', 'x-user-id': 'u1', 'x-role-type': 'ADMIN', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
