@@ -197,6 +197,27 @@ const Settings = () => {
       setApprovalRequirements((prev) => ({ ...prev, ...serverOrgSettings.approvalRequirements }));
       setRequireDistinctApproverForAdmins(serverOrgSettings.requireDistinctApproverForAdmins);
     }, [serverOrgSettings]);
+
+    // Seed the remaining tabs from the server (DB is the source of truth).
+    useEffect(() => {
+      if (!serverOrgSettings) return;
+      const s = serverOrgSettings;
+      setTaxData({ enabled: s.taxEnabled, defaultRate: s.taxDefaultRate, inclusiveByDefault: s.taxInclusiveByDefault });
+      setCreditLimitSettings({
+        defaultLimit: String(s.defaultCreditLimit),
+        defaultPaymentTerms: String(s.defaultPaymentTerms),
+        enforceLimit: s.enforceCreditLimit,
+      });
+      setSalesPolicy(s.salesPolicy);
+      setFeatures((prev) => ({ ...prev, ...s.features }));
+      setNumberingForm((prev) => ({ ...prev, ...s.documentNumbering }));
+      setNotificationSettings({
+        financeEmail: s.financeEmail || '',
+        invoiceReminders: s.invoiceReminders,
+        paymentAlerts: s.paymentAlerts,
+        dailySummary: s.dailySummary,
+      });
+    }, [serverOrgSettings]);
     const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
         allowInvites: true,
         sessionTimeoutMinutes: '30'
@@ -209,26 +230,6 @@ const Settings = () => {
     });
     const [lastSavedTab, setLastSavedTab] = useState('');
 
-    const saveCustomerCreditSettings = (): boolean => {
-        const defaultLimit = Number(creditLimitSettings.defaultLimit);
-        const defaultPaymentTerms = Number(creditLimitSettings.defaultPaymentTerms);
-        if (isNaN(defaultLimit) || defaultLimit < 0) {
-            window.alert('Default credit limit must be a non-negative number.');
-            return false;
-        }
-        if (isNaN(defaultPaymentTerms) || defaultPaymentTerms < 0) {
-            window.alert('Default credit terms must be a non-negative number of days.');
-            return false;
-        }
-
-        updateCustomerCreditSettings({
-            defaultLimit,
-            defaultPaymentTerms,
-            enforceLimit: creditLimitSettings.enforceLimit,
-        });
-        return true;
-    };
-
     const saveSection = async (sectionId: string): Promise<void> => {
         if (sectionId === 'general') {
             if (!generalSettings.companyName.trim()) {
@@ -237,6 +238,10 @@ const Settings = () => {
             }
             if (generalSettings.email && !generalSettings.email.includes('@')) {
                 window.alert('Company email format is invalid.');
+                return;
+            }
+            if (taxData.enabled && (isNaN(Number(taxData.defaultRate)) || Number(taxData.defaultRate) < 0 || Number(taxData.defaultRate) > 100)) {
+                window.alert('Tax rate must be between 0 and 100.');
                 return;
             }
             // Persist company identity to the organization record (DB is the source
@@ -251,6 +256,9 @@ const Settings = () => {
                     logoUrl: generalSettings.logoUrl?.trim() || null,
                     timezone: generalSettings.timezone,
                     locale: generalSettings.locale,
+                    taxEnabled: taxData.enabled,
+                    taxDefaultRate: taxData.defaultRate,
+                    taxInclusiveByDefault: taxData.inclusiveByDefault,
                 } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
             } catch (e) {
                 window.alert(`Failed to save company info: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -261,20 +269,38 @@ const Settings = () => {
         }
 
         if (sectionId === 'customers') {
-            if (!saveCustomerCreditSettings()) {
+            const defaultLimit = Number(creditLimitSettings.defaultLimit);
+            const defaultPaymentTerms = Number(creditLimitSettings.defaultPaymentTerms);
+            if (isNaN(defaultLimit) || defaultLimit < 0) { window.alert('Default credit limit must be a non-negative number.'); return; }
+            if (isNaN(defaultPaymentTerms) || defaultPaymentTerms < 0) { window.alert('Default credit terms must be a non-negative number of days.'); return; }
+            try {
+                await updateOrgSettings.mutateAsync({
+                    defaultCreditLimit: defaultLimit,
+                    defaultPaymentTerms,
+                    enforceCreditLimit: creditLimitSettings.enforceLimit,
+                } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+            } catch (e) {
+                window.alert(`Failed to save credit settings: ${e instanceof Error ? e.message : 'Unknown error'}`);
                 return;
             }
+            updateCustomerCreditSettings({ defaultLimit, defaultPaymentTerms, enforceLimit: creditLimitSettings.enforceLimit });
         }
 
         if (sectionId === 'features') {
+            try {
+                await updateOrgSettings.mutateAsync({ features: features as unknown as Record<string, boolean> } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+            } catch (e) {
+                window.alert(`Failed to save features: ${e instanceof Error ? e.message : 'Unknown error'}`);
+                return;
+            }
             updateFeatures(features);
-            // Pajak checkbox in this tab binds to taxData.enabled (single source
-            // of truth) — persist that change here too.
-            updateTaxSettings({ enabled: taxData.enabled });
         }
 
         if (sectionId === 'restrictions') {
-            if (!saveCustomerCreditSettings()) {
+            try {
+                await updateOrgSettings.mutateAsync({ salesPolicy } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+            } catch (e) {
+                window.alert(`Failed to save sales policies: ${e instanceof Error ? e.message : 'Unknown error'}`);
                 return;
             }
             updateSalesPolicy(salesPolicy);
@@ -334,14 +360,27 @@ const Settings = () => {
 
         if (sectionId === 'notifications') {
             const requiresEmail = notificationSettings.invoiceReminders || notificationSettings.paymentAlerts || notificationSettings.dailySummary;
-            if (requiresEmail && !notificationSettings.financeEmail.includes('@')) {
-                window.alert('Enter a valid finance notification email.');
+            if (requiresEmail && !notificationSettings.financeEmail.includes('@')) { window.alert('Enter a valid finance notification email.'); return; }
+            try {
+                await updateOrgSettings.mutateAsync({
+                    financeEmail: notificationSettings.financeEmail,
+                    invoiceReminders: notificationSettings.invoiceReminders,
+                    paymentAlerts: notificationSettings.paymentAlerts,
+                    dailySummary: notificationSettings.dailySummary,
+                } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+            } catch (e) {
+                window.alert(`Failed to save notifications: ${e instanceof Error ? e.message : 'Unknown error'}`);
                 return;
             }
         }
 
         if (sectionId === 'numbering') {
-            // Commit the local draft to the store in one go.
+            try {
+                await updateOrgSettings.mutateAsync({ documentNumbering: numberingForm } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+            } catch (e) {
+                window.alert(`Failed to save document numbering: ${e instanceof Error ? e.message : 'Unknown error'}`);
+                return;
+            }
             Object.entries(numberingForm).forEach(([k, v]) => updateDocumentNumbering(k, v));
         }
 
@@ -537,8 +576,16 @@ const Settings = () => {
                             />
                         </div>
 
-                        <div className="settings-help-text mt-2 mb-4">
-                            Looking for the credit-limit and sales-policy rules? They live under <span className="settings-label-strong">Restrictions</span> now.
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={creditLimitSettings.enforceLimit}
+                                    onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, enforceLimit: e.target.checked })}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Enforce credit limit on invoices</span>
+                            </label>
                         </div>
 
                         <div className="settings-save-wrap">
@@ -571,7 +618,6 @@ const Settings = () => {
                         <FeatureRow label="Item Categories"        checked={features.itemCategories}    onChange={(v) => setFeatures({ ...features, itemCategories: v })} />
                         <FeatureRow label="Fixed Assets"           checked={features.fixedAssets}       onChange={(v) => setFeatures({ ...features, fixedAssets: v })} />
                         <FeatureRow label="HR &amp; Payroll"       checked={features.hrPayroll}         onChange={(v) => setFeatures({ ...features, hrPayroll: v })} />
-                        <FeatureRow label="Tax (PPN)"              checked={taxData.enabled}            onChange={(v) => setTaxData({ ...taxData, enabled: v })} hint="Mirrors Company Info → Tax Settings."  />
 
                         <div className="settings-save-wrap">
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('features')} />
@@ -585,20 +631,7 @@ const Settings = () => {
                             Rules that apply across the whole organization. Users with the matching role override flag (under Security &amp; Roles) can bypass each rule.
                         </p>
 
-                        <h3 className="settings-section-title mt-4">Customer &amp; Credit</h3>
-                        <div className="mb-4">
-                            <label className="form-label settings-checkbox-label">
-                                <input
-                                    type="checkbox"
-                                    checked={creditLimitSettings.enforceLimit}
-                                    onChange={(e) => setCreditLimitSettings({ ...creditLimitSettings, enforceLimit: e.target.checked })}
-                                    className="settings-checkbox-input"
-                                />
-                                <span className="settings-label-strong">Enforce Credit Limit validation on invoices</span>
-                            </label>
-                        </div>
-
-                        <h3 className="settings-section-title mt-6">Sales Policies</h3>
+                        <h3 className="settings-section-title mt-4">Sales Policies</h3>
                         <div className="mb-4">
                             <label className="form-label settings-checkbox-label">
                                 <input
