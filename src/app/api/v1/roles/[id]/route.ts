@@ -20,7 +20,10 @@ async function orgRetainsAdmin(
   nextRows: Array<{ moduleKey: ModuleKey; canEdit?: boolean }>,
 ): Promise<boolean> {
   const roles = await prisma.role.findMany({
-    where: { organizationId: orgId, isActive: true, memberships: { some: { isActive: true } } },
+    // An "active admin member" requires an active membership AND an active user
+    // account — a deactivated user (User.status !== ACTIVE) must not keep a role
+    // counting as admin-capable, or the org could be locked out behind a dead login.
+    where: { organizationId: orgId, isActive: true, memberships: { some: { isActive: true, user: { status: 'ACTIVE' } } } },
     include: { permissions: { where: { moduleKey: 'SETTINGS' }, select: { moduleKey: true, canEdit: true } } },
   });
   return roles.some((r) =>
