@@ -1,5 +1,6 @@
 import React from 'react';
 import { DEFAULT_PRINT_OPTIONS, type PrintOptions } from '../../types';
+import { terbilang } from '../../utils/formatters';
 
 export type { PrintOptions } from '../../types';
 export { DEFAULT_PRINT_OPTIONS } from '../../types';
@@ -136,6 +137,29 @@ export const SignatureBlock: React.FC<{ options?: PrintOptions }> = ({ options =
                     {options.signerName || '(        )'}
                 </div>
             </div>
+        </div>
+    );
+};
+
+/** Amount-in-words line (Bahasa Indonesia), shown when enabled. */
+export const TerbilangLine: React.FC<{ amount: number; options?: PrintOptions }> = ({ amount, options = DEFAULT_PRINT_OPTIONS }) => {
+    if (!options.showTerbilang) return null;
+    return (
+        <div style={{ margin: '10px 0', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '8px 10px', fontStyle: 'italic', color: '#374151' }}>
+            <strong style={{ fontStyle: 'normal' }}>Terbilang:</strong> {terbilang(amount)}
+        </div>
+    );
+};
+
+/** Bank / payment-instruction block. Hides itself when no bank is configured. */
+export const BankBlock: React.FC<{ options?: PrintOptions }> = ({ options = DEFAULT_PRINT_OPTIONS }) => {
+    if (!options.showBankDetails || !options.bankName) return null;
+    return (
+        <div style={{ marginTop: '12px' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.05em', color: '#9ca3af', marginBottom: '2px' }}>Pembayaran ke</div>
+            <div>{[options.bankName, options.bankAccountNo].filter(Boolean).join(' · ')}</div>
+            {options.bankAccountName ? <div>a.n. {options.bankAccountName}</div> : null}
+            {options.paymentNote ? <div style={{ color: '#6b7280', marginTop: '4px' }}>{options.paymentNote}</div> : null}
         </div>
     );
 };
