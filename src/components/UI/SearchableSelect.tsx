@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, ChevronDown, Check, Plus } from 'lucide-react';
+import { rankOptions } from './searchableSelectMatch';
 
 interface SearchableOption {
     value: string;
@@ -40,10 +41,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder = "Select...",
         }
     }, [isOpen]);
 
-    const filteredOptions = options.filter(opt =>
-        opt.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (opt.subLabel && opt.subLabel.toString().toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const filteredOptions = rankOptions(options, searchTerm);
 
     const selectedOption = options.find(opt => opt.value === value);
 
