@@ -41,6 +41,10 @@ model Organization {
   approvalRequirements             Json?
   requireDistinctApproverForAdmins Boolean @default(false)
   printSettings                    Json?
+  defaultPaymentTerms              Int      @default(0)
+  features                         Json?
+  documentNumbering                Json?
+  salesPolicy                      Json?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

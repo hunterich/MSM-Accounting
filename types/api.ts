@@ -382,6 +382,20 @@ export const updateOrganizationSettingsInputSchema = z.object({
     signatureLabel: z.string().max(120).optional(),
     signerName: z.string().max(120).optional(),
   }).optional(),
+  defaultPaymentTerms: z.number().int().min(0).optional(),
+  features: z.record(z.string(), z.boolean()).optional(),
+  salesPolicy: z.object({
+    blockSellBelowCost: z.boolean().optional(),
+    requireSalesOrder: z.boolean().optional(),
+  }).optional(),
+  documentNumbering: z.record(
+    z.string(),
+    z.object({
+      prefix: z.string().max(12).optional(),
+      resetPeriod: z.enum(['monthly', 'yearly', 'never']).optional(),
+      seqLength: z.number().int().optional(),
+    }),
+  ).optional(),
 });
 
 const documentLineSchema = z.object({

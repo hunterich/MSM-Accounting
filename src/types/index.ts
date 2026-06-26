@@ -314,6 +314,19 @@ export interface RawOrganizationSettings {
   accountDefaults?: Record<string, string> | null;
   approvalRequirements?: Partial<ApprovalRequirementsMap> | null;
   requireDistinctApproverForAdmins?: boolean | null;
+  defaultCreditLimit?: number | null;
+  defaultPaymentTerms?: number | null;
+  enforceCreditLimit?: boolean | null;
+  taxEnabled?: boolean | null;
+  taxDefaultRate?: number | null;
+  taxInclusiveByDefault?: boolean | null;
+  financeEmail?: string | null;
+  invoiceReminders?: boolean | null;
+  paymentAlerts?: boolean | null;
+  dailySummary?: boolean | null;
+  features?: Record<string, boolean> | null;
+  documentNumbering?: Record<string, { prefix?: string; resetPeriod?: string; seqLength?: number }> | null;
+  salesPolicy?: { blockSellBelowCost?: boolean; requireSalesOrder?: boolean } | null;
 }
 
 export type ShopPaymentMode = 'direct' | 'settlement_import';
@@ -461,6 +474,19 @@ export interface OrganizationSettings {
   needsInventoryValuationSetup: boolean;
   approvalRequirements: ApprovalRequirementsMap;
   requireDistinctApproverForAdmins: boolean;
+  defaultCreditLimit: number;
+  defaultPaymentTerms: number;
+  enforceCreditLimit: boolean;
+  taxEnabled: boolean;
+  taxDefaultRate: number;
+  taxInclusiveByDefault: boolean;
+  financeEmail: string;
+  invoiceReminders: boolean;
+  paymentAlerts: boolean;
+  dailySummary: boolean;
+  features: Record<string, boolean>;
+  documentNumbering: Record<string, { prefix: string; resetPeriod: string; seqLength: number }>;
+  salesPolicy: { blockSellBelowCost: boolean; requireSalesOrder: boolean };
 }
 
 export interface EcommerceConnection {

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
 import type { OrganizationSettings, RawOrganizationSettings, ApprovalRequirementsMap } from '../types';
 import { DEFAULT_PRINT_OPTIONS } from '../types';
+import { normalizeFeatures, normalizeDocumentNumbering, normalizeSalesPolicy } from '../../lib/organization/settings-config';
 
 const DEFAULT_APPROVAL_REQUIREMENTS: ApprovalRequirementsMap = {
   ar_sales_orders: false,
@@ -57,6 +58,19 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
     needsInventoryValuationSetup: raw.needsInventoryValuationSetup === true || !raw.costingMethod,
     approvalRequirements,
     requireDistinctApproverForAdmins: raw.requireDistinctApproverForAdmins === true,
+    defaultCreditLimit: Number(raw.defaultCreditLimit ?? 0),
+    defaultPaymentTerms: Number(raw.defaultPaymentTerms ?? 0),
+    enforceCreditLimit: raw.enforceCreditLimit !== false,
+    taxEnabled: raw.taxEnabled !== false,
+    taxDefaultRate: Number(raw.taxDefaultRate ?? 11),
+    taxInclusiveByDefault: raw.taxInclusiveByDefault === true,
+    financeEmail: raw.financeEmail || '',
+    invoiceReminders: raw.invoiceReminders !== false,
+    paymentAlerts: raw.paymentAlerts !== false,
+    dailySummary: raw.dailySummary === true,
+    features: normalizeFeatures(raw.features),
+    documentNumbering: normalizeDocumentNumbering(raw.documentNumbering),
+    salesPolicy: normalizeSalesPolicy(raw.salesPolicy),
   };
 }
 
