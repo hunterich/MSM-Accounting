@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package, Users,
   Search, Printer, Download, FileText, X, LayoutGrid, BarChart3,
@@ -10,7 +9,7 @@ import { formatIDR, formatDateID } from '../../utils/formatters';
 import { exportCsvToPdf } from '../../utils/exportPdf';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers } from '../../hooks/useAR';
-import { useItems } from '../../hooks/useInventory';
+import { useItems, useWarehouses, useItemCategories } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
@@ -49,8 +48,9 @@ export type ReportType =
 /** Category IDs available in the sidebar. */
 export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inventory' | 'hr';
 
-/** How a report is filtered: by date-range or as-of a single date. */
-export type FilterMode = 'date-range' | 'as-of';
+/** How a report is filtered: by date-range, as-of a single date, or a current
+ *  inventory snapshot (category/warehouse filters, no date). */
+export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot';
 
 /** Report card visual type. */
 export type ReportCardType = 'table' | 'chart';
@@ -81,6 +81,8 @@ export interface ReportParams {
   sortBy?: 'total' | 'qty';
   status?: string;
   accountId?: string;
+  categoryId?: string;
+  warehouseId?: string;
 }
 
 /** One open report tab entry. */
@@ -356,6 +358,24 @@ export interface StockMovementRow {
   totalIn: number;
   totalOut: number;
   closingBalance: number;
+}
+
+// ── Stock Valuation ────────────────────────────────────────────────────────────
+// Shape returned by GET /api/v1/inventory/valuation (items[] + summary).
+export interface StockValuationItem {
+  itemId: string;
+  sku: string;
+  name: string;
+  categoryId: string | null;
+  unit: string;
+  totalQty: number;
+  avgCost: number;
+  totalValue: number;
+}
+
+export interface StockValuationData {
+  items: StockValuationItem[];
+  summary: { totalItems: number; totalValue: number };
 }
 
 // ── P&L Comparative ──────────────────────────────────────────────────────────
@@ -762,15 +782,13 @@ const INVENTORY_REPORTS: ReportDefinition[] = [
     filterMode: 'date-range',
   },
   {
-    // Placeholder fields: handleCardClick navigates to the standalone
-    // /inventory/valuation view before apiPath/filterMode/type are ever read.
     id: 'stock-valuation',
     category: 'inventory',
-    apiPath: '/inventory/valuation',
+    apiPath: '/api/v1/inventory/valuation',
     name: 'Stock Valuation',
     description: 'Current inventory value (qty × average cost) per item, filterable by category and warehouse.',
     type: 'table',
-    filterMode: 'as-of',
+    filterMode: 'inventory-snapshot',
   },
 ];
 
@@ -1112,14 +1130,19 @@ const buildGlCsv = (report: ReportDefinition, data: Record<string, unknown>): st
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const Reports: React.FC = () => {
-  const navigate = useNavigate();
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: itemsData } = useItems({ limit: 100 });
   const { data: accountsData } = useChartOfAccounts();
+  const { data: warehousesData } = useWarehouses();
+  const { data: categoriesData } = useItemCategories();
   const customers = customersData?.data || [];
   const items = itemsData?.data || [];
   const accounts = accountsData || [];
+  const warehouses = warehousesData ?? [];
+  const itemCategories = categoriesData ?? [];
+  // categoryId → name, for resolving the valuation report's category column.
+  const categoryNameById = new Map(itemCategories.map((c) => [c.id, c.name]));
 
   const customerOptions = customers.map((customer) => ({
     value: customer.id,
@@ -1153,6 +1176,8 @@ const Reports: React.FC = () => {
   const [topNItem, setTopNItem] = useState<boolean>(false);
   const [itemSortBy, setItemSortBy] = useState<'total' | 'qty'>('total');
   const [overdueStatus, setOverdueStatus] = useState<string>('');
+  const [valuationCategoryId, setValuationCategoryId] = useState<string>('');
+  const [valuationWarehouseId, setValuationWarehouseId] = useState<string>('');
   const [compareDateFrom, setCompareDateFrom] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)));
   const [compareDateTo, setCompareDateTo] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
@@ -1220,6 +1245,8 @@ const Reports: React.FC = () => {
     setSelectedCustomerId('');
     setFilterItem('');
     setSelectedItemId('');
+    setValuationCategoryId('');
+    setValuationWarehouseId('');
   };
 
   const closeReportTab = (reportId: ReportType) => {
@@ -1265,6 +1292,8 @@ const Reports: React.FC = () => {
     setTopNItem(Boolean(params.topN) && report.id === 'by-item');
     setItemSortBy(params.sortBy === 'qty' ? 'qty' : 'total');
     setOverdueStatus(params.status || '');
+    setValuationCategoryId(params.categoryId || '');
+    setValuationWarehouseId(params.warehouseId || '');
     setParamModal(report);
   };
 
@@ -1286,6 +1315,8 @@ const Reports: React.FC = () => {
     setTopNItem(false);
     setItemSortBy('total');
     setOverdueStatus('');
+    setValuationCategoryId('');
+    setValuationWarehouseId('');
     setReportPresets((prev) => {
       const next = { ...prev };
       delete next[paramModal.id];
@@ -1294,12 +1325,6 @@ const Reports: React.FC = () => {
   };
 
   const handleCardClick = (report: ReportDefinition) => {
-    // Stock Valuation reuses its standalone view (category/warehouse filters,
-    // not the date-based param dialog), so navigate instead of opening the modal.
-    if (report.id === 'stock-valuation') {
-      navigate('/inventory/valuation');
-      return;
-    }
     const presetParams = activeReport?.report.id === report.id ? activeReport.params : null;
     openParamModal(report, presetParams);
   };
@@ -1353,6 +1378,13 @@ const Reports: React.FC = () => {
 
     if (report.category === 'hr') {
       return { type: report.id, dateFrom, dateTo };
+    }
+
+    if (report.id === 'stock-valuation') {
+      const params: ReportParams = { type: report.id };
+      if (valuationCategoryId) params.categoryId = valuationCategoryId;
+      if (valuationWarehouseId) params.warehouseId = valuationWarehouseId;
+      return params;
     }
 
     if (report.category === 'banking' || report.category === 'inventory') {
@@ -1495,6 +1527,22 @@ const Reports: React.FC = () => {
         escapeCsvCell(row.itemName),
         row.openingBalance, row.totalIn, row.totalOut, row.closingBalance,
       ].join(',')).join('\n');
+      return csv;
+    }
+
+    if (report.id === 'stock-valuation') {
+      const valData = data as unknown as StockValuationData;
+      const rows = valData.items || [];
+      let csv = 'SKU,Item Name,Category,Qty on Hand,Avg Unit Cost,Total Value\n';
+      csv += rows.map((row) => [
+        escapeCsvCell(row.sku),
+        escapeCsvCell(row.name),
+        escapeCsvCell((row.categoryId && categoryNameById.get(row.categoryId)) || ''),
+        row.totalQty,
+        row.avgCost,
+        row.totalValue,
+      ].join(',')).join('\n');
+      csv += `\nTotal,,,,,${valData.summary?.totalValue ?? 0}`;
       return csv;
     }
     return '';
@@ -2355,6 +2403,50 @@ const Reports: React.FC = () => {
       );
     }
 
+    if (report.id === 'stock-valuation') {
+      const valData = data as StockValuationData;
+      const valRows = valData.items || [];
+      if (!valRows.length) return renderEmptyReport('No inventory on hand for the selected filters.');
+      const totalValue = valData.summary?.totalValue
+        ?? valRows.reduce((s, r) => s + r.totalValue, 0);
+      return (
+        <div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-3 text-left font-semibold border border-neutral-300 w-[140px]">SKU</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300">Item Name</th>
+                <th className="p-3 text-left font-semibold border border-neutral-300 w-[160px]">Category</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300 w-[120px]">Qty on Hand</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300 w-[160px]">Avg Unit Cost</th>
+                <th className="p-3 text-right font-semibold border border-neutral-300 w-[180px]">Total Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {valRows.map((row) => (
+                <tr key={row.itemId} className="hover:bg-neutral-50">
+                  <td className="p-3 border border-neutral-200 font-mono text-xs">{row.sku}</td>
+                  <td className="p-3 border border-neutral-200">{row.name}</td>
+                  <td className="p-3 border border-neutral-200 text-neutral-600">
+                    {(row.categoryId && categoryNameById.get(row.categoryId)) || '—'}
+                  </td>
+                  <td className="p-3 border border-neutral-200 text-right">{Number(row.totalQty).toLocaleString('id-ID')}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.avgCost)}</td>
+                  <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.totalValue)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-neutral-50 font-semibold">
+                <td className="p-3 border border-neutral-300 text-right" colSpan={5}>Total Inventory Value</td>
+                <td className="p-3 border border-neutral-300 text-right text-primary-700">{formatIDR(totalValue)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      );
+    }
+
     // ── P&L Comparative ──────────────────────────────────────────────────────
     if (report.id === 'profit-loss-multi-period') {
       const plcData = data as { sections: PLComparativeSection[]; summary: PLComparativeSummary };
@@ -2770,8 +2862,21 @@ const Reports: React.FC = () => {
     activeReport.params.compareAsOfDate ? `Compare: ${formatDateID(activeReport.params.compareAsOfDate)}` : null,
   ].filter((x): x is string => x !== null) : [];
 
+  const valuationFilterLabel = activeReport
+    ? [
+        activeReport.params.categoryId
+          ? (categoryNameById.get(activeReport.params.categoryId) ?? 'Kategori')
+          : 'Semua kategori',
+        activeReport.params.warehouseId
+          ? (warehouses.find((w) => w.id === activeReport.params.warehouseId)?.name ?? 'Gudang')
+          : 'Semua gudang',
+      ].join(' · ')
+    : '';
+
   const periodLabel = activeReport
-    ? activeReport.report.id === 'balance-sheet-multi-period'
+    ? activeReport.report.id === 'stock-valuation'
+      ? `Snapshot saat ini · ${valuationFilterLabel}`
+      : activeReport.report.id === 'balance-sheet-multi-period'
       ? `${formatDateID(activeReport.asOfDate ?? '')} vs ${formatDateID(activeReport.params.compareAsOfDate ?? '')}`
       : activeReport.report.filterMode === 'as-of'
         ? (activeReport.report.category === 'gl' || activeReport.report.category === 'ap')
@@ -2978,7 +3083,39 @@ const Reports: React.FC = () => {
           size="sm"
         >
           <div className="space-y-4">
-            {paramModal.filterMode === 'date-range' ? (
+            {paramModal.filterMode === 'inventory-snapshot' ? (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Persediaan</div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">Kategori</label>
+                    <select
+                      value={valuationCategoryId}
+                      onChange={(e) => setValuationCategoryId(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    >
+                      <option value="">Semua kategori</option>
+                      {itemCategories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">Gudang</label>
+                    <select
+                      value={valuationWarehouseId}
+                      onChange={(e) => setValuationWarehouseId(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    >
+                      <option value="">Semua gudang</option>
+                      {warehouses.map((wh) => (
+                        <option key={wh.id} value={wh.id}>{wh.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ) : paramModal.filterMode === 'date-range' ? (
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">
                   {paramModal.id === 'profit-loss-multi-period' ? 'Periode Saat Ini' : paramModal.category === 'gl' ? 'Date Range' : 'Tanggal'}
