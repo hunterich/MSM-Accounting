@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
@@ -198,9 +198,13 @@ const Settings = () => {
       setRequireDistinctApproverForAdmins(serverOrgSettings.requireDistinctApproverForAdmins);
     }, [serverOrgSettings]);
 
-    // Seed the remaining tabs from the server (DB is the source of truth).
+    // Seed the remaining tabs from the server ONCE (DB is the source of truth).
+    // Guarded so a post-save query invalidation or a background refetch can't
+    // clobber unsaved edits the user has typed into another tab.
+    const hydratedFromServer = useRef(false);
     useEffect(() => {
-      if (!serverOrgSettings) return;
+      if (!serverOrgSettings || hydratedFromServer.current) return;
+      hydratedFromServer.current = true;
       const s = serverOrgSettings;
       setTaxData({ enabled: s.taxEnabled, defaultRate: s.taxDefaultRate, inclusiveByDefault: s.taxInclusiveByDefault });
       setCreditLimitSettings({
