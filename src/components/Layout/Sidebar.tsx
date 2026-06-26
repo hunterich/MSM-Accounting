@@ -122,6 +122,7 @@ const NAV_GROUPS: NavGroup[] = [
         items: [
             { label: 'HR & Payroll',  path: '/hr',         icon: Users },
             { label: 'Assets',        path: '/assets',     icon: Building2 },
+            { label: 'Users & Roles', path: '/users',      icon: Users },
             { label: 'Data & Tools',  path: '/tools',      icon: Wrench },
             { label: 'Settings',      path: '/settings',   icon: Settings },
         ],

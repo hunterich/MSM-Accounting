@@ -176,6 +176,7 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/company-setup':         'company',
     '/settings':              'settings',
     '/tools':                 'settings',
+    '/users':                 'settings',
 };
 
 /* ---------- helper: full-access permission object ---------- */

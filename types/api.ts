@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { passwordSchema } from '@/lib/password';
 
 const decimalCoerce = z.coerce
   .number({ invalid_type_error: 'Must be a number' })
@@ -1004,3 +1005,42 @@ export const restoreBackupInputSchema = z.object({
 
 export type UpdateBackupSettingsInput = z.infer<typeof updateBackupSettingsInputSchema>;
 export type RestoreBackupInput = z.infer<typeof restoreBackupInputSchema>;
+
+// ── RBAC: Roles ───────────────────────────────────────────────────────────────
+
+export const permissionRowSchema = z.object({
+  moduleKey: z.string().min(1),
+  canView: z.boolean().optional(),
+  canCreate: z.boolean().optional(),
+  canEdit: z.boolean().optional(),
+  canDelete: z.boolean().optional(),
+  canApprove: z.boolean().optional(),
+});
+
+export const createRoleInputSchema = z.object({
+  name: z.string().trim().min(1, 'Role name is required').max(60),
+  roleType: z.enum(['ADMIN', 'ACCOUNTANT', 'VIEWER', 'CUSTOM']).optional(),
+  invoiceAccessScope: z.enum(['ALL', 'OWN']).optional(),
+  isActive: z.boolean().optional(),
+  allowedDays: z.array(z.string()).nullable().optional(),
+  startTime: z.string().nullable().optional(),
+  endTime: z.string().nullable().optional(),
+  permissions: z.array(permissionRowSchema).optional(),
+});
+
+export const updateRoleInputSchema = createRoleInputSchema.partial();
+
+export const assignUserRoleInputSchema = z.object({ roleId: z.string().min(1) });
+
+export const createUserInputSchema = z.object({
+  fullName: z.string().trim().min(1).max(120),
+  email: z.string().trim().email(),
+  roleId: z.string().min(1),
+  password: passwordSchema.optional(),
+});
+
+export type PermissionRow = z.infer<typeof permissionRowSchema>;
+export type CreateRoleInput = z.infer<typeof createRoleInputSchema>;
+export type UpdateRoleInput = z.infer<typeof updateRoleInputSchema>;
+export type AssignUserRoleInput = z.infer<typeof assignUserRoleInputSchema>;
+export type CreateUserInput = z.infer<typeof createUserInputSchema>;
