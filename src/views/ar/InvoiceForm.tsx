@@ -533,7 +533,7 @@ const InvoiceForm = () => {
         customerName: customerList.find((c) => c.id === formData.customerId)?.name || '',
         issueDate: formData.issueDate,
         dueDate: formData.dueDate,
-        status: 'Draft',
+        status: (editingInvoiceId ? invoices.find((inv) => inv.id === editingInvoiceId)?.status : undefined) || 'Draft',
         notes: formData.notes,
         amount: calculateSubtotal(),
     };
