@@ -92,6 +92,14 @@ export const POST = withPermission({ module: 'AR_CUSTOMERS', action: 'create' },
     customerData.billingAddress = (parsed.data.billingAddress ?? parsed.data.address1)?.trim() || null;
   }
   if (parsed.data.shippingAddress !== undefined) customerData.shippingAddress = parsed.data.shippingAddress?.trim() || null;
+  if (parsed.data.shippingSameAsBilling !== undefined) {
+    customerData.shippingSameAsBilling = parsed.data.shippingSameAsBilling;
+    // When shipping mirrors billing, keep the stored shipping address in sync so
+    // documents that default from shippingAddress get the right value.
+    if (parsed.data.shippingSameAsBilling) {
+      customerData.shippingAddress = (customerData.billingAddress as string | null) ?? null;
+    }
+  }
   if (parsed.data.city !== undefined) customerData.city = parsed.data.city?.trim() || null;
   if (parsed.data.province !== undefined) customerData.province = parsed.data.province?.trim() || null;
   if (parsed.data.taxable !== undefined) customerData.taxable = parsed.data.taxable;

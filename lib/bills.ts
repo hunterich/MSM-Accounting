@@ -47,7 +47,7 @@ export async function createBillRecord(
   input: BillInput,
   options: CreateBillOptions = {},
 ) {
-  const { lines, ...header } = input;
+  const { lines, charges, ...header } = input;
   const number = await nextNumber(tx, 'Bill', 'number', 'BILL');
 
   await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
@@ -96,6 +96,31 @@ export async function createBillRecord(
     });
   }
 
+  // A bill raised against a PO with no charges of its own inherits the PO's
+  // additional costs (which never journaled on the PO) — they post here on the
+  // bill. Explicit bill charges always win.
+  let effectiveCharges: Array<{ lineNo?: number; label: string; accountId?: string | null; amount: unknown; taxRate?: unknown }> =
+    charges ?? [];
+  if (effectiveCharges.length === 0 && header.poId) {
+    const poCharges = await tx.purchaseOrderCharge.findMany({
+      where: { purchaseOrderId: header.poId },
+      orderBy: { lineNo: 'asc' },
+    });
+    effectiveCharges = poCharges.map((c) => ({ label: c.label, accountId: c.accountId, amount: c.amount, taxRate: c.taxRate }));
+  }
+  if (effectiveCharges.length > 0) {
+    await tx.billCharge.createMany({
+      data: effectiveCharges.map((charge, index) => ({
+        billId: created.id,
+        lineNo: charge.lineNo ?? index + 1,
+        label: charge.label,
+        accountId: charge.accountId || null,
+        amount: toDecimal(charge.amount).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
+        taxRate: toDecimal(charge.taxRate ?? 0).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
+      })),
+    });
+  }
+
   if (options.attachment) {
     await tx.billAttachment.create({
       data: {
@@ -113,6 +138,7 @@ export async function createBillRecord(
     include: {
       vendor: true,
       lines: true,
+      charges: true,
       attachments: true,
     },
   });

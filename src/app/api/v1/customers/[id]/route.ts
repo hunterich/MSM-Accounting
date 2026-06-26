@@ -77,6 +77,12 @@ export const PUT = withPermission({ module: 'AR_CUSTOMERS', action: 'edit' }, as
       updateData.billingAddress = (parsed.data.billingAddress ?? parsed.data.address1)?.trim() || null;
     }
     if (parsed.data.shippingAddress !== undefined) updateData.shippingAddress = parsed.data.shippingAddress?.trim() || null;
+    if (parsed.data.shippingSameAsBilling !== undefined) {
+      updateData.shippingSameAsBilling = parsed.data.shippingSameAsBilling;
+      if (parsed.data.shippingSameAsBilling && updateData.billingAddress !== undefined) {
+        updateData.shippingAddress = updateData.billingAddress;
+      }
+    }
     if (parsed.data.city !== undefined) updateData.city = parsed.data.city?.trim() || null;
     if (parsed.data.province !== undefined) updateData.province = parsed.data.province?.trim() || null;
     if (parsed.data.status !== undefined) updateData.status = parsed.data.status;

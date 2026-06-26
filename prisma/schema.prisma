@@ -293,6 +293,7 @@ model Customer {
   contactPerson     String?
   billingAddress    String?
   shippingAddress   String?
+  shippingSameAsBilling Boolean    @default(true)
   city              String?
   province          String?
   status            PartnerStatus  @default(ACTIVE)
@@ -496,6 +497,7 @@ model SalesInvoice {
   customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   recurringInvoice   RecurringInvoice?  @relation(fields: [recurringInvoiceId], references: [id], onDelete: SetNull)
   lines              SalesInvoiceLine[]
+  charges            SalesInvoiceCharge[]
   attachments        SalesInvoiceAttachment[]
   auditLogs          SalesInvoiceAuditLog[]
   paymentAllocations ARPaymentAllocation[]
@@ -527,6 +529,24 @@ model SalesInvoiceLine {
 
   @@unique([invoiceId, lineNo])
   @@index([itemId])
+}
+
+// Additional charge on a sales invoice (delivery, handling). On the AR side these
+// are income/recovery, so each posts a CREDIT to its own account (typically a
+// revenue account) instead of being lumped into sales revenue. accountId is a
+// plain string like SalesInvoiceLine.itemId.
+model SalesInvoiceCharge {
+  id        String   @id @default(cuid())
+  invoiceId String
+  lineNo    Int
+  label     String
+  accountId String?
+  amount    Decimal  @default(0) @db.Decimal(18, 2)
+  taxRate   Decimal  @default(0) @db.Decimal(5, 2)
+
+  invoice   SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, lineNo])
 }
 
 model SalesInvoiceAttachment {
@@ -762,11 +782,29 @@ model PurchaseOrder {
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   vendor         Vendor             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   lines          PurchaseOrderLine[]
+  charges        PurchaseOrderCharge[]
   bills          Bill[]
 
   @@unique([organizationId, number])
   @@index([organizationId, date, status])
   @@index([vendorId])
+}
+
+// Additional cost on a purchase order. POs never journal, so these are advisory
+// — they carry into the Bill (which does journal) when a bill is raised against
+// the PO. accountId is a plain string like PurchaseOrderLine.accountId.
+model PurchaseOrderCharge {
+  id              String   @id @default(cuid())
+  purchaseOrderId String
+  lineNo          Int
+  label           String
+  accountId       String?
+  amount          Decimal  @default(0) @db.Decimal(18, 2)
+  taxRate         Decimal  @default(0) @db.Decimal(5, 2)
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseOrderId, lineNo])
 }
 
 model PurchaseOrderLine {
@@ -805,6 +843,8 @@ model Bill {
   taxRate        Decimal     @default(0) @db.Decimal(5, 2)
   taxable        Boolean     @default(false)
   taxInclusive   Boolean     @default(false)
+  withholdingRate   Decimal  @default(0) @db.Decimal(5, 2)
+  withholdingAmount Decimal  @default(0) @db.Decimal(18, 2)
   subtotal       Decimal     @default(0) @db.Decimal(18, 2)
   taxAmount      Decimal     @default(0) @db.Decimal(18, 2)
   totalAmount    Decimal     @default(0) @db.Decimal(18, 2)
@@ -821,6 +861,7 @@ model Bill {
   purchaseOrder  PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: SetNull)
   recurringBill  RecurringBill? @relation(fields: [recurringBillId], references: [id], onDelete: SetNull)
   lines          BillLine[]
+  charges        BillCharge[]
   attachments    BillAttachment[]
   importSession  BillImportSession? @relation("ImportedBill")
   paymentAllocations APPaymentAllocation[]
@@ -854,6 +895,23 @@ model BillLine {
   @@unique([billId, lineNo])
   @@index([itemId])
   @@index([purchaseOrderLineId])
+}
+
+// Additional cost on a bill (freight, insurance, handling, customs). Each posts
+// to its own GL account so landed costs hit the right expense/asset instead of
+// being faked as a product line. accountId is a plain string (like BillLine).
+model BillCharge {
+  id        String   @id @default(cuid())
+  billId    String
+  lineNo    Int
+  label     String
+  accountId String?
+  amount    Decimal  @default(0) @db.Decimal(18, 2)
+  taxRate   Decimal  @default(0) @db.Decimal(5, 2)
+
+  bill      Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@unique([billId, lineNo])
 }
 
 model BillAttachment {

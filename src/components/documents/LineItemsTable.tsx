@@ -23,6 +23,12 @@ interface LineItemsTableProps {
     onRemove: (id: string) => void;
     /** search box is presentational here; host wires the product autocomplete */
     searchSlot?: React.ReactNode;
+    /**
+     * When supplied, expense lines (no `productId`) get a GL-account dropdown so
+     * each line posts to its own account. Host feeds these from the chart of
+     * accounts (e.g. Expense accounts). Omitted → no account column (SO/Invoice).
+     */
+    accountOptions?: { value: string; label: string }[];
 }
 
 const TEXT_KEYS = new Set<keyof DocLine>(['description', 'unit', 'code']);
@@ -37,11 +43,15 @@ const LineItemsTable = ({
     onChange,
     onRemove,
     searchSlot,
+    accountOptions,
 }: LineItemsTableProps): React.ReactElement => {
     const handle = (id: string, key: keyof DocLine) => (e: React.ChangeEvent<HTMLInputElement>) => {
         const v = TEXT_KEYS.has(key) ? e.target.value : Number(e.target.value || 0);
         onChange(id, key, v);
     };
+
+    const showAccount = !!accountOptions;
+    const colSpan = 7 + (showTax ? 1 : 0) + (showAccount ? 1 : 0);
 
     return (
         <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden">
@@ -62,6 +72,7 @@ const LineItemsTable = ({
                 <thead>
                     <tr className="bg-neutral-50 text-[11px] uppercase tracking-wide text-neutral-500">
                         <th className="text-left font-semibold px-3 py-2">Item</th>
+                        {showAccount && <th className="text-left font-semibold px-2 py-2 w-48">GL account</th>}
                         <th className="text-right font-semibold px-2 py-2 w-16">Qty</th>
                         <th className="text-left font-semibold px-2 py-2 w-16">Unit</th>
                         <th className="text-right font-semibold px-2 py-2 w-28">Unit price</th>
@@ -74,7 +85,7 @@ const LineItemsTable = ({
                 <tbody>
                     {lines.length === 0 ? (
                         <tr>
-                            <td colSpan={showTax ? 8 : 7} className="text-center py-8">
+                            <td colSpan={colSpan} className="text-center py-8">
                                 <div className="text-neutral-500 font-medium mb-0.5">No items yet</div>
                                 <div className="text-neutral-400 text-xs">Use the search above to add a product or a custom line.</div>
                             </td>
@@ -98,6 +109,22 @@ const LineItemsTable = ({
                                         className={cell + ' px-0 hover:border-transparent'}
                                     />
                                 </td>
+                                {showAccount && (
+                                    <td className="px-2 py-1.5">
+                                        {l.productId ? (
+                                            <span className="text-[11px] text-neutral-400 italic">from item</span>
+                                        ) : (
+                                            <select
+                                                value={l.accountId ?? ''}
+                                                onChange={(e) => onChange(l.id, 'accountId', e.target.value)}
+                                                className={`${cell} font-mono text-[11px]`}
+                                            >
+                                                <option value="">— expense account —</option>
+                                                {accountOptions!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                            </select>
+                                        )}
+                                    </td>
+                                )}
                                 <td className="px-2 py-1.5"><input type="number" value={l.qty} onChange={handle(l.id, 'qty')} className={`${cell} text-right tabular-nums`} /></td>
                                 <td className="px-2 py-1.5"><input value={l.unit} onChange={handle(l.id, 'unit')} className={cell} /></td>
                                 <td className="px-2 py-1.5"><input type="number" value={l.price} onChange={handle(l.id, 'price')} className={`${cell} text-right tabular-nums`} /></td>

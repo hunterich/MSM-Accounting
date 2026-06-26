@@ -30,6 +30,16 @@ export const invoiceTaxInputSchema = z.object({
   rate: positiveDecimal.max(100).default(11),
 });
 
+// Additional cost on a document (freight, insurance, handling). Posts to its own
+// GL account. Shared by bill/invoice/PO charge arrays.
+export const documentChargeSchema = z.object({
+  lineNo: z.number().int().positive().optional(),
+  label: z.string().trim().min(1, 'Cost label is required'),
+  accountId: z.string().trim().optional(),
+  amount: positiveDecimal.default(0),
+  taxRate: positiveDecimal.max(100).optional(),
+});
+
 export const createInvoiceInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   customerId: z.string().trim().min(1),
@@ -46,6 +56,7 @@ export const createInvoiceInputSchema = z.object({
   tax: invoiceTaxInputSchema.optional(),
   notes: z.string().trim().optional(),
   lines: z.array(invoiceLineInputSchema).min(1, 'At least one invoice line is required'),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 export const createInvoiceResponseSchema = z.object({
@@ -193,6 +204,7 @@ export const updateCustomerInputSchema = z.object({
   contactPerson: optionalNullableString,
   billingAddress: optionalNullableString,
   shippingAddress: optionalNullableString,
+  shippingSameAsBilling: z.boolean().optional(),
   address1: optionalNullableString,
   city: optionalNullableString,
   province: optionalNullableString,
@@ -401,11 +413,14 @@ export const billInputSchema = z.object({
   taxRate: positiveDecimal.max(100).default(0),
   taxable: z.boolean().default(false),
   taxInclusive: z.boolean().default(false),
+  withholdingRate: positiveDecimal.max(100).optional(),
+  withholdingAmount: positiveDecimal.optional(),
   subtotal: positiveDecimal.default(0),
   taxAmount: positiveDecimal.default(0),
   totalAmount: positiveDecimal.default(0),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).default([]),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 export const updateBillInputSchema = z.object({
@@ -419,11 +434,14 @@ export const updateBillInputSchema = z.object({
   taxRate: positiveDecimal.max(100).optional(),
   taxable: z.boolean().optional(),
   taxInclusive: z.boolean().optional(),
+  withholdingRate: positiveDecimal.max(100).optional(),
+  withholdingAmount: positiveDecimal.optional(),
   subtotal: positiveDecimal.optional(),
   taxAmount: positiveDecimal.optional(),
   totalAmount: positiveDecimal.optional(),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).optional(),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 const nullableLooseString = z.union([z.string().trim(), z.literal(''), z.null()]).optional();
@@ -488,6 +506,7 @@ export const purchaseOrderInputSchema = z.object({
   totalAmount: positiveDecimal.default(0),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).default([]),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 export const updatePurchaseOrderInputSchema = z.object({
@@ -503,6 +522,7 @@ export const updatePurchaseOrderInputSchema = z.object({
   totalAmount: positiveDecimal.optional(),
   notes: z.string().trim().optional(),
   lines: z.array(documentLineSchema).optional(),
+  charges: z.array(documentChargeSchema).optional(),
 });
 
 const paymentAllocationBaseSchema = z.object({

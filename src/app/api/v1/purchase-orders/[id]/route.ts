@@ -16,9 +16,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
+    // The list/edit links use the display id, which is the PO NUMBER; resolve
+    // either the cuid or the number so edit-loading works from any entry point.
     const po = await prisma.purchaseOrder.findFirst({
-      where: { id, organizationId: orgId },
-      include: { vendor: true, lines: true },
+      where: { organizationId: orgId, OR: [{ id }, { number: id }] },
+      include: { vendor: true, lines: true, charges: true },
     });
     if (!po) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     return withCors(NextResponse.json(po));
@@ -41,7 +43,7 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid purchase order payload', issues: parsed.error.issues }, { status: 400 }));
     }
-    const { lines, ...header } = parsed.data;
+    const { lines, charges, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
@@ -92,9 +94,24 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
           })),
         });
       }
+      if (charges) {
+        await tx.purchaseOrderCharge.deleteMany({ where: { purchaseOrderId: id } });
+        if (charges.length > 0) {
+          await tx.purchaseOrderCharge.createMany({
+            data: charges.map((c: any, idx: number) => ({
+              purchaseOrderId: id,
+              lineNo: c.lineNo ?? idx + 1,
+              label: c.label,
+              accountId: c.accountId || null,
+              amount: c.amount ?? 0,
+              taxRate: c.taxRate ?? 0,
+            })),
+          });
+        }
+      }
       return tx.purchaseOrder.findFirst({
         where: { id, organizationId: orgId },
-        include: { vendor: true, lines: true },
+        include: { vendor: true, lines: true, charges: true },
       });
     });
     if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));

@@ -30,6 +30,7 @@ export interface RawCustomer {
   useCategoryDefaults?: boolean | null;
   billingAddress?: string | null;
   shippingAddress?: string | null;
+  shippingSameAsBilling?: boolean | null;
 }
 
 export interface RawInvoiceLine {
@@ -70,6 +71,23 @@ export interface RawInvoice {
   createdById?: string | null;
   createdBy?: { id?: string; fullName?: string } | null;
   lines?: RawInvoiceLine[] | null;
+  charges?: RawDocumentCharge[] | null;
+}
+
+export interface RawDocumentCharge {
+  id?: string | null;
+  label?: string | null;
+  accountId?: string | null;
+  amount?: number | string | null;
+  taxRate?: number | string | null;
+}
+
+export interface DocumentCharge {
+  id?: string;
+  label: string;
+  accountId: string;
+  amount: number;
+  taxRate: number;
 }
 
 export interface RawARPayment {
@@ -477,6 +495,7 @@ export interface Customer {
   useCategoryDefaults: boolean;
   billingAddress: string;
   shippingAddress: string;
+  shippingSameAsBilling: boolean;
 }
 
 export interface InvoiceLine {
@@ -523,6 +542,7 @@ export interface Invoice {
   createdByName: string;
   lines: InvoiceLine[];
   items?: InvoiceLine[];
+  charges?: DocumentCharge[];
 }
 
 export interface ARPayment {
