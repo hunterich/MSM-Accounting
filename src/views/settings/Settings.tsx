@@ -3,9 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, User, Shield, Bell, Hash, Mail, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
+import { Save, Briefcase, User, Bell, Hash, Mail, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
-import SecurityRolesTab from './SecurityRolesTab';
 import EmailTemplates from './EmailTemplates';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 import { useChartOfAccounts } from '../../hooks/useGL';
@@ -13,11 +12,6 @@ import { useAccountDefaults, useOrganizationSettings, useUpdateOrganizationSetti
 import { ACCOUNT_DEFAULT_SPECS, DEFAULT_ACCOUNT_DEFAULTS } from '../../../lib/account-defaults';
 import type { AccountDefaultKey } from '../../../lib/account-defaults';
 import type { LucideIcon } from 'lucide-react';
-
-interface SecuritySettings {
-    allowInvites: boolean;
-    sessionTimeoutMinutes: string;
-}
 
 interface NotificationSettings {
     financeEmail: string;
@@ -108,9 +102,8 @@ const MENU_GROUPS: MenuGroup[] = [
         ],
     },
     {
-        label: 'Users & security',
+        label: 'Notifications',
         items: [
-            { id: 'security', label: 'Security & Roles', icon: Shield },
             { id: 'notifications', label: 'Notifications', icon: Bell },
         ],
     },
@@ -222,10 +215,6 @@ const Settings = () => {
         dailySummary: s.dailySummary,
       });
     }, [serverOrgSettings]);
-    const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
-        allowInvites: true,
-        sessionTimeoutMinutes: '30'
-    });
     const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
         financeEmail: 'finance@msm-accounting.local',
         invoiceReminders: true,
@@ -350,14 +339,6 @@ const Settings = () => {
                 if (logoPreview) { updateCompanyInfo({ logoUrl: logoPreview }); setLogoPreview(null); }
             } catch (e) {
                 window.alert(`Failed to save print settings: ${e instanceof Error ? e.message : 'Unknown error'}`);
-                return;
-            }
-        }
-
-        if (sectionId === 'security') {
-            const timeout = Number(securitySettings.sessionTimeoutMinutes);
-            if (isNaN(timeout) || timeout <= 0) {
-                window.alert('Session timeout must be greater than zero.');
                 return;
             }
         }
@@ -950,14 +931,6 @@ const Settings = () => {
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('print')} />
                         </div>
                     </Card>
-                )}
-
-                {activeTab === 'security' && (
-                    <SecurityRolesTab
-                        securitySettings={securitySettings}
-                        setSecuritySettings={setSecuritySettings}
-                        onSave={() => saveSection('security')}
-                    />
                 )}
 
                 {activeTab === 'notifications' && (
