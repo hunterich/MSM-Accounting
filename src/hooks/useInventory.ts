@@ -265,10 +265,45 @@ export interface StockValuationResult {
     totalValue: number;
 }
 
+// Shape actually returned by GET /api/v1/inventory/valuation.
+interface RawStockValuationItem {
+    itemId: string;
+    sku: string;
+    name: string;
+    categoryId: string | null;
+    unit: string;
+    totalQty: number | string;
+    avgCost: number | string;
+    totalValue: number | string;
+}
+
+export interface RawStockValuationResponse {
+    items: RawStockValuationItem[];
+    summary: { totalItems: number; totalValue: number | string };
+}
+
+// Maps the endpoint's { items, summary } payload to the { rows, totalValue }
+// shape the views expect (name→itemName, totalQty→qtyOnHand, avgCost→avgUnitCost).
+export function mapStockValuationResponse(res: RawStockValuationResponse): StockValuationResult {
+    return {
+        rows: (res?.items ?? []).map((it) => ({
+            itemId: it.itemId,
+            sku: it.sku,
+            itemName: it.name,
+            categoryId: it.categoryId ?? undefined,
+            qtyOnHand: Number(it.totalQty ?? 0),
+            avgUnitCost: Number(it.avgCost ?? 0),
+            totalValue: Number(it.totalValue ?? 0),
+        })),
+        totalValue: Number(res?.summary?.totalValue ?? 0),
+    };
+}
+
 export function useStockValuation(filters: Record<string, unknown> = {}) {
     return useQuery({
         queryKey: INV_KEYS.valuation(filters),
-        queryFn:  () => api.get<StockValuationResult>('/api/v1/inventory/valuation', filters),
+        queryFn:  () => api.get<RawStockValuationResponse>('/api/v1/inventory/valuation', filters),
+        select:   mapStockValuationResponse,
         staleTime: 30_000,
     });
 }
