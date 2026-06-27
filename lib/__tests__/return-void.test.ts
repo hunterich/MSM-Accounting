@@ -21,10 +21,10 @@ import { voidSalesReturn, voidPurchaseReturn } from '../return-void';
 const DATE = new Date('2026-06-20');
 
 function makeSrTx(ret: any) {
-  return { salesReturn: { findFirst: vi.fn(async () => ret), update: vi.fn(async () => ({})) } };
+  return { salesReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
 function makePrTx(ret: any) {
-  return { purchaseReturn: { findFirst: vi.fn(async () => ret), update: vi.fn(async () => ({})) } };
+  return { purchaseReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
 const sr = (over: any = {}) => ({ id: 'sr-1', number: 'SR-0001', status: 'APPROVED', journalEntryId: 'je-1', creditNotes: [], ...over });
 const pr = (over: any = {}) => ({ id: 'pr-1', number: 'PR-0001', status: 'APPROVED', journalEntryId: 'je-2', debitNotes: [], ...over });
@@ -38,7 +38,10 @@ describe('voidSalesReturn', () => {
     expect(assertPeriodOpen).toHaveBeenCalledWith(tx, 'org-a', DATE);
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
     expect(reverseAddedLayers).toHaveBeenCalledWith(tx, 'org-a', 'SALES_RETURN', 'sr-1', DATE);
-    expect((tx.salesReturn.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    expect((tx.salesReturn.updateMany as any).mock.calls[0][0]).toMatchObject({
+      where: expect.objectContaining({ status: { not: 'VOID' } }),
+      data: { status: 'VOID' },
+    });
   });
 
   it('throws 404 when missing', async () => {
@@ -68,7 +71,7 @@ describe('voidSalesReturn', () => {
     await voidSalesReturn(tx as never, 'org-a', 'sr-1', { date: DATE });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     expect(reverseAddedLayers).toHaveBeenCalled();
-    expect((tx.salesReturn.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    expect((tx.salesReturn.updateMany as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
   });
 });
 
@@ -80,7 +83,10 @@ describe('voidPurchaseReturn', () => {
     await voidPurchaseReturn(tx as never, 'org-a', 'pr-1', { date: DATE });
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-2', expect.objectContaining({ date: DATE }));
     expect(restoreConsumedLayers).toHaveBeenCalledWith(tx, 'org-a', 'PURCHASE_RETURN', 'pr-1', DATE);
-    expect((tx.purchaseReturn.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    expect((tx.purchaseReturn.updateMany as any).mock.calls[0][0]).toMatchObject({
+      where: expect.objectContaining({ status: { not: 'VOID' } }),
+      data: { status: 'VOID' },
+    });
   });
 
   it('refuses a return with an applied debit note', async () => {
@@ -93,6 +99,6 @@ describe('voidPurchaseReturn', () => {
     await voidPurchaseReturn(tx as never, 'org-a', 'pr-1', { date: DATE });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     expect(restoreConsumedLayers).toHaveBeenCalled();
-    expect((tx.purchaseReturn.update as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
+    expect((tx.purchaseReturn.updateMany as any).mock.calls[0][0].data).toMatchObject({ status: 'VOID' });
   });
 });

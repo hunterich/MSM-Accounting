@@ -2,8 +2,9 @@ import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit } from '@/lib/api-utils';
+import { ok, err, logAudit, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { assertPeriodOpen } from '@/lib/period-guard';
 import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
 
@@ -96,11 +97,34 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
     ...accountIds,
   ]));
 
+  const newDate = new Date(payload.date);
+
   const updated = await prisma.$transaction(async (tx) => {
+    // A supplied periodId must contain the entry date, and a transition to
+    // POSTED must not write into a closed/locked period (resolved by date).
+    if (payload.periodId) {
+      const period = await tx.accountingPeriod.findFirst({
+        where: { id: payload.periodId, organizationId: orgId },
+        select: { status: true, isLocked: true, startDate: true, endDate: true },
+      });
+      if (!period) {
+        throw new ApiError('Accounting period not found', 404);
+      }
+      if (newDate < period.startDate || newDate > period.endDate) {
+        throw new ApiError('Accounting period does not match the entry date', 422);
+      }
+      if (period.status === 'CLOSED' || period.isLocked) {
+        throw new ApiError('Accounting period is closed/locked', 422);
+      }
+    }
+    if (payload.status === 'POSTED') {
+      await assertPeriodOpen(tx, orgId, newDate);
+    }
+
     await tx.journalEntry.update({
       where: { id, organizationId: orgId },
       data: {
-        date: new Date(payload.date),
+        date: newDate,
         memo: payload.memo,
         source: payload.source,
         status: payload.status,

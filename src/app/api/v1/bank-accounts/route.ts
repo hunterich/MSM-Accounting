@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, ok, err, logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { createBankAccountInputSchema } from '@/types/api';
+import { postBankOpeningBalance } from '@/lib/bank-transaction-posting';
 
 export const runtime = 'nodejs';
 
@@ -29,13 +30,20 @@ export const POST = withPermission({ module: 'BANKING', action: 'create' }, asyn
   const parsed = createBankAccountInputSchema.safeParse(body);
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid bank account payload', 400);
   const { openingBalance, ...rest } = parsed.data;
-  const account = await prisma.bankAccount.create({
-    data: {
-      ...rest,
-      openingBalance,
-      currentBalance: openingBalance,
-      organizationId: orgId,
-    },
+  const account = await prisma.$transaction(async (tx) => {
+    const created = await tx.bankAccount.create({
+      data: {
+        ...rest,
+        openingBalance,
+        currentBalance: openingBalance,
+        organizationId: orgId,
+      },
+    });
+    // Onboard the opening balance to the GL (Dr Bank / Cr Opening Balance Equity)
+    // so the bank GL account reflects it — the cached currentBalance above and
+    // the ledger stay in lockstep. No-op for a zero opening balance.
+    await postBankOpeningBalance(tx, orgId, created.id, openingBalance, new Date());
+    return created;
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankAccount', entityId: account.id, action: 'CREATE', payload: { name: account.name } });
   return ok(account, 201);

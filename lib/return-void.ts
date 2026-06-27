@@ -20,7 +20,13 @@ interface VoidConfig {
   noteLabel: string;
   find: (tx: Tx, orgId: string, id: string) => Promise<ReturnRow | null>;
   unwindInventory: (tx: Tx, orgId: string, id: string, date: Date) => Promise<number>;
-  markVoid: (tx: Tx, orgId: string, id: string) => Promise<unknown>;
+  /**
+   * Atomically claim VOID: `updateMany` guarded by `status != 'VOID'`, returning
+   * the affected count. The WHERE clause takes a row lock, so a concurrent void
+   * blocks here, then sees the row already VOID → count 0 → 409. It must run
+   * BEFORE the GL reversal + inventory unwind so only the winner reverses.
+   */
+  claimVoid: (tx: Tx, orgId: string, id: string) => Promise<{ count: number }>;
 }
 
 /**
@@ -57,11 +63,17 @@ async function voidReturn(
   }
 
   await assertPeriodOpen(tx, orgId, opts.date);
+
+  // Claim VOID atomically before any GL/inventory side effect (see claimVoid).
+  const claim = await cfg.claimVoid(tx, orgId, id);
+  if (claim.count !== 1) {
+    throw new ApiError(`${cfg.label} is already voided`, 409);
+  }
+
   if (ret.journalEntryId) {
     await reverseJournalEntry(tx, ret.journalEntryId, { date: opts.date, memo: `Void ${cfg.label}: ${ret.number}` });
   }
   await cfg.unwindInventory(tx, orgId, id, opts.date);
-  await cfg.markVoid(tx, orgId, id);
 }
 
 const SR_CONFIG: VoidConfig = {
@@ -81,7 +93,8 @@ const SR_CONFIG: VoidConfig = {
     return r ? { id: r.id, number: r.number, status: r.status, journalEntryId: r.journalEntryId, appliedNotes: r.creditNotes } : null;
   },
   unwindInventory: (tx, orgId, id, date) => reverseAddedLayers(tx, orgId, InventoryDocumentType.SALES_RETURN, id, date),
-  markVoid: (tx, orgId, id) => tx.salesReturn.update({ where: { id, organizationId: orgId }, data: { status: 'VOID' } }),
+  claimVoid: (tx, orgId, id) =>
+    tx.salesReturn.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
 };
 
 const PR_CONFIG: VoidConfig = {
@@ -101,7 +114,8 @@ const PR_CONFIG: VoidConfig = {
     return r ? { id: r.id, number: r.number, status: r.status, journalEntryId: r.journalEntryId, appliedNotes: r.debitNotes } : null;
   },
   unwindInventory: (tx, orgId, id, date) => restoreConsumedLayers(tx, orgId, InventoryDocumentType.PURCHASE_RETURN, id, date),
-  markVoid: (tx, orgId, id) => tx.purchaseReturn.update({ where: { id, organizationId: orgId }, data: { status: 'VOID' } }),
+  claimVoid: (tx, orgId, id) =>
+    tx.purchaseReturn.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
 };
 
 export function voidSalesReturn(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {

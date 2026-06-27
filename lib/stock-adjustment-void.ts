@@ -42,6 +42,18 @@ export async function voidStockAdjustment(
 
   await assertPeriodOpen(tx, orgId, opts.date);
 
+  // Atomically claim VOID before any GL/inventory side effect. The guarded
+  // `updateMany` takes a row lock; a concurrent void blocks here, then sees the
+  // adjustment already VOID → count 0 → 409, so the reversal + inventory unwind
+  // run exactly once and can never be double-reversed.
+  const claim = await tx.stockAdjustment.updateMany({
+    where: { id, organizationId: orgId, status: { not: 'VOID' } },
+    data: { status: 'VOID' },
+  });
+  if (claim.count !== 1) {
+    throw new ApiError('Stock adjustment is already voided', 409);
+  }
+
   const entry = await tx.journalEntry.findFirst({
     where: { organizationId: orgId, status: 'POSTED', memo: `Stock adjustment: ${adj.number}` },
     select: { id: true },
@@ -54,6 +66,4 @@ export async function voidStockAdjustment(
   // restores decreases) — avoids the two generic primitives colliding on the
   // shared ADJUSTMENT documentId.
   await reverseAdjustmentInventory(tx, orgId, id, opts.date);
-
-  await tx.stockAdjustment.update({ where: { id, organizationId: orgId }, data: { status: 'VOID' } });
 }

@@ -15,7 +15,13 @@ interface NoteRow {
 interface VoidConfig {
   label: string;
   find: (tx: Tx, orgId: string, id: string) => Promise<NoteRow | null>;
-  markVoid: (tx: Tx, orgId: string, id: string) => Promise<unknown>;
+  /**
+   * Atomically claim VOID: `updateMany` guarded by `status != 'VOID'`, returning
+   * the affected count. The WHERE clause takes a row lock, so a concurrent void
+   * blocks here, then sees the row already VOID → count 0 → 409. It must run
+   * BEFORE the GL reversal so only the winner reverses (no double-reversal).
+   */
+  claimVoid: (tx: Tx, orgId: string, id: string) => Promise<{ count: number }>;
 }
 
 /**
@@ -27,6 +33,9 @@ interface VoidConfig {
  *
  * Only posted notes (APPLIED, with a journalEntryId) can be voided — an
  * unposted draft has no GL impact and should simply be deleted.
+ *
+ * Concurrency-safe: VOID is claimed atomically (guarded `updateMany`) BEFORE
+ * `reverseJournalEntry`, so two concurrent voids cannot both reverse the entry.
  */
 async function voidNote(
   tx: Tx,
@@ -47,25 +56,32 @@ async function voidNote(
   }
 
   await assertPeriodOpen(tx, orgId, opts.date);
+
+  const claim = await cfg.claimVoid(tx, orgId, id);
+  if (claim.count !== 1) {
+    throw new ApiError(`${cfg.label} is already voided`, 409);
+  }
+
   await reverseJournalEntry(tx, note.journalEntryId, {
     date: opts.date,
     memo: `Void ${cfg.label}: ${note.number}`,
   });
-  await cfg.markVoid(tx, orgId, id);
 }
 
 const CN_CONFIG: VoidConfig = {
   label: 'credit note',
   find: (tx, orgId, id) =>
     tx.creditNote.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true } }),
-  markVoid: (tx, orgId, id) => tx.creditNote.update({ where: { id, organizationId: orgId }, data: { status: 'VOID' } }),
+  claimVoid: (tx, orgId, id) =>
+    tx.creditNote.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
 };
 
 const DN_CONFIG: VoidConfig = {
   label: 'debit note',
   find: (tx, orgId, id) =>
     tx.debitNote.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true } }),
-  markVoid: (tx, orgId, id) => tx.debitNote.update({ where: { id, organizationId: orgId }, data: { status: 'VOID' } }),
+  claimVoid: (tx, orgId, id) =>
+    tx.debitNote.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
 };
 
 export function voidCreditNote(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {

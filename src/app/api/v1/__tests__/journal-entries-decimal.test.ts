@@ -21,6 +21,9 @@ const putUpdates: Record<string, unknown>[] = [];
 
 const txStub = () => ({
   $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 99 }]),
+  // POSTED edits now resolve the period by date (assertPeriodOpen); null = no
+  // period defined for the date, which is allowed.
+  accountingPeriod: { findFirst: vi.fn(async () => null) },
   journalEntry: {
     update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
       putUpdates.push(data);
