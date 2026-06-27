@@ -894,31 +894,3 @@ export const journalEntries = [
         ]
     }
 ];
-
-// ─── Sales line items for Sales Reports ────────────────────────────────────
-// Each record represents one line item from a posted invoice.
-// Fields: invoiceId, date, customerId, customerName, itemId, itemName,
-//         category, qty, unitPrice, discount, total
-export const salesLines = [
-    { invoiceId: 'INV-1001', date: '2026-01-05', customerId: 'CUST-001', customerName: 'Acme Corp', itemId: 'PROD-001', itemName: 'Web Hosting (Annual)', category: 'Service', qty: 2, unitPrice: 600000, discount: 0, total: 1200000 },
-    { invoiceId: 'INV-1001', date: '2026-01-05', customerId: 'CUST-001', customerName: 'Acme Corp', itemId: 'PROD-005', itemName: 'SSL Certificate', category: 'Service', qty: 4, unitPrice: 75000, discount: 0, total: 300000 },
-    { invoiceId: 'INV-1001', date: '2026-01-05', customerId: 'CUST-001', customerName: 'Acme Corp', itemId: 'PROD-002', itemName: 'Domain Registration', category: 'Service', qty: 2, unitPrice: 15000, discount: 0, total: 30000 },
-    { invoiceId: 'INV-1002', date: '2026-01-12', customerId: 'CUST-002', customerName: 'Globex Inc', itemId: 'PROD-002', itemName: 'Domain Registration', category: 'Service', qty: 10, unitPrice: 50000, discount: 0, total: 500000 },
-    { invoiceId: 'INV-1003', date: '2026-01-20', customerId: 'CUST-001', customerName: 'Acme Corp', itemId: 'PROD-003', itemName: 'Consulting Hours', category: 'Service', qty: 20, unitPrice: 150000, discount: 10, total: 2700000 },
-    { invoiceId: 'INV-1004', date: '2026-02-03', customerId: 'CUST-004', customerName: 'Umbrella Corp', itemId: 'PROD-004', itemName: 'Dedicated Server Setup', category: 'Service', qty: 10, unitPrice: 1000000, discount: 0, total: 10000000 },
-    { invoiceId: 'INV-1005', date: '2026-02-10', customerId: 'CUST-003', customerName: 'Initech', itemId: 'PROD-001', itemName: 'Web Hosting (Annual)', category: 'Service', qty: 5, unitPrice: 120000, discount: 0, total: 600000 },
-    { invoiceId: 'INV-1005', date: '2026-02-10', customerId: 'CUST-003', customerName: 'Initech', itemId: 'PROD-005', itemName: 'SSL Certificate', category: 'Service', qty: 5, unitPrice: 75000, discount: 0, total: 375000 },
-    { invoiceId: 'INV-1006', date: '2026-02-14', customerId: 'CUST-002', customerName: 'Globex Inc', itemId: 'PROD-003', itemName: 'Consulting Hours', category: 'Service', qty: 8, unitPrice: 150000, discount: 0, total: 1200000 },
-    { invoiceId: 'INV-1007', date: '2026-02-18', customerId: 'CUST-004', customerName: 'Umbrella Corp', itemId: 'PROD-003', itemName: 'Consulting Hours', category: 'Service', qty: 15, unitPrice: 150000, discount: 5, total: 2137500 },
-];
-
-// ─── Accounts Receivable Aging (open invoices for aging report) ─────────────
-// daysOverdue = days past the due date (0 means not yet due or paid today).
-export const agingInvoices = [
-    { invoiceId: 'INV-1001', customerId: 'CUST-001', customerName: 'Acme Corp', invoiceDate: '2026-01-05', dueDate: '2026-02-04', amount: 1530000, paid: 0, balance: 1530000, daysOverdue: 16 },
-    { invoiceId: 'INV-1003', customerId: 'CUST-001', customerName: 'Acme Corp', invoiceDate: '2026-01-20', dueDate: '2026-02-19', amount: 2700000, paid: 0, balance: 2700000, daysOverdue: 1 },
-    { invoiceId: 'INV-1004', customerId: 'CUST-004', customerName: 'Umbrella Corp', invoiceDate: '2026-02-03', dueDate: '2026-03-04', amount: 10000000, paid: 0, balance: 10000000, daysOverdue: 0 },
-    { invoiceId: 'INV-1005', customerId: 'CUST-003', customerName: 'Initech', invoiceDate: '2026-02-10', dueDate: '2026-02-25', amount: 975000, paid: 0, balance: 975000, daysOverdue: 0 },
-    { invoiceId: 'INV-1006', customerId: 'CUST-002', customerName: 'Globex Inc', invoiceDate: '2026-02-14', dueDate: '2026-02-14', amount: 1200000, paid: 0, balance: 1200000, daysOverdue: 6 },
-    { invoiceId: 'INV-1007', customerId: 'CUST-004', customerName: 'Umbrella Corp', invoiceDate: '2026-02-18', dueDate: '2026-03-19', amount: 2137500, paid: 1000000, balance: 1137500, daysOverdue: 0 },
-];
