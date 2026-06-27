@@ -24,7 +24,18 @@ const StockValuation: React.FC = () => {
     const categories = useItemCategories().data ?? [];
     const warehouses = useWarehouses().data ?? [];
 
-    const rows: StockValuationRow[] = data?.rows ?? [];
+    // The valuation endpoint returns categoryId only, so resolve names here.
+    const categoryNameById = useMemo(
+        () => new Map(categories.map((c) => [c.id, c.name])),
+        [categories],
+    );
+    const rows: StockValuationRow[] = useMemo(
+        () => (data?.rows ?? []).map((r) => ({
+            ...r,
+            category: (r.categoryId && categoryNameById.get(r.categoryId)) || r.category || '',
+        })),
+        [data, categoryNameById],
+    );
     const totalValue: number = data?.totalValue ?? rows.reduce((s, r) => s + r.totalValue, 0);
 
     const handleExportExcel = () => {
