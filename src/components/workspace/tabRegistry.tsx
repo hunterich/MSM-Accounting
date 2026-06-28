@@ -7,6 +7,9 @@ import SODetailPane from '../ar/salesorders/SODetailPane';
 import InvoiceForm from '../../views/ar/InvoiceForm';
 import InvoiceListPane from '../ar/invoices/InvoiceListPane';
 import InvoiceDetailPane from '../ar/invoices/InvoiceDetailPane';
+import CustomerListPane from '../ar/customers/CustomerListPane';
+import CustomerDetailPane from '../ar/customers/CustomerDetailPane';
+import CustomerForm from '../../views/ar/CustomerForm';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -26,6 +29,12 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
             return <InvoiceForm mode={mode === 'edit' ? 'edit' : 'create'} workspaceTabId={tab.id} recordId={recordId ?? undefined} />;
         }
         if (tab.kind === 'doc-view') return <InvoiceDetailPane invoiceId={recordId ?? ''} workspaceTabId={tab.id} />;
+    }
+
+    if (module === 'ar' && entity === 'customer') {
+        if (tab.kind === 'list') return <CustomerListPane />;
+        if (tab.kind === 'doc-form') return <CustomerForm recordId={recordId ?? undefined} mode={mode === 'edit' ? 'edit' : 'create'} workspaceTabId={tab.id} />;
+        if (tab.kind === 'doc-view') return <CustomerDetailPane customerId={recordId ?? ''} workspaceTabId={tab.id} />;
     }
 
     return (

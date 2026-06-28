@@ -72,6 +72,19 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ar/customers')) {
+            if (path.startsWith('/ar/customers/new')) return;
+            const id = params.get('id');
+            if (path.startsWith('/ar/customers/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'customer', recordId: id, mode: 'edit' }, title: `Edit ${id}`, path: `/ar/customers/edit?id=${id}&mode=edit` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'ar', entity: 'customer', recordId: id, mode: 'view' }, title: id, path: `/ar/customers?id=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ar', entity: 'customer', recordId: 'catalog', mode: 'view' }, title: 'Customers', path: '/ar/customers' });
+            }
+            return;
+        }
+
         const pm = pageModuleForPath(path);
         setPageModuleTab(pm.key, pm.title, path + location.search);
     }, [location.pathname, location.search, open, setPageModuleTab]);
