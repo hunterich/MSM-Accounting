@@ -144,3 +144,155 @@ export const exportToPdf = (
 
     doc.save(filename.endsWith('.pdf') ? filename : `${filename}.pdf`);
 };
+
+// ── Generic CSV-string → PDF ─────────────────────────────────────────────────
+// Lets any report that already produces a CSV string get a formatted PDF export
+// for free, without a hand-written column map. Quoted CSV cells are treated as
+// text (preserved verbatim); unquoted numeric cells are grouped/right-aligned.
+
+interface ParsedCell {
+    value: string;
+    quoted: boolean;
+}
+
+// Minimal RFC-4180-ish parser: handles "" escaping and commas/newlines inside
+// quoted fields. Tracks whether each field was quoted so we can tell a numeric
+// value (unquoted) apart from a numeric-looking code like an invoice number.
+const parseCsv = (text: string): ParsedCell[][] => {
+    const rows: ParsedCell[][] = [];
+    let row: ParsedCell[] = [];
+    let field = '';
+    let inQuotes = false;
+    let fieldQuoted = false;
+
+    const pushField = () => {
+        row.push({ value: field, quoted: fieldQuoted });
+        field = '';
+        fieldQuoted = false;
+    };
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inQuotes) {
+            if (ch === '"') {
+                if (text[i + 1] === '"') { field += '"'; i++; }
+                else inQuotes = false;
+            } else {
+                field += ch;
+            }
+            continue;
+        }
+        if (ch === '"') { inQuotes = true; fieldQuoted = true; }
+        else if (ch === ',') pushField();
+        else if (ch === '\n') { pushField(); rows.push(row); row = []; }
+        else if (ch !== '\r') field += ch;
+    }
+    pushField();
+    rows.push(row);
+    return rows;
+};
+
+const idGroup = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 });
+
+const isNumericCell = (cell: ParsedCell): boolean =>
+    !cell.quoted && cell.value.trim() !== '' && Number.isFinite(Number(cell.value));
+
+export interface PdfTableModel {
+    head: string[][];
+    body: string[][];
+    columnStyles: Record<number, { halign: string }>;
+}
+
+// Pure transform: CSV string → autotable-ready model. Quoted cells stay text;
+// unquoted numbers are grouped (id-ID) and their column right-aligned; ragged
+// rows are padded to the header width. Returns null when there is no data.
+export const buildPdfTableFromCsv = (csv: string): PdfTableModel | null => {
+    const parsed = parseCsv(csv).filter((r) => r.length > 0 && !(r.length === 1 && r[0].value === ''));
+    if (parsed.length === 0) return null;
+
+    const headerRow = parsed[0];
+    const bodyRows = parsed.slice(1);
+    const colCount = headerRow.length;
+
+    const head = [headerRow.map((c) => c.value)];
+    const body = bodyRows.map((r) =>
+        Array.from({ length: colCount }, (_, colIdx) => {
+            const cell = r[colIdx];
+            if (!cell) return '';
+            return isNumericCell(cell) ? idGroup.format(Number(cell.value)) : cell.value;
+        })
+    );
+
+    // A column is right-aligned when any of its body cells is an unquoted number.
+    const columnStyles: Record<number, { halign: string }> = {};
+    headerRow.forEach((_, colIdx) => {
+        if (bodyRows.some((r) => r[colIdx] && isNumericCell(r[colIdx]))) {
+            columnStyles[colIdx] = { halign: 'right' };
+        }
+    });
+
+    return { head, body, columnStyles };
+};
+
+export const exportCsvToPdf = (
+    filename: string,
+    title: string,
+    csv: string,
+    companyInfo: PdfCompanyInfo | null = null,
+    subtitle?: string,
+): void => {
+    const table = buildPdfTableFromCsv(csv);
+    if (!table) return;
+
+    const doc = new jsPDF('p', 'pt', 'a4') as JsPDFWithAutoTable;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let currentY = 40;
+
+    if (companyInfo) {
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(companyInfo.name || 'Company Name', 40, currentY);
+        currentY += 15;
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        if (companyInfo.address) {
+            const splitAddress = doc.splitTextToSize(companyInfo.address, 250);
+            doc.text(splitAddress, 40, currentY);
+            currentY += (splitAddress.length * 12) + 5;
+        }
+        if (companyInfo.npwp) {
+            doc.text(`NPWP: ${companyInfo.npwp}`, 40, currentY);
+            currentY += 15;
+        }
+    }
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    currentY += 10;
+    doc.text(title || 'Report', 40, currentY);
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    const dateStr = `Generated on: ${formatDateID(new Date().toISOString().split('T')[0])}`;
+    doc.text(dateStr, pageWidth - 40 - doc.getTextWidth(dateStr), currentY);
+
+    if (subtitle) {
+        currentY += 14;
+        doc.setFontSize(9);
+        doc.text(subtitle, 40, currentY);
+    }
+    currentY += 15;
+
+    doc.autoTable({
+        startY: currentY,
+        head: table.head,
+        body: table.body,
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 4 },
+        columnStyles: table.columnStyles,
+    });
+
+    doc.save(filename.endsWith('.pdf') ? filename : `${filename}.pdf`);
+};
