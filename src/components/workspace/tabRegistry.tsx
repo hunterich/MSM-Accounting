@@ -16,6 +16,10 @@ import PaymentForm from '../../views/ar/PaymentForm';
 import StockCountListPane from '../inventory/stockcounts/StockCountListPane';
 import StockCountDetailPane from '../inventory/stockcounts/StockCountDetailPane';
 import StockCountForm from '../../views/inventory/StockCountForm';
+import CreditNoteListPane from '../ar/credits/CreditNoteListPane';
+import CreditNoteDetailPane from '../ar/credits/CreditNoteDetailPane';
+import CreditNoteForm from '../../views/ar/CreditNoteForm';
+import SalesReturnForm from '../../views/ar/SalesReturnForm';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -53,6 +57,17 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         if (tab.kind === 'list') return <StockCountListPane />;
         if (tab.kind === 'doc-form') return <StockCountForm recordId={recordId ?? undefined} workspaceTabId={tab.id} />;
         if (tab.kind === 'doc-view') return <StockCountDetailPane countId={recordId ?? ''} workspaceTabId={tab.id} />;
+    }
+
+    if (module === 'ar' && entity === 'credit-note') {
+        if (tab.kind === 'list') return <CreditNoteListPane />;
+        if (tab.kind === 'doc-view') return <CreditNoteDetailPane docKey={recordId ?? ''} workspaceTabId={tab.id} />;
+        if (tab.kind === 'doc-form') {
+            const rid = recordId ?? '';
+            if (rid.startsWith('credit:')) return <CreditNoteForm recordId={rid.slice('credit:'.length)} mode="edit" workspaceTabId={tab.id} />;
+            const returnId = rid.startsWith('return:') ? rid.slice('return:'.length) : undefined;
+            return <SalesReturnForm recordId={returnId} mode={returnId ? 'edit' : 'create'} workspaceTabId={tab.id} />;
+        }
     }
 
     return (

@@ -18,6 +18,7 @@ const DOC_MODULE_TITLES: Record<string, string> = {
     'ar/invoice': 'Invoices',
     'ar/customer': 'Customers',
     'ar/payment': 'Payments (AR)',
+    'ar/credit-note': 'Returns & credits',
     'stock-count': 'Stock counts',
 };
 
@@ -42,6 +43,7 @@ export const DOC_MODULES: Record<string, {
     'ar/invoice': { module: 'ar', entity: 'invoice', title: 'Invoices', newLabel: 'New invoice', listPath: '/ar/invoices', newPath: '/ar/invoices/new' },
     'ar/customer': { module: 'ar', entity: 'customer', title: 'Customers', newLabel: 'New customer', listPath: '/ar/customers', newPath: '/ar/customers/new' },
     'ar/payment': { module: 'ar', entity: 'payment', title: 'Payments (AR)', newLabel: 'Record payment', listPath: '/ar/payments', newPath: '/ar/payments/new' },
+    'ar/credit-note': { module: 'ar', entity: 'credit-note', title: 'Returns & credits', newLabel: 'New sales return', listPath: '/ar/credits', newPath: '/ar/returns/new' },
     'stock-count': { module: 'stock-count', entity: 'count', title: 'Stock counts', newLabel: 'New count', listPath: '/inventory/counts', newPath: '/inventory/counts/new' },
 };
 
@@ -60,7 +62,6 @@ const PAGE_MODULES: Array<[string, { key: string; title: string }]> = [
     ['/ap/payments', { key: 'ap-payments', title: 'Payments (AP)' }],
     ['/ap/vendors', { key: 'vendors', title: 'Vendors' }],
     ['/ap', { key: 'purchases', title: 'Purchases' }],
-    ['/ar/credits', { key: 'credits', title: 'Credit notes' }],
     ['/ar/delivery-notes', { key: 'delivery-notes', title: 'Delivery notes' }],
     ['/ar/recurring', { key: 'recurring', title: 'Recurring billing' }],
     ['/ar/approvals', { key: 'approvals', title: 'Approvals' }],

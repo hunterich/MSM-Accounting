@@ -98,6 +98,25 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ar/credits') || path.startsWith('/ar/returns')) {
+            // New sales return / new credit come from the "New" button, not a route.
+            if (path === '/ar/returns/new' && !params.get('returnId')) return;
+            const docKey = params.get('docKey');
+            const creditId = params.get('creditId');
+            const returnId = params.get('returnId');
+            if (path.startsWith('/ar/credits/edit') && creditId) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `credit:${creditId}`, mode: 'edit' }, title: `Edit ${creditId}`, path: `/ar/credits/edit?creditId=${creditId}` });
+            } else if (path.startsWith('/ar/returns/new') && returnId) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `return:${returnId}`, mode: 'edit' }, title: `Edit ${returnId}`, path: `/ar/returns/new?returnId=${returnId}` });
+            } else if (docKey) {
+                const colon = docKey.indexOf(':');
+                open({ kind: 'doc-view', target: { module: 'ar', entity: 'credit-note', recordId: docKey, mode: 'view' }, title: docKey.slice(colon + 1), path: `/ar/credits?docKey=${docKey}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ar', entity: 'credit-note', recordId: 'catalog', mode: 'view' }, title: 'Returns & credits', path: '/ar/credits' });
+            }
+            return;
+        }
+
         if (path.startsWith('/inventory/counts')) {
             if (path.startsWith('/inventory/counts/new')) return;
             const id = params.get('id') || params.get('countId');
