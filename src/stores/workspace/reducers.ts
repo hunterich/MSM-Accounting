@@ -1,7 +1,30 @@
-import { TAB_CAP, type WorkspaceState, type WorkspaceTab, type TabStatus } from './types';
+import { TAB_CAP, MODULE_CAP, type WorkspaceState, type WorkspaceTab, type TabStatus } from './types';
+import { moduleKeyOf } from './modules';
 
+/** True once the workspace holds TAB_CAP tabs in total (flat). Kept for callers
+ *  that want an overall sense of fullness; the open gate is `capBlock`. */
 export function isAtCap(state: WorkspaceState): boolean {
     return state.tabs.length >= TAB_CAP;
+}
+
+const moduleKeysOf = (state: WorkspaceState) => new Set(state.tabs.map((t) => moduleKeyOf(t.target)));
+// The catalog/list tab is navigation, not a document — it doesn't consume a slot
+// (otherwise you couldn't reopen the list with TAB_CAP records already open).
+const docsInModule = (state: WorkspaceState, key: string) =>
+    state.tabs.filter((t) => moduleKeyOf(t.target) === key && t.kind !== 'list').length;
+
+/**
+ * Two-level cap gate. Returns why opening `tab` is blocked, or null if allowed:
+ *  - 'module' — it would be a NEW module and we're already at MODULE_CAP modules.
+ *  - 'doc'    — its module already holds TAB_CAP document tabs (catalog excluded).
+ * The two counts are independent (10 modules × 10 docs each).
+ */
+export function capBlock(state: WorkspaceState, tab: WorkspaceTab): 'module' | 'doc' | null {
+    const key = moduleKeyOf(tab.target);
+    const moduleExists = state.tabs.some((t) => moduleKeyOf(t.target) === key);
+    if (!moduleExists) return moduleKeysOf(state).size >= MODULE_CAP ? 'module' : null;
+    if (tab.kind === 'list') return null; // the catalog is always reachable
+    return docsInModule(state, key) >= TAB_CAP ? 'doc' : null;
 }
 
 export function activateTab(state: WorkspaceState, id: string): WorkspaceState {
@@ -12,7 +35,7 @@ export function activateTab(state: WorkspaceState, id: string): WorkspaceState {
 export function openTab(state: WorkspaceState, tab: WorkspaceTab): WorkspaceState {
     const existing = state.tabs.find((t) => t.id === tab.id);
     if (existing) return { ...state, activeTabId: existing.id };
-    if (isAtCap(state)) return state; // over cap: drop (store layer surfaces a prompt)
+    if (capBlock(state, tab)) return state; // over a cap: drop (store layer surfaces a prompt)
     return { tabs: [...state.tabs, tab], activeTabId: tab.id };
 }
 

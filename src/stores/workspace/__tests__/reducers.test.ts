@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
     openTab, closeTab, closeOthers, closeAll, closeToRight,
-    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed,
+    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed, capBlock,
 } from '../reducers';
-import { makeTabId, TAB_CAP, type WorkspaceState, type TabTarget } from '../types';
+import { makeTabId, TAB_CAP, MODULE_CAP, type WorkspaceState, type TabTarget } from '../types';
 
 const empty: WorkspaceState = { tabs: [], activeTabId: null };
 
@@ -81,6 +81,47 @@ describe('closeOthers / closeAll', () => {
         s = openTab(s, tab('sales-order', 'B'));
         const cleared = closeAll(s);
         expect(cleared).toEqual(empty);
+    });
+});
+
+describe('two-level cap — modules vs docs-per-module', () => {
+    // Distinct AR entities → distinct module keys (ar/<entity>).
+    const docInModule = (m: number, rec: string) => tab(`m${m}`, rec);
+
+    it('caps documents within a single module at TAB_CAP, independently', () => {
+        let s: WorkspaceState = empty;
+        for (let i = 0; i < TAB_CAP; i++) s = openTab(s, docInModule(0, `R${i}`));
+        expect(s.tabs).toHaveLength(TAB_CAP);
+        // 11th doc in the SAME module is blocked…
+        const overflow = openTab(s, docInModule(0, 'OVER'));
+        expect(overflow.tabs).toHaveLength(TAB_CAP);
+        // …but a doc in a DIFFERENT module still opens (separate count).
+        const other = openTab(s, docInModule(1, 'R0'));
+        expect(other.tabs).toHaveLength(TAB_CAP + 1);
+    });
+
+    it('caps the number of open modules at MODULE_CAP', () => {
+        let s: WorkspaceState = empty;
+        for (let i = 0; i < MODULE_CAP; i++) s = openTab(s, docInModule(i, 'R0'));
+        expect(new Set(s.tabs.map((t) => t.target.entity)).size).toBe(MODULE_CAP);
+        // An 11th distinct module is blocked…
+        const overflow = openTab(s, docInModule(MODULE_CAP, 'R0'));
+        expect(overflow.tabs).toHaveLength(MODULE_CAP);
+        // …but a 2nd doc in an already-open module still opens.
+        const sameModule = openTab(s, docInModule(0, 'R1'));
+        expect(sameModule.tabs).toHaveLength(MODULE_CAP + 1);
+    });
+
+    it('capBlock reports which cap was hit (or null)', () => {
+        let s: WorkspaceState = empty;
+        for (let i = 0; i < TAB_CAP; i++) s = openTab(s, docInModule(0, `R${i}`));
+        expect(capBlock(s, docInModule(0, 'OVER'))).toBe('doc');     // module full
+        expect(capBlock(s, docInModule(1, 'R0'))).toBeNull();        // new module ok
+
+        let m: WorkspaceState = empty;
+        for (let i = 0; i < MODULE_CAP; i++) m = openTab(m, docInModule(i, 'R0'));
+        expect(capBlock(m, docInModule(MODULE_CAP, 'R0'))).toBe('module'); // too many modules
+        expect(capBlock(m, docInModule(0, 'R1'))).toBeNull();             // existing module ok
     });
 });
 

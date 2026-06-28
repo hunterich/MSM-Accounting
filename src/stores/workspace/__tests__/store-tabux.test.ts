@@ -15,11 +15,17 @@ class MemStorage {
 (globalThis as unknown as { localStorage: MemStorage }).localStorage = new MemStorage();
 
 const { useWorkspaceStore } = await import('../../useWorkspaceStore');
-import { makeTabId, TAB_CAP, type TabTarget, type WorkspaceTab } from '../types';
+import { makeTabId, TAB_CAP, MODULE_CAP, type TabTarget, type WorkspaceTab } from '../types';
 
 const mkTab = (recordId: string, mode: TabTarget['mode'] = 'view'): WorkspaceTab => {
     const target: TabTarget = { module: 'ar', entity: 'invoice', recordId, mode };
     return { id: makeTabId(target), kind: 'doc-view', title: `INV-${recordId}`, target, path: `/ar/invoices?invoiceId=${recordId}`, status: 'clean' };
+};
+
+// A tab in a distinct module (ar/<entity>), one record each.
+const mkModuleTab = (m: number): WorkspaceTab => {
+    const target: TabTarget = { module: 'ar', entity: `e${m}`, recordId: 'R0', mode: 'view' };
+    return { id: makeTabId(target), kind: 'doc-view', title: `E${m}`, target, path: `/x/${m}`, status: 'clean' };
 };
 
 const reset = () => useWorkspaceStore.setState({ tabs: [], activeTabId: null, moduleActive: {}, closedStack: [], capPrompt: null });
@@ -92,5 +98,20 @@ describe('at-cap prompt', () => {
         const after = useWorkspaceStore.getState();
         expect(after.capPrompt).toBeNull();
         expect(after.tabs).toHaveLength(TAB_CAP);
+    });
+});
+
+describe('module-cap prompt', () => {
+    it('resolveCapPromptByModule closes a whole module and opens the blocked tab', () => {
+        const s = useWorkspaceStore.getState();
+        for (let i = 0; i < MODULE_CAP; i++) s.openTab(mkModuleTab(i));
+        const blocked = mkModuleTab(MODULE_CAP); // a brand-new (11th) module
+        expect(useWorkspaceStore.getState().openTab(blocked)).toBe(false); // blocked by module cap
+        useWorkspaceStore.getState().promptForCap(blocked);
+        useWorkspaceStore.getState().resolveCapPromptByModule(mkModuleTab(0).target.entity === 'e0' ? 'ar/e0' : 'ar/e0');
+        const after = useWorkspaceStore.getState();
+        expect(after.tabs.some((t) => t.target.entity === 'e0')).toBe(false); // module e0 closed
+        expect(after.tabs.some((t) => t.id === blocked.id)).toBe(true);       // blocked module opened
+        expect(after.capPrompt).toBeNull();
     });
 });
