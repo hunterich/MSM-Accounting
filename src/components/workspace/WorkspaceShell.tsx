@@ -109,6 +109,18 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ap/vendors')) {
+            const vendorId = params.get('vendorId');
+            if ((path.startsWith('/ap/vendors/new') || path.startsWith('/ap/vendors/edit')) && !vendorId) return; // new from button
+            if (vendorId) {
+                const m = params.get('mode') === 'edit' ? 'edit' : 'view';
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'vendor', recordId: vendorId, mode: m }, title: vendorId, path: `/ap/vendors/${m === 'edit' ? 'edit' : 'new'}?vendorId=${vendorId}&mode=${m}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'vendor', recordId: 'catalog', mode: 'view' }, title: 'Vendors', path: '/ap/vendors' });
+            }
+            return;
+        }
+
         if (path.startsWith('/ap/payments')) {
             if (path.startsWith('/ap/payments/new')) return;
             const id = params.get('paymentId');

@@ -30,6 +30,8 @@ import BillFormV2 from '../ap/forms/BillFormV2';
 import APPaymentListPane from '../ap/payments/APPaymentListPane';
 import APPaymentDetailPane from '../ap/payments/APPaymentDetailPane';
 import APPaymentForm from '../../views/ap/PaymentForm';
+import VendorListPane from '../ap/vendors/VendorListPane';
+import VendorForm from '../../views/ap/VendorForm';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -81,6 +83,13 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         if (tab.kind === 'list') return <APPaymentListPane />;
         if (tab.kind === 'doc-form') return <APPaymentForm recordId={recordId ?? undefined} mode={mode === 'edit' ? 'edit' : 'create'} workspaceTabId={tab.id} />;
         if (tab.kind === 'doc-view') return <APPaymentDetailPane paymentId={recordId ?? ''} workspaceTabId={tab.id} />;
+    }
+
+    if (module === 'ap' && entity === 'vendor') {
+        if (tab.kind === 'list') return <VendorListPane />;
+        if (tab.kind === 'doc-form' || tab.kind === 'doc-view') {
+            return <VendorForm recordId={recordId ?? undefined} mode={mode === 'edit' ? 'edit' : mode === 'view' ? 'view' : 'create'} workspaceTabId={tab.id} />;
+        }
     }
 
     if (module === 'ap' && entity === 'bill') {

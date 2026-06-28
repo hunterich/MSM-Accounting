@@ -93,12 +93,16 @@ const buildVendorState = (
     };
 };
 
-const VendorForm = () => {
+interface VendorFormProps { recordId?: string; mode?: 'create' | 'edit' | 'view'; workspaceTabId?: string }
+
+const VendorForm = ({ recordId, mode: modeProp, workspaceTabId }: VendorFormProps = {}) => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
 
-    const vendorId = searchParams.get('vendorId') || '';
-    const rawMode = searchParams.get('mode') || 'create';
+    // In the workspace, identity comes from the owning tab (props), not the URL.
+    const inWorkspace = workspaceTabId != null;
+    const vendorId = inWorkspace ? (recordId ?? '') : (searchParams.get('vendorId') || '');
+    const rawMode = inWorkspace ? (modeProp ?? 'create') : (searchParams.get('mode') || 'create');
     const mode = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'create';
     const isViewMode = mode === 'view';
     const isEditMode = mode === 'edit';
