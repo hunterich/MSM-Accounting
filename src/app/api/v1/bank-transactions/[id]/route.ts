@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { updateBankTransactionInputSchema } from '@/types/api';
+import { postBankTransactionIfNeeded, reverseBankTransactionPosting } from '@/lib/bank-transaction-posting';
 
 export const runtime = 'nodejs';
 
@@ -30,14 +31,8 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid bank transaction payload', 400);
   try {
     const txn = await prisma.$transaction(async (tx) => {
-      const existing = await tx.bankTransaction.findFirst({
-        where: { id, organizationId: orgId },
-        select: { id: true, bankAccountId: true, type: true, amount: true, journalEntryId: true },
-      });
+      const existing = await tx.bankTransaction.findFirst({ where: { id, organizationId: orgId } });
       if (!existing) return null;
-      if (existing.journalEntryId) {
-        throw new ApiError('This expense has already been posted to the ledger and cannot be edited — void it instead.', 409);
-      }
       if (parsed.data.bankAccountId) {
         await validateForeignKey(tx.bankAccount, { id: parsed.data.bankAccountId, organizationId: orgId, isActive: true }, 'Bank account not found in organization');
       }
@@ -45,46 +40,47 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (
         await validateForeignKey(tx.bankAccount, { id: parsed.data.toBankAccountId, organizationId: orgId, isActive: true }, 'Destination bank account not found in organization');
       }
 
-      const updated = await tx.bankTransaction.update({
-        where: { id, organizationId: orgId },
-        data: {
-          ...parsed.data,
-          ...(parsed.data.date !== undefined && { date: new Date(parsed.data.date) }),
-          updatedAt: new Date(),
-        },
-        include: { bankAccount: { select: { id: true, name: true } } },
-      });
-
-      const oldDelta = existing.type === 'INCOME' ? Number(existing.amount) : existing.type === 'TRANSFER' ? 0 : -Number(existing.amount);
-      const newType = parsed.data.type ?? existing.type;
-      const newAmount = parsed.data.amount ?? Number(existing.amount);
-      const newBankAccountId = parsed.data.bankAccountId ?? existing.bankAccountId;
-      const newDelta = newType === 'INCOME' ? Number(newAmount) : newType === 'TRANSFER' ? 0 : -Number(newAmount);
-
-      if (existing.bankAccountId === newBankAccountId) {
-        const netDelta = newDelta - oldDelta;
-        if (netDelta !== 0) {
+      // Reverse the original posting: storno its journal entry (if any) and back
+      // out the cached-balance moves it applied, so the GL and cached balances
+      // start from a clean slate before re-posting.
+      const undoMoves = await reverseBankTransactionPosting(tx, orgId, existing);
+      for (const move of undoMoves) {
+        if (move.delta !== 0) {
           await tx.bankAccount.update({
-            where: { id: newBankAccountId },
-            data: { currentBalance: { increment: netDelta } },
-          });
-        }
-      } else {
-        if (oldDelta !== 0) {
-          await tx.bankAccount.update({
-            where: { id: existing.bankAccountId },
-            data: { currentBalance: { increment: -oldDelta } },
-          });
-        }
-        if (newDelta !== 0) {
-          await tx.bankAccount.update({
-            where: { id: newBankAccountId },
-            data: { currentBalance: { increment: newDelta } },
+            where: { id: move.bankAccountId },
+            data: { currentBalance: { increment: move.delta } },
           });
         }
       }
 
-      return updated;
+      // Apply the edit and clear journalEntryId so the re-post is not a no-op.
+      await tx.bankTransaction.update({
+        where: { id, organizationId: orgId },
+        data: {
+          ...parsed.data,
+          ...(parsed.data.date !== undefined && { date: new Date(parsed.data.date) }),
+          journalEntryId: null,
+          updatedAt: new Date(),
+        },
+      });
+
+      // Re-post the GL entry from the edited data (EXPENSE / INCOME / TRANSFER)
+      // and move every affected bank account's cached balance in lockstep with
+      // the ledger — both source and destination for a transfer.
+      const posting = await postBankTransactionIfNeeded(tx, orgId, id);
+      for (const move of posting.moves) {
+        if (move.delta !== 0) {
+          await tx.bankAccount.update({
+            where: { id: move.bankAccountId },
+            data: { currentBalance: { increment: move.delta } },
+          });
+        }
+      }
+
+      return tx.bankTransaction.findFirst({
+        where: { id, organizationId: orgId },
+        include: { bankAccount: { select: { id: true, name: true } } },
+      });
     });
     if (!txn) return err('Not found', 404);
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankTransaction', entityId: id, action: 'UPDATE', payload: body });
