@@ -72,6 +72,130 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ar/customers')) {
+            if (path.startsWith('/ar/customers/new')) return;
+            const id = params.get('id');
+            if (path.startsWith('/ar/customers/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'customer', recordId: id, mode: 'edit' }, title: `Edit ${id}`, path: `/ar/customers/edit?id=${id}&mode=edit` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'ar', entity: 'customer', recordId: id, mode: 'view' }, title: id, path: `/ar/customers?id=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ar', entity: 'customer', recordId: 'catalog', mode: 'view' }, title: 'Customers', path: '/ar/customers' });
+            }
+            return;
+        }
+
+        if (path.startsWith('/ar/payments')) {
+            if (path.startsWith('/ar/payments/new')) return;
+            const id = params.get('paymentId');
+            if (path.startsWith('/ar/payments/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'payment', recordId: id, mode: 'edit' }, title: `Edit ${id}`, path: `/ar/payments/edit?paymentId=${id}` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'ar', entity: 'payment', recordId: id, mode: 'view' }, title: id, path: `/ar/payments?paymentId=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ar', entity: 'payment', recordId: 'catalog', mode: 'view' }, title: 'Payments (AR)', path: '/ar/payments' });
+            }
+            return;
+        }
+
+        if (path.startsWith('/ap/pos')) {
+            if (path.startsWith('/ap/pos/new')) return;
+            const poId = params.get('poId');
+            if (path.startsWith('/ap/pos/edit') && poId) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'purchase-order', recordId: poId, mode: 'edit' }, title: poId, path: `/ap/pos/edit?poId=${poId}&mode=view` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'purchase-order', recordId: 'catalog', mode: 'view' }, title: 'Purchase orders', path: '/ap/pos' });
+            }
+            return;
+        }
+
+        if (path.startsWith('/ap/vendors')) {
+            const vendorId = params.get('vendorId');
+            if ((path.startsWith('/ap/vendors/new') || path.startsWith('/ap/vendors/edit')) && !vendorId) return; // new from button
+            if (vendorId) {
+                const m = params.get('mode') === 'edit' ? 'edit' : 'view';
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'vendor', recordId: vendorId, mode: m }, title: vendorId, path: `/ap/vendors/${m === 'edit' ? 'edit' : 'new'}?vendorId=${vendorId}&mode=${m}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'vendor', recordId: 'catalog', mode: 'view' }, title: 'Vendors', path: '/ap/vendors' });
+            }
+            return;
+        }
+
+        if (path.startsWith('/ap/payments')) {
+            if (path.startsWith('/ap/payments/new')) return;
+            const id = params.get('paymentId');
+            if (path.startsWith('/ap/payments/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'payment', recordId: id, mode: 'edit' }, title: `Edit ${id}`, path: `/ap/payments/edit?paymentId=${id}` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'ap', entity: 'payment', recordId: id, mode: 'view' }, title: id, path: `/ap/payments?paymentId=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'payment', recordId: 'catalog', mode: 'view' }, title: 'Payments (AP)', path: '/ap/payments' });
+            }
+            return;
+        }
+
+        if (path.startsWith('/ap/bills') && !path.startsWith('/ap/bills/import')) {
+            const billId = params.get('billId');
+            if ((path.startsWith('/ap/bills/new') || path.startsWith('/ap/bills/edit')) && !billId) return; // new from button
+            if (billId) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'bill', recordId: billId, mode: 'edit' }, title: billId, path: `/ap/bills/new?billId=${billId}&mode=view` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'bill', recordId: 'catalog', mode: 'view' }, title: 'Bills', path: '/ap/bills' });
+            }
+            return;
+        }
+
+        if (path === '/banking') {
+            const txnId = params.get('txnId');
+            if (txnId) {
+                open({ kind: 'doc-view', target: { module: 'banking', entity: 'transaction', recordId: txnId, mode: 'view' }, title: txnId, path: `/banking?txnId=${txnId}` });
+            } else {
+                open({ kind: 'list', target: { module: 'banking', entity: 'transaction', recordId: 'catalog', mode: 'view' }, title: 'Banking', path: '/banking' });
+            }
+            return;
+        }
+        // Banking form routes are opened by the list/detail buttons; reconciliation
+        // stays a page module (falls through below).
+        if (/^\/banking\/(payment|receive|transfer|account|income|expense)/.test(path)) return;
+
+        if (path.startsWith('/ar/delivery-notes')) {
+            if (path.startsWith('/ar/delivery-notes/new')) return; // new from button
+            open({ kind: 'list', target: { module: 'ar', entity: 'delivery-note', recordId: 'catalog', mode: 'view' }, title: 'Delivery notes', path: '/ar/delivery-notes' });
+            return;
+        }
+
+        if (path.startsWith('/ar/credits') || path.startsWith('/ar/returns')) {
+            // New sales return / new credit come from the "New" button, not a route.
+            if (path === '/ar/returns/new' && !params.get('returnId')) return;
+            const docKey = params.get('docKey');
+            const creditId = params.get('creditId');
+            const returnId = params.get('returnId');
+            if (path.startsWith('/ar/credits/edit') && creditId) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `credit:${creditId}`, mode: 'edit' }, title: `Edit ${creditId}`, path: `/ar/credits/edit?creditId=${creditId}` });
+            } else if (path.startsWith('/ar/returns/new') && returnId) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `return:${returnId}`, mode: 'edit' }, title: `Edit ${returnId}`, path: `/ar/returns/new?returnId=${returnId}` });
+            } else if (docKey) {
+                const colon = docKey.indexOf(':');
+                open({ kind: 'doc-view', target: { module: 'ar', entity: 'credit-note', recordId: docKey, mode: 'view' }, title: docKey.slice(colon + 1), path: `/ar/credits?docKey=${docKey}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ar', entity: 'credit-note', recordId: 'catalog', mode: 'view' }, title: 'Returns & credits', path: '/ar/credits' });
+            }
+            return;
+        }
+
+        if (path.startsWith('/inventory/counts')) {
+            if (path.startsWith('/inventory/counts/new')) return;
+            const id = params.get('id') || params.get('countId');
+            if (path.startsWith('/inventory/counts/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'stock-count', entity: 'count', recordId: id, mode: 'edit' }, title: `Worksheet ${id}`, path: `/inventory/counts/edit?id=${id}` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'stock-count', entity: 'count', recordId: id, mode: 'view' }, title: id, path: `/inventory/counts?countId=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'stock-count', entity: 'count', recordId: 'catalog', mode: 'view' }, title: 'Stock counts', path: '/inventory/counts' });
+            }
+            return;
+        }
+
         const pm = pageModuleForPath(path);
         setPageModuleTab(pm.key, pm.title, path + location.search);
     }, [location.pathname, location.search, open, setPageModuleTab]);

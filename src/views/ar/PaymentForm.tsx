@@ -38,9 +38,17 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 
-const PaymentForm = () => {
+interface PaymentFormProps { recordId?: string; mode?: PaymentMode; workspaceTabId?: string }
+
+const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormProps = {}) => {
     const navigate = useNavigate();
     const location = useLocation();
+    // In the workspace, identity comes from the owning tab (props), not router
+    // state/URL, which are global and race across keep-alive tabs.
+    const inWorkspace = workspaceTabId != null;
+    const navState: { paymentId?: string; mode?: PaymentMode } = inWorkspace
+        ? { paymentId: recordId, mode: modeProp }
+        : (location.state || {});
     const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = (customersData?.data || []) as any[];
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
@@ -182,18 +190,19 @@ const PaymentForm = () => {
                 total += (invoice.amount - (adj.discount || 0) + (adj.penalty || 0));
             }
         });
-        setPaymentData(prev => ({ ...prev, totalAmount: total }));
+        setPaymentData(prev => (prev.totalAmount === total ? prev : { ...prev, totalAmount: total }));
     }, [paymentData.selectedInvoices, paymentData.adjustments, invoices]);
 
     useEffect(() => {
-        const state = location.state || {};
+        const state = navState;
         const isExistingPayment = Boolean(state.paymentId);
         if (isExistingPayment || !resolvedDepositAccountId) return;
         setPaymentData((prev) => (prev.depositAccountId === resolvedDepositAccountId ? prev : { ...prev, depositAccountId: resolvedDepositAccountId }));
-    }, [location.state, resolvedDepositAccountId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navState.paymentId, resolvedDepositAccountId]);
 
     useEffect(() => {
-        const state = location.state || {};
+        const state = navState;
         if (state.mode === 'create' || state.mode === 'view' || state.mode === 'edit') setMode(state.mode);
         if (state.paymentId) {
             const found = payments.find((payment) => payment.id === state.paymentId);
@@ -223,7 +232,8 @@ const PaymentForm = () => {
         } else {
             setPaymentNumberingMode('auto');
         }
-    }, [location.state, payments, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navState.paymentId, navState.mode, payments, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
 
     const customerOptions = customers.map(c => ({ value: c.id, label: c.name }));
     const bankOptions = bankAccounts.map(b => ({ value: b.id, label: b.name }));

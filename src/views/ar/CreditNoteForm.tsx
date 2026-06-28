@@ -65,9 +65,14 @@ const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
     return { subtotal, taxAmount, total: subtotal + taxAmount };
 };
 
-const CreditNoteForm = () => {
+interface CreditNoteFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
+
+const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNoteFormProps = {}) => {
     const navigate = useNavigate();
     const location = useLocation();
+    // In the workspace, identity comes from the owning tab (props), not router
+    // state, which is global and races across keep-alive tabs.
+    const inWorkspace = workspaceTabId != null;
     const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = invoicesData?.data ?? [];
@@ -82,7 +87,9 @@ const CreditNoteForm = () => {
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createCreditNote = useCreateCreditNote();
     const updateCreditNoteMutation = useUpdateCreditNote();
-    const state = (location.state || {}) as { mode?: string; returnDraft?: any; creditId?: string };
+    const state = (inWorkspace
+        ? { mode: modeProp ?? 'edit', creditId: recordId }
+        : (location.state || {})) as { mode?: string; returnDraft?: any; creditId?: string };
     const mode = state.mode || 'create'; // create | view | edit
     const isView = mode === 'view';
     const resolvedAccountDefaults = useMemo(

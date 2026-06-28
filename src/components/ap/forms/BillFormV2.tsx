@@ -62,12 +62,16 @@ const termDays = (terms: string): number => {
 
 interface BillFormV2Props {
     mode?: 'create' | 'edit';
+    recordId?: string;
+    workspaceTabId?: string;
 }
 
-const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create' }) => {
+const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, workspaceTabId }) => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const billId = searchParams.get('billId') || '';
+    // In the workspace, identity comes from the owning tab (props), not the URL.
+    const inWorkspace = workspaceTabId != null;
+    const billId = inWorkspace ? (recordId ?? '') : (searchParams.get('billId') || '');
     const isEdit = mode === 'edit' || !!billId;
 
     // ── Data ────────────────────────────────────────────────────────────────

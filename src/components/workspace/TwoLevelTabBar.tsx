@@ -3,7 +3,7 @@ import { X, Plus, List, XCircle, ChevronRight, RotateCcw, Copy } from 'lucide-re
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { moduleKeyOf, isDocumentModule, docModuleTitle, DOC_MODULES } from '../../stores/workspace/modules';
-import { TAB_CAP } from '../../stores/workspace/types';
+import { TAB_CAP, MODULE_CAP } from '../../stores/workspace/types';
 import TabContextMenu, { type TabMenuItem } from './TabContextMenu';
 
 /**
@@ -63,10 +63,10 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
 
     const openCatalog = () => {
         if (listTab) activateTab(listTab.id);
-        else if (docModule) open({ kind: 'list', target: { module: 'ar', entity: docModule.entity, recordId: 'catalog', mode: 'view' }, title: docModule.title, path: docModule.listPath });
+        else if (docModule) open({ kind: 'list', target: { module: docModule.module, entity: docModule.entity, recordId: 'catalog', mode: 'view' }, title: docModule.title, path: docModule.listPath });
     };
     const openNew = () => {
-        if (docModule) open({ kind: 'doc-form', target: { module: 'ar', entity: docModule.entity, recordId: null, mode: 'create' }, title: docModule.newLabel, path: docModule.newPath, unique: true });
+        if (docModule) open({ kind: 'doc-form', target: { module: docModule.module, entity: docModule.entity, recordId: null, mode: 'create' }, title: docModule.newLabel, path: docModule.newPath, unique: true });
     };
 
     // Build the right-click menu for a record tab. Bulk closes confirm once if
@@ -106,7 +106,7 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                         </span>
                     </button>
                 ))}
-                <div className="workbench-tab-count">{modules.length} module{modules.length === 1 ? '' : 's'}</div>
+                <div className="workbench-tab-count">{modules.length}/{MODULE_CAP} module{modules.length === 1 ? '' : 's'}</div>
             </div>
 
             {docModule && (
@@ -140,7 +140,7 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                             </button>
                         ))}
                     </div>
-                    <div className="workbench-tab-count">Open tabs: {tabs.length}/{TAB_CAP}</div>
+                    <div className="workbench-tab-count">Open tabs: {recordTabs.length}/{TAB_CAP}</div>
                 </div>
             )}
 

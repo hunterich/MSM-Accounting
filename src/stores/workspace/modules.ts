@@ -7,6 +7,7 @@ import type { TabTarget } from './types';
  *  else is a "page" module keyed by its area. */
 export function moduleKeyOf(t: TabTarget): string {
     if (t.module === 'ar') return `ar/${t.entity}`;
+    if (t.module === 'ap') return `ap/${t.entity}`;
     if (t.module === 'page') return `page:${t.recordId}`; // recordId holds the page module key
     return t.module;
 }
@@ -16,6 +17,16 @@ export function moduleKeyOf(t: TabTarget): string {
 const DOC_MODULE_TITLES: Record<string, string> = {
     'ar/sales-order': 'Sales orders',
     'ar/invoice': 'Invoices',
+    'ar/customer': 'Customers',
+    'ar/payment': 'Payments (AR)',
+    'ar/credit-note': 'Returns & credits',
+    'ar/delivery-note': 'Delivery notes',
+    'stock-count': 'Stock counts',
+    'banking': 'Banking',
+    'ap/purchase-order': 'Purchase orders',
+    'ap/bill': 'Bills',
+    'ap/payment': 'Payments (AP)',
+    'ap/vendor': 'Vendors',
 };
 
 export function isDocumentModule(moduleKey: string): boolean {
@@ -28,35 +39,38 @@ export function docModuleTitle(moduleKey: string): string | undefined {
 
 /** Per-document-module config for the second row's catalog + "New" actions. */
 export const DOC_MODULES: Record<string, {
+    module: string;
     entity: string;
     title: string;
     newLabel: string;
     listPath: string;
     newPath: string;
 }> = {
-    'ar/sales-order': { entity: 'sales-order', title: 'Sales orders', newLabel: 'New sales order', listPath: '/ar/sales-orders', newPath: '/ar/sales-orders/new' },
-    'ar/invoice': { entity: 'invoice', title: 'Invoices', newLabel: 'New invoice', listPath: '/ar/invoices', newPath: '/ar/invoices/new' },
+    'ar/sales-order': { module: 'ar', entity: 'sales-order', title: 'Sales orders', newLabel: 'New sales order', listPath: '/ar/sales-orders', newPath: '/ar/sales-orders/new' },
+    'ar/invoice': { module: 'ar', entity: 'invoice', title: 'Invoices', newLabel: 'New invoice', listPath: '/ar/invoices', newPath: '/ar/invoices/new' },
+    'ar/customer': { module: 'ar', entity: 'customer', title: 'Customers', newLabel: 'New customer', listPath: '/ar/customers', newPath: '/ar/customers/new' },
+    'ar/payment': { module: 'ar', entity: 'payment', title: 'Payments (AR)', newLabel: 'Record payment', listPath: '/ar/payments', newPath: '/ar/payments/new' },
+    'ar/credit-note': { module: 'ar', entity: 'credit-note', title: 'Returns & credits', newLabel: 'New sales return', listPath: '/ar/credits', newPath: '/ar/returns/new' },
+    'ar/delivery-note': { module: 'ar', entity: 'delivery-note', title: 'Delivery notes', newLabel: 'New delivery note', listPath: '/ar/delivery-notes', newPath: '/ar/delivery-notes/new' },
+    'stock-count': { module: 'stock-count', entity: 'count', title: 'Stock counts', newLabel: 'New count', listPath: '/inventory/counts', newPath: '/inventory/counts/new' },
+    'banking': { module: 'banking', entity: 'transaction', title: 'Banking', newLabel: 'New payment', listPath: '/banking', newPath: '/banking/payment' },
+    'ap/purchase-order': { module: 'ap', entity: 'purchase-order', title: 'Purchase orders', newLabel: 'New PO', listPath: '/ap/pos', newPath: '/ap/pos/new' },
+    'ap/bill': { module: 'ap', entity: 'bill', title: 'Bills', newLabel: 'New bill', listPath: '/ap/bills', newPath: '/ap/bills/new' },
+    'ap/payment': { module: 'ap', entity: 'payment', title: 'Payments (AP)', newLabel: 'Pay bills', listPath: '/ap/payments', newPath: '/ap/payments/new' },
+    'ap/vendor': { module: 'ap', entity: 'vendor', title: 'Vendors', newLabel: 'Add vendor', listPath: '/ap/vendors', newPath: '/ap/vendors/new?mode=create' },
 };
 
 // Map a non-AR route to its page module (one top tab per area; navigating
 // within the area updates that tab's path). Longest-prefix match.
 const PAGE_MODULES: Array<[string, { key: string; title: string }]> = [
-    ['/banking', { key: 'banking', title: 'Banking' }],
+    ['/banking/reconciliation', { key: 'reconciliation', title: 'Reconciliation' }],
     ['/reports', { key: 'reports', title: 'Reports' }],
     ['/settings', { key: 'settings', title: 'Settings' }],
     ['/company-setup', { key: 'company', title: 'Company setup' }],
     ['/integrations', { key: 'integrations', title: 'Integrations' }],
     ['/inventory', { key: 'inventory', title: 'Inventory' }],
-    ['/ap/bills', { key: 'bills', title: 'Bills' }],
-    ['/ap/pos', { key: 'pos', title: 'Purchase orders' }],
     ['/ap/receiving', { key: 'receiving', title: 'Receive goods' }],
-    ['/ap/payments', { key: 'ap-payments', title: 'Payments (AP)' }],
-    ['/ap/vendors', { key: 'vendors', title: 'Vendors' }],
     ['/ap', { key: 'purchases', title: 'Purchases' }],
-    ['/ar/customers', { key: 'customers', title: 'Customers' }],
-    ['/ar/payments', { key: 'ar-payments', title: 'Payments (AR)' }],
-    ['/ar/credits', { key: 'credits', title: 'Credit notes' }],
-    ['/ar/delivery-notes', { key: 'delivery-notes', title: 'Delivery notes' }],
     ['/ar/recurring', { key: 'recurring', title: 'Recurring billing' }],
     ['/ar/approvals', { key: 'approvals', title: 'Approvals' }],
     ['/hr', { key: 'hr', title: 'HR & payroll' }],

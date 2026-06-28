@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { useBankAccounts, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
+import { useBankAccounts, useBankTransactions, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
 import { bankingActionSchema, zodToFormErrors } from '../../utils/formSchemas';
 
 interface SelectFieldProps {
@@ -97,11 +97,20 @@ const buildInitialState = (expenseAccounts: Array<{ id?: string }>, incomeAccoun
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
-const BankingActionForm = () => {
+interface BankingActionFormProps { action?: ReturnType<typeof getActionFromPath>; sourceTransactionId?: string; workspaceTabId?: string }
+
+const BankingActionForm = ({ action: actionProp, sourceTransactionId, workspaceTabId }: BankingActionFormProps = {}) => {
     const location = useLocation();
     const navigate  = useNavigate();
-    const action    = getActionFromPath(location.pathname);
-    const sourceTransaction = location.state?.transaction || null;
+    // In the workspace, identity comes from the owning tab (props), not the URL
+    // path / router state, which are global and race across keep-alive tabs.
+    const inWorkspace = workspaceTabId != null;
+    const action    = inWorkspace ? (actionProp ?? 'expense') : getActionFromPath(location.pathname);
+    // When editing/matching in the workspace, look the source txn up by id.
+    const { data: wsTxnResult } = useBankTransactions(inWorkspace && sourceTransactionId ? {} : undefined);
+    const sourceTransaction = inWorkspace
+        ? (sourceTransactionId ? (wsTxnResult?.data ?? []).find((t: { id: string }) => t.id === sourceTransactionId) ?? null : null)
+        : (location.state?.transaction || null);
 
     // ── API hooks
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();

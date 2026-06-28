@@ -47,12 +47,17 @@ const OPEN_BILL_STATUSES = new Set(['unpaid', 'overdue', 'pending', 'partial']);
 
 interface POFormV2Props {
     mode?: 'create' | 'edit';
+    recordId?: string;
+    workspaceTabId?: string;
 }
 
-const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create' }) => {
+const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspaceTabId }) => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const poId = searchParams.get('poId') || '';
+    // In the workspace, identity comes from the owning tab (props), not the URL
+    // which is shared and races across keep-alive tabs.
+    const inWorkspace = workspaceTabId != null;
+    const poId = inWorkspace ? (recordId ?? '') : (searchParams.get('poId') || '');
     const isEdit = mode === 'edit' || !!poId;
 
     // ── Data ────────────────────────────────────────────────────────────────

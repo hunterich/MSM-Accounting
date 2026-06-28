@@ -25,8 +25,15 @@ export interface WorkspaceState {
     activeTabId: string | null;
 }
 
-/** Max simultaneously open tabs. Opening past this is a no-op the store surfaces. */
+/**
+ * Two independent caps (the tab bar has two rows):
+ *  - MODULE_CAP — max distinct modules open in row 1.
+ *  - TAB_CAP    — max document tabs WITHIN a single module in row 2.
+ * So you can have up to MODULE_CAP modules, each holding up to TAB_CAP docs.
+ * Opening past either is a no-op the store surfaces via the cap prompt.
+ */
 export const TAB_CAP = 10;
+export const MODULE_CAP = 10;
 
 /**
  * Deterministic tab id so re-opening the same record focuses the existing tab.

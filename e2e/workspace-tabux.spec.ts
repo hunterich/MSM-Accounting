@@ -46,7 +46,7 @@ test.describe('at-cap prompt', () => {
             (window as unknown as Bridge).__MSM_WORKSPACE__.promptForCap({ id: 'ar:invoice:view:BLOCKED', kind: 'doc-view', title: 'INV-BLOCKED', target: { module: 'ar', entity: 'invoice', recordId: 'BLOCKED', mode: 'view' }, path: '/ar/invoices', status: 'clean' });
         });
 
-        await expect(page.getByText('You have 10 tabs open')).toBeVisible();
+        await expect(page.getByText(/already has 10 tabs/)).toBeVisible();
         await page.getByRole('button', { name: /Close oldest & open/ }).click();
 
         const state = await page.evaluate(() => {
@@ -56,7 +56,7 @@ test.describe('at-cap prompt', () => {
         expect(state.hasBlocked).toBe(true); // the blocked doc is now open
         expect(state.hasR0).toBe(false);     // the oldest tab was closed to make room
         expect(state.capPrompt).toBeNull();
-        await expect(page.getByText('You have 10 tabs open')).toHaveCount(0);
+        await expect(page.getByText(/already has 10 tabs/)).toHaveCount(0);
     });
 
     test('Cancel dismisses the prompt and changes nothing', async ({ page }) => {
@@ -64,9 +64,9 @@ test.describe('at-cap prompt', () => {
         await page.evaluate(() => {
             (window as unknown as Bridge).__MSM_WORKSPACE__.promptForCap({ id: 'ar:invoice:view:BLOCKED', kind: 'doc-view', title: 'INV-BLOCKED', target: { module: 'ar', entity: 'invoice', recordId: 'BLOCKED', mode: 'view' }, path: '/ar/invoices', status: 'clean' });
         });
-        await expect(page.getByText('You have 10 tabs open')).toBeVisible();
+        await expect(page.getByText(/already has 10 tabs/)).toBeVisible();
         await page.getByRole('button', { name: 'Cancel' }).click();
-        await expect(page.getByText('You have 10 tabs open')).toHaveCount(0);
+        await expect(page.getByText(/already has 10 tabs/)).toHaveCount(0);
         expect(await invoiceRecordIds(page)).toEqual(['R0', 'R1']);
     });
 });

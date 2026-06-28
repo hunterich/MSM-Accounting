@@ -80,12 +80,17 @@ const buildCustomerState = (customer: any, masterCreditSettings: any): CustomerF
     };
 };
 
-const CustomerForm = () => {
+interface CustomerFormProps { recordId?: string; mode?: 'create' | 'edit' | 'view'; workspaceTabId?: string }
+
+const CustomerForm = ({ recordId, mode: modeProp, workspaceTabId }: CustomerFormProps = {}) => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
 
-    const customerId = searchParams.get('id') || '';
-    const rawMode = searchParams.get('mode') || 'create';
+    // In the workspace, identity comes from props (the owning tab), not the
+    // shared URL — useSearchParams is global and races across keep-alive tabs.
+    const inWorkspace = workspaceTabId != null;
+    const customerId = inWorkspace ? (recordId ?? '') : (searchParams.get('id') || '');
+    const rawMode = inWorkspace ? (modeProp ?? 'create') : (searchParams.get('mode') || 'create');
     const mode = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'create';
     const isViewMode = mode === 'view';
     const isEditMode = mode === 'edit';
