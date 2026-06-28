@@ -38,6 +38,25 @@ export function closeAll(_state?: WorkspaceState): WorkspaceState {
     return { tabs: [], activeTabId: null };
 }
 
+export function closeToRight(state: WorkspaceState, id: string): WorkspaceState {
+    const idx = state.tabs.findIndex((t) => t.id === id);
+    if (idx === -1) return state;
+    const tabs = state.tabs.slice(0, idx + 1);
+    const activeTabId = tabs.some((t) => t.id === state.activeTabId) ? state.activeTabId : id;
+    return { tabs, activeTabId };
+}
+
+/**
+ * Push closed tabs onto a most-recently-closed-last stack for "reopen closed".
+ * Drops any earlier entry sharing an id (so a re-closed tab reopens unambiguously)
+ * and caps the stack to `max`, dropping the oldest entries first.
+ */
+export function pushClosed(stack: WorkspaceTab[], closed: WorkspaceTab[], max: number): WorkspaceTab[] {
+    const closedIds = new Set(closed.map((t) => t.id));
+    const next = [...stack.filter((t) => !closedIds.has(t.id)), ...closed];
+    return next.length > max ? next.slice(next.length - max) : next;
+}
+
 function mapTab(state: WorkspaceState, id: string, fn: (t: WorkspaceTab) => WorkspaceTab): WorkspaceState {
     return { ...state, tabs: state.tabs.map((t) => (t.id === id ? fn(t) : t)) };
 }

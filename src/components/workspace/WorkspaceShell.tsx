@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import TwoLevelTabBar from './TwoLevelTabBar';
 import TabContentHost from './TabContentHost';
+import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { pageModuleForPath } from '../../stores/workspace/modules';
@@ -12,9 +13,22 @@ const WorkspaceShell = (): React.ReactElement => {
     const location = useLocation();
     const { open } = useWorkspaceNav();
     const setPageModuleTab = useWorkspaceStore((s) => s.setPageModuleTab);
+    const reopenClosed = useWorkspaceStore((s) => s.reopenClosed);
     const tabs = useWorkspaceStore((s) => s.tabs);
     const activeTabId = useWorkspaceStore((s) => s.activeTabId);
     const activePath = tabs.find((t) => t.id === activeTabId)?.path;
+
+    // Ctrl/Cmd+Shift+T reopens the most-recently-closed tab (browser-style).
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+                e.preventDefault();
+                reopenClosed();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [reopenClosed]);
 
     useEffect(() => {
         if (import.meta.env.DEV) {
@@ -74,6 +88,7 @@ const WorkspaceShell = (): React.ReactElement => {
             <div className="flex-1 min-h-0">
                 <TabContentHost />
             </div>
+            <TabCapPrompt />
         </div>
     );
 };

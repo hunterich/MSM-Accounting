@@ -21,6 +21,7 @@ let uniqueSeq = 0;
 
 export function useWorkspaceNav() {
     const openTab = useWorkspaceStore((s) => s.openTab);
+    const promptForCap = useWorkspaceStore((s) => s.promptForCap);
 
     const open = useCallback((args: OpenArgs): boolean => {
         const baseId = makeTabId(args.target);
@@ -34,9 +35,12 @@ export function useWorkspaceNav() {
             status: args.initialStatus ?? (args.target.recordId === null ? 'new' : 'clean'),
         };
         const ok = openTab(tab);
-        if (!ok) window.alert('You have 10 tabs open. Close one before opening another.');
+        // At cap: stash the blocked tab so WorkspaceShell can offer to make room
+        // (an in-app prompt where the user picks a tab to close), instead of a
+        // dead-end browser alert.
+        if (!ok) promptForCap(tab);
         return ok;
-    }, [openTab]);
+    }, [openTab, promptForCap]);
 
     return { open };
 }
