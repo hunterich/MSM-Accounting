@@ -98,6 +98,19 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path === '/banking') {
+            const txnId = params.get('txnId');
+            if (txnId) {
+                open({ kind: 'doc-view', target: { module: 'banking', entity: 'transaction', recordId: txnId, mode: 'view' }, title: txnId, path: `/banking?txnId=${txnId}` });
+            } else {
+                open({ kind: 'list', target: { module: 'banking', entity: 'transaction', recordId: 'catalog', mode: 'view' }, title: 'Banking', path: '/banking' });
+            }
+            return;
+        }
+        // Banking form routes are opened by the list/detail buttons; reconciliation
+        // stays a page module (falls through below).
+        if (/^\/banking\/(payment|receive|transfer|account|income|expense)/.test(path)) return;
+
         if (path.startsWith('/ar/credits') || path.startsWith('/ar/returns')) {
             // New sales return / new credit come from the "New" button, not a route.
             if (path === '/ar/returns/new' && !params.get('returnId')) return;

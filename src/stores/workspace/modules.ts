@@ -20,6 +20,7 @@ const DOC_MODULE_TITLES: Record<string, string> = {
     'ar/payment': 'Payments (AR)',
     'ar/credit-note': 'Returns & credits',
     'stock-count': 'Stock counts',
+    'banking': 'Banking',
 };
 
 export function isDocumentModule(moduleKey: string): boolean {
@@ -45,12 +46,13 @@ export const DOC_MODULES: Record<string, {
     'ar/payment': { module: 'ar', entity: 'payment', title: 'Payments (AR)', newLabel: 'Record payment', listPath: '/ar/payments', newPath: '/ar/payments/new' },
     'ar/credit-note': { module: 'ar', entity: 'credit-note', title: 'Returns & credits', newLabel: 'New sales return', listPath: '/ar/credits', newPath: '/ar/returns/new' },
     'stock-count': { module: 'stock-count', entity: 'count', title: 'Stock counts', newLabel: 'New count', listPath: '/inventory/counts', newPath: '/inventory/counts/new' },
+    'banking': { module: 'banking', entity: 'transaction', title: 'Banking', newLabel: 'New payment', listPath: '/banking', newPath: '/banking/payment' },
 };
 
 // Map a non-AR route to its page module (one top tab per area; navigating
 // within the area updates that tab's path). Longest-prefix match.
 const PAGE_MODULES: Array<[string, { key: string; title: string }]> = [
-    ['/banking', { key: 'banking', title: 'Banking' }],
+    ['/banking/reconciliation', { key: 'reconciliation', title: 'Reconciliation' }],
     ['/reports', { key: 'reports', title: 'Reports' }],
     ['/settings', { key: 'settings', title: 'Settings' }],
     ['/company-setup', { key: 'company', title: 'Company setup' }],

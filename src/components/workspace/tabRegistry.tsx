@@ -20,6 +20,9 @@ import CreditNoteListPane from '../ar/credits/CreditNoteListPane';
 import CreditNoteDetailPane from '../ar/credits/CreditNoteDetailPane';
 import CreditNoteForm from '../../views/ar/CreditNoteForm';
 import SalesReturnForm from '../../views/ar/SalesReturnForm';
+import BankingListPane from '../banking/BankingListPane';
+import BankingDetailPane from '../banking/BankingDetailPane';
+import BankingActionForm from '../../views/banking/BankingActionForm';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -57,6 +60,20 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         if (tab.kind === 'list') return <StockCountListPane />;
         if (tab.kind === 'doc-form') return <StockCountForm recordId={recordId ?? undefined} workspaceTabId={tab.id} />;
         if (tab.kind === 'doc-view') return <StockCountDetailPane countId={recordId ?? ''} workspaceTabId={tab.id} />;
+    }
+
+    if (module === 'banking' && entity === 'transaction') {
+        if (tab.kind === 'list') return <BankingListPane />;
+        if (tab.kind === 'doc-view') return <BankingDetailPane txnId={recordId ?? ''} workspaceTabId={tab.id} />;
+        if (tab.kind === 'doc-form') {
+            const rid = recordId ?? '';
+            if (rid.startsWith('edit:')) {
+                const [, action, ...idParts] = rid.split(':');
+                return <BankingActionForm action={action as 'expense' | 'income' | 'transfer' | 'account'} sourceTransactionId={idParts.join(':')} workspaceTabId={tab.id} />;
+            }
+            const action = (rid.startsWith('new:') ? rid.slice('new:'.length) : 'expense') as 'expense' | 'income' | 'transfer' | 'account';
+            return <BankingActionForm action={action} workspaceTabId={tab.id} />;
+        }
     }
 
     if (module === 'ar' && entity === 'credit-note') {
