@@ -22,7 +22,7 @@ const docViewEntities = (page: import('@playwright/test').Page) =>
         .map((t: any) => t.target.entity));
 
 // Each migrated module shows the document-module second row (the "New" button).
-for (const path of ['/ar/customers', '/ar/payments', '/inventory/counts', '/ar/credits', '/banking']) {
+for (const path of ['/ar/customers', '/ar/payments', '/inventory/counts', '/ar/credits', '/banking', '/ap/pos', '/ap/bills', '/ap/payments', '/ap/vendors', '/ar/delivery-notes']) {
     test(`${path} renders as a document module (second-row New button)`, async ({ page }) => {
         await page.goto(path);
         await expect(page.locator('.workbench-doc-tab-new')).toBeVisible();
