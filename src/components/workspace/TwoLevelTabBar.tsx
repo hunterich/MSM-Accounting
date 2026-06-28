@@ -63,10 +63,10 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
 
     const openCatalog = () => {
         if (listTab) activateTab(listTab.id);
-        else if (docModule) open({ kind: 'list', target: { module: 'ar', entity: docModule.entity, recordId: 'catalog', mode: 'view' }, title: docModule.title, path: docModule.listPath });
+        else if (docModule) open({ kind: 'list', target: { module: docModule.module, entity: docModule.entity, recordId: 'catalog', mode: 'view' }, title: docModule.title, path: docModule.listPath });
     };
     const openNew = () => {
-        if (docModule) open({ kind: 'doc-form', target: { module: 'ar', entity: docModule.entity, recordId: null, mode: 'create' }, title: docModule.newLabel, path: docModule.newPath, unique: true });
+        if (docModule) open({ kind: 'doc-form', target: { module: docModule.module, entity: docModule.entity, recordId: null, mode: 'create' }, title: docModule.newLabel, path: docModule.newPath, unique: true });
     };
 
     // Build the right-click menu for a record tab. Bulk closes confirm once if

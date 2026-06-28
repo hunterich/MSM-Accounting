@@ -18,6 +18,7 @@ const DOC_MODULE_TITLES: Record<string, string> = {
     'ar/invoice': 'Invoices',
     'ar/customer': 'Customers',
     'ar/payment': 'Payments (AR)',
+    'stock-count': 'Stock counts',
 };
 
 export function isDocumentModule(moduleKey: string): boolean {
@@ -30,16 +31,18 @@ export function docModuleTitle(moduleKey: string): string | undefined {
 
 /** Per-document-module config for the second row's catalog + "New" actions. */
 export const DOC_MODULES: Record<string, {
+    module: string;
     entity: string;
     title: string;
     newLabel: string;
     listPath: string;
     newPath: string;
 }> = {
-    'ar/sales-order': { entity: 'sales-order', title: 'Sales orders', newLabel: 'New sales order', listPath: '/ar/sales-orders', newPath: '/ar/sales-orders/new' },
-    'ar/invoice': { entity: 'invoice', title: 'Invoices', newLabel: 'New invoice', listPath: '/ar/invoices', newPath: '/ar/invoices/new' },
-    'ar/customer': { entity: 'customer', title: 'Customers', newLabel: 'New customer', listPath: '/ar/customers', newPath: '/ar/customers/new' },
-    'ar/payment': { entity: 'payment', title: 'Payments (AR)', newLabel: 'Record payment', listPath: '/ar/payments', newPath: '/ar/payments/new' },
+    'ar/sales-order': { module: 'ar', entity: 'sales-order', title: 'Sales orders', newLabel: 'New sales order', listPath: '/ar/sales-orders', newPath: '/ar/sales-orders/new' },
+    'ar/invoice': { module: 'ar', entity: 'invoice', title: 'Invoices', newLabel: 'New invoice', listPath: '/ar/invoices', newPath: '/ar/invoices/new' },
+    'ar/customer': { module: 'ar', entity: 'customer', title: 'Customers', newLabel: 'New customer', listPath: '/ar/customers', newPath: '/ar/customers/new' },
+    'ar/payment': { module: 'ar', entity: 'payment', title: 'Payments (AR)', newLabel: 'Record payment', listPath: '/ar/payments', newPath: '/ar/payments/new' },
+    'stock-count': { module: 'stock-count', entity: 'count', title: 'Stock counts', newLabel: 'New count', listPath: '/inventory/counts', newPath: '/inventory/counts/new' },
 };
 
 // Map a non-AR route to its page module (one top tab per area; navigating

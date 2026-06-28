@@ -98,6 +98,19 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/inventory/counts')) {
+            if (path.startsWith('/inventory/counts/new')) return;
+            const id = params.get('id') || params.get('countId');
+            if (path.startsWith('/inventory/counts/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'stock-count', entity: 'count', recordId: id, mode: 'edit' }, title: `Worksheet ${id}`, path: `/inventory/counts/edit?id=${id}` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'stock-count', entity: 'count', recordId: id, mode: 'view' }, title: id, path: `/inventory/counts?countId=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'stock-count', entity: 'count', recordId: 'catalog', mode: 'view' }, title: 'Stock counts', path: '/inventory/counts' });
+            }
+            return;
+        }
+
         const pm = pageModuleForPath(path);
         setPageModuleTab(pm.key, pm.title, path + location.search);
     }, [location.pathname, location.search, open, setPageModuleTab]);

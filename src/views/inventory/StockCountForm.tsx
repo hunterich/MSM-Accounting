@@ -635,11 +635,18 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
 
 // ── Root export ────────────────────────────────────────────────────────────────
 
-const StockCountForm: React.FC = () => {
+interface StockCountFormProps { recordId?: string; workspaceTabId?: string }
+
+const StockCountForm: React.FC<StockCountFormProps> = ({ recordId, workspaceTabId } = {}) => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const id   = searchParams.get('id') ?? '';
-    const mode = searchParams.get('mode') === 'view' ? 'view' : id ? 'edit' : 'new';
+    // In the workspace, identity comes from the owning tab (props), not the
+    // shared URL, which races across keep-alive tabs.
+    const inWorkspace = workspaceTabId != null;
+    const id   = inWorkspace ? (recordId ?? '') : (searchParams.get('id') ?? '');
+    const mode = inWorkspace
+        ? (id ? 'edit' : 'new')
+        : (searchParams.get('mode') === 'view' ? 'view' : id ? 'edit' : 'new');
 
     if (mode === 'new') {
         return (
