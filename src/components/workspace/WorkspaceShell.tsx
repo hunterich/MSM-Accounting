@@ -85,6 +85,19 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ar/payments')) {
+            if (path.startsWith('/ar/payments/new')) return;
+            const id = params.get('paymentId');
+            if (path.startsWith('/ar/payments/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'payment', recordId: id, mode: 'edit' }, title: `Edit ${id}`, path: `/ar/payments/edit?paymentId=${id}` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'ar', entity: 'payment', recordId: id, mode: 'view' }, title: id, path: `/ar/payments?paymentId=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ar', entity: 'payment', recordId: 'catalog', mode: 'view' }, title: 'Payments (AR)', path: '/ar/payments' });
+            }
+            return;
+        }
+
         const pm = pageModuleForPath(path);
         setPageModuleTab(pm.key, pm.title, path + location.search);
     }, [location.pathname, location.search, open, setPageModuleTab]);
