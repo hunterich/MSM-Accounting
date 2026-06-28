@@ -158,6 +158,12 @@ const WorkspaceShell = (): React.ReactElement => {
         // stays a page module (falls through below).
         if (/^\/banking\/(payment|receive|transfer|account|income|expense)/.test(path)) return;
 
+        if (path.startsWith('/ar/delivery-notes')) {
+            if (path.startsWith('/ar/delivery-notes/new')) return; // new from button
+            open({ kind: 'list', target: { module: 'ar', entity: 'delivery-note', recordId: 'catalog', mode: 'view' }, title: 'Delivery notes', path: '/ar/delivery-notes' });
+            return;
+        }
+
         if (path.startsWith('/ar/credits') || path.startsWith('/ar/returns')) {
             // New sales return / new credit come from the "New" button, not a route.
             if (path === '/ar/returns/new' && !params.get('returnId')) return;

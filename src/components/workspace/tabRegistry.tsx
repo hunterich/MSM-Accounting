@@ -32,6 +32,8 @@ import APPaymentDetailPane from '../ap/payments/APPaymentDetailPane';
 import APPaymentForm from '../../views/ap/PaymentForm';
 import VendorListPane from '../ap/vendors/VendorListPane';
 import VendorForm from '../../views/ap/VendorForm';
+import DeliveryNoteListPane from '../ar/deliverynotes/DeliveryNoteListPane';
+import DeliveryNoteForm from '../ar/deliverynotes/DeliveryNoteForm';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -111,6 +113,11 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
             const action = (rid.startsWith('new:') ? rid.slice('new:'.length) : 'expense') as 'expense' | 'income' | 'transfer' | 'account';
             return <BankingActionForm action={action} workspaceTabId={tab.id} />;
         }
+    }
+
+    if (module === 'ar' && entity === 'delivery-note') {
+        if (tab.kind === 'list') return <DeliveryNoteListPane />;
+        if (tab.kind === 'doc-form') return <DeliveryNoteForm workspaceTabId={tab.id} />;
     }
 
     if (module === 'ar' && entity === 'credit-note') {
