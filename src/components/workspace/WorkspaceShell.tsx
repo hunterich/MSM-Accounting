@@ -109,6 +109,17 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ap/bills') && !path.startsWith('/ap/bills/import')) {
+            const billId = params.get('billId');
+            if ((path.startsWith('/ap/bills/new') || path.startsWith('/ap/bills/edit')) && !billId) return; // new from button
+            if (billId) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'bill', recordId: billId, mode: 'edit' }, title: billId, path: `/ap/bills/new?billId=${billId}&mode=view` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'bill', recordId: 'catalog', mode: 'view' }, title: 'Bills', path: '/ap/bills' });
+            }
+            return;
+        }
+
         if (path === '/banking') {
             const txnId = params.get('txnId');
             if (txnId) {

@@ -25,6 +25,8 @@ import BankingDetailPane from '../banking/BankingDetailPane';
 import BankingActionForm from '../../views/banking/BankingActionForm';
 import POListPane from '../ap/purchaseorders/POListPane';
 import POFormV2 from '../ap/forms/POFormV2';
+import BillListPane from '../ap/bills/BillListPane';
+import BillFormV2 from '../ap/forms/BillFormV2';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -69,6 +71,13 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         // POs have no separate detail — View/Edit both open the (editable) form.
         if (tab.kind === 'doc-form' || tab.kind === 'doc-view') {
             return <POFormV2 mode={recordId ? 'edit' : 'create'} recordId={recordId ?? undefined} workspaceTabId={tab.id} />;
+        }
+    }
+
+    if (module === 'ap' && entity === 'bill') {
+        if (tab.kind === 'list') return <BillListPane />;
+        if (tab.kind === 'doc-form' || tab.kind === 'doc-view') {
+            return <BillFormV2 mode={recordId ? 'edit' : 'create'} recordId={recordId ?? undefined} workspaceTabId={tab.id} />;
         }
     }
 
