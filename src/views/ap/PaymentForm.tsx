@@ -79,9 +79,19 @@ const buildPaymentNo = (bankCode: string, dateStr?: string, seq = 1) => {
     return `APP/${bankCode}/${yyyy}/${mm}/${seqStr}`;
 };
 
-const PaymentForm = () => {
+interface APPaymentFormProps { recordId?: string; mode?: 'create' | 'edit' | 'view'; workspaceTabId?: string }
+
+const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentFormProps = {}) => {
     const navigate = useNavigate();
     const location = useLocation();
+    // In the workspace, identity comes from the owning tab (props). recordId is
+    // a paymentId (edit), `bill:<billId>` (new payment for a bill), or null (new).
+    const inWorkspace = workspaceTabId != null;
+    const navState: PaymentLocationState = inWorkspace
+        ? (recordId?.startsWith('bill:')
+            ? { mode: 'create', payBillId: recordId.slice('bill:'.length) }
+            : (recordId ? { mode: modeProp ?? 'edit', paymentId: recordId } : { mode: 'create' }))
+        : ((location.state || {}) as PaymentLocationState);
 
     const { data: vendorsData, isLoading: vendorsLoading } = useVendors();
     const vendors = vendorsData?.data || [];
@@ -209,14 +219,15 @@ const PaymentForm = () => {
     }, [resolvedCashAccountId, resolvedAccountDefaults]);
 
     useEffect(() => {
-        const state = (location.state || {}) as PaymentLocationState;
+        const state = navState;
         const isExistingPayment = Boolean(state.paymentId);
         if (isExistingPayment || !resolvedCashAccountId) return;
         setPaymentData((prev) => (prev.cashAccountId === resolvedCashAccountId ? prev : { ...prev, cashAccountId: resolvedCashAccountId }));
-    }, [location.state, resolvedCashAccountId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navState.paymentId, resolvedCashAccountId]);
 
     useEffect(() => {
-        const state = (location.state || {}) as PaymentLocationState;
+        const state = navState;
         if (state.mode) setMode(state.mode);
 
         if (state.payBillId) {
@@ -257,7 +268,8 @@ const PaymentForm = () => {
         }
 
         setPaymentNumberingMode('auto');
-    }, [location.state, apPayments, bills, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navState.paymentId, navState.payBillId, navState.mode, apPayments, bills, bankAccounts, chartOfAccounts, accountDefaultsConfig, resolvedAccountDefaults]);
 
     useEffect(() => {
         let total = 0;
@@ -267,7 +279,7 @@ const PaymentForm = () => {
             const adjustment = paymentData.adjustments[billId] || { discount: 0, penalty: 0 };
             total += Number(bill.amount || 0) - Number(adjustment.discount || 0) + Number(adjustment.penalty || 0);
         });
-        setPaymentData((prev) => ({ ...prev, totalAmount: total }));
+        setPaymentData((prev) => (prev.totalAmount === total ? prev : { ...prev, totalAmount: total }));
     }, [paymentData.selectedBills, paymentData.adjustments, bills]);
 
     const vendorOptions = vendors.map((vendor): SelectOption => ({ value: vendor.id, label: vendor.name }));

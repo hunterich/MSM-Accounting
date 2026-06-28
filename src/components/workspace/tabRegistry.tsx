@@ -27,6 +27,9 @@ import POListPane from '../ap/purchaseorders/POListPane';
 import POFormV2 from '../ap/forms/POFormV2';
 import BillListPane from '../ap/bills/BillListPane';
 import BillFormV2 from '../ap/forms/BillFormV2';
+import APPaymentListPane from '../ap/payments/APPaymentListPane';
+import APPaymentDetailPane from '../ap/payments/APPaymentDetailPane';
+import APPaymentForm from '../../views/ap/PaymentForm';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -72,6 +75,12 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         if (tab.kind === 'doc-form' || tab.kind === 'doc-view') {
             return <POFormV2 mode={recordId ? 'edit' : 'create'} recordId={recordId ?? undefined} workspaceTabId={tab.id} />;
         }
+    }
+
+    if (module === 'ap' && entity === 'payment') {
+        if (tab.kind === 'list') return <APPaymentListPane />;
+        if (tab.kind === 'doc-form') return <APPaymentForm recordId={recordId ?? undefined} mode={mode === 'edit' ? 'edit' : 'create'} workspaceTabId={tab.id} />;
+        if (tab.kind === 'doc-view') return <APPaymentDetailPane paymentId={recordId ?? ''} workspaceTabId={tab.id} />;
     }
 
     if (module === 'ap' && entity === 'bill') {

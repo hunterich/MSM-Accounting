@@ -24,6 +24,7 @@ const DOC_MODULE_TITLES: Record<string, string> = {
     'banking': 'Banking',
     'ap/purchase-order': 'Purchase orders',
     'ap/bill': 'Bills',
+    'ap/payment': 'Payments (AP)',
 };
 
 export function isDocumentModule(moduleKey: string): boolean {
@@ -52,6 +53,7 @@ export const DOC_MODULES: Record<string, {
     'banking': { module: 'banking', entity: 'transaction', title: 'Banking', newLabel: 'New payment', listPath: '/banking', newPath: '/banking/payment' },
     'ap/purchase-order': { module: 'ap', entity: 'purchase-order', title: 'Purchase orders', newLabel: 'New PO', listPath: '/ap/pos', newPath: '/ap/pos/new' },
     'ap/bill': { module: 'ap', entity: 'bill', title: 'Bills', newLabel: 'New bill', listPath: '/ap/bills', newPath: '/ap/bills/new' },
+    'ap/payment': { module: 'ap', entity: 'payment', title: 'Payments (AP)', newLabel: 'Pay bills', listPath: '/ap/payments', newPath: '/ap/payments/new' },
 };
 
 // Map a non-AR route to its page module (one top tab per area; navigating
@@ -64,7 +66,6 @@ const PAGE_MODULES: Array<[string, { key: string; title: string }]> = [
     ['/integrations', { key: 'integrations', title: 'Integrations' }],
     ['/inventory', { key: 'inventory', title: 'Inventory' }],
     ['/ap/receiving', { key: 'receiving', title: 'Receive goods' }],
-    ['/ap/payments', { key: 'ap-payments', title: 'Payments (AP)' }],
     ['/ap/vendors', { key: 'vendors', title: 'Vendors' }],
     ['/ap', { key: 'purchases', title: 'Purchases' }],
     ['/ar/delivery-notes', { key: 'delivery-notes', title: 'Delivery notes' }],

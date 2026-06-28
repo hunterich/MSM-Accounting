@@ -109,6 +109,19 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ap/payments')) {
+            if (path.startsWith('/ap/payments/new')) return;
+            const id = params.get('paymentId');
+            if (path.startsWith('/ap/payments/edit') && id) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'payment', recordId: id, mode: 'edit' }, title: `Edit ${id}`, path: `/ap/payments/edit?paymentId=${id}` });
+            } else if (id) {
+                open({ kind: 'doc-view', target: { module: 'ap', entity: 'payment', recordId: id, mode: 'view' }, title: id, path: `/ap/payments?paymentId=${id}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'payment', recordId: 'catalog', mode: 'view' }, title: 'Payments (AP)', path: '/ap/payments' });
+            }
+            return;
+        }
+
         if (path.startsWith('/ap/bills') && !path.startsWith('/ap/bills/import')) {
             const billId = params.get('billId');
             if ((path.startsWith('/ap/bills/new') || path.startsWith('/ap/bills/edit')) && !billId) return; // new from button
