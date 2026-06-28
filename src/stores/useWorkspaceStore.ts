@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { WorkspaceTab, TabStatus } from './workspace/types';
 import { moduleKeyOf } from './workspace/modules';
-import { isAtCap, pushClosed } from './workspace/reducers';
+import { capBlock, pushClosed } from './workspace/reducers';
 import * as R from './workspace/reducers';
 
 /** How many recently-closed tabs we remember for "reopen closed". */
@@ -43,8 +43,10 @@ interface WorkspaceStore {
     reopenClosed: () => boolean;
     /** Stash a tab the cap blocked so the UI can offer to make room. */
     promptForCap: (tab: WorkspaceTab) => void;
-    /** Close `closeId` to free a slot, then open the stashed tab. */
+    /** Close `closeId` to free a doc slot in its module, then open the stashed tab. */
     resolveCapPrompt: (closeId: string) => void;
+    /** Close a whole module to free a module slot, then open the stashed tab. */
+    resolveCapPromptByModule: (moduleKey: string) => void;
     /** Dismiss the cap prompt, leaving tabs untouched. */
     dismissCapPrompt: () => void;
     reorderTab: (id: string, toIndex: number) => void;
@@ -73,7 +75,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             openTab: (tab) => {
                 const state = get();
                 const already = state.tabs.some((t) => t.id === tab.id);
-                if (!already && isAtCap(state)) return false;
+                if (!already && capBlock(state, tab)) return false;
                 const next = R.openTab(state, tab);
                 set({
                     ...next,
@@ -160,7 +162,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             dismissCapPrompt: () => set({ capPrompt: null }),
             resolveCapPrompt: (closeId) => {
                 const pending = get().capPrompt;
-                get().closeTab(closeId); // frees a slot (and records the victim as reopenable)
+                get().closeTab(closeId); // frees a doc slot (and records the victim as reopenable)
+                if (pending) get().openTab(pending);
+                set({ capPrompt: null });
+            },
+            resolveCapPromptByModule: (moduleKey) => {
+                const pending = get().capPrompt;
+                get().closeModule(moduleKey); // frees a module slot
                 if (pending) get().openTab(pending);
                 set({ capPrompt: null });
             },
