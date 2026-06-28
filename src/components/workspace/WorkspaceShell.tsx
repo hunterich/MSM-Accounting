@@ -98,6 +98,17 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ap/pos')) {
+            if (path.startsWith('/ap/pos/new')) return;
+            const poId = params.get('poId');
+            if (path.startsWith('/ap/pos/edit') && poId) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'purchase-order', recordId: poId, mode: 'edit' }, title: poId, path: `/ap/pos/edit?poId=${poId}&mode=view` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'purchase-order', recordId: 'catalog', mode: 'view' }, title: 'Purchase orders', path: '/ap/pos' });
+            }
+            return;
+        }
+
         if (path === '/banking') {
             const txnId = params.get('txnId');
             if (txnId) {

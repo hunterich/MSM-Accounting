@@ -7,6 +7,7 @@ import type { TabTarget } from './types';
  *  else is a "page" module keyed by its area. */
 export function moduleKeyOf(t: TabTarget): string {
     if (t.module === 'ar') return `ar/${t.entity}`;
+    if (t.module === 'ap') return `ap/${t.entity}`;
     if (t.module === 'page') return `page:${t.recordId}`; // recordId holds the page module key
     return t.module;
 }
@@ -21,6 +22,7 @@ const DOC_MODULE_TITLES: Record<string, string> = {
     'ar/credit-note': 'Returns & credits',
     'stock-count': 'Stock counts',
     'banking': 'Banking',
+    'ap/purchase-order': 'Purchase orders',
 };
 
 export function isDocumentModule(moduleKey: string): boolean {
@@ -47,6 +49,7 @@ export const DOC_MODULES: Record<string, {
     'ar/credit-note': { module: 'ar', entity: 'credit-note', title: 'Returns & credits', newLabel: 'New sales return', listPath: '/ar/credits', newPath: '/ar/returns/new' },
     'stock-count': { module: 'stock-count', entity: 'count', title: 'Stock counts', newLabel: 'New count', listPath: '/inventory/counts', newPath: '/inventory/counts/new' },
     'banking': { module: 'banking', entity: 'transaction', title: 'Banking', newLabel: 'New payment', listPath: '/banking', newPath: '/banking/payment' },
+    'ap/purchase-order': { module: 'ap', entity: 'purchase-order', title: 'Purchase orders', newLabel: 'New PO', listPath: '/ap/pos', newPath: '/ap/pos/new' },
 };
 
 // Map a non-AR route to its page module (one top tab per area; navigating
@@ -59,7 +62,6 @@ const PAGE_MODULES: Array<[string, { key: string; title: string }]> = [
     ['/integrations', { key: 'integrations', title: 'Integrations' }],
     ['/inventory', { key: 'inventory', title: 'Inventory' }],
     ['/ap/bills', { key: 'bills', title: 'Bills' }],
-    ['/ap/pos', { key: 'pos', title: 'Purchase orders' }],
     ['/ap/receiving', { key: 'receiving', title: 'Receive goods' }],
     ['/ap/payments', { key: 'ap-payments', title: 'Payments (AP)' }],
     ['/ap/vendors', { key: 'vendors', title: 'Vendors' }],
