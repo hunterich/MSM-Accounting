@@ -1,9 +1,7 @@
 // src/components/ar/invoices/InvoiceListPane.tsx
 import React, { useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
 import InvoiceCatalogPanel from './InvoiceCatalogPanel';
 import PageHeader from '../../Layout/PageHeader';
-import Button from '../../UI/Button';
 import { useInvoices } from '../../../hooks/useAR';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePermissions';
@@ -11,7 +9,7 @@ import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePe
 interface InvoiceFilters { searchTerm: string; status: string; dateFrom: string; dateTo: string }
 
 const InvoiceListPane = (): React.ReactElement => {
-    const { canCreate, canEdit } = useModulePermissions('ar_invoices');
+    const { canEdit } = useModulePermissions('ar_invoices');
     const canReprint = useExtraAction('ar_invoices', 'reprint');
     const { open } = useWorkspaceNav();
     // Read from the same source the form writes to (the invoices API via React
@@ -21,14 +19,6 @@ const InvoiceListPane = (): React.ReactElement => {
     const invoices = useMemo(() => invoicesResult?.data ?? [], [invoicesResult?.data]);
 
     const [filters, setFilters] = useState<InvoiceFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
-
-    const openNew = () => open({
-        kind: 'doc-form',
-        target: { module: 'ar', entity: 'invoice', recordId: null, mode: 'create' },
-        title: 'New invoice',
-        path: '/ar/invoices/new',
-        unique: true,
-    });
 
     const filteredData = useMemo(() => invoices.filter((item) => {
         const keyword = filters.searchTerm.toLowerCase();
@@ -69,9 +59,6 @@ const InvoiceListPane = (): React.ReactElement => {
             <PageHeader
                 title="Invoices"
                 subtitle="Create, send, and track customer invoices."
-                actions={canCreate ? (
-                    <Button text="New Invoice" size="small" icon={<Plus size={16} />} onClick={openNew} />
-                ) : undefined}
             />
             <InvoiceCatalogPanel
                 data={filteredData as unknown as { id: string; [key: string]: unknown }[]}
