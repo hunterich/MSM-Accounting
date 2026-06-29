@@ -587,6 +587,31 @@ export const apPaymentInputSchema = z.object({
 
 export const updateApPaymentInputSchema = apPaymentInputSchema.omit({ organizationId: true }).partial();
 
+// ── Marketplace import (POST /integrations/[id]/import) ───────────────────────
+// Batch of marketplace orders, each line already mapped to a master item.
+// Master-only rule: every line MUST carry an itemId (no unlinked lines).
+export const marketplaceImportLineSchema = z.object({
+  itemId: z.string().trim().min(1, 'Every line must map to a master item'),
+  description: z.string().trim().min(1),
+  sku: z.string().trim().default(''),
+  quantity: positiveDecimal,
+  unitPrice: positiveDecimal,
+});
+
+export const marketplaceImportOrderSchema = z.object({
+  orderNo: z.string().trim().min(1),
+  issueDate: isoDateString,
+  lines: z.array(marketplaceImportLineSchema).min(1),
+});
+
+export const marketplaceImportInputSchema = z.object({
+  orders: z.array(marketplaceImportOrderSchema).min(1),
+  options: z.object({
+    customerId: z.string().trim().optional(),
+    recordPayment: z.boolean().default(true),
+  }),
+});
+
 export const salesOrderItemInputSchema = z.object({
   productId: z.string().trim().optional(),
   code: z.string().trim().optional(),
@@ -863,6 +888,9 @@ export type EmployeeInput = z.infer<typeof employeeInputSchema>;
 export type UpdateEmployeeInput = z.infer<typeof updateEmployeeInputSchema>;
 export type IntegrationInput = z.infer<typeof integrationInputSchema>;
 export type UpdateIntegrationInput = z.infer<typeof updateIntegrationInputSchema>;
+export type MarketplaceImportLine = z.infer<typeof marketplaceImportLineSchema>;
+export type MarketplaceImportOrder = z.infer<typeof marketplaceImportOrderSchema>;
+export type MarketplaceImportInput = z.infer<typeof marketplaceImportInputSchema>;
 
 // ── HR: Attendance, Leave Types, Leave Requests, Payroll Runs ────────────────
 

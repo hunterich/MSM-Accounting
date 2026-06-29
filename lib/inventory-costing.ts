@@ -39,7 +39,9 @@ async function assertSufficientStock(
   itemId: string,
   warehouseId: string | null,
   qty: number,
+  allowNegativeStockOverride = false,
 ): Promise<void> {
+  if (allowNegativeStockOverride) return
   const org = await tx.organization.findUnique({
     where: { id: orgId },
     select: { allowNegativeStock: true },
@@ -566,8 +568,9 @@ export async function calculateAndPostCOGS(
   qty: number,
   docType: InventoryDocumentType,
   docId: string,
-  date: Date
+  date: Date,
+  opts: { allowNegativeStock?: boolean } = {},
 ): Promise<number> {
-  await assertSufficientStock(tx, orgId, itemId, warehouseId, qty)
+  await assertSufficientStock(tx, orgId, itemId, warehouseId, qty, opts.allowNegativeStock ?? false)
   return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date)
 }

@@ -133,3 +133,36 @@ export function useDeleteEcommerceConnection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ecommerceConnections'] }),
   });
 }
+
+export interface MarketplaceImportPayload {
+  orders: Array<{
+    orderNo: string;
+    issueDate: string;
+    lines: Array<{
+      itemId: string;
+      description: string;
+      sku: string;
+      quantity: number;
+      unitPrice: number;
+    }>;
+  }>;
+  options: { customerId?: string; recordPayment: boolean };
+}
+
+export interface MarketplaceImportResult {
+  created: number;
+  skipped: number;
+  failed: Array<{ orderNo: string; reason: string }>;
+}
+
+export function useImportMarketplaceOrders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ connectionId, ...body }: MarketplaceImportPayload & { connectionId: string }) =>
+      api.post<MarketplaceImportResult>(`/api/v1/integrations/${connectionId}/import`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['arInvoices'] });
+      qc.invalidateQueries({ queryKey: ['arPayments'] });
+    },
+  });
+}
