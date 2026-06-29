@@ -214,6 +214,11 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path === '/reports') {
+            open({ kind: 'list', target: { module: 'reports', entity: 'catalog', recordId: 'catalog', mode: 'view' }, title: 'Reports', path: '/reports' });
+            return;
+        }
+
         const pm = pageModuleForPath(path);
         setPageModuleTab(pm.key, pm.title, path + location.search);
     }, [location.pathname, location.search, open, setPageModuleTab]);
