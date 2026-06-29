@@ -111,6 +111,17 @@ export function useItems(filters: Record<string, unknown> = {}) {
     });
 }
 
+/** Lightweight, unpaginated index of ALL items (active + inactive) — only
+ *  { id, sku, name, isActive }. Used for SKU cross-checking during marketplace
+ *  import, where the paginated /items list (maxLimit:100) would hide items. */
+export function useItemSkuIndex() {
+    return useQuery({
+        queryKey: ['itemSkuIndex'],
+        queryFn:  () => api.get<{ data: Array<{ id: string; sku: string; name: string; isActive: boolean }> }>('/api/v1/items/sku-index'),
+        staleTime: 30_000,
+    });
+}
+
 export function useItem(id: string | undefined) {
     return useQuery({
         queryKey: INV_KEYS.item(id ?? ''),

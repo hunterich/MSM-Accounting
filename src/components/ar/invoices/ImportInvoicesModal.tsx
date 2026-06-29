@@ -12,7 +12,7 @@ import {
     useImportMarketplaceOrders,
     type MarketplaceImportResult,
 } from '../../../hooks/useIntegrations';
-import { useItems, useCreateItem } from '../../../hooks/useInventory';
+import { useItemSkuIndex, useCreateItem } from '../../../hooks/useInventory';
 import { detectPlatformFromHeaders } from '../../../utils/marketplaceFormat';
 import { normalizeHeader } from '../../../utils/headerUtils';
 import {
@@ -74,11 +74,10 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const updateConnection = useUpdateEcommerceConnection();
     const importMutation = useImportMarketplaceOrders();
 
-    // Active items (default list) — used for SKU auto-matching.
-    const { data: itemsData, refetch: refetchItems } = useItems({ limit: 1000 });
-    // Inactive items — fetched separately so we can flag SKUs that map to a
-    // disabled product (the server rejects those orders).
-    const { data: inactiveItemsData } = useItems({ limit: 1000, isActive: 'false' });
+    // Full, unpaginated SKU index (active + inactive) — the regular /items list
+    // clamps to maxLimit:100, which would silently hide items beyond the first
+    // page and break inactive-product detection on large catalogs.
+    const { data: skuIndex, refetch: refetchItems } = useItemSkuIndex();
     const createItem = useCreateItem();
 
     const [step, setStep] = useState<WizardStep>('upload');
@@ -119,10 +118,13 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         [activeShops],
     );
 
-    // Inventory item options for the manual fallback dropdown.
+    // Inventory item options for the manual fallback dropdown — active items
+    // only (mapping a line to an inactive item would be rejected server-side).
     const itemOptions = useMemo(
-        () => (itemsData?.data ?? []).map((i) => ({ value: i.id, label: `${i.sku ? `[${i.sku}] ` : ''}${i.name}` })),
-        [itemsData],
+        () => (skuIndex?.data ?? [])
+            .filter((i) => i.isActive)
+            .map((i) => ({ value: i.id, label: `${i.sku ? `[${i.sku}] ` : ''}${i.name}` })),
+        [skuIndex],
     );
 
     const resetAll = useCallback(() => {
@@ -152,22 +154,24 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     /** Map<normalizedSku, item id> for ACTIVE items. */
     const activeBySku = useMemo<Map<string, { id: string }>>(() => {
         const m = new Map<string, { id: string }>();
-        for (const it of itemsData?.data ?? []) {
+        for (const it of skuIndex?.data ?? []) {
+            if (!it.isActive) continue;
             const norm = normalizeHeader(it.sku || '');
             if (norm && !m.has(norm)) m.set(norm, { id: it.id });
         }
         return m;
-    }, [itemsData]);
+    }, [skuIndex]);
 
     /** Map<normalizedSku, item name> for INACTIVE items. */
     const inactiveBySku = useMemo<Map<string, { id: string; name: string }>>(() => {
         const m = new Map<string, { id: string; name: string }>();
-        for (const it of inactiveItemsData?.data ?? []) {
+        for (const it of skuIndex?.data ?? []) {
+            if (it.isActive) continue;
             const norm = normalizeHeader(it.sku || '');
             if (norm && !m.has(norm)) m.set(norm, { id: it.id, name: it.name });
         }
         return m;
-    }, [inactiveItemsData]);
+    }, [skuIndex]);
 
     /** A product's SKU for inventory lookup — same precedence as buildProductKey. */
     const productSku = (p: UniqueProduct): string => p.parentSKU || p.skuReference || '';
