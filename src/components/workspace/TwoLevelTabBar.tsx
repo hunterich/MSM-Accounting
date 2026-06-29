@@ -119,7 +119,7 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                         <List size={16} />
                     </button>
                     {docModule.newPath && (
-                        <button className="workbench-doc-tab workbench-doc-tab-new" onClick={openNew} title={docModule.newLabel}>
+                        <button className="workbench-doc-tab workbench-doc-tab-new" onClick={openNew} title={docModule.newLabel ?? 'New'}>
                             <Plus size={16} />
                             {docModule.newLabel}
                         </button>
