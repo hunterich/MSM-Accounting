@@ -1546,7 +1546,11 @@ const Reports: React.FC<ReportsProps> = ({
         return;
       }
       if (variant === 'single') {
+        // The single-mode effect is the sole fetch path: persisting the new
+        // params re-renders this component with fresh singleParams, which the
+        // effect picks up and fetches. Returning here avoids a double request.
         onParamsChange?.(params);
+        return;
       }
       // api.get returns unknown; cast to record since shape varies per report
       // Cast via unknown because ReportParams has no index signature; api.get accepts Record<string, unknown>
