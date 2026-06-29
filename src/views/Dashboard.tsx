@@ -18,16 +18,18 @@ import RecentInvoicesWidget   from '../components/dashboard/widgets/RecentInvoic
 import RecentPaymentsWidget   from '../components/dashboard/widgets/RecentPaymentsWidget';
 import RecentBillsWidget          from '../components/dashboard/widgets/RecentBillsWidget';
 import PendingApprovalsWidget     from '../components/dashboard/widgets/PendingApprovalsWidget';
+import TopSellingProductsWidget    from '../components/dashboard/widgets/TopSellingProductsWidget';
 
 const WIDGET_COMPONENTS: Record<string, React.ComponentType> = {
-    cash_on_hand:      CashOnHandWidget,
-    overdue_invoices:  OverdueInvoicesWidget,
-    net_cash_flow:     NetCashFlowWidget,
-    outstanding_bills: OutstandingBillsWidget,
-    recent_invoices:   RecentInvoicesWidget,
-    recent_payments:   RecentPaymentsWidget,
-    recent_bills:      RecentBillsWidget,
-    pending_approvals: PendingApprovalsWidget,
+    cash_on_hand:         CashOnHandWidget,
+    overdue_invoices:     OverdueInvoicesWidget,
+    net_cash_flow:        NetCashFlowWidget,
+    outstanding_bills:    OutstandingBillsWidget,
+    recent_invoices:      RecentInvoicesWidget,
+    recent_payments:      RecentPaymentsWidget,
+    recent_bills:         RecentBillsWidget,
+    pending_approvals:    PendingApprovalsWidget,
+    top_selling_products: TopSellingProductsWidget,
 };
 
 const Dashboard = (): React.ReactElement => {
