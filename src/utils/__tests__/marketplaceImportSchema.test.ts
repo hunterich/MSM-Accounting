@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { marketplaceImportInputSchema } from '../../types/api';
+import { marketplaceImportInputSchema } from '@/types/api';
 
 describe('marketplaceImportInputSchema', () => {
   it('accepts a valid order batch', () => {
