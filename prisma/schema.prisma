@@ -245,6 +245,7 @@ model JournalEntry {
   creditNote      CreditNote?      @relation("CreditNoteJournal")
   debitNote       DebitNote?       @relation("DebitNoteJournal")
   bankTransaction BankTransaction? @relation("BankTxnJournal")
+  arPaymentSettlement ARPayment? @relation("ARPaymentSettlement")
 
   @@unique([organizationId, entryNo])
   @@index([organizationId, date, status])
@@ -644,6 +645,9 @@ model ARPayment {
   totalAmount       Decimal       @default(0) @db.Decimal(18, 2)
   /// Idempotency token: set once the DR/CR pair is posted to the GL.
   journalEntryId String?  @unique
+  settledAt           DateTime?
+  settlementJournalId String?       @unique
+  settlementJournal   JournalEntry? @relation("ARPaymentSettlement", fields: [settlementJournalId], references: [id], onDelete: SetNull)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
