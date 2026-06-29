@@ -27,6 +27,7 @@ const DOC_MODULE_TITLES: Record<string, string> = {
     'ap/bill': 'Bills',
     'ap/payment': 'Payments (AP)',
     'ap/vendor': 'Vendors',
+    'ap/debit-note': 'Returns & debits',
 };
 
 export function isDocumentModule(moduleKey: string): boolean {
@@ -58,6 +59,7 @@ export const DOC_MODULES: Record<string, {
     'ap/bill': { module: 'ap', entity: 'bill', title: 'Bills', newLabel: 'New bill', listPath: '/ap/bills', newPath: '/ap/bills/new' },
     'ap/payment': { module: 'ap', entity: 'payment', title: 'Payments (AP)', newLabel: 'Pay bills', listPath: '/ap/payments', newPath: '/ap/payments/new' },
     'ap/vendor': { module: 'ap', entity: 'vendor', title: 'Vendors', newLabel: 'Add vendor', listPath: '/ap/vendors', newPath: '/ap/vendors/new?mode=create' },
+    'ap/debit-note': { module: 'ap', entity: 'debit-note', title: 'Returns & debits', newLabel: 'New purchase return', listPath: '/ap/debits', newPath: '/ap/returns/new' },
 };
 
 // Map a non-AR route to its page module (one top tab per area; navigating

@@ -34,6 +34,10 @@ import VendorListPane from '../ap/vendors/VendorListPane';
 import VendorForm from '../../views/ap/VendorForm';
 import DeliveryNoteListPane from '../ar/deliverynotes/DeliveryNoteListPane';
 import DeliveryNoteForm from '../ar/deliverynotes/DeliveryNoteForm';
+import APDebitNoteListPane from '../ap/debits/APDebitNoteListPane';
+import APDebitNoteDetailPane from '../ap/debits/APDebitNoteDetailPane';
+import DebitNoteForm from '../../views/ap/DebitNoteForm';
+import PurchaseReturnForm from '../../views/ap/PurchaseReturnForm';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -85,6 +89,17 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         if (tab.kind === 'list') return <APPaymentListPane />;
         if (tab.kind === 'doc-form') return <APPaymentForm recordId={recordId ?? undefined} mode={mode === 'edit' ? 'edit' : 'create'} workspaceTabId={tab.id} />;
         if (tab.kind === 'doc-view') return <APPaymentDetailPane paymentId={recordId ?? ''} workspaceTabId={tab.id} />;
+    }
+
+    if (module === 'ap' && entity === 'debit-note') {
+        if (tab.kind === 'list') return <APDebitNoteListPane />;
+        if (tab.kind === 'doc-view') return <APDebitNoteDetailPane docKey={recordId ?? ''} workspaceTabId={tab.id} />;
+        if (tab.kind === 'doc-form') {
+            const rid = recordId ?? '';
+            if (rid.startsWith('debit:')) return <DebitNoteForm recordId={rid.slice('debit:'.length)} mode="edit" workspaceTabId={tab.id} />;
+            const returnId = rid.startsWith('return:') ? rid.slice('return:'.length) : undefined;
+            return <PurchaseReturnForm recordId={returnId} mode={returnId ? 'edit' : 'create'} workspaceTabId={tab.id} />;
+        }
     }
 
     if (module === 'ap' && entity === 'vendor') {

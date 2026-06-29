@@ -109,6 +109,24 @@ const WorkspaceShell = (): React.ReactElement => {
             return;
         }
 
+        if (path.startsWith('/ap/debits') || path.startsWith('/ap/returns')) {
+            if (path === '/ap/returns/new' && !params.get('returnId')) return; // new from button
+            const docKey = params.get('docKey');
+            const debitId = params.get('debitId');
+            const returnId = params.get('returnId');
+            if (path.startsWith('/ap/debits/edit') && debitId) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `debit:${debitId}`, mode: 'edit' }, title: `Edit ${debitId}`, path: `/ap/debits/edit?debitId=${debitId}` });
+            } else if (path.startsWith('/ap/returns/new') && returnId) {
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `return:${returnId}`, mode: 'edit' }, title: `Edit ${returnId}`, path: `/ap/returns/new?returnId=${returnId}` });
+            } else if (docKey) {
+                const colon = docKey.indexOf(':');
+                open({ kind: 'doc-view', target: { module: 'ap', entity: 'debit-note', recordId: docKey, mode: 'view' }, title: docKey.slice(colon + 1), path: `/ap/debits?docKey=${docKey}` });
+            } else {
+                open({ kind: 'list', target: { module: 'ap', entity: 'debit-note', recordId: 'catalog', mode: 'view' }, title: 'Returns & debits', path: '/ap/debits' });
+            }
+            return;
+        }
+
         if (path.startsWith('/ap/vendors')) {
             const vendorId = params.get('vendorId');
             if ((path.startsWith('/ap/vendors/new') || path.startsWith('/ap/vendors/edit')) && !vendorId) return; // new from button
