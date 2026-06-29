@@ -5,25 +5,24 @@
  * in its OWN transaction (so one bad order does not roll back the batch):
  *   1. Skip orders already imported (idempotent by `poNumber`).
  *   2. Reject the whole order if any line maps to an INACTIVE item.
- *   3. Create a SalesInvoice (+ lines), finalize to SENT (posts revenue + per-line
- *      COGS, allowing negative stock since imported items may have 0 stock).
- *   4. Record a settlement receipt (ARPayment) into the connection's holding
+ *   3. Build totals via the shared calculator and create a DRAFT SalesInvoice.
+ *   4. Finalize to SENT — posts revenue + per-line COGS, allowing negative stock
+ *      since imported items may have 0 stock.
+ *   5. Record a settlement receipt (ARPayment) into the connection's holding
  *      account, marking the invoice PAID.
  *
  * All GL posting reuses the shared finalize helpers — this module writes no
- * journal lines of its own.
+ * journal lines of its own. The settlement GL account is resolved ONCE per batch
+ * (holdingAccountId is constant), then reused for every order's receipt.
  */
-import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { calculateInvoiceTotals } from './invoice-totals';
 import { nextInvoiceNumber } from './invoice-number';
 import { postInvoiceSend } from './invoice-send-posting';
 import { postArPaymentIfNeeded } from './payment-posting';
 import { nextNumber } from './api-utils';
-import {
-  loadOrgAccountDefaults,
-  resolveBankLinkedAssetAccountId,
-} from './account-defaults';
+import { loadBankPostingContext } from './bank-transaction-posting';
+import { resolveBankLinkedAssetAccountId } from './account-defaults';
 import { toNumber } from './money';
 
 export interface ImportOrderLine {
@@ -51,37 +50,6 @@ export interface ImportResult {
   created: number;
   skipped: number;
   failed: Array<{ orderNo: string; reason: string }>;
-}
-
-/**
- * Resolve the connection's holding BankAccount to its GL asset account so the
- * settlement receipt posts Dr <bank GL> / Cr AR. `EcommerceConnection.holdingAccountId`
- * is a BankAccount id (not a GL Account id), and `postArPaymentIfNeeded` passes
- * `depositAccountId` straight to the ledger — so we must map it here, the same
- * way bank-transaction posting does. Returns null if no holding account is set
- * (the caller then skips the receipt rather than posting to a guessed account).
- */
-async function resolveSettlementGlAccountId(
-  tx: Prisma.TransactionClient,
-  orgId: string,
-  holdingBankAccountId: string,
-): Promise<string | null> {
-  const accounts = await tx.account.findMany({
-    where: { organizationId: orgId, isActive: true },
-    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-  });
-  const bankAccountRows = await tx.bankAccount.findMany({
-    where: { organizationId: orgId },
-    select: { id: true, code: true, name: true, bankName: true },
-  });
-  const bankAccounts = bankAccountRows.map((b) => ({
-    id: b.id,
-    name: b.name ?? undefined,
-    code: b.code ?? undefined,
-    bankName: b.bankName ?? undefined,
-  }));
-  const settings = await loadOrgAccountDefaults(tx, orgId);
-  return resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, holdingBankAccountId);
 }
 
 export async function importMarketplaceOrders(
@@ -122,9 +90,29 @@ export async function importMarketplaceOrders(
       : false,
   );
 
+  // Resolve the connection's holding BankAccount to its GL asset account ONCE —
+  // holdingAccountId is constant for the whole batch. `EcommerceConnection.holdingAccountId`
+  // is a BankAccount id (not a GL Account id), and `postArPaymentIfNeeded` passes
+  // `depositAccountId` straight to the ledger, so we map it here the same way
+  // bank-transaction posting does. If it resolves null, postArPaymentIfNeeded
+  // falls back to the org default bankAsset account.
+  let settlementGlAccountId: string | null = null;
+  if (options.recordPayment && conn.holdingAccountId) {
+    const ctx = await loadBankPostingContext(prisma, orgId);
+    settlementGlAccountId = resolveBankLinkedAssetAccountId(
+      ctx.bankAccounts,
+      ctx.accounts,
+      ctx.settings,
+      conn.holdingAccountId,
+    );
+  }
+
   for (const order of orders) {
     try {
-      await prisma.$transaction(async (tx) => {
+      // The tx callback returns a discriminator; counters are updated AFTER the
+      // transaction commits (mirrors payment-posting) so a Prisma retry of the
+      // callback can never double-count.
+      const outcome = await prisma.$transaction(async (tx): Promise<'created' | 'skipped'> => {
         // 1. Idempotency — skip orders already imported (ignore VOID re-use).
         const existing = await tx.salesInvoice.findFirst({
           where: {
@@ -135,8 +123,7 @@ export async function importMarketplaceOrders(
           select: { id: true },
         });
         if (existing) {
-          result.skipped += 1;
-          return;
+          return 'skipped';
         }
 
         // 2. Inactive guard — reject the WHOLE order if any line maps to an
@@ -195,6 +182,8 @@ export async function importMarketplaceOrders(
             customerId,
             poNumber: order.orderNo,
             issueDate,
+            // Marketplace orders are paid same-day; due date equals the issue date.
+            dueDate: issueDate,
             currency: 'IDR',
             status: 'DRAFT',
             discountPct: totals.discountPct,
@@ -219,14 +208,9 @@ export async function importMarketplaceOrders(
         await postInvoiceSend(tx, orgId, invoice.id, { allowNegativeStock: true });
 
         // 5. Settlement receipt — record the marketplace payout against the
-        // invoice and mark it PAID.
+        // invoice and mark it PAID. Uses the batch-resolved settlement GL account.
         const invoiceTotal = toNumber(invoice.totalAmount);
         if (options.recordPayment && conn.holdingAccountId && invoiceTotal > 0) {
-          const depositAccountId = await resolveSettlementGlAccountId(
-            tx,
-            orgId,
-            conn.holdingAccountId,
-          );
           const paymentNumber = await nextNumber(tx, 'ARPayment', 'number', 'ARP');
           const payment = await tx.aRPayment.create({
             data: {
@@ -236,7 +220,7 @@ export async function importMarketplaceOrders(
               date: issueDate,
               method: 'BANK_TRANSFER',
               status: 'COMPLETED',
-              depositAccountId: depositAccountId ?? undefined,
+              depositAccountId: settlementGlAccountId ?? undefined,
               totalAmount: invoiceTotal,
               allocations: {
                 create: [{ invoiceId: invoice.id, amountApplied: invoiceTotal }],
@@ -251,8 +235,11 @@ export async function importMarketplaceOrders(
           });
         }
 
-        result.created += 1;
+        return 'created';
       });
+
+      if (outcome === 'created') result.created += 1;
+      else result.skipped += 1;
     } catch (error) {
       result.failed.push({
         orderNo: order.orderNo,

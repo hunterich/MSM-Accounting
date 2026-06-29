@@ -10,7 +10,7 @@
  * Run with: npm run test:int
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { importMarketplaceOrders } from '../../marketplace-import';
+import { importMarketplaceOrders, type ImportOrder } from '../../marketplace-import';
 import { postOpeningStockIfNeeded } from '../../inventory-opening';
 import {
   prisma,
@@ -158,7 +158,7 @@ describe('marketplace import orchestrator', () => {
     const s = await seedScenario();
     const itemId = await createStockedItem(s.org.orgId, 100_000, 10);
 
-    const order: ImportOrderShape = {
+    const order: ImportOrder = {
       orderNo: 'ORDER-HAPPY-1',
       issueDate: '2026-06-01',
       lines: [{ itemId, description: 'Stocked Product', sku: 'SKU-STK', quantity: 2, unitPrice: 250_000 }],
@@ -195,7 +195,7 @@ describe('marketplace import orchestrator', () => {
     const s = await seedScenario();
     const itemId = await createStockedItem(s.org.orgId, 80_000, 20);
 
-    const order: ImportOrderShape = {
+    const order: ImportOrder = {
       orderNo: 'ORDER-DUP-1',
       issueDate: '2026-06-02',
       lines: [{ itemId, description: 'Stocked Product', sku: 'SKU-STK', quantity: 1, unitPrice: 150_000 }],
@@ -226,12 +226,12 @@ describe('marketplace import orchestrator', () => {
     const goodItemId = await createStockedItem(s.org.orgId, 60_000, 5);
     const badItemId = await createInactiveItem(s.org.orgId);
 
-    const badOrder: ImportOrderShape = {
+    const badOrder: ImportOrder = {
       orderNo: 'BAD',
       issueDate: '2026-06-03',
       lines: [{ itemId: badItemId, description: 'Discontinued', sku: 'SKU-INA', quantity: 1, unitPrice: 1000 }],
     };
-    const goodOrder: ImportOrderShape = {
+    const goodOrder: ImportOrder = {
       orderNo: 'GOOD',
       issueDate: '2026-06-03',
       lines: [{ itemId: goodItemId, description: 'Stocked Product', sku: 'SKU-STK', quantity: 1, unitPrice: 120_000 }],
@@ -272,7 +272,7 @@ describe('marketplace import orchestrator', () => {
     const s = await seedScenario();
     const itemId = await createZeroStockItem(s.org.orgId);
 
-    const order: ImportOrderShape = {
+    const order: ImportOrder = {
       orderNo: 'ORDER-ZERO-1',
       issueDate: '2026-06-04',
       lines: [{ itemId, description: 'New Imported Product', sku: 'SKU-ZERO', quantity: 3, unitPrice: 75_000 }],
@@ -295,11 +295,3 @@ describe('marketplace import orchestrator', () => {
     await cleanupOrg(s.org.orgId);
   });
 });
-
-// Local alias for the order shape (the orchestrator's ImportOrder), kept loose so
-// the test reads clearly without re-importing the exported interface name.
-type ImportOrderShape = {
-  orderNo: string;
-  issueDate: string;
-  lines: Array<{ itemId: string; description: string; sku: string; quantity: number; unitPrice: number }>;
-};
