@@ -7,8 +7,9 @@ import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 const ReportsReportTab: React.FC<{ tabId: string }> = ({ tabId }) => {
   const tab = useWorkspaceStore((s) => s.tabs.find((t) => t.id === tabId));
   const saveDraft = useWorkspaceStore((s) => s.saveDraft);
+  const setStatus = useWorkspaceStore((s) => s.setStatus);
   const report = findReportById(tab?.target.entity);
-  const params = (tab?.draft as ReportParams | undefined) ?? undefined;
+  const params = tab?.draft as ReportParams | undefined;
 
   if (!report) {
     return <div className="p-6 text-sm text-neutral-500">Unknown report.</div>;
@@ -19,7 +20,12 @@ const ReportsReportTab: React.FC<{ tabId: string }> = ({ tabId }) => {
       variant="single"
       singleReport={report}
       singleParams={params}
-      onParamsChange={(p) => saveDraft(tabId, p)}
+      onParamsChange={(p) => {
+        // Persist the new params, then re-clean: reports carry no unsaved state,
+        // so the tab must not show a dirty dot after "Ubah Filter".
+        saveDraft(tabId, p);
+        setStatus(tabId, 'clean');
+      }}
     />
   );
 };

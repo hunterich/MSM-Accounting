@@ -9,11 +9,19 @@ import { makeTabId } from '../../stores/workspace/types';
 const ReportsCatalogTab: React.FC = () => {
   const { open } = useWorkspaceNav();
   const saveDraft = useWorkspaceStore((s) => s.saveDraft);
+  const setStatus = useWorkspaceStore((s) => s.setStatus);
 
   const handleRun = (report: ReportDefinition, params: ReportParams) => {
     const target = { module: 'reports', entity: report.id, recordId: null, mode: 'view' as const };
-    const opened = open({ kind: 'report', target, title: report.name, path: '/reports' });
-    if (opened) saveDraft(makeTabId(target), params);
+    // Reports have no unsaved-edit concept. Open 'clean', and re-clean after
+    // stashing the run params, because saveDraft marks the tab 'dirty' — so the
+    // tab bar never shows a false unsaved-changes dot on a report sub-tab.
+    const opened = open({ kind: 'report', target, title: report.name, path: '/reports', initialStatus: 'clean' });
+    if (opened) {
+      const id = makeTabId(target);
+      saveDraft(id, params);
+      setStatus(id, 'clean');
+    }
   };
 
   return <Reports variant="catalog" onRunReport={handleRun} />;
