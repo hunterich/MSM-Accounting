@@ -66,7 +66,7 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
         else if (docModule) open({ kind: 'list', target: { module: docModule.module, entity: docModule.entity, recordId: 'catalog', mode: 'view' }, title: docModule.title, path: docModule.listPath });
     };
     const openNew = () => {
-        if (docModule) open({ kind: 'doc-form', target: { module: docModule.module, entity: docModule.entity, recordId: null, mode: 'create' }, title: docModule.newLabel, path: docModule.newPath, unique: true });
+        if (docModule?.newPath) open({ kind: 'doc-form', target: { module: docModule.module, entity: docModule.entity, recordId: null, mode: 'create' }, title: docModule.newLabel ?? 'New', path: docModule.newPath, unique: true });
     };
 
     // Build the right-click menu for a record tab. Bulk closes confirm once if
@@ -118,10 +118,12 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                     >
                         <List size={16} />
                     </button>
-                    <button className="workbench-doc-tab workbench-doc-tab-new" onClick={openNew} title={docModule.newLabel}>
-                        <Plus size={16} />
-                        {docModule.newLabel}
-                    </button>
+                    {docModule.newPath && (
+                        <button className="workbench-doc-tab workbench-doc-tab-new" onClick={openNew} title={docModule.newLabel}>
+                            <Plus size={16} />
+                            {docModule.newLabel}
+                        </button>
+                    )}
                     <div className="workbench-doc-tab-scroll">
                         {recordTabs.map((t) => (
                             <button
