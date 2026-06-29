@@ -364,11 +364,16 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 const newId = (res as { id?: string } | undefined)?.id;
                 if (newId) created[p.key] = newId;
             }
-            setLocalMappings((prev) => ({ ...prev, ...created }));
-            await refetchItems();
         } catch (err) {
             setCreateError(`Failed to create items: ${(err as Error).message}`);
         } finally {
+            // Preserve whatever was created before the failure — never discard
+            // partial progress, otherwise a mid-batch error would orphan the
+            // items already persisted server-side.
+            if (Object.keys(created).length > 0) {
+                setLocalMappings((prev) => ({ ...prev, ...created }));
+                await refetchItems();
+            }
             setCreatingItems(false);
         }
     };
@@ -382,10 +387,14 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setImportError('');
         setStep('importing');
 
-        try {
-            // Persist the resolved item mappings on the connection for next time.
-            await updateConnection.mutateAsync({ id: shopId, itemMappings: localMappings });
+        // Persist the resolved item mappings on the connection for next time —
+        // fire-and-forget. This is a convenience; a failure to save mappings
+        // must never abort the actual order import below.
+        void updateConnection
+            .mutateAsync({ id: shopId, itemMappings: localMappings })
+            .catch((e) => console.error('Failed to persist item mappings', e));
 
+        try {
             // Build the endpoint payload from parsed orders.
             const orders = parseResult.parsedOrders.map((order) => {
                 const issueDate =

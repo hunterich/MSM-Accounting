@@ -11,6 +11,7 @@ import type {
 export const INV_KEYS = {
     items:        ['invItems'] as const,
     item:         (id: string) => ['invItems', id] as const,
+    skuIndex:     ['itemSkuIndex'] as const,
     categories:   ['invItemCategories'] as const,
     adjustments:  ['invAdjustments'] as const,
     adjustment:   (id: string) => ['invAdjustments', id] as const,
@@ -116,7 +117,7 @@ export function useItems(filters: Record<string, unknown> = {}) {
  *  import, where the paginated /items list (maxLimit:100) would hide items. */
 export function useItemSkuIndex() {
     return useQuery({
-        queryKey: ['itemSkuIndex'],
+        queryKey: INV_KEYS.skuIndex,
         queryFn:  () => api.get<{ data: Array<{ id: string; sku: string; name: string; isActive: boolean }> }>('/api/v1/items/sku-index'),
         staleTime: 30_000,
     });
@@ -136,7 +137,10 @@ export function useCreateItem() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: (body: unknown) => api.post('/api/v1/items', body),
-        onSuccess: () => qc.invalidateQueries({ queryKey: INV_KEYS.items }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: INV_KEYS.items });
+            qc.invalidateQueries({ queryKey: INV_KEYS.skuIndex });
+        },
     });
 }
 
@@ -148,6 +152,7 @@ export function useUpdateItem() {
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: INV_KEYS.items });
             qc.invalidateQueries({ queryKey: INV_KEYS.item(vars.id) });
+            qc.invalidateQueries({ queryKey: INV_KEYS.skuIndex });
         },
     });
 }
@@ -156,7 +161,10 @@ export function useDeleteItem() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/items/${id}`),
-        onSuccess: () => qc.invalidateQueries({ queryKey: INV_KEYS.items }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: INV_KEYS.items });
+            qc.invalidateQueries({ queryKey: INV_KEYS.skuIndex });
+        },
     });
 }
 
