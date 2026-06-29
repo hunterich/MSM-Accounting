@@ -10,7 +10,7 @@ Sub-project ② imports the marketplace **order export** and books, per order: t
 
 ## Goal
 
-Import a TikTok settlement statement and, **per settled order**, book the fees + net payout and **clear the Settlement-holding account** down to zero, reconciling each settled order by `Order ID` → the invoice ② created (`poNumber`). Orders the statement settles that aren't in the DB are **skipped and reported**, not posted.
+Import a TikTok settlement statement and, **per settled order**, book the platform **fees** against the e-commerce wallet (`holdingAccount`), so the wallet drops from the order's gross to its **net released** amount — reconciling each settled order by `Order ID` → the invoice ② created (`poNumber`). The net stays in the wallet to be withdrawn to the real bank later (existing bank-transfer feature). Orders the statement settles that aren't in the DB are **skipped and reported**, not posted.
 
 Out of scope: Shopee settlement format (TikTok first; parser structured to add it later), per-SKU fee allocation, aggregate-only posting.
 
@@ -19,23 +19,23 @@ Out of scope: Shopee settlement format (TikTok first; parser structured to add i
 - **Per-order reconciliation** (not aggregate): match each settled order to its invoice/receipt and post per order.
 - **Unmatched settled order → skip + report** (don't post; list it so the operator imports its order export and re-runs).
 - **TikTok first.** Format-detected so an order export or a Shopee file is rejected.
-- **GL flow:** clear Settlement-holding at **X** = the amount ② booked for that order (looked up from the receipt), and send the timing difference (`X − settlement revenue`) to the connection's **adjustment** account. This keeps holding zeroing out per order.
+- **GL flow (wallet model):** the net payout **stays in the e-commerce wallet** (the connection's `holdingAccount` / "Kas/Bank Saldo e-Commerce"). Per order, the settlement books **only the fees** (Dr the fee accounts, Cr the wallet), dropping the wallet from **X** (what ② parked there) to the order's **net released N**; the timing difference (`X − settlement revenue`) plugs to the **adjustment** account. The net N is withdrawn wallet→real bank later as a normal bank transfer (existing feature) — the settlement import does **not** touch a separate bank account.
+- **Fee → account mapping is form-driven:** each settlement fee column routes to whatever GL account the operator configured in the connection's `ShopMappings` (the integration form's *Shipping & Fees* / *Others* tabs). No hardcoded account choices in the importer.
 - **Idempotency:** minimal — add `settledAt` + `settlementJournalId` to the `ARPayment` receipt; settle once, skip if already set. (Schema change → `prisma db push` at deploy.)
 - **Entry point:** a per-shop **"Import Settlement"** action on the E-commerce Integrations tab.
 
-## GL model (per matched order)
+## GL model (per matched order — wallet model)
 
-Let **X** = ②'s receipt amount for the order (its debit sitting in Settlement-holding), **N** = the order's *net released* from the statement, and the statement's money columns (commission, service fee, shipping, vouchers, refund, …) as signed amounts whose net = the platform's expenses **E** (so `N = R − E`, where `R` = settlement revenue).
+Let **X** = ②'s receipt amount for the order (its debit sitting in the e-commerce wallet / `holdingAccount`), **N** = the order's *net released* from the statement, and the statement's fee/shipping/voucher columns as signed amounts mapped to the connection's **form-configured** accounts (their net = the platform's expenses **E**; `N = R − E`, `R` = settlement revenue).
 
-Per order, one balanced journal:
-- **Cr** Settlement-holding **X** — clears exactly what ② parked there.
-- **Dr** Bank (the connection's payout/holding bank account or a dedicated payout account) **N**.
-- For each non-zero settlement money column → its **mapped GL account**, natural sign (a charge = debit expense; a rebate/income = credit).
-- **Dr/Cr** Adjustment (`fees.adjustmentAccountId`) = the balancing plug = `X − R` (refunds/promotions the statement accounts in a different period than ② booked).
+The net **stays in the wallet** — the settlement books only the fees, dropping the wallet from X to N. Per order, one balanced journal:
+- For each non-zero settlement money column → its **form-configured GL account** (`ShopMappings`), natural sign (a charge = Dr expense; a rebate/income = Cr).
+- **Cr** wallet (`holdingAccount` GL asset, resolved via `resolveBankLinkedAssetAccountId` as ② does) = **X − N** — drops the wallet to the withdrawable net.
+- **Dr/Cr** Adjustment (`fees.adjustmentAccountId`) = the balancing plug = `(X − N) − E` = `X − R` (refunds/promotions the statement books in a different period than ②).
 
-Balanced: `Credits (X + rebates) = Debits (N + charges + plug)` — algebraically `X` on both sides because `N + E = R` and `plug = X − R`.
+Balanced: wallet credit `(X − N)` = fee debits `E` + adjustment `(X − N − E)`. The net **N remains in the wallet**; a later wallet→bank transfer (existing banking feature) moves it to the real bank when the platform pays out.
 
-Worked check (15–21 Jun example, statement totals): Revenue 19,764,680 − Expenses 3,790,898 = Released 15,973,782. Posting Dr Bank 15,973,782 + Dr fees 3,790,898 = 19,764,680 = Cr holding (had ②'s gross for those orders, ± adjustment plug).
+Worked check (15–21 Jun statement): the 3,790,898 of expenses post to the configured fee accounts; the wallet drops by `gross − 15,973,782` for those orders; the **net 15,973,782 stays in the wallet** to be withdrawn.
 
 ## Column → account mapping (TikTok → `ShopMappings`)
 
@@ -53,11 +53,10 @@ Worked check (15–21 Jun example, statement totals): Revenue 19,764,680 − Exp
 | Coin Cashback Sponsored by Seller | `others.coinCashbackAccountId` | Dr |
 | Refund Amount | `others.refundAccountId` | Dr |
 | Withholding tax (if present) | `others.withholdingTaxAccountId` | Dr |
-| Net released | Bank/payout account | Dr |
-| Holding clear | `connection.holdingAccount` (its GL asset, via `resolveBankLinkedAssetAccountId` — same as ②) | Cr |
-| Residual / unmapped / timing | `fees.adjustmentAccountId` | plug |
+| Wallet reduction (drop to net) | `connection.holdingAccount` GL asset (via `resolveBankLinkedAssetAccountId` — same as ②) | Cr (X − N) |
+| Residual / unmapped / timing | `fees.adjustmentAccountId` | plug = (X − N) − E |
 
-**For the user to confirm during review:** the Service-Fee → `affiliateFee` mapping (vs `platformFee`), and whether shipping should net into one `shippingVariance` account instead of the three shipping accounts. Defaults above; easy to change.
+The *column → slot* grouping above is just the importer's **default routing**; the **actual GL account for each slot is whatever the operator configured on the integration form** (`ShopMappings`). To post a fee type elsewhere, the operator changes that slot's account on the form — no code change. A settlement fee type with no slot today is routed to `adjustmentAccountId` (and we can add a slot to the form later if needed).
 
 ## Architecture / components
 
@@ -70,14 +69,14 @@ Mirrors ②. Reuse `postJournalEntry` (`@/lib/gl` / wherever ② posts), `resolv
    - **Format detection:** confirm it's a TikTok settlement export (sheets `Summary`/`Income`/`Adjustment`/`Seller Fee`, the Income header signature). Reject order exports / Shopee files with a clear message.
 
 2. **Reconciliation service** — `lib/settlement-import.ts`: `importSettlement(orgId, userId, connectionId, parsed): Promise<SettlementResult>`.
-   - Load the connection + its `ShopMappings`. Resolve the holding GL account once (as ② does) and the payout bank account.
+   - Load the connection + its `ShopMappings`. Resolve the wallet (`holdingAccount`) GL account once (as ② does). No separate bank account — the net stays in the wallet.
    - Per order, in its own `prisma.$transaction`: find the `SalesInvoice` by `poNumber` + its settlement `ARPayment`. If none → push to `skipped` with amounts. If the receipt already has `settledAt` → push to `alreadySettled` (idempotent skip). Else post the per-order journal (above), set `ARPayment.settledAt` + `settlementJournalId`.
    - Post the period-adjustment journal (Adjustment sheet) once.
    - Return `{ posted, skipped: [{orderId, net}], alreadySettled, totals }`.
 
 3. **Schema** — add to `ARPayment`: `settledAt DateTime?`, `settlementJournalId String?` (FK to JournalEntry, `onDelete: SetNull`). Migration via `prisma db push` at deploy.
 
-4. **Endpoint** — `POST /api/v1/integrations/[id]/settlement-import`, `withPermission({ module: 'BANKING', action: 'create' })` (it books a bank receipt + clears a clearing account; confirm the right module during planning — could be a dedicated settlement permission). Validates a `settlementImportInputSchema` and calls the service.
+4. **Endpoint** — `POST /api/v1/integrations/[id]/settlement-import`, gated the same way as the order-export import: `withPermission({ module: 'AR_INVOICES', action: 'create' })`. Validates a `settlementImportInputSchema` and calls the service.
 
 5. **Hook + wizard** — `useImportSettlement()` in `useIntegrations.ts`; a settlement-import wizard (select shop → upload → format-detect → preview: matched count, unmatched list, fee totals, checksum status → Confirm → done: posted/skipped/already-settled). Entry: an "Import Settlement" button per shop on `src/views/integrations/Integrations.tsx`.
 
@@ -85,17 +84,17 @@ Mirrors ②. Reuse `postJournalEntry` (`@/lib/gl` / wherever ② posts), `resolv
 
 - **Parser unit** (`src/utils/__tests__/tiktokSettlement.test.ts`): Income header at row 5, per-order extraction, Summary checksum, format detection rejects an order export.
 - **Integration** (`lib/__tests__/integration/settlement-import.int.test.ts`, real Postgres, reuse the ② harness to seed an imported order + its holding receipt):
-  - Matched order → holding credited by X, bank debited by net, fees booked, **trial balance balanced**, receipt marked `settledAt`.
+  - Matched order → **wallet credited by `(X − N)`**, fees booked to the configured accounts, the **net stays in the wallet**, **trial balance balanced**, receipt marked `settledAt`.
   - Unmatched settled order → in `skipped`, nothing posted.
   - **Idempotent** re-import → `alreadySettled`, no double-post, GL unchanged.
   - Period adjustment row → posted to the adjustment account.
 - Full int + unit suites stay green; tsc 0.
 
-## Open questions for review
+## Resolved (from review)
 
-1. The Service-Fee and shipping mappings noted above.
-2. Payout bank account: use the connection's `holdingAccount`-linked bank, or a separate "TikTok payout" bank account? (Default: a distinct payout bank account chosen at import; falls back to org default bank.)
-3. Permission module for the endpoint (`BANKING` vs a dedicated one).
+- **Fee → account mapping:** form-driven via `ShopMappings` (operator configures each slot's account on the integration form); no hardcoded account choices.
+- **Payout model:** wallet model — net stays in the `holdingAccount` wallet; settlement books only fees; withdrawal wallet→bank is a separate existing step. No new payout-bank field.
+- **Endpoint permission:** `AR_INVOICES:create`, same as the order-export import.
 
 ## Not in this build
 
