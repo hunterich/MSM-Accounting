@@ -20,9 +20,12 @@ Out of scope for this build: fee/shipping postings (②.4, deferred), refund/ret
 
 ## Decisions (from brainstorming)
 
+- **Bulk, not per-order:** all 100+ orders post from a single **Confirm** — the user never reviews or posts orders individually. The only manual step is **SKU mapping**, which is per *unique product* (a few dozen, since many orders share products), not per order.
 - **Posting status:** auto-finalize — invoices post revenue + COGS to the GL immediately (these are completed, settled marketplace orders).
 - **Payment:** record a receipt into the store's **Settlement/clearing account** (from the integration), marking the invoice PAID; a later payout (settlement → real bank) is a separate manual bank transfer. The payment treatment follows the integration's configured `paymentMode` / settlement account.
-- **Unmatched SKU:** create a new item in the product-master chart; **block Confirm until every row maps** to a master item.
+- **Invoice + settlement date:** each invoice uses **its own order date from the file** (order created/paid time); the settlement receipt uses the **same** date as its invoice.
+- **Unmatched SKU:** **bulk-create** new master items in one action (not one-by-one). New items are created with `costPrice = 0`, `openingStock = 0`, inheriting the org's default revenue/COGS/inventory accounts; the user corrects cost/stock later via a stock/cost adjustment. **Confirm is blocked until every unique SKU is mapped or created.**
+- **Oversell:** the import **allows negative stock for its own postings** — inventory may go negative and COGS uses the item's `costPrice` (0 for newly-created items). This is **scoped to the import path**; manual sales keep the org's `allowNegativeStock` guard. Implemented by passing an explicit allow-negative override into the finalize/COGS posting (see `lib/inventory-costing.ts`, which otherwise reads `org.allowNegativeStock`).
 - **Ranking/identity:** sales aggregate by the master product (`itemId`), so the import must guarantee every line has an `itemId`.
 
 ## Architecture
@@ -62,7 +65,7 @@ The server creates everything in a **transaction per order** (one bad order does
   ```
 - **Per order:**
   1. **Idempotency:** look up a non-void `SalesInvoice` with the same `poNumber` for this org. If found → record as `skipped`, do not mutate.
-  2. **Create + finalize:** create the `SalesInvoice` (customer from options/connection, `poNumber = orderNo`, `issueDate`, `taxInclusive` from connection) with lines (each carrying `itemId`), then **finalize to `SENT`** so revenue + COGS post to the GL. Reuse the existing invoice-finalize/posting helper used by the `PUT /api/v1/invoices/[id]` DRAFT→SENT path — extract it to a shared lib function if not already callable (confirm exact location during planning; the POST route notes "COGS is posted when invoice transitions DRAFT → SENT (in PUT handler)").
+  2. **Create + finalize:** create the `SalesInvoice` (customer from options/connection, `poNumber = orderNo`, `issueDate` = the order's date from the file, `taxInclusive` from connection) with lines (each carrying `itemId`), then **finalize to `SENT`** so revenue + COGS post to the GL. Pass an explicit **`allowNegativeStock: true`** into the COGS posting (import-scoped oversell tolerance; COGS uses item `costPrice`). Reuse the existing invoice-finalize/posting helper used by the `PUT /api/v1/invoices/[id]` DRAFT→SENT path — extract it to a shared lib function if not already callable (confirm exact location during planning; the POST route notes "COGS is posted when invoice transitions DRAFT → SENT (in PUT handler)").
   3. **Settlement receipt (if `recordPayment`):** create an AR payment into the connection's `holdingAccountId`, allocated to the invoice, marking it PAID — posts Dr Settlement / Cr AR. Reuse the existing AR-payment creation + GL path (`/api/v1/ar-payments`).
 - **Response:** `{ created: number, skipped: number, errors: Array<{ orderNo, message }> }`.
 
@@ -87,10 +90,10 @@ Define a per-platform fingerprint (sheet name + signature header columns), deriv
 
 ### ②.3 SKU cross-check + create-new master item
 
-In the wizard's **mapping** step:
+In the wizard's **mapping** step (per *unique product*, not per order):
 - For each unique product, match by SKU against DB `Item.sku` (Shopee `SKU Induk` / `Nomor Referensi SKU`; TikTok `Seller SKU`). Auto-map exact matches.
-- **Unmatched SKUs:** show them; allow inline **Create new item** (creates an `Item` with `sku`, `name` from the file, default `unit`, `sellingPrice` from the order price, `type = PRODUCT`) via the existing item-create hook (`useCreateItem`). The row then maps to the new item.
-- **Block Confirm** until every row maps to a master item — guarantees no unlinked lines (consistent with ③'s master-only aggregation).
+- **Unmatched SKUs:** listed together with a single **"Create all as new items"** bulk action (not one-by-one). Each new `Item` is created with `sku` + `name` from the file, `sellingPrice` from the order price, default `unit`, `type = PRODUCT`, and **`costPrice = 0`, `openingStock = 0`**, inheriting the org's default revenue/COGS/inventory accounts (user corrects cost/stock later via adjustment) — via the existing item-create hook (`useCreateItem`). Created rows auto-map to the new items.
+- **Block Confirm** until every unique SKU is mapped or created — guarantees no unlinked lines (consistent with ③'s master-only aggregation).
 
 ### Wizard rewrite (`ImportInvoicesModal.tsx`)
 
@@ -124,11 +127,12 @@ Optional (note, not committing): a `source`/`channel` marker or connection link 
 
 Import endpoint guarded by `AR_INVOICES:create` (it creates invoices/payments). Inline item-create uses existing `inv_items:create`.
 
-## Open questions for review
+## Resolved / remaining questions
 
-1. Exact location/shape of the reusable invoice-finalize + GL-posting helper (confirm in planning; extract a shared function if the PUT handler's logic isn't already callable from a service layer).
-2. Should the settlement receipt date = order payment time or import date? (Default: order payment/created time, matching the invoice issueDate.)
-3. New-item defaults for created-on-import items (revenue/COGS/inventory accounts): inherit org defaults vs. require selection. (Default: inherit org defaults; flag for the user.)
+- **Invoice + settlement date** — RESOLVED: each invoice uses its own order date from the file; settlement receipt matches that date.
+- **New-item defaults** — RESOLVED: `costPrice = 0`, `openingStock = 0`, inherit org default revenue/COGS/inventory accounts; user adjusts later.
+- **Oversell** — RESOLVED: import-scoped negative-stock allowance (manual sales stay guarded).
+- **Remaining (implementation detail, for planning):** exact location/shape of the reusable invoice-finalize + GL-posting helper, and how to thread the `allowNegativeStock` override into the COGS path — extract a shared function if the PUT handler's logic isn't already callable from a service layer.
 
 ## Not in this build
 
