@@ -1203,7 +1203,27 @@ const buildGlCsv = (report: ReportDefinition, data: Record<string, unknown>): st
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const Reports: React.FC = () => {
+export interface ReportsProps {
+  /** 'legacy' (default): standalone-route behaviour — internal tab strip + "Laporan Lainnya".
+   *  'catalog': render only the category sidebar + cards; running a report calls onRunReport.
+   *  'single': render exactly one report (singleReport/singleParams); no catalog, no other-report cards. */
+  variant?: 'legacy' | 'catalog' | 'single';
+  /** catalog: called when the user runs a report from the parameter modal. */
+  onRunReport?: (report: ReportDefinition, params: ReportParams) => void;
+  /** single: the report to display and its run parameters. */
+  singleReport?: ReportDefinition;
+  singleParams?: ReportParams;
+  /** single: called when the user re-runs via "Ubah Filter", to persist new params. */
+  onParamsChange?: (params: ReportParams) => void;
+}
+
+const Reports: React.FC<ReportsProps> = ({
+  variant = 'legacy',
+  onRunReport,
+  singleReport,
+  singleParams,
+  onParamsChange,
+}) => {
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: vendorsData } = useVendors({ limit: 200 });
@@ -1305,6 +1325,10 @@ const Reports: React.FC = () => {
   const categoryReports: ReportDefinition[] = REPORTS_BY_CATEGORY[activeCategory] || [];
   const activeCategoryMeta = IMPLEMENTED_CATEGORIES.find((category) => category.id === activeCategory);
   const activeReport = openReports.find((entry) => entry.report.id === activeReportId) || null;
+  const showCategorySidebar = variant !== 'single';
+  const showCatalog = variant === 'legacy' || variant === 'catalog';
+  const showInternalTabs = variant === 'legacy';
+  const showOtherReports = variant === 'legacy';
   const filteredReports = categoryReports.filter((report) =>
     report.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -1508,6 +1532,13 @@ const Reports: React.FC = () => {
         ...prev,
         [reportToRun.id]: params,
       }));
+      if (variant === 'catalog') {
+        onRunReport?.(reportToRun, params);
+        return;
+      }
+      if (variant === 'single') {
+        onParamsChange?.(params);
+      }
       // api.get returns unknown; cast to record since shape varies per report
       // Cast via unknown because ReportParams has no index signature; api.get accepts Record<string, unknown>
       const data = await api.get<Record<string, unknown>>(reportToRun.apiPath, params as unknown as Record<string, unknown>);
@@ -3071,44 +3102,48 @@ const Reports: React.FC = () => {
 
   return (
     <div className="flex h-full min-h-0" style={{ height: 'calc(100vh - 56px)' }}>
-      <div className="w-[200px] shrink-0 border-r border-neutral-200 bg-neutral-50 p-3 flex flex-col gap-1 overflow-y-auto">
-        {IMPLEMENTED_CATEGORIES.map((cat) => {
-          const Icon = cat.icon;
-          return (
-            <button
-              key={cat.id}
-              onClick={() => resetCategoryState(cat.id)}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-colors w-full ${
-                activeCategory === cat.id
-                  ? 'bg-primary-600 text-white'
-                  : 'text-neutral-700 hover:bg-neutral-200'
-              }`}
-            >
-              <Icon size={16} strokeWidth={1.8} />
-              {cat.label}
-            </button>
-          );
-        })}
-      </div>
+      {showCategorySidebar && (
+        <div className="w-[200px] shrink-0 border-r border-neutral-200 bg-neutral-50 p-3 flex flex-col gap-1 overflow-y-auto">
+          {IMPLEMENTED_CATEGORIES.map((cat) => {
+            const Icon = cat.icon;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => resetCategoryState(cat.id)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-colors w-full ${
+                  activeCategory === cat.id
+                    ? 'bg-primary-600 text-white'
+                    : 'text-neutral-700 hover:bg-neutral-200'
+                }`}
+              >
+                <Icon size={16} strokeWidth={1.8} />
+                {cat.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex-1 min-w-0 overflow-y-auto">
-        {categoryReports.length > 0 && (
+        {(variant === 'single' || categoryReports.length > 0) && (
           <div className="p-6">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-bold text-neutral-900">{activeCategoryMeta?.label}</h2>
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
-                <input
-                  type="text"
-                  placeholder="Cari laporan..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="h-9 pl-9 pr-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 w-[220px]"
-                />
+            {showCatalog && (
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-bold text-neutral-900">{activeCategoryMeta?.label}</h2>
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari laporan..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="h-9 pl-9 pr-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 w-[220px]"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
-            {!activeReport && !isLoading && (
+            {showCatalog && !activeReport && !isLoading && (
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {filteredReports.map((report) => (
                   <ReportCard key={report.id} report={report} onClick={handleCardClick} />
@@ -3116,7 +3151,7 @@ const Reports: React.FC = () => {
               </div>
             )}
 
-            {!activeReport && !isLoading && !filteredReports.length && (
+            {showCatalog && !activeReport && !isLoading && !filteredReports.length && (
               renderEmptyReport('Tidak ada laporan yang cocok dengan pencarian.')
             )}
 
@@ -3130,7 +3165,7 @@ const Reports: React.FC = () => {
               </div>
             )}
 
-            {openReports.length > 0 && !isLoading && (
+            {showInternalTabs && openReports.length > 0 && !isLoading && (
               <div className="mb-4 overflow-x-auto">
                 <div className="inline-flex min-w-full items-end gap-1 border-b border-neutral-300">
                   {openReports.map((entry) => {
@@ -3170,16 +3205,20 @@ const Reports: React.FC = () => {
                 <div className="mb-4 pb-3 border-b border-neutral-200">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => {
-                          closeReportTab(activeReport.report.id);
-                          setError(null);
-                        }}
-                        className="flex items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
-                      >
-                        <X size={14} /> Tutup
-                      </button>
-                      <div className="h-4 w-px bg-neutral-300" />
+                      {variant === 'legacy' && (
+                        <>
+                          <button
+                            onClick={() => {
+                              closeReportTab(activeReport.report.id);
+                              setError(null);
+                            }}
+                            className="flex items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
+                          >
+                            <X size={14} /> Tutup
+                          </button>
+                          <div className="h-4 w-px bg-neutral-300" />
+                        </>
+                      )}
                       <span className="font-semibold text-neutral-900">{activeReport.report.name}</span>
                       <span className="text-xs text-neutral-500">{periodLabel}</span>
                     </div>
@@ -3239,18 +3278,20 @@ const Reports: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="mt-8 pt-6 border-t border-neutral-200 print:hidden">
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
-                    Laporan Lainnya
+                {showOtherReports && (
+                  <div className="mt-8 pt-6 border-t border-neutral-200 print:hidden">
+                    <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
+                      Laporan Lainnya
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {categoryReports
+                        .filter((report) => report.id !== activeReport.report.id)
+                        .map((report) => (
+                          <ReportCard key={report.id} report={report} onClick={handleCardClick} />
+                        ))}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {categoryReports
-                      .filter((report) => report.id !== activeReport.report.id)
-                      .map((report) => (
-                        <ReportCard key={report.id} report={report} onClick={handleCardClick} />
-                      ))}
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </div>
