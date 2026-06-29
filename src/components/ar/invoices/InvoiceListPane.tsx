@@ -1,7 +1,10 @@
 // src/components/ar/invoices/InvoiceListPane.tsx
 import React, { useMemo, useState } from 'react';
+import { Upload } from 'lucide-react';
 import InvoiceCatalogPanel from './InvoiceCatalogPanel';
+import ImportInvoicesModal from './ImportInvoicesModal';
 import PageHeader from '../../Layout/PageHeader';
+import Button from '../../UI/Button';
 import { useInvoices } from '../../../hooks/useAR';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePermissions';
@@ -9,9 +12,10 @@ import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePe
 interface InvoiceFilters { searchTerm: string; status: string; dateFrom: string; dateTo: string }
 
 const InvoiceListPane = (): React.ReactElement => {
-    const { canEdit } = useModulePermissions('ar_invoices');
+    const { canEdit, canCreate } = useModulePermissions('ar_invoices');
     const canReprint = useExtraAction('ar_invoices', 'reprint');
     const { open } = useWorkspaceNav();
+    const [isImportOpen, setIsImportOpen] = useState(false);
     // Read from the same source the form writes to (the invoices API via React
     // Query), so seeded + just-saved invoices both appear here and can be
     // opened as tabs.
@@ -59,6 +63,9 @@ const InvoiceListPane = (): React.ReactElement => {
             <PageHeader
                 title="Invoices"
                 subtitle="Create, send, and track customer invoices."
+                actions={canCreate ? (
+                    <Button text="Import" size="small" variant="secondary" icon={<Upload size={16} />} onClick={() => setIsImportOpen(true)} />
+                ) : undefined}
             />
             <InvoiceCatalogPanel
                 data={filteredData as unknown as { id: string; [key: string]: unknown }[]}
@@ -75,6 +82,7 @@ const InvoiceListPane = (): React.ReactElement => {
                 onEditInvoice={openEdit}
                 onPrintInvoice={() => {}}
             />
+            <ImportInvoicesModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
         </div>
     );
 };
