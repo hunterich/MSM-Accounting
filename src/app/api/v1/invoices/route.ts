@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import {
@@ -10,6 +9,7 @@ import { ApiError, logAudit, withHandler, ok, err, requireAuth, parsePaginationP
 import { withPermission } from '@/lib/authz';
 import { toNumber } from '@/lib/money';
 import { calculateInvoiceTotals } from '@/lib/invoice-totals';
+import { nextInvoiceNumber } from '@/lib/invoice-number';
 import { enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 
@@ -60,54 +60,12 @@ export const GET = withHandler(async (req: NextRequest) => {
   return listResponse(data, total, page, limit);
 });
 
-const INVOICE_PREFIX = 'INV';
-const INVOICE_DIGITS = 6;
-const INVOICE_REGEX_SOURCE = '^INV-(\\d+)$';
-
 const parseIsoDate = (value: string): Date => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new ApiError(`Invalid date: ${value}`, 400);
   }
   return date;
-};
-
-// FNV-1a 32-bit hash — significantly better distribution than the naive * 31 approach,
-// reducing advisory lock collisions across organizations.
-const hashLockKey = (input: string): number => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = (hash * 0x01000193) >>> 0;
-  }
-  return hash || 1;
-};
-
-const getCurrentInvoiceSequence = async (
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<number> => {
-  const rows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-    SELECT MAX(CAST(SUBSTRING("number" FROM ${INVOICE_REGEX_SOURCE}) AS INTEGER)) AS max_seq
-    FROM "SalesInvoice"
-    WHERE "organizationId" = ${organizationId}
-      AND "number" LIKE ${`${INVOICE_PREFIX}-%`}
-  `;
-
-  return Number(rows[0]?.max_seq ?? 0);
-};
-
-const nextInvoiceNumber = async (
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<string> => {
-  const lockKey = hashLockKey(`invoice-seq:${organizationId}`);
-  // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void, which
-  // $queryRaw cannot deserialize (it 500s every invoice create).
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-
-  const nextSequence = (await getCurrentInvoiceSequence(tx, organizationId)) + 1;
-  return `${INVOICE_PREFIX}-${String(nextSequence).padStart(INVOICE_DIGITS, '0')}`;
 };
 
 export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, async (request: NextRequest) => {
