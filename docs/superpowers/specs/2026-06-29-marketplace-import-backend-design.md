@@ -25,6 +25,7 @@ Out of scope for this build: fee/shipping postings (②.4, deferred), refund/ret
 - **Payment:** record a receipt into the store's **Settlement/clearing account** (from the integration), marking the invoice PAID; a later payout (settlement → real bank) is a separate manual bank transfer. The payment treatment follows the integration's configured `paymentMode` / settlement account.
 - **Invoice + settlement date:** each invoice uses **its own order date from the file** (order created/paid time); the settlement receipt uses the **same** date as its invoice.
 - **Unmatched SKU:** **bulk-create** new master items in one action (not one-by-one). New items are created with `costPrice = 0`, `openingStock = 0`, inheriting the org's default revenue/COGS/inventory accounts; the user corrects cost/stock later via a stock/cost adjustment. **Confirm is blocked until every unique SKU is mapped or created.**
+- **Inactive products:** if a line's SKU auto-maps to an **inactive** master item (`Item.isActive = false`), the **whole order is rejected** (not imported) and reported to the user with its order number + the offending product. Inactive items are never auto-reactivated or re-created. Unlike unmatched SKUs this does **not** block Confirm — the good orders import and the failed ones are listed in the done summary.
 - **Oversell:** the import **allows negative stock for its own postings** — inventory may go negative and COGS uses the item's `costPrice` (0 for newly-created items). This is **scoped to the import path**; manual sales keep the org's `allowNegativeStock` guard. Implemented by passing an explicit allow-negative override into the finalize/COGS posting (see `lib/inventory-costing.ts`, which otherwise reads `org.allowNegativeStock`).
 - **Ranking/identity:** sales aggregate by the master product (`itemId`), so the import must guarantee every line has an `itemId`.
 
@@ -65,9 +66,10 @@ The server creates everything in a **transaction per order** (one bad order does
   ```
 - **Per order:**
   1. **Idempotency:** look up a non-void `SalesInvoice` with the same `poNumber` for this org. If found → record as `skipped`, do not mutate.
-  2. **Create + finalize:** create the `SalesInvoice` (customer from options/connection, `poNumber = orderNo`, `issueDate` = the order's date from the file, `taxInclusive` from connection) with lines (each carrying `itemId`), then **finalize to `SENT`** so revenue + COGS post to the GL. Pass an explicit **`allowNegativeStock: true`** into the COGS posting (import-scoped oversell tolerance; COGS uses item `costPrice`). Reuse the existing invoice-finalize/posting helper used by the `PUT /api/v1/invoices/[id]` DRAFT→SENT path — extract it to a shared lib function if not already callable (confirm exact location during planning; the POST route notes "COGS is posted when invoice transitions DRAFT → SENT (in PUT handler)").
-  3. **Settlement receipt (if `recordPayment`):** create an AR payment into the connection's `holdingAccountId`, allocated to the invoice, marking it PAID — posts Dr Settlement / Cr AR. Reuse the existing AR-payment creation + GL path (`/api/v1/ar-payments`).
-- **Response:** `{ created: number, skipped: number, errors: Array<{ orderNo, message }> }`.
+  2. **Inactive-product guard:** if **any** line's mapped item is inactive (`Item.isActive = false`), **reject the whole order** — record it as `failed` with reason (order no + the inactive product), do **not** create anything. (Inactive items are not re-activated or re-created; the SKU exists but is deliberately disabled.) The rest of the batch continues.
+  3. **Create + finalize:** create the `SalesInvoice` (customer from options/connection, `poNumber = orderNo`, `issueDate` = the order's date from the file, `taxInclusive` from connection) with lines (each carrying `itemId`), then **finalize to `SENT`** so revenue + COGS post to the GL. Pass an explicit **`allowNegativeStock: true`** into the COGS posting (import-scoped oversell tolerance; COGS uses item `costPrice`). Reuse the existing invoice-finalize/posting helper used by the `PUT /api/v1/invoices/[id]` DRAFT→SENT path — extract it to a shared lib function if not already callable (confirm exact location during planning; the POST route notes "COGS is posted when invoice transitions DRAFT → SENT (in PUT handler)").
+  4. **Settlement receipt (if `recordPayment`):** create an AR payment into the connection's `holdingAccountId`, allocated to the invoice, marking it PAID — posts Dr Settlement / Cr AR. Reuse the existing AR-payment creation + GL path (`/api/v1/ar-payments`).
+- **Response:** `{ created: number, skipped: number, failed: Array<{ orderNo, reason }> }` — `skipped` = already-imported (idempotent) orders; `failed` = orders rejected by validation (inactive product, posting error). The wizard's **done** step lists every failed order with its reason so the user knows exactly which orders did not upload.
 
 **GL postings produced** (reusing existing helpers — do not reinvent):
 - Invoice finalize: Dr AR / Cr Revenue (+ Cr Output Tax if PPN), Dr COGS / Cr Inventory.
@@ -95,6 +97,7 @@ In the wizard's **mapping** step (per *unique product*, not per order):
 - **Unmatched SKUs:** listed together with a single **"Create all as new items"** bulk action (not one-by-one). Each new `Item` is created with `sku` + `name` from the file, `sellingPrice` from the order price, default `unit`, `type = PRODUCT`, and **`costPrice = 0`, `openingStock = 0`**, inheriting the org's default revenue/COGS/inventory accounts (user corrects cost/stock later via adjustment) — via the existing item-create hook (`useCreateItem`). Created rows auto-map to the new items.
 - **Block Confirm** until every unique SKU is mapped or created — guarantees no unlinked lines (consistent with ③'s master-only aggregation).
 - **Whole-order integrity:** an order is never partially posted. Mapping is per *unique SKU*, and Confirm is blocked until **all** are resolved, so by post time every line of every order has an `itemId`. A 3-line order whose 1 SKU was unmatched posts **intact (all 3 lines)** once that SKU is mapped or created — a line is never dropped (dropping it would understate the invoice total and break reconciliation with the order's settlement amount).
+- **Inactive match → flagged for skip (not creatable):** if a SKU matches an *inactive* item, it is shown in a separate **"will be skipped"** list with the affected order numbers — the user cannot "create new" for it (the SKU already exists, just disabled). Every order containing that line is excluded from the import and reported as `failed` (the server enforces this; client previews it so there are no surprises at Confirm).
 
 ### Wizard rewrite (`ImportInvoicesModal.tsx`)
 
@@ -122,6 +125,7 @@ Optional (note, not committing): a `source`/`channel` marker or connection link 
   - Import creates posted invoices + settlement receipts with correct GL; trial balance stays balanced (reuse the GL invariant harness).
   - Idempotent re-import skips already-posted orders (no duplicates, no GL change).
   - Unmatched-SKU flow creates a new `Item` and links the line.
+  - An order with a line mapped to an **inactive** item is rejected (returned in `failed`, no invoice/GL created) while sibling orders still import.
 - Existing 675 unit / int suites stay green; typecheck clean.
 
 ## RBAC
