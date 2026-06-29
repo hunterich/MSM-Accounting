@@ -862,6 +862,15 @@ const REPORTS_BY_CATEGORY: Partial<Record<ReportCategoryId, ReportDefinition[]>>
   hr:        HR_REPORTS,
 };
 
+/** Flat list of every report definition, for looking a report up by id. */
+export const ALL_REPORTS: ReportDefinition[] = Object.values(REPORTS_BY_CATEGORY).flat() as ReportDefinition[];
+
+/** Find a report definition by its id (used by the workspace report tab). */
+export function findReportById(id: string | undefined | null): ReportDefinition | undefined {
+  if (!id) return undefined;
+  return ALL_REPORTS.find((r) => r.id === id);
+}
+
 const IMPLEMENTED_CATEGORIES: CategoryMeta[] = ALL_CATEGORIES.filter((category) => {
   const reports = REPORTS_BY_CATEGORY[category.id];
   return Array.isArray(reports) && reports.length > 0;
@@ -1567,6 +1576,46 @@ const Reports: React.FC<ReportsProps> = ({
       setIsLoading(false);
     }
   };
+
+  // `single` variant: fetch the one report from its saved params on mount and
+  // whenever the params change (e.g. after "Ubah Filter"). With no saved params
+  // yet (a fresh/deep-linked report tab), open the parameter modal to collect them.
+  const singleParamsKey = singleParams ? JSON.stringify(singleParams) : '';
+  useEffect(() => {
+    if (variant !== 'single' || !singleReport) return;
+    if (!singleParams) {
+      openParamModal(singleReport);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const data = await api.get<Record<string, unknown>>(
+          singleReport.apiPath,
+          singleParams as unknown as Record<string, unknown>,
+        );
+        if (cancelled) return;
+        const entry: OpenReportEntry = {
+          report: singleReport,
+          data,
+          params: singleParams,
+          dateFrom: singleParams.dateFrom ?? null,
+          dateTo: singleParams.dateTo ?? null,
+          asOfDate: singleParams.asOfDate ?? null,
+        };
+        setOpenReports([entry]);
+        setActiveReportId(singleReport.id);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant, singleReport, singleParamsKey]);
 
   const buildApCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
     if (report.id === 'ap-statement') return buildStatementCsv(data);
