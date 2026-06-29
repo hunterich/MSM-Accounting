@@ -6,7 +6,7 @@ import type { TabTarget } from './types';
 /** The module a tab belongs to. AR entities are document modules; everything
  *  else is a "page" module keyed by its area. */
 export function moduleKeyOf(t: TabTarget): string {
-    if (t.module === 'reports') return 'reports';
+    if (t.module === 'reports') return 'reports'; // every report sub-tab (entity = report id) folds into one module slot
     if (t.module === 'ar') return `ar/${t.entity}`;
     if (t.module === 'ap') return `ap/${t.entity}`;
     if (t.module === 'page') return `page:${t.recordId}`; // recordId holds the page module key
