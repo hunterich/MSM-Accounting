@@ -93,9 +93,13 @@ const toReturnTotals = (purchaseReturn?: PurchaseReturn | null): ReturnTotals =>
     return { subtotal, taxAmount, total: subtotal + taxAmount };
 };
 
-const DebitNoteForm = () => {
+interface DebitNoteFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
+
+const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFormProps = {}) => {
     const navigate = useNavigate();
     const location = useLocation();
+    // In the workspace, identity comes from the owning tab (props), not router state.
+    const inWorkspace = workspaceTabId != null;
     const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data ?? [];
@@ -110,7 +114,9 @@ const DebitNoteForm = () => {
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
-    const state = (location.state || {}) as DebitNoteLocationState;
+    const state = (inWorkspace
+        ? { mode: modeProp ?? 'edit', debitId: recordId }
+        : (location.state || {})) as DebitNoteLocationState;
     const mode = state.mode || 'create';
     const isView = mode === 'view';
     const resolvedAccountDefaults = useMemo(

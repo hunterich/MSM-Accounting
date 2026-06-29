@@ -62,10 +62,16 @@ const normalizeLine = (line: PurchaseReturnLineInput): PurchaseReturnLine => ({
     price: Number(line.price || 0)
 });
 
-const PurchaseReturnForm = () => {
+interface PurchaseReturnFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
+
+const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: PurchaseReturnFormProps = {}) => {
     const navigate = useNavigate();
     const location = useLocation();
-    const state = (location.state || {}) as { mode?: string; returnId?: string };
+    // In the workspace, identity comes from the owning tab (props), not router state.
+    const inWorkspace = workspaceTabId != null;
+    const state = (inWorkspace
+        ? { mode: modeProp ?? (recordId ? 'edit' : 'create'), returnId: recordId }
+        : (location.state || {})) as { mode?: string; returnId?: string };
     const mode = state.mode || 'create';
     const isView = mode === 'view';
     const { addPurchaseReturn, updatePurchaseReturn } = useReturnStore();
