@@ -94,6 +94,7 @@ In the wizard's **mapping** step (per *unique product*, not per order):
 - For each unique product, match by SKU against DB `Item.sku` (Shopee `SKU Induk` / `Nomor Referensi SKU`; TikTok `Seller SKU`). Auto-map exact matches.
 - **Unmatched SKUs:** listed together with a single **"Create all as new items"** bulk action (not one-by-one). Each new `Item` is created with `sku` + `name` from the file, `sellingPrice` from the order price, default `unit`, `type = PRODUCT`, and **`costPrice = 0`, `openingStock = 0`**, inheriting the org's default revenue/COGS/inventory accounts (user corrects cost/stock later via adjustment) — via the existing item-create hook (`useCreateItem`). Created rows auto-map to the new items.
 - **Block Confirm** until every unique SKU is mapped or created — guarantees no unlinked lines (consistent with ③'s master-only aggregation).
+- **Whole-order integrity:** an order is never partially posted. Mapping is per *unique SKU*, and Confirm is blocked until **all** are resolved, so by post time every line of every order has an `itemId`. A 3-line order whose 1 SKU was unmatched posts **intact (all 3 lines)** once that SKU is mapped or created — a line is never dropped (dropping it would understate the invoice total and break reconciliation with the order's settlement amount).
 
 ### Wizard rewrite (`ImportInvoicesModal.tsx`)
 
