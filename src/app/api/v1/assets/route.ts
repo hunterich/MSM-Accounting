@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { assetInputSchema } from '@/types/api';
 
@@ -50,6 +50,13 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
   if (!parsed.success) {
     return err(parsed.error.issues[0]?.message || 'Invalid payload', 400);
   }
+
+  // Tenant-isolation guard: the category must belong to this org.
+  await validateForeignKey(
+    prisma.assetCategory,
+    { id: parsed.data.categoryId, organizationId: orgId },
+    'Asset category not found in organization',
+  );
 
   const asset = await prisma.$transaction(async (tx: any) => {
     // Generate asset number

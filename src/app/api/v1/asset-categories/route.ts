@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { assetCategoryInputSchema } from '@/types/api';
 
@@ -9,6 +9,29 @@ export const runtime = 'nodejs';
 
 export async function OPTIONS() {
   return corsPreflightResponse();
+}
+
+/**
+ * Tenant-isolation guard: every GL account a category references must belong to
+ * the caller's org. Without this a category could wire in another org's account,
+ * which later drives disposal/depreciation JE posting (cross-tenant reference).
+ * One query validates all three optional account FKs.
+ */
+async function assertCategoryAccountsInOrg(
+  orgId: string,
+  data: { assetAccountId?: string | null; depExpenseAccountId?: string | null; accumDepAccountId?: string | null },
+) {
+  const ids = [data.assetAccountId, data.depExpenseAccountId, data.accumDepAccountId]
+    .filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return;
+  const found = await prisma.account.findMany({
+    where: { id: { in: ids }, organizationId: orgId },
+    select: { id: true },
+  });
+  const foundIds = new Set(found.map((a) => a.id));
+  for (const id of ids) {
+    if (!foundIds.has(id)) throw new ApiError('Selected GL account was not found in this organization', 404);
+  }
 }
 
 export const GET = withHandler(async function GET(req: NextRequest) {
@@ -42,6 +65,8 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
   if (!parsed.success) {
     return err(parsed.error.issues[0]?.message || 'Invalid payload', 400);
   }
+
+  await assertCategoryAccountsInOrg(orgId, parsed.data);
 
   const category = await prisma.assetCategory.create({
     data: parsed.data,

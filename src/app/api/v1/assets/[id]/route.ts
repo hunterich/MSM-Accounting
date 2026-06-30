@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { updateAssetInputSchema } from '@/types/api';
 
@@ -51,6 +51,15 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
   if (!existing) throw new ApiError('Asset not found', 404);
   if (existing.status !== 'DRAFT' && existing.status !== 'ACTIVE') {
     throw new ApiError('Can only edit DRAFT or ACTIVE assets', 422);
+  }
+
+  // Tenant-isolation guard: a reassigned category must belong to this org.
+  if (parsed.data.categoryId) {
+    await validateForeignKey(
+      prisma.assetCategory,
+      { id: parsed.data.categoryId, organizationId: orgId },
+      'Asset category not found in organization',
+    );
   }
 
   const updateData: any = { ...parsed.data };

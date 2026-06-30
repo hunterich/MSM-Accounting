@@ -11,6 +11,29 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
+/**
+ * Tenant-isolation guard: every GL account a category references must belong to
+ * the caller's org (otherwise a category could wire in another org's account,
+ * which later drives disposal/depreciation JE posting). One query validates all
+ * three optional account FKs.
+ */
+async function assertCategoryAccountsInOrg(
+  orgId: string,
+  data: { assetAccountId?: string | null; depExpenseAccountId?: string | null; accumDepAccountId?: string | null },
+) {
+  const ids = [data.assetAccountId, data.depExpenseAccountId, data.accumDepAccountId]
+    .filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return;
+  const found = await prisma.account.findMany({
+    where: { id: { in: ids }, organizationId: orgId },
+    select: { id: true },
+  });
+  const foundIds = new Set(found.map((a) => a.id));
+  for (const id of ids) {
+    if (!foundIds.has(id)) throw new ApiError('Selected GL account was not found in this organization', 404);
+  }
+}
+
 export const GET = withHandler(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -44,6 +67,8 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
     select: { id: true },
   });
   if (!existing) throw new ApiError('Category not found', 404);
+
+  await assertCategoryAccountsInOrg(orgId, parsed.data);
 
   const updated = await prisma.assetCategory.update({
     where: { id },
