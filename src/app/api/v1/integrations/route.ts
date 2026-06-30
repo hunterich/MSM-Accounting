@@ -36,7 +36,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'INTEGRATIONS', action: 'view' }, async (req: NextRequest) => {
   try {
     const orgId = req.headers.get('x-org-id');
     if (!orgId) {
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to list integrations';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
 export const POST = withPermission({ module: 'INTEGRATIONS', action: 'create' }, async (req: NextRequest) => {
   try {
