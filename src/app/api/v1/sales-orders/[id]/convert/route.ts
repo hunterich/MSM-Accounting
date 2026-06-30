@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
@@ -86,7 +85,7 @@ export const POST = withPermission({ module: 'AR_SALES_ORDERS', action: 'create'
               lineNo:       idx + 1,
               itemId:       item.productId || null,
               code:         item.code      || null,
-              description:  item.description,
+              description:  item.description || '',
               quantity:     item.quantity,
               unit:         item.unit || 'PCS',
               price:        item.price,
