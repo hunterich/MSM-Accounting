@@ -4,6 +4,7 @@ import { asMoney, toNumber } from './money';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { addCostLayer, relieveCostLayers } from './inventory-costing';
+import { assertPeriodOpen } from './period-guard';
 
 type Tx = Prisma.TransactionClient;
 
@@ -48,6 +49,12 @@ export async function postStockAdjustmentToLedger(
 ): Promise<void> {
   const lines = args.lines ?? [];
   if (lines.length === 0) return;
+
+  // Refuse to move inventory/GL into a closed/locked accounting period. This
+  // single guard covers every forward stock-adjustment posting path: direct
+  // create-as-APPROVED, the approval finalizer, and stock-count posting (which
+  // routes through here). The void path guards separately.
+  await assertPeriodOpen(tx, orgId, args.date);
 
   let netValue = 0;
   for (const l of lines) {
