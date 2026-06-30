@@ -43,7 +43,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const type = searchParams.get('type');
   const search = searchParams.get('search');
   const where: any = { organizationId: orgId };
-  if (type) where.type = toPrismaAccountType(type);
+  if (type) where.type = toPrismaAccountType(type as Parameters<typeof toPrismaAccountType>[0]);
   if (search) where.OR = [
     { name: { contains: search, mode: 'insensitive' } },
     { code: { contains: search, mode: 'insensitive' } },
