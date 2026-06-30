@@ -6,6 +6,7 @@ import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
 import { withPermission } from '@/lib/authz';
+import { createPurchaseReturnInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -42,7 +43,9 @@ export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, as
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
-  const { lines, ...header } = body;
+  const parsed = createPurchaseReturnInputSchema.safeParse(body);
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid purchase return payload', 400);
+  const { lines, ...header } = parsed.data;
 
   const purchaseReturn = await prisma.$transaction(async (tx) => {
     const number = await nextNumber(tx, 'PurchaseReturn', 'number', 'PRN');

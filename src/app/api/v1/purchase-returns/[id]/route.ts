@@ -5,6 +5,7 @@ import { logAudit } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission } from '@/lib/authz';
+import { updatePurchaseReturnInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -41,7 +42,11 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
   }
   try {
     const body = await req.json();
-    const { lines, ...header } = body;
+    const parsed = updatePurchaseReturnInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid purchase return payload' }, { status: 400 }));
+    }
+    const { lines, ...header } = parsed.data;
 
     // Voiding a posted return must reverse its inventory journal entry and unwind
     // the stock — only the dedicated endpoint does that. A bare status flip here
@@ -82,7 +87,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
           updatedAt: new Date(),
           ...(lines ? {
             lines: {
-              create: lines.map((l: { lineKey?: string; itemId?: string; description?: string; qtyPurchased?: number; qtyReturn?: number; unit?: string; price?: number; lineTotal?: number }, idx: number) => ({
+              create: lines.map((l, idx) => ({
                 lineNo:       idx + 1,
                 lineKey:      l.lineKey || null,
                 itemId:       l.itemId || null,
@@ -126,7 +131,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       });
     });
 
-    logAudit({ orgId, actorId: userId, entityType: 'PurchaseReturn', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: userId, entityType: 'PurchaseReturn', entityId: id, action: 'UPDATE', payload: parsed.data });
     return withCors(NextResponse.json(pr));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
