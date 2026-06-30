@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ok, err, requireOrg, withHandler } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -12,6 +12,12 @@ export async function OPTIONS() {
 const TOLERANCE = 0.01;
 const DAY_WINDOW = 3;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+// The auto-match below is O(payments × transactions) over the full org dataset.
+// Cap each input and reject rather than attempt an unbounded scan/compute. Over-
+// fetch by one so we can detect the overflow without a separate count query.
+const RECON_ROW_CAP = 25_000;
+const RECON_ROW_CAP_MSG = 'Too many records to reconcile at once — reconcile a narrower set first';
 
 interface MatchedPair {
   paymentType: 'AR' | 'AP';
@@ -33,12 +39,14 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const arPayments = await prisma.aRPayment.findMany({
     where: { organizationId: orgId, status: 'COMPLETED' },
     include: { customer: { select: { name: true } } },
+    take: RECON_ROW_CAP + 1,
   });
 
   // Fetch completed AP payments
   const apPayments = await prisma.aPPayment.findMany({
     where: { organizationId: orgId, status: 'COMPLETED' },
     include: { vendor: { select: { name: true } } },
+    take: RECON_ROW_CAP + 1,
   });
 
   // Fetch all bank transactions
@@ -47,7 +55,16 @@ export const GET = withHandler(async function GET(req: NextRequest) {
       bankAccount: { organizationId: orgId },
     },
     include: { bankAccount: { select: { name: true } } },
+    take: RECON_ROW_CAP + 1,
   });
+
+  if (
+    arPayments.length > RECON_ROW_CAP ||
+    apPayments.length > RECON_ROW_CAP ||
+    bankTransactions.length > RECON_ROW_CAP
+  ) {
+    return err(RECON_ROW_CAP_MSG, 400);
+  }
 
   const matched: MatchedPair[] = [];
   const matchedBankTxIds = new Set<string>();
