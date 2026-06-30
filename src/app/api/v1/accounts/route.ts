@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -121,8 +120,9 @@ export const POST = withPermission({ module: 'GL_COA', action: 'create' }, async
       data: {
         ...nextAccount,
         organizationId: orgId,
-        type: toPrismaAccountType(nextAccount.type),
-        normalSide: toPrismaNormalSide(nextAccount.normalSide),
+        // toPrisma* helpers return plain string; cast to the generated enums.
+        type: toPrismaAccountType(nextAccount.type) as Prisma.AccountUncheckedCreateInput['type'],
+        normalSide: toPrismaNormalSide(nextAccount.normalSide) as Prisma.AccountUncheckedCreateInput['normalSide'],
         level: getAccountLevel(nextAccount.parentId, validationAccounts),
       },
     });
