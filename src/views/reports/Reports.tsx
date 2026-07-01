@@ -12,6 +12,7 @@ import { useCustomers } from '../../hooks/useAR';
 import { useVendors } from '../../hooks/useAP';
 import { useItems, useWarehouses, useItemCategories } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import { useBankAccounts } from '../../hooks/useBanking';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
@@ -46,7 +47,10 @@ export type ReportType =
   | 'stock-movement'
   | 'stock-valuation'
   | 'pph21-summary'
-  | 'bank-reconciliation';
+  | 'bank-reconciliation'
+  | 'bank-history'
+  | 'bank-received'
+  | 'bank-payment';
 
 /** Category IDs available in the sidebar. */
 export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inventory' | 'hr';
@@ -54,7 +58,7 @@ export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inven
 /** How a report is filtered: by date-range, as-of a single date, a current
  *  inventory snapshot (category/warehouse filters), or a per-party statement
  *  (party picker + date range). */
-export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot' | 'statement';
+export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot' | 'statement' | 'bank-period';
 
 /** Report card visual type. */
 export type ReportCardType = 'table' | 'chart';
@@ -68,6 +72,8 @@ export interface ReportDefinition {
   description: string;
   type: ReportCardType;
   filterMode: FilterMode;
+  /** bank-period reports: require a specific bank (Received/Payment) vs allow "All banks" (History). */
+  bankRequired?: boolean;
 }
 
 /** Query parameters sent to the API for a given report run. */
@@ -89,6 +95,7 @@ export interface ReportParams {
   warehouseId?: string;
   customerId?: string;
   vendorId?: string;
+  bankAccountId?: string;
 }
 
 /** One open report tab entry. */
@@ -328,6 +335,47 @@ export interface CashFlowSummary {
   totalOutflow: number;
   totalNet: number;
 }
+
+export interface BankHistoryRow {
+  bankTransactionId: string;
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  journalEntryNo: string | null;
+  txnNumber: string | null;
+  date: string;
+  description: string;
+  counterparty: string;
+  reference: string | null;
+  moneyIn: number;
+  moneyOut: number;
+  runningBalance: number;
+}
+export interface BankHistoryGroup {
+  bankAccountId: string;
+  bankAccountName: string;
+  bankName: string | null;
+  accountCode: string | null;
+  openingBalance: number;
+  rows: BankHistoryRow[];
+  totalIn: number;
+  totalOut: number;
+  closingBalance: number;
+}
+export interface BankHistoryData { banks: BankHistoryGroup[]; summary: { totalIn: number; totalOut: number; netChange: number }; }
+
+export interface BankDetailRow {
+  bankTransactionId: string;
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  journalEntryNo: string | null;
+  txnNumber: string | null;
+  date: string;
+  description: string;
+  reference: string | null;
+  amount: number;
+  from?: string;   // bank-received
+  payee?: string;  // bank-payment
+}
+export interface BankReceivedData { rows: BankDetailRow[]; summary: { count: number; totalReceived: number }; bankAccount: { id: string; name: string } | null; }
+export interface BankPaymentData { rows: BankDetailRow[]; summary: { count: number; totalPaid: number }; bankAccount: { id: string; name: string } | null; }
 
 // ── Bank Reconciliation ────────────────────────────────────────────────────────
 
@@ -817,6 +865,36 @@ const BANKING_REPORTS: ReportDefinition[] = [
     type: 'table',
     filterMode: 'date-range',
   },
+  {
+    id: 'bank-history',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Bank History',
+    description: 'Passbook of all movements per bank with a running balance (Mutasi Bank).',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: false,
+  },
+  {
+    id: 'bank-received',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Detail Received per Bank',
+    description: 'Money received by a bank in a period — income plus incoming transfers.',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: true,
+  },
+  {
+    id: 'bank-payment',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Detail Payment per Bank',
+    description: 'Money paid out of a bank in a period — expense plus outgoing transfers.',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: true,
+  },
 ];
 
 const INVENTORY_REPORTS: ReportDefinition[] = [
@@ -1240,6 +1318,8 @@ const Reports: React.FC<ReportsProps> = ({
   const { data: accountsData } = useChartOfAccounts();
   const { data: warehousesData } = useWarehouses();
   const { data: categoriesData } = useItemCategories();
+  const { data: bankAccountsData } = useBankAccounts();
+  const bankAccounts = bankAccountsData ?? [];
   const customers = customersData?.data || [];
   const vendors = vendorsData?.data || [];
   const items = itemsData?.data || [];
@@ -1292,6 +1372,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [compareDateFrom, setCompareDateFrom] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)));
   const [compareDateTo, setCompareDateTo] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
 
   const [openReports, setOpenReports] = useState<OpenReportEntry[]>([]);
   const [activeReportId, setActiveReportId] = useState<ReportType | null>(null);
@@ -1363,6 +1444,7 @@ const Reports: React.FC<ReportsProps> = ({
     setValuationCategoryId('');
     setValuationWarehouseId('');
     setSelectedVendorId('');
+    setSelectedBankAccountId('');
   };
 
   const closeReportTab = (reportId: ReportType) => {
@@ -1412,6 +1494,7 @@ const Reports: React.FC<ReportsProps> = ({
     setValuationWarehouseId(params.warehouseId || '');
     if (report.id === 'statement') setSelectedCustomerId(params.customerId || '');
     setSelectedVendorId(params.vendorId || '');
+    setSelectedBankAccountId(params.bankAccountId || '');
     setParamModal(report);
   };
 
@@ -1436,6 +1519,7 @@ const Reports: React.FC<ReportsProps> = ({
     setValuationCategoryId('');
     setValuationWarehouseId('');
     setSelectedVendorId('');
+    setSelectedBankAccountId('');
     setReportPresets((prev) => {
       const next = { ...prev };
       delete next[paramModal.id];
@@ -1512,6 +1596,12 @@ const Reports: React.FC<ReportsProps> = ({
       return params;
     }
 
+    if (report.filterMode === 'bank-period') {
+      const params: ReportParams = { type: report.id, dateFrom, dateTo };
+      if (selectedBankAccountId) params.bankAccountId = selectedBankAccountId;
+      return params;
+    }
+
     if (report.category === 'banking' || report.category === 'inventory') {
       return { type: report.id, dateFrom, dateTo };
     }
@@ -1529,6 +1619,10 @@ const Reports: React.FC<ReportsProps> = ({
     }
     if (reportToRun.id === 'ap-statement' && !selectedVendorId) {
       setError('Pilih vendor terlebih dahulu.');
+      return;
+    }
+    if (reportToRun.filterMode === 'bank-period' && reportToRun.bankRequired && !selectedBankAccountId) {
+      setError('Pilih bank terlebih dahulu.');
       return;
     }
     setParamModal(null);
