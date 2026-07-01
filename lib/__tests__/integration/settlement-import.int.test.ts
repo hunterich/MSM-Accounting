@@ -247,6 +247,141 @@ describe('settlement reconciliation service', () => {
     await cleanupOrg(s.orgId);
   });
 
+  it('failed bucket: bad order (no adjustment account, unbalanced) is isolated; good order in its own connection still posts', async () => {
+    // BAD org: connection has NO adjustmentAccountId — seeded without exp3 in mappings.
+    const badOrg = await createTestOrg();
+    const badUserId = await createUser();
+    const badCustomerId = await createCustomer(badOrg.orgId);
+    const badBankId = await createWalletBank(badOrg.orgId);
+    const badFeeAcct = await createExpenseAccount(badOrg.orgId, `6201-${tag()}`, 'Platform Fee Bad');
+
+    const badConn = await prisma.ecommerceConnection.create({
+      data: {
+        organizationId: badOrg.orgId,
+        platform: 'TIKTOK',
+        shopName: `BadShop-${tag()}`,
+        customerId: badCustomerId,
+        holdingAccountId: badBankId,
+        // No adjustmentAccountId in fees — plug will be required and will throw.
+        mappings: {
+          fees: {
+            platformFeeAccountId: badFeeAcct,
+            // adjustmentAccountId deliberately omitted
+          },
+          shipping: {},
+          others: {},
+        } as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    });
+
+    const badItemId = await createStockedItem(badOrg.orgId, 50_000, 50);
+
+    // Gross X = 100_000. We will pass netReleased = 80_000 (N) and a fee of 5_000 only.
+    // wallet credit = X − N = 20_000; fee debit = 5_000 → plug = 15_000 (imbalance).
+    // With no adjustment account, this THROWS, landing in failed[].
+    const badOrder: ImportOrder = {
+      orderNo: 'BAD-ORD',
+      issueDate: '2026-06-01',
+      lines: [{ itemId: badItemId, description: 'Bad Product', sku: 'SKU-BAD', quantity: 1, unitPrice: 100_000 }],
+    };
+    const badImport = await importMarketplaceOrders(badOrg.orgId, badUserId, badConn.id, [badOrder], {
+      recordPayment: true,
+    });
+    expect(badImport.created).toBe(1);
+
+    // GOOD org: separate connection WITH an adjustment account, numbers balance perfectly.
+    const goodOrg = await createTestOrg();
+    const goodUserId = await createUser();
+    const goodCustomerId = await createCustomer(goodOrg.orgId);
+    const goodBankId = await createWalletBank(goodOrg.orgId);
+    const goodFeeAcct = await createExpenseAccount(goodOrg.orgId, `6301-${tag()}`, 'Platform Fee Good');
+    const goodAdjAcct = await createExpenseAccount(goodOrg.orgId, `6302-${tag()}`, 'Adj Good');
+
+    const goodConn = await prisma.ecommerceConnection.create({
+      data: {
+        organizationId: goodOrg.orgId,
+        platform: 'TIKTOK',
+        shopName: `GoodShop-${tag()}`,
+        customerId: goodCustomerId,
+        holdingAccountId: goodBankId,
+        mappings: {
+          fees: {
+            platformFeeAccountId: goodFeeAcct,
+            adjustmentAccountId: goodAdjAcct,
+          },
+          shipping: {},
+          others: {},
+        } as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    });
+
+    const goodItemId = await createStockedItem(goodOrg.orgId, 50_000, 50);
+    // Gross X = 100_000, fee = 20_000, net = 80_000 → wallet credit = 20_000, fee debit = 20_000 → balanced, no plug.
+    const goodOrder: ImportOrder = {
+      orderNo: 'GOOD-ORD',
+      issueDate: '2026-06-01',
+      lines: [{ itemId: goodItemId, description: 'Good Product', sku: 'SKU-GOOD', quantity: 1, unitPrice: 100_000 }],
+    };
+    const goodImport = await importMarketplaceOrders(goodOrg.orgId, goodUserId, goodConn.id, [goodOrder], {
+      recordPayment: true,
+    });
+    expect(goodImport.created).toBe(1);
+
+    // Settle both in one importSettlement call — bad on badOrg's connection, good on goodOrg's.
+    // We call importSettlement twice (one per org/connection) and bundle results to verify isolation.
+    const badResult = await importSettlement(badOrg.orgId, badUserId, badConn.id, {
+      orders: [
+        // bad: plug = 15_000 but no adjustment account → throws → lands in failed[]
+        { orderId: 'BAD-ORD', netReleased: 80_000, charges: { commissionFee: 5_000 } },
+      ],
+    });
+
+    const goodResult = await importSettlement(goodOrg.orgId, goodUserId, goodConn.id, {
+      orders: [
+        // good: fee = 20_000, net = 80_000, X − N = 20_000 → perfectly balanced
+        { orderId: 'GOOD-ORD', netReleased: 80_000, charges: { commissionFee: 20_000 } },
+      ],
+    });
+
+    // Bad order ended up in failed[], not posted/skipped.
+    expect(badResult.posted).toBe(0);
+    expect(badResult.alreadySettled).toBe(0);
+    expect(badResult.skipped).toHaveLength(0);
+    expect(badResult.failed).toHaveLength(1);
+    expect(badResult.failed[0].orderId).toBe('BAD-ORD');
+    expect(badResult.failed[0].reason).toMatch(/does not balance|no adjustment account/i);
+
+    // Good order posted correctly.
+    expect(goodResult.posted).toBe(1);
+    expect(goodResult.alreadySettled).toBe(0);
+    expect(goodResult.skipped).toHaveLength(0);
+    expect(goodResult.failed).toHaveLength(0);
+
+    // Trial balance holds for both orgs.
+    await assertTrialBalanced(badOrg.orgId, 'failed-bucket bad org');
+    await assertTrialBalanced(goodOrg.orgId, 'failed-bucket good org');
+
+    // Bad org's receipt remains unsettled (the transaction rolled back).
+    const badReceipt = await prisma.aRPayment.findFirst({
+      where: { organizationId: badOrg.orgId, status: 'COMPLETED' },
+      select: { settledAt: true },
+    });
+    expect(badReceipt?.settledAt).toBeNull();
+
+    // Good org's receipt is stamped.
+    const goodReceipt = await prisma.aRPayment.findFirst({
+      where: { organizationId: goodOrg.orgId, status: 'COMPLETED' },
+      select: { settledAt: true, settlementJournalId: true },
+    });
+    expect(goodReceipt?.settledAt).toBeTruthy();
+    expect(goodReceipt?.settlementJournalId).toBeTruthy();
+
+    await cleanupOrg(badOrg.orgId);
+    await cleanupOrg(goodOrg.orgId);
+  });
+
   it('idempotent: settling ORD1 twice is a no-op the second time', async () => {
     const s = await seedImportedOrder();
     const commissionFee = 40_000;

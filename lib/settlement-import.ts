@@ -27,7 +27,7 @@
  * of its own beyond assembling the lines.
  */
 import { prisma } from '@/lib/prisma';
-import { postJournalEntry, JournalLineInput } from '@/lib/journal-posting';
+import { postJournalEntry, JournalLineInput, BALANCE_TOLERANCE } from '@/lib/journal-posting';
 import { KEY_TO_SLOT, SettlementFeeKey } from '@/src/utils/settlementMapping';
 import { loadBankPostingContext } from '@/lib/bank-transaction-posting';
 import { resolveBankLinkedAssetAccountId } from '@/lib/account-defaults';
@@ -50,6 +50,7 @@ export interface SettlementResult {
   posted: number;
   alreadySettled: number;
   skipped: Array<{ orderId: string; netReleased: number }>;
+  failed: Array<{ orderId: string; reason: string }>;
 }
 
 export async function importSettlement(
@@ -86,95 +87,102 @@ export async function importSettlement(
     return (m[group]?.[field] as string) || adjustmentAccountId;
   };
 
-  const result: SettlementResult = { posted: 0, alreadySettled: 0, skipped: [] };
+  const result: SettlementResult = { posted: 0, alreadySettled: 0, skipped: [], failed: [] };
 
   for (const order of input.orders) {
-    const outcome = await prisma.$transaction(
-      async (tx): Promise<'posted' | 'skipped' | 'already'> => {
-        // 1. Find ②'s invoice (gross X) for this marketplace order.
-        const invoice = await tx.salesInvoice.findFirst({
-          where: { organizationId: orgId, poNumber: order.orderId, status: { not: 'VOID' } },
-          select: { id: true, number: true, totalAmount: true },
-        });
-        if (!invoice) return 'skipped';
-
-        // 2. Find ②'s settlement receipt via its allocation.
-        const alloc = await tx.aRPaymentAllocation.findFirst({
-          where: { invoiceId: invoice.id },
-          select: { paymentId: true },
-        });
-        if (!alloc) return 'skipped';
-        const receipt = await tx.aRPayment.findUnique({
-          where: { id: alloc.paymentId },
-          select: { id: true, settledAt: true },
-        });
-        if (!receipt) return 'skipped';
-        if (receipt.settledAt) return 'already';
-
-        const X = Number(invoice.totalAmount);
-        const N = order.netReleased;
-
-        // 3. One GL line per non-zero charge, routed to its configured account.
-        const lines: JournalLineInput[] = [];
-        for (const [k, mag] of Object.entries(order.charges)) {
-          const key = k as SettlementFeeKey;
-          if (!KEY_TO_SLOT[key] || !mag) continue;
-          const acct = accountFor(key);
-          if (!acct) continue;
-          const income = INCOME_KEYS.includes(key);
-          lines.push({
-            accountId: acct,
-            description: `${key} - ${invoice.number}`,
-            debit: income ? 0 : mag,
-            credit: income ? mag : 0,
+    try {
+      const outcome = await prisma.$transaction(
+        async (tx): Promise<'posted' | 'skipped' | 'already'> => {
+          // 1. Find ②'s invoice (gross X) for this marketplace order.
+          const invoice = await tx.salesInvoice.findFirst({
+            where: { organizationId: orgId, poNumber: order.orderId, status: { not: 'VOID' } },
+            select: { id: true, number: true, totalAmount: true },
           });
-        }
+          if (!invoice) return 'skipped';
 
-        // 4. Credit the wallet by (X − N): the gross drops to the net released.
-        lines.push({
-          accountId: walletAccountId,
-          description: `Wallet settlement - ${invoice.number}`,
-          debit: 0,
-          credit: X - N,
-        });
+          // 2. Find ②'s settlement receipt via its allocation.
+          const alloc = await tx.aRPaymentAllocation.findFirst({
+            where: { invoiceId: invoice.id },
+            select: { paymentId: true },
+          });
+          if (!alloc) return 'skipped';
+          const receipt = await tx.aRPayment.findFirst({
+            where: { id: alloc.paymentId, organizationId: orgId },
+            select: { id: true, settledAt: true },
+          });
+          if (!receipt) return 'skipped';
+          if (receipt.settledAt) return 'already';
 
-        // 5. Plug any residue (statement vs. our derived fees) into adjustment.
-        const totDebit = lines.reduce((s, l) => s + l.debit, 0);
-        const totCredit = lines.reduce((s, l) => s + l.credit, 0);
-        const plug = totCredit - totDebit;
-        if (Math.abs(plug) > 0.005) {
-          if (!adjustmentAccountId) {
-            throw new Error(
-              `Settlement for ${order.orderId} does not balance and no adjustment account is configured`,
-            );
+          const X = Number(invoice.totalAmount);
+          const N = order.netReleased;
+
+          // 3. One GL line per non-zero charge, routed to its configured account.
+          const lines: JournalLineInput[] = [];
+          for (const [k, mag] of Object.entries(order.charges)) {
+            const key = k as SettlementFeeKey;
+            if (!KEY_TO_SLOT[key] || !mag) continue;
+            const acct = accountFor(key);
+            if (!acct) continue;
+            const income = INCOME_KEYS.includes(key);
+            lines.push({
+              accountId: acct,
+              description: `${key} - ${invoice.number}`,
+              debit: income ? 0 : mag,
+              credit: income ? mag : 0,
+            });
           }
+
+          // 4. Credit the wallet by (X − N): the gross drops to the net released.
           lines.push({
-            accountId: adjustmentAccountId,
-            description: `Settlement adjustment - ${invoice.number}`,
-            debit: plug > 0 ? plug : 0,
-            credit: plug < 0 ? -plug : 0,
+            accountId: walletAccountId,
+            description: `Wallet settlement - ${invoice.number}`,
+            debit: 0,
+            credit: X - N,
           });
-        }
 
-        // 6. Post and stamp the receipt as settled.
-        const je = await postJournalEntry(tx, {
-          organizationId: orgId,
-          date: new Date(),
-          memo: `Settlement: ${invoice.number}`,
-          source: 'SYSTEM',
-          lines,
-        });
-        await tx.aRPayment.update({
-          where: { id: receipt.id },
-          data: { settledAt: new Date(), settlementJournalId: je.id },
-        });
-        return 'posted';
-      },
-    );
+          // 5. Plug any residue (statement vs. our derived fees) into adjustment.
+          const totDebit = lines.reduce((s, l) => s + l.debit, 0);
+          const totCredit = lines.reduce((s, l) => s + l.credit, 0);
+          const plug = totCredit - totDebit;
+          if (Math.abs(plug) > BALANCE_TOLERANCE) {
+            if (!adjustmentAccountId) {
+              throw new Error(
+                `Settlement for ${order.orderId} does not balance and no adjustment account is configured`,
+              );
+            }
+            lines.push({
+              accountId: adjustmentAccountId,
+              description: `Settlement adjustment - ${invoice.number}`,
+              debit: plug > 0 ? plug : 0,
+              credit: plug < 0 ? -plug : 0,
+            });
+          }
 
-    if (outcome === 'posted') result.posted += 1;
-    else if (outcome === 'already') result.alreadySettled += 1;
-    else result.skipped.push({ orderId: order.orderId, netReleased: order.netReleased });
+          // 6. Post and stamp the receipt as settled.
+          const je = await postJournalEntry(tx, {
+            organizationId: orgId,
+            date: new Date(),
+            memo: `Settlement: ${invoice.number}`,
+            source: 'SYSTEM',
+            lines,
+          });
+          await tx.aRPayment.update({
+            where: { id: receipt.id },
+            data: { settledAt: new Date(), settlementJournalId: je.id },
+          });
+          return 'posted';
+        },
+      );
+
+      if (outcome === 'posted') result.posted += 1;
+      else if (outcome === 'already') result.alreadySettled += 1;
+      else result.skipped.push({ orderId: order.orderId, netReleased: order.netReleased });
+    } catch (error) {
+      result.failed.push({
+        orderId: order.orderId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   return result;

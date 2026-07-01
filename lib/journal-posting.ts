@@ -31,7 +31,7 @@ export interface PostJournalEntryArgs {
 
 const ENTRY_NO_PREFIX = 'JE-';
 const ENTRY_NO_PAD = 6;
-const BALANCE_TOLERANCE = 0.005; // half a cent — covers Decimal rounding edge cases
+export const BALANCE_TOLERANCE = 0.005; // half a cent — covers Decimal rounding edge cases
 
 /**
  * Allocate the next sequential `JE-NNNNNN` entry number for the org. Uses a
