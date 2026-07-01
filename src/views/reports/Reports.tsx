@@ -12,10 +12,12 @@ import { useCustomers } from '../../hooks/useAR';
 import { useVendors } from '../../hooks/useAP';
 import { useItems, useWarehouses, useItemCategories } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import { useBankAccounts } from '../../hooks/useBanking';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../api/apiClient';
+import { useNavigate } from 'react-router-dom';
 
 // ── Domain types ────────────────────────────────────────────────────────────────
 
@@ -46,7 +48,10 @@ export type ReportType =
   | 'stock-movement'
   | 'stock-valuation'
   | 'pph21-summary'
-  | 'bank-reconciliation';
+  | 'bank-reconciliation'
+  | 'bank-history'
+  | 'bank-received'
+  | 'bank-payment';
 
 /** Category IDs available in the sidebar. */
 export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inventory' | 'hr';
@@ -54,7 +59,7 @@ export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inven
 /** How a report is filtered: by date-range, as-of a single date, a current
  *  inventory snapshot (category/warehouse filters), or a per-party statement
  *  (party picker + date range). */
-export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot' | 'statement';
+export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot' | 'statement' | 'bank-period';
 
 /** Report card visual type. */
 export type ReportCardType = 'table' | 'chart';
@@ -68,6 +73,8 @@ export interface ReportDefinition {
   description: string;
   type: ReportCardType;
   filterMode: FilterMode;
+  /** bank-period reports: require a specific bank (Received/Payment) vs allow "All banks" (History). */
+  bankRequired?: boolean;
 }
 
 /** Query parameters sent to the API for a given report run. */
@@ -89,6 +96,7 @@ export interface ReportParams {
   warehouseId?: string;
   customerId?: string;
   vendorId?: string;
+  bankAccountId?: string;
 }
 
 /** One open report tab entry. */
@@ -328,6 +336,47 @@ export interface CashFlowSummary {
   totalOutflow: number;
   totalNet: number;
 }
+
+export interface BankHistoryRow {
+  bankTransactionId: string;
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  journalEntryNo: string | null;
+  txnNumber: string | null;
+  date: string;
+  description: string;
+  counterparty: string;
+  reference: string | null;
+  moneyIn: number;
+  moneyOut: number;
+  runningBalance: number;
+}
+export interface BankHistoryGroup {
+  bankAccountId: string;
+  bankAccountName: string;
+  bankName: string | null;
+  accountCode: string | null;
+  openingBalance: number;
+  rows: BankHistoryRow[];
+  totalIn: number;
+  totalOut: number;
+  closingBalance: number;
+}
+export interface BankHistoryData { banks: BankHistoryGroup[]; summary: { totalIn: number; totalOut: number; netChange: number }; }
+
+export interface BankDetailRow {
+  bankTransactionId: string;
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  journalEntryNo: string | null;
+  txnNumber: string | null;
+  date: string;
+  description: string;
+  reference: string | null;
+  amount: number;
+  from?: string;   // bank-received
+  payee?: string;  // bank-payment
+}
+export interface BankReceivedData { rows: BankDetailRow[]; summary: { count: number; totalReceived: number }; bankAccount: { id: string; name: string } | null; }
+export interface BankPaymentData { rows: BankDetailRow[]; summary: { count: number; totalPaid: number }; bankAccount: { id: string; name: string } | null; }
 
 // ── Bank Reconciliation ────────────────────────────────────────────────────────
 
@@ -817,6 +866,36 @@ const BANKING_REPORTS: ReportDefinition[] = [
     type: 'table',
     filterMode: 'date-range',
   },
+  {
+    id: 'bank-history',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Bank History',
+    description: 'Passbook of all movements per bank with a running balance (Mutasi Bank).',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: false,
+  },
+  {
+    id: 'bank-received',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Detail Received per Bank',
+    description: 'Money received by a bank in a period — income plus incoming transfers.',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: true,
+  },
+  {
+    id: 'bank-payment',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Detail Payment per Bank',
+    description: 'Money paid out of a bank in a period — expense plus outgoing transfers.',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: true,
+  },
 ];
 
 const INVENTORY_REPORTS: ReportDefinition[] = [
@@ -1233,6 +1312,7 @@ const Reports: React.FC<ReportsProps> = ({
   singleParams,
   onParamsChange,
 }) => {
+  const navigate = useNavigate();
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: vendorsData } = useVendors({ limit: 200 });
@@ -1240,6 +1320,10 @@ const Reports: React.FC<ReportsProps> = ({
   const { data: accountsData } = useChartOfAccounts();
   const { data: warehousesData } = useWarehouses();
   const { data: categoriesData } = useItemCategories();
+  const { data: bankAccountsData } = useBankAccounts();
+  // Only active accounts are selectable — the bank-history query scopes to
+  // isActive, so offering an inactive bank would just yield an empty report.
+  const bankAccounts = (bankAccountsData ?? []).filter((a) => a.isActive);
   const customers = customersData?.data || [];
   const vendors = vendorsData?.data || [];
   const items = itemsData?.data || [];
@@ -1292,6 +1376,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [compareDateFrom, setCompareDateFrom] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)));
   const [compareDateTo, setCompareDateTo] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
 
   const [openReports, setOpenReports] = useState<OpenReportEntry[]>([]);
   const [activeReportId, setActiveReportId] = useState<ReportType | null>(null);
@@ -1363,6 +1448,7 @@ const Reports: React.FC<ReportsProps> = ({
     setValuationCategoryId('');
     setValuationWarehouseId('');
     setSelectedVendorId('');
+    setSelectedBankAccountId('');
   };
 
   const closeReportTab = (reportId: ReportType) => {
@@ -1412,6 +1498,7 @@ const Reports: React.FC<ReportsProps> = ({
     setValuationWarehouseId(params.warehouseId || '');
     if (report.id === 'statement') setSelectedCustomerId(params.customerId || '');
     setSelectedVendorId(params.vendorId || '');
+    setSelectedBankAccountId(params.bankAccountId || '');
     setParamModal(report);
   };
 
@@ -1436,6 +1523,7 @@ const Reports: React.FC<ReportsProps> = ({
     setValuationCategoryId('');
     setValuationWarehouseId('');
     setSelectedVendorId('');
+    setSelectedBankAccountId('');
     setReportPresets((prev) => {
       const next = { ...prev };
       delete next[paramModal.id];
@@ -1512,6 +1600,12 @@ const Reports: React.FC<ReportsProps> = ({
       return params;
     }
 
+    if (report.filterMode === 'bank-period') {
+      const params: ReportParams = { type: report.id, dateFrom, dateTo };
+      if (selectedBankAccountId) params.bankAccountId = selectedBankAccountId;
+      return params;
+    }
+
     if (report.category === 'banking' || report.category === 'inventory') {
       return { type: report.id, dateFrom, dateTo };
     }
@@ -1529,6 +1623,10 @@ const Reports: React.FC<ReportsProps> = ({
     }
     if (reportToRun.id === 'ap-statement' && !selectedVendorId) {
       setError('Pilih vendor terlebih dahulu.');
+      return;
+    }
+    if (reportToRun.filterMode === 'bank-period' && reportToRun.bankRequired && !selectedBankAccountId) {
+      setError('Pilih bank terlebih dahulu.');
       return;
     }
     setParamModal(null);
@@ -1559,8 +1657,8 @@ const Reports: React.FC<ReportsProps> = ({
         report: reportToRun,
         data,
         params,
-        dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateFrom : null,
-        dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateTo   : null,
+        dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateFrom : null,
+        dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateTo   : null,
         asOfDate: reportToRun.filterMode === 'as-of'      ? asOfDate : null,
       };
 
@@ -1701,6 +1799,43 @@ const Reports: React.FC<ReportsProps> = ({
       ].join(',')).join('\n');
       return csv;
     }
+    if (report.id === 'bank-history') {
+      const hist = data as unknown as BankHistoryData;
+      let csv = '';
+      for (const bank of hist.banks || []) {
+        csv += `${escapeCsvCell(bank.bankAccountName)}\n`;
+        csv += 'Tanggal,No. Jurnal,Keterangan,Lawan Transaksi,Masuk,Keluar,Saldo\n';
+        csv += `,,Saldo Awal,,,,${bank.openingBalance}\n`;
+        csv += (bank.rows || []).map((row) => [
+          escapeCsvCell(formatDateID(row.date)),
+          escapeCsvCell(row.journalEntryNo ?? row.txnNumber ?? ''),
+          escapeCsvCell(row.description),
+          escapeCsvCell(row.counterparty),
+          row.moneyIn,
+          row.moneyOut,
+          row.runningBalance,
+        ].join(',')).join('\n');
+        csv += `\nTotal,,,,${bank.totalIn},${bank.totalOut},${bank.closingBalance}\n\n`;
+      }
+      return csv.trimEnd();
+    }
+
+    if (report.id === 'bank-received' || report.id === 'bank-payment') {
+      const isReceived = report.id === 'bank-received';
+      const detail = data as unknown as (BankReceivedData | BankPaymentData);
+      const rows = detail.rows || [];
+      let csv = `Tanggal,No. Jurnal,${isReceived ? 'Dari' : 'Kepada'},Keterangan,Jumlah\n`;
+      csv += rows.map((row) => [
+        escapeCsvCell(formatDateID(row.date)),
+        escapeCsvCell(row.journalEntryNo ?? row.txnNumber ?? ''),
+        escapeCsvCell(isReceived ? (row.from ?? '') : (row.payee ?? '')),
+        escapeCsvCell(row.description),
+        row.amount,
+      ].join(',')).join('\n');
+      const total = isReceived ? (detail as BankReceivedData).summary.totalReceived : (detail as BankPaymentData).summary.totalPaid;
+      csv += `\nTotal (${rows.length} transaksi),,,,${total}`;
+      return csv;
+    }
     return '';
   };
 
@@ -1816,6 +1951,16 @@ const Reports: React.FC<ReportsProps> = ({
     if (!activeReport) return null;
 
     const { report, data } = activeReport;
+
+    const journalLink = (row: { journalEntryNo: string | null; txnNumber: string | null; bankTransactionId: string }) => (
+      <button
+        type="button"
+        onClick={() => navigate(`/banking?txnId=${row.bankTransactionId}`)}
+        className="text-primary-600 underline hover:text-primary-800"
+      >
+        {row.journalEntryNo ?? row.txnNumber ?? '—'}
+      </button>
+    );
 
     if (report.id === 'statement' || report.id === 'ap-statement') {
       const stmt = data as StatementData;
@@ -2564,6 +2709,103 @@ const Reports: React.FC<ReportsProps> = ({
       );
     }
 
+    if (report.id === 'bank-history') {
+      const hist = data as BankHistoryData;
+      const banks = hist.banks || [];
+      if (!banks.length) return renderEmptyReport('Tidak ada transaksi bank pada periode yang dipilih.');
+      return (
+        <div className="space-y-6">
+          {banks.map((bank) => (
+            <div key={bank.bankAccountId}>
+              <div className="text-sm font-semibold text-neutral-800 mb-2">
+                {bank.bankAccountName}{bank.bankName ? ` — ${bank.bankName}` : ''}
+              </div>
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-blue-50">
+                    <th className="p-2 text-left font-semibold border border-neutral-300">Tanggal</th>
+                    <th className="p-2 text-left font-semibold border border-neutral-300">No. Jurnal</th>
+                    <th className="p-2 text-left font-semibold border border-neutral-300">Keterangan</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Masuk</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Keluar</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-neutral-50">
+                    <td colSpan={5} className="p-2 border border-neutral-200 text-neutral-500">Saldo Awal</td>
+                    <td className="p-2 border border-neutral-200 text-right text-neutral-600">{formatIDR(bank.openingBalance)}</td>
+                  </tr>
+                  {bank.rows.map((row) => (
+                    <tr key={row.bankTransactionId} className="hover:bg-neutral-50">
+                      <td className="p-2 border border-neutral-200">{formatDateID(row.date)}</td>
+                      <td className="p-2 border border-neutral-200">{journalLink(row)}</td>
+                      <td className="p-2 border border-neutral-200">
+                        {row.description}{row.counterparty ? <span className="text-neutral-500"> — {row.counterparty}</span> : null}
+                      </td>
+                      <td className="p-2 border border-neutral-200 text-right text-success-700">{row.moneyIn ? formatIDR(row.moneyIn) : ''}</td>
+                      <td className="p-2 border border-neutral-200 text-right text-danger-600">{row.moneyOut ? formatIDR(row.moneyOut) : ''}</td>
+                      <td className="p-2 border border-neutral-200 text-right">{formatIDR(row.runningBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-blue-50 font-bold">
+                    <td colSpan={3} className="p-2 border border-neutral-300">Saldo Akhir &amp; Total</td>
+                    <td className="p-2 border border-neutral-300 text-right text-success-700">{formatIDR(bank.totalIn)}</td>
+                    <td className="p-2 border border-neutral-300 text-right text-danger-600">{formatIDR(bank.totalOut)}</td>
+                    <td className="p-2 border border-neutral-300 text-right">{formatIDR(bank.closingBalance)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (report.id === 'bank-received' || report.id === 'bank-payment') {
+      const isReceived = report.id === 'bank-received';
+      const detail = data as BankReceivedData | BankPaymentData;
+      const rows = detail.rows || [];
+      if (!rows.length) return renderEmptyReport('Tidak ada transaksi pada periode yang dipilih.');
+      const total = isReceived
+        ? (detail as BankReceivedData).summary.totalReceived
+        : (detail as BankPaymentData).summary.totalPaid;
+      return (
+        <div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-2 text-left font-semibold border border-neutral-300">Tanggal</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">No. Jurnal</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">{isReceived ? 'Dari' : 'Kepada'}</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">Keterangan</th>
+                <th className="p-2 text-right font-semibold border border-neutral-300">Jumlah</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.bankTransactionId} className="hover:bg-neutral-50">
+                  <td className="p-2 border border-neutral-200">{formatDateID(row.date)}</td>
+                  <td className="p-2 border border-neutral-200">{journalLink(row)}</td>
+                  <td className="p-2 border border-neutral-200">{isReceived ? row.from : row.payee}</td>
+                  <td className="p-2 border border-neutral-200">{row.description}</td>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(row.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-blue-50 font-bold">
+                <td colSpan={4} className="p-2 border border-neutral-300">Total ({rows.length} transaksi)</td>
+                <td className="p-2 border border-neutral-300 text-right">{formatIDR(total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      );
+    }
+
     // ── Bank Reconciliation ───────────────────────────────────────────────────
     if (report.id === 'bank-reconciliation') {
       const reconData = data as { rows: BankReconciliationRow[]; summary: BankReconciliationSummary };
@@ -3124,6 +3366,9 @@ const Reports: React.FC<ReportsProps> = ({
     activeReport.params.sortBy === 'qty' ? 'Urut: Qty (pcs)' : null,
     activeReport.params.status ? `Status: ${activeReport.params.status}` : null,
     activeReport.params.compareAsOfDate ? `Compare: ${formatDateID(activeReport.params.compareAsOfDate)}` : null,
+    activeReport.report.filterMode === 'bank-period'
+      ? `Bank: ${activeReport.params.bankAccountId ? (bankAccounts.find((a) => a.id === activeReport.params.bankAccountId)?.name ?? 'Bank') : 'Semua bank'}`
+      : null,
   ].filter((x): x is string => x !== null) : [];
 
   const valuationFilterLabel = activeReport
@@ -3441,6 +3686,38 @@ const Reports: React.FC<ReportsProps> = ({
                   </div>
                 </div>
               </div>
+            ) : paramModal.filterMode === 'bank-period' ? (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Periode &amp; Bank</div>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">Dari</label>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">s/d</label>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    />
+                  </div>
+                </div>
+                <SearchableSelect
+                  label={paramModal.bankRequired ? 'Bank' : 'Bank (Opsional — semua bank bila kosong)'}
+                  options={bankAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                  value={selectedBankAccountId}
+                  onChange={(id) => setSelectedBankAccountId(id)}
+                  placeholder={paramModal.bankRequired ? 'Pilih bank...' : 'Semua bank'}
+                  className="mb-0"
+                />
+              </div>
             ) : paramModal.filterMode === 'date-range' ? (
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">
@@ -3705,7 +3982,8 @@ const Reports: React.FC<ReportsProps> = ({
                 onClick={handleRunReport}
                 disabled={
                   (paramModal.id === 'statement' && !selectedCustomerId) ||
-                  (paramModal.id === 'ap-statement' && !selectedVendorId)
+                  (paramModal.id === 'ap-statement' && !selectedVendorId) ||
+                  (paramModal.filterMode === 'bank-period' && paramModal.bankRequired && !selectedBankAccountId)
                 }
               />
             </div>
