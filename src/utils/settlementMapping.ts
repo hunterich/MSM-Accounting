@@ -15,6 +15,21 @@ export const SHOPEE_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
   coincashbacksponsoredbyseller: 'coinCashback', customtax: 'customTax',
 };
 
+// Real TikTok income_ file: normalized Indonesian column → canonical key.
+// (The service's adjustment plug absorbs any unmapped TikTok fee column.)
+export const TIKTOK_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
+  biayakomisiplatform: 'commissionFee',
+  biayakomisisebelumdiskon: 'commissionFee',
+  komisiafiliasi: 'serviceFee',
+  komisimitraafiliasi: 'serviceFee',
+  biayapembayaran: 'transactionFee',
+  biayapemrosesanpesanan: 'orderProcessingFee',
+  diskonpenjual: 'sellerPromotion',
+  biayalayananlogistik: 'actualShipping',
+  ongkir: 'actualShipping',
+  pphpasal22dipungut: 'customTax',
+};
+
 // canonical key → [ShopMappings group, field]. The actual GL account lives in mappings[group][field],
 // configured by the operator on the integration form.
 export const KEY_TO_SLOT: Record<SettlementFeeKey, ['fees' | 'shipping' | 'others', string]> = {
