@@ -17,6 +17,7 @@ import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../api/apiClient';
+import { useNavigate } from 'react-router-dom';
 
 // ── Domain types ────────────────────────────────────────────────────────────────
 
@@ -1311,6 +1312,7 @@ const Reports: React.FC<ReportsProps> = ({
   singleParams,
   onParamsChange,
 }) => {
+  const navigate = useNavigate();
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: vendorsData } = useVendors({ limit: 200 });
@@ -1910,6 +1912,16 @@ const Reports: React.FC<ReportsProps> = ({
     if (!activeReport) return null;
 
     const { report, data } = activeReport;
+
+    const journalLink = (row: { journalEntryNo: string | null; txnNumber: string | null; bankTransactionId: string }) => (
+      <button
+        type="button"
+        onClick={() => navigate(`/banking?txnId=${row.bankTransactionId}`)}
+        className="text-primary-600 underline hover:text-primary-800"
+      >
+        {row.journalEntryNo ?? row.txnNumber ?? '—'}
+      </button>
+    );
 
     if (report.id === 'statement' || report.id === 'ap-statement') {
       const stmt = data as StatementData;
@@ -2651,6 +2663,103 @@ const Reports: React.FC<ReportsProps> = ({
                 <td className="p-3 border border-neutral-300 text-right">{formatIDR(cfSummary.totalInflow || 0)}</td>
                 <td className="p-3 border border-neutral-300 text-right">{formatIDR(cfSummary.totalOutflow || 0)}</td>
                 <td className="p-3 border border-neutral-300 text-right">{formatIDR(cfSummary.totalNet || 0)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      );
+    }
+
+    if (report.id === 'bank-history') {
+      const hist = data as BankHistoryData;
+      const banks = hist.banks || [];
+      if (!banks.length) return renderEmptyReport('Tidak ada transaksi bank pada periode yang dipilih.');
+      return (
+        <div className="space-y-6">
+          {banks.map((bank) => (
+            <div key={bank.bankAccountId}>
+              <div className="text-sm font-semibold text-neutral-800 mb-2">
+                {bank.bankAccountName}{bank.bankName ? ` — ${bank.bankName}` : ''}
+              </div>
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-blue-50">
+                    <th className="p-2 text-left font-semibold border border-neutral-300">Tanggal</th>
+                    <th className="p-2 text-left font-semibold border border-neutral-300">No. Jurnal</th>
+                    <th className="p-2 text-left font-semibold border border-neutral-300">Keterangan</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Masuk</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Keluar</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-neutral-50">
+                    <td colSpan={5} className="p-2 border border-neutral-200 text-neutral-500">Saldo Awal</td>
+                    <td className="p-2 border border-neutral-200 text-right text-neutral-600">{formatIDR(bank.openingBalance)}</td>
+                  </tr>
+                  {bank.rows.map((row) => (
+                    <tr key={row.bankTransactionId} className="hover:bg-neutral-50">
+                      <td className="p-2 border border-neutral-200">{formatDateID(row.date)}</td>
+                      <td className="p-2 border border-neutral-200">{journalLink(row)}</td>
+                      <td className="p-2 border border-neutral-200">
+                        {row.description}{row.counterparty ? <span className="text-neutral-500"> — {row.counterparty}</span> : null}
+                      </td>
+                      <td className="p-2 border border-neutral-200 text-right text-success-700">{row.moneyIn ? formatIDR(row.moneyIn) : ''}</td>
+                      <td className="p-2 border border-neutral-200 text-right text-danger-600">{row.moneyOut ? formatIDR(row.moneyOut) : ''}</td>
+                      <td className="p-2 border border-neutral-200 text-right">{formatIDR(row.runningBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-blue-50 font-bold">
+                    <td colSpan={3} className="p-2 border border-neutral-300">Saldo Akhir &amp; Total</td>
+                    <td className="p-2 border border-neutral-300 text-right text-success-700">{formatIDR(bank.totalIn)}</td>
+                    <td className="p-2 border border-neutral-300 text-right text-danger-600">{formatIDR(bank.totalOut)}</td>
+                    <td className="p-2 border border-neutral-300 text-right">{formatIDR(bank.closingBalance)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (report.id === 'bank-received' || report.id === 'bank-payment') {
+      const isReceived = report.id === 'bank-received';
+      const detail = data as BankReceivedData | BankPaymentData;
+      const rows = detail.rows || [];
+      if (!rows.length) return renderEmptyReport('Tidak ada transaksi pada periode yang dipilih.');
+      const total = isReceived
+        ? (detail as BankReceivedData).summary.totalReceived
+        : (detail as BankPaymentData).summary.totalPaid;
+      return (
+        <div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-2 text-left font-semibold border border-neutral-300">Tanggal</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">No. Jurnal</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">{isReceived ? 'Dari' : 'Kepada'}</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">Keterangan</th>
+                <th className="p-2 text-right font-semibold border border-neutral-300">Jumlah</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.bankTransactionId} className="hover:bg-neutral-50">
+                  <td className="p-2 border border-neutral-200">{formatDateID(row.date)}</td>
+                  <td className="p-2 border border-neutral-200">{journalLink(row)}</td>
+                  <td className="p-2 border border-neutral-200">{isReceived ? row.from : row.payee}</td>
+                  <td className="p-2 border border-neutral-200">{row.description}</td>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(row.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-blue-50 font-bold">
+                <td colSpan={4} className="p-2 border border-neutral-300">Total ({rows.length} transaksi)</td>
+                <td className="p-2 border border-neutral-300 text-right">{formatIDR(total)}</td>
               </tr>
             </tfoot>
           </table>
