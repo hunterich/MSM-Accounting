@@ -27,3 +27,8 @@ export function isShopeeSettlement(sheetNames: string[]): boolean {
   const s = new Set(sheetNames);
   return s.has('Summary') && s.has('Income') && s.has('Adjustment');
 }
+
+export function isTikTokSettlement(sheetNames: string[]): boolean {
+  const s = new Set(sheetNames);
+  return s.has('Detail pesanan') && s.has('Laporan');
+}
