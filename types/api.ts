@@ -1073,6 +1073,15 @@ export type UpdateRoleInput = z.infer<typeof updateRoleInputSchema>;
 export type AssignUserRoleInput = z.infer<typeof assignUserRoleInputSchema>;
 export type CreateUserInput = z.infer<typeof createUserInputSchema>;
 
+export const settlementImportInputSchema = z.object({
+  orders: z.array(z.object({
+    orderId: z.string().trim().min(1),
+    netReleased: z.number().finite(),
+    charges: z.record(z.string(), z.number().finite()).default({}),
+  })).min(1),
+});
+export type SettlementImportInput = z.infer<typeof settlementImportInputSchema>;
+
 // ---------------------------------------------------------------------------
 // Credit notes (AR) / Debit notes (AP)
 //
