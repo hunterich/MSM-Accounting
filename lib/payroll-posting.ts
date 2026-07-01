@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { ApiError } from '@/lib/api-utils';
 import { postJournalEntry, type JournalLineInput } from '@/lib/journal-posting';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 /**
  * Posts the payroll-run summary journal entry and links it to the run.
@@ -26,6 +27,9 @@ export async function postPayrollRunToLedger(
   });
 
   if (!payrollRun) throw new ApiError('Payroll run not found', 404);
+
+  // Refuse to post payroll GL into a closed/locked accounting period.
+  await assertPeriodOpen(tx, orgId, payrollRun.periodEnd);
 
   // Find the required accounts
   const [salaryExpenseAccount, bankAccount, taxPayableAccount, bpjsPayableAccount] = await Promise.all([

@@ -95,6 +95,17 @@ export const POST = withPermission({ module: 'AR_SALES_ORDERS', action: 'create'
       throw new ApiError('Sales order not found in organization', 404);
     }
 
+    // Tenant-isolation guard: every line's salesOrderItemId MUST belong to this
+    // (org-scoped) sales order. SalesOrderItem has no organizationId column and
+    // is only reachable via its parent SO, so without this check a caller could
+    // pass another org's SalesOrderItem id and mutate its deliveredQty below.
+    const validItemIds = new Set(salesOrder.items.map((i) => i.id));
+    for (const line of lines) {
+      if (!validItemIds.has(line.salesOrderItemId)) {
+        throw new ApiError('Delivery note line references an item that is not on this sales order', 400);
+      }
+    }
+
     const number = await nextNumber(tx, 'DeliveryNote', 'number', 'DN');
 
     const deliveryNote = await tx.deliveryNote.create({

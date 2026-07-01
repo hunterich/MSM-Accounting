@@ -61,6 +61,17 @@ export const POST = withPermission({ module: 'HR_ATTENDANCE', action: 'create' }
       return ok({ error: parsed.error.issues[0]?.message || 'Invalid attendance payload', record }, 400);
     }
 
+    // Tenant-isolation guard: the employee must belong to this org. The upsert
+    // key (employeeId_date) is not org-scoped, so without this a caller could
+    // create/overwrite an attendance row referencing another org's employee.
+    const employee = await prisma.employee.findFirst({
+      where: { id: parsed.data.employeeId, organizationId: orgId },
+      select: { id: true },
+    });
+    if (!employee) {
+      return ok({ error: 'Employee not found in organization', record }, 400);
+    }
+
     const data: any = {
       organizationId: orgId,
       employeeId: parsed.data.employeeId,

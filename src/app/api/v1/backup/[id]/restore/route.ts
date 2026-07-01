@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { ok, err } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPlatformAdmin } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { restoreBackup } from '@/lib/backup/backup-service';
 import { restoreBackupInputSchema } from '@/types/api';
@@ -11,8 +11,7 @@ export function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const POST = withPermission(
-  { module: 'SYSTEM_BACKUP', action: 'create' },
+export const POST = withPlatformAdmin(
   async function POST(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> },

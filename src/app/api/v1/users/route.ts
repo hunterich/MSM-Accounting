@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ok, err, requireOrg, requireAuth, logAudit } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, authActor } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { createUserInputSchema } from '@/types/api';
 import { hashPassword } from '@/lib/password';
+import { roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
 
 export const runtime = 'nodejs';
 
@@ -41,8 +42,18 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, asy
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid user payload', 400);
   const d = parsed.data;
 
-  const role = await prisma.role.findFirst({ where: { id: d.roleId, organizationId: orgId }, select: { id: true } });
+  const role = await prisma.role.findFirst({
+    where: { id: d.roleId, organizationId: orgId },
+    include: { permissions: { where: { moduleKey: 'SETTINGS' }, select: { moduleKey: true, canEdit: true } } },
+  });
   if (!role) return err('Role not found', 404);
+
+  // Privilege-escalation guard: only an ADMIN actor may create a user bound to an
+  // admin-capable role. Mirrors users/[id]/role PUT — without this, a non-admin
+  // with SETTINGS.create could mint a full administrator account.
+  if (roleGrantsSettingsEdit(role.roleType, role.permissions) && authActor(req).roleType !== 'ADMIN') {
+    return err('Only an administrator can assign an admin-level role', 403);
+  }
 
   const email = d.email.toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });

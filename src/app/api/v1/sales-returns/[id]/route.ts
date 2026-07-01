@@ -5,6 +5,7 @@ import { logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
+import { updateSalesReturnInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -41,7 +42,11 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
   }
   try {
     const body = await req.json();
-    const { lines, ...header } = body;
+    const parsed = updateSalesReturnInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid sales return payload' }, { status: 400 }));
+    }
+    const { lines, ...header } = parsed.data;
 
     // Voiding a posted return must reverse its inventory journal entry and unwind
     // the stock — only the dedicated endpoint does that. A bare status flip here
@@ -82,7 +87,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
           updatedAt: new Date(),
           ...(lines ? {
             lines: {
-              create: lines.map((l: { itemId?: string; itemName?: string; description?: string; qtySold?: number; qtyReturn?: number; unit?: string; price?: number; lineTotal?: number }, idx: number) => ({
+              create: lines.map((l, idx) => ({
                 lineNo:    idx + 1,
                 itemId:    l.itemId || null,
                 itemName:  l.itemName || l.description || '',
@@ -125,7 +130,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       });
     });
 
-    logAudit({ orgId, actorId: userId, entityType: 'SalesReturn', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: userId, entityType: 'SalesReturn', entityId: id, action: 'UPDATE', payload: parsed.data });
     return withCors(NextResponse.json(sr));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

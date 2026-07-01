@@ -23,6 +23,7 @@ import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { toNumber } from './money';
 import { ApiError } from './api-utils';
+import { assertPeriodOpen } from './period-guard';
 
 type Tx = Prisma.TransactionClient;
 
@@ -59,6 +60,9 @@ export async function postCreditNoteOnApply(
 
   // Idempotency token — already posted, nothing to do.
   if (cn.journalEntryId) return;
+
+  // Refuse to post into a closed/locked accounting period.
+  await assertPeriodOpen(tx, cn.organizationId, cn.date);
 
   const amount = toNumber(cn.amount);
   if (amount <= 0) {

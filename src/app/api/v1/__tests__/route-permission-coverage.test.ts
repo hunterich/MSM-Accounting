@@ -61,7 +61,11 @@ describe('route permission coverage', () => {
         expect(true).toBe(true);
         return;
       }
-      expect(src.includes('withPermission'), `${rel} must use withPermission`).toBe(true);
+      // withPlatformAdmin is a stricter, platform-superadmin guard used by the
+      // system-global backup routes (which must not be reachable via an org-scoped
+      // permission a tenant admin can self-grant).
+      const guarded = src.includes('withPermission') || src.includes('withPlatformAdmin');
+      expect(guarded, `${rel} must use withPermission or withPlatformAdmin`).toBe(true);
     });
   }
 });

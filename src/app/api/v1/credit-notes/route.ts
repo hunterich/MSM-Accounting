@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
+import { createCreditNoteInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -42,17 +43,20 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
   const body = await req.json();
+  const parsed = createCreditNoteInputSchema.safeParse(body);
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid credit note payload', 400);
+  const d = parsed.data;
 
   const creditNote = await prisma.$transaction(async (tx) => {
     const number = await nextNumber(tx, 'CreditNote', 'number', 'CRN');
     return tx.creditNote.create({
       data: {
-        ...body,
+        ...d,
         number,
         organizationId: orgId,
-        amount: asMoney(toNumber(body.amount)),
-        taxAmount: asMoney(toNumber(body.taxAmount ?? 0)),
-        date: new Date(body.date),
+        amount: asMoney(toNumber(d.amount)),
+        taxAmount: asMoney(toNumber(d.taxAmount ?? 0)),
+        date: new Date(d.date),
         status: 'DRAFT',
       },
     });
