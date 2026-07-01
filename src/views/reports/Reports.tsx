@@ -1797,6 +1797,43 @@ const Reports: React.FC<ReportsProps> = ({
       ].join(',')).join('\n');
       return csv;
     }
+    if (report.id === 'bank-history') {
+      const hist = data as unknown as BankHistoryData;
+      let csv = '';
+      for (const bank of hist.banks || []) {
+        csv += `${escapeCsvCell(bank.bankAccountName)}\n`;
+        csv += 'Tanggal,No. Jurnal,Keterangan,Lawan Transaksi,Masuk,Keluar,Saldo\n';
+        csv += `,,Saldo Awal,,,,${bank.openingBalance}\n`;
+        csv += (bank.rows || []).map((row) => [
+          escapeCsvCell(formatDateID(row.date)),
+          escapeCsvCell(row.journalEntryNo ?? row.txnNumber ?? ''),
+          escapeCsvCell(row.description),
+          escapeCsvCell(row.counterparty),
+          row.moneyIn,
+          row.moneyOut,
+          row.runningBalance,
+        ].join(',')).join('\n');
+        csv += `\nTotal,,,,${bank.totalIn},${bank.totalOut},${bank.closingBalance}\n\n`;
+      }
+      return csv.trimEnd();
+    }
+
+    if (report.id === 'bank-received' || report.id === 'bank-payment') {
+      const isReceived = report.id === 'bank-received';
+      const detail = data as unknown as (BankReceivedData | BankPaymentData);
+      const rows = detail.rows || [];
+      let csv = `Tanggal,No. Jurnal,${isReceived ? 'Dari' : 'Kepada'},Keterangan,Jumlah\n`;
+      csv += rows.map((row) => [
+        escapeCsvCell(formatDateID(row.date)),
+        escapeCsvCell(row.journalEntryNo ?? row.txnNumber ?? ''),
+        escapeCsvCell(isReceived ? (row.from ?? '') : (row.payee ?? '')),
+        escapeCsvCell(row.description),
+        row.amount,
+      ].join(',')).join('\n');
+      const total = isReceived ? (detail as BankReceivedData).summary.totalReceived : (detail as BankPaymentData).summary.totalPaid;
+      csv += `\nTotal (${rows.length} transaksi),,,,${total}`;
+      return csv;
+    }
     return '';
   };
 
