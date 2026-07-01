@@ -3,8 +3,8 @@ export type SettlementFeeKey =
   | 'sellerPromotion' | 'refund' | 'buyerShipping' | 'actualShipping' | 'shippingRebate'
   | 'sellerVoucher' | 'platformRebate' | 'coinCashback' | 'customTax';
 
-// TikTok Income-sheet column header (normalized: lowercased, non-alphanumerics stripped) → canonical key
-export const TIKTOK_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
+// Shopee Income-sheet column header (normalized: lowercased, non-alphanumerics stripped) → canonical key
+export const SHOPEE_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
   amscommissionfee: 'commissionFee', commissionfee: 'commissionFee',
   servicefee: 'serviceFee', sellerorderprocessingfee: 'orderProcessingFee',
   transactionfee: 'transactionFee', campaignfee: 'campaignFee',

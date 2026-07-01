@@ -3,7 +3,7 @@ import Modal from '../UI/Modal';
 import Button from '../UI/Button';
 import { Upload, CheckCircle, AlertTriangle, Loader, XCircle, PackageX } from 'lucide-react';
 import { useImportSettlement, type SettlementImportResult } from '../../hooks/useIntegrations';
-import { parseTikTokSettlement, type SettlementParseResult } from '../../utils/tiktokSettlement';
+import { parseShopeeSettlement, type SettlementParseResult } from '../../utils/shopeeSettlement';
 import { formatIDR } from '../../utils/formatters';
 
 type WizardStep = 'upload' | 'preview' | 'importing' | 'done';
@@ -46,7 +46,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
         setError('');
         setParsing(true);
         try {
-            const res = await parseTikTokSettlement(f);
+            const res = await parseShopeeSettlement(f);
             setParsed(res);
             setParsing(false);
             setStep('preview');

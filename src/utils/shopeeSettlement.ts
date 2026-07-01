@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { normalizeHeader } from './headerUtils';
-import { isTikTokSettlement } from './marketplaceFormat';
-import { TIKTOK_COLUMN_TO_KEY, SettlementFeeKey } from './settlementMapping';
+import { isShopeeSettlement } from './marketplaceFormat';
+import { SHOPEE_COLUMN_TO_KEY, SettlementFeeKey } from './settlementMapping';
 
 export interface SettlementOrder {
   orderId: string;
@@ -11,12 +11,13 @@ export interface SettlementOrder {
 export interface SettlementParseResult {
   orders: SettlementOrder[];
   totalNetReleased: number;
+  nonOrderRows: Array<{ orderId: string; type: string; amount: number }>;
 }
 
-export async function parseTikTokSettlement(file: File): Promise<SettlementParseResult> {
+export async function parseShopeeSettlement(file: File): Promise<SettlementParseResult> {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array' });
-  if (!isTikTokSettlement(wb.SheetNames)) {
+  if (!isShopeeSettlement(wb.SheetNames)) {
     throw new Error('This does not look like a TikTok settlement statement (expected Summary/Income/Adjustment sheets).');
   }
   const ws = wb.Sheets['Income'];
@@ -34,7 +35,7 @@ export async function parseTikTokSettlement(file: File): Promise<SettlementParse
     if (!orderId || !/\d/.test(orderId)) continue;
     const charges: Partial<Record<SettlementFeeKey, number>> = {};
     header.forEach((h, col) => {
-      const key = TIKTOK_COLUMN_TO_KEY[h];
+      const key = SHOPEE_COLUMN_TO_KEY[h];
       if (!key) return;
       const v = Number(row[col] ?? 0);
       if (!v) return;
@@ -42,5 +43,5 @@ export async function parseTikTokSettlement(file: File): Promise<SettlementParse
     });
     orders.push({ orderId, netReleased: netCol >= 0 ? Number(row[netCol] ?? 0) : 0, charges });
   }
-  return { orders, totalNetReleased: orders.reduce((s, o) => s + o.netReleased, 0) };
+  return { orders, totalNetReleased: orders.reduce((s, o) => s + o.netReleased, 0), nonOrderRows: [] };
 }

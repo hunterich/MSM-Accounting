@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseTikTokSettlement } from '../tiktokSettlement';
+import { parseShopeeSettlement } from '../shopeeSettlement';
 
 function fakeSettlement(): File {
   const income: unknown[][] = [
@@ -17,9 +17,9 @@ function fakeSettlement(): File {
   return new File([buf], 'Income.released.id.xlsx');
 }
 
-describe('parseTikTokSettlement', () => {
+describe('parseShopeeSettlement', () => {
   it('extracts per-order net + canonical fee magnitudes', async () => {
-    const res = await parseTikTokSettlement(fakeSettlement());
+    const res = await parseShopeeSettlement(fakeSettlement());
     expect(res.orders).toHaveLength(2);
     const o = res.orders[0];
     expect(o.orderId).toBe('ORD1');
@@ -27,11 +27,12 @@ describe('parseTikTokSettlement', () => {
     expect(o.charges.commissionFee).toBe(3069); // abs magnitude
     expect(o.charges.serviceFee).toBe(2046);
     expect(res.totalNetReleased).toBe(40832);
+    expect(res.nonOrderRows).toEqual([]);
   });
   it('rejects a non-settlement workbook', async () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Order ID']]), 'Sheet1');
     const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-    await expect(parseTikTokSettlement(new File([buf], 'x.xlsx'))).rejects.toThrow();
+    await expect(parseShopeeSettlement(new File([buf], 'x.xlsx'))).rejects.toThrow();
   });
 });

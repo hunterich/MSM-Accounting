@@ -23,7 +23,7 @@ export function preferredSheetFor(platform: string): string | undefined {
   return PLATFORM_SIGNATURES.find((s) => s.platform === platform)?.sheet;
 }
 
-export function isTikTokSettlement(sheetNames: string[]): boolean {
+export function isShopeeSettlement(sheetNames: string[]): boolean {
   const s = new Set(sheetNames);
   return s.has('Summary') && s.has('Income') && s.has('Adjustment');
 }
