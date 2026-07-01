@@ -3,7 +3,7 @@ import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import StatusTag from '../../components/UI/StatusTag';
-import { Plus, Settings, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Settings, Trash2, AlertCircle, FileUp } from 'lucide-react';
 import { useCustomers } from '../../hooks/useAR';
 import { useBankAccounts } from '../../hooks/useBanking';
 import {
@@ -16,6 +16,7 @@ import { useModulePermissions } from '../../hooks/useModulePermissions';
 import Table, { TableColumn } from '../../components/UI/Table';
 import type { EcommerceConnection, ImportStatusFilter } from '../../types/index';
 import ConnectShopModal from './ConnectShopModal';
+import SettlementImportModal from '../../components/integrations/SettlementImportModal';
 
 interface SelectOption {
     value: string;
@@ -34,6 +35,7 @@ const Integrations = () => {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [settingsShopId, setSettingsShopId] = useState<string | null>(null);
+    const [settlementShopId, setSettlementShopId] = useState<string | null>(null);
 
     const bankOptions: SelectOption[] = bankAccounts.map(b => ({ value: b.id, label: b.name }));
 
@@ -86,6 +88,7 @@ const Integrations = () => {
             render: (_: unknown, row: EcommerceConnection) => (
                 <div className="row-actions-end">
                     <Button icon={<Settings size={14} />} size="small" variant="secondary" disabled={!canEdit} onClick={() => setSettingsShopId(row.id)} />
+                    <Button icon={<FileUp size={14} />} size="small" variant="secondary" disabled={!canEdit} onClick={() => setSettlementShopId(row.id)} title="Import settlement statement" />
                     <Button icon={<Trash2 size={14} />} size="small" variant="danger" disabled={!canDelete} onClick={() => handleDeleteShop(row.id)} />
                 </div>
             )
@@ -133,6 +136,12 @@ const Integrations = () => {
                 onClose={() => setIsModalOpen(false)}
                 existingShops={shops}
                 canCreate={canCreate}
+            />
+
+            <SettlementImportModal
+                isOpen={!!settlementShopId}
+                connectionId={settlementShopId ?? ''}
+                onClose={() => setSettlementShopId(null)}
             />
 
             {/* Shop Settings Modal */}
