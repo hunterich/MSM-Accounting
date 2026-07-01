@@ -166,3 +166,25 @@ export function useImportMarketplaceOrders() {
     },
   });
 }
+
+export interface SettlementImportPayload {
+  orders: Array<{ orderId: string; netReleased: number; charges: Record<string, number> }>;
+}
+export interface SettlementImportResult {
+  posted: number;
+  alreadySettled: number;
+  skipped: Array<{ orderId: string; netReleased: number }>;
+  failed: Array<{ orderId: string; reason: string }>;
+}
+
+export function useImportSettlement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ connectionId, ...body }: SettlementImportPayload & { connectionId: string }) =>
+      api.post<SettlementImportResult>(`/api/v1/integrations/${connectionId}/settlement-import`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['arPayments'] });
+      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
+    },
+  });
+}
