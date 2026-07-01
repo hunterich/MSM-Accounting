@@ -98,6 +98,8 @@ const txStub = () => ({
     ]),
   },
   organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
+  // assertPeriodOpen() looks up the posting period; null = no period defined = open.
+  accountingPeriod: { findFirst: vi.fn(async () => null) },
 });
 
 vi.mock('@/lib/prisma', () => ({

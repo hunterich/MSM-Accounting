@@ -1,5 +1,5 @@
-// @ts-nocheck
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
@@ -67,7 +67,7 @@ export const POST = withPermission({ module: 'INV_ITEMS', action: 'create' }, as
     await validateForeignKey(prisma.account, { id: parsed.data.cogsAccountId, organizationId: orgId, isActive: true }, 'COGS account not found in organization');
   }
 
-  const itemData: Record<string, unknown> = {
+  const itemData: Prisma.ItemUncheckedCreateInput = {
     organizationId: orgId,
     sku: parsed.data.sku,
     name: parsed.data.name,

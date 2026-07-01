@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Vendor model: code (required), name, category, email, phone, status (PartnerStatus)
 // Unique: @@unique([organizationId, code])
 import { NextRequest } from 'next/server';

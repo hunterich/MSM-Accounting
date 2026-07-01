@@ -6,6 +6,7 @@ import { withPermission } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
+import { createSalesReturnInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -42,7 +43,9 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
-  const { lines, ...header } = body;
+  const parsed = createSalesReturnInputSchema.safeParse(body);
+  if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid sales return payload', 400);
+  const { lines, ...header } = parsed.data;
 
   const salesReturn = await prisma.$transaction(async (tx) => {
     const number = await nextNumber(tx, 'SalesReturn', 'number', 'SRN');

@@ -7,6 +7,7 @@ import { assetDisposalInputSchema } from '@/types/api';
 import { calculateDisposalGainLoss } from '@/lib/depreciation';
 import { toNumber, asMoney } from '@/lib/money';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
+import { assertPeriodOpen } from '@/lib/period-guard';
 
 export const runtime = 'nodejs';
 
@@ -48,6 +49,9 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
     if (asset.status !== 'ACTIVE' && asset.status !== 'FULLY_DEPRECIATED') {
       throw new ApiError('Only ACTIVE or FULLY_DEPRECIATED assets can be disposed', 422);
     }
+
+    // Refuse to post the disposal gain/loss into a closed/locked period.
+    await assertPeriodOpen(tx, orgId, new Date(parsed.data.disposalDate));
 
     // Atomically claim DISPOSED before building/posting the disposal JE. The
     // guarded updateMany takes a row lock; a concurrent dispose blocks here,
@@ -94,10 +98,27 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
     const acquisitionCost = toNumber(asset.acquisitionCost);
     const accumulatedDep = toNumber(asset.accumulatedDepreciation);
 
+    // Required GL accounts for a balanced disposal entry. A missing account used
+    // to silently skip the JE while still flipping the asset to DISPOSED, leaving
+    // the asset register and the GL permanently divergent. Fail the disposal
+    // instead so the whole transaction rolls back and the asset stays ACTIVE.
+    if (!assetAccountId) {
+      throw new ApiError('Cannot post disposal: no fixed-asset GL account configured for this asset/category', 422);
+    }
+    if (disposalAmount > 0 && !cashAccountId) {
+      throw new ApiError('Cannot post disposal: no cash/bank GL account configured (bankAsset default)', 422);
+    }
+    if (accumulatedDep > 0 && !accumDepAccountId) {
+      throw new ApiError('Cannot post disposal: no accumulated-depreciation GL account configured for this asset/category', 422);
+    }
+    if (Math.abs(gainLoss) > 0.005 && !gainLossAccountId) {
+      throw new ApiError(`Cannot post disposal: no ${isGain ? 'gain' : 'loss'}-on-disposal GL account configured`, 422);
+    }
+
     // Create journal entry for disposal
     let journalEntryId: string | null = null;
 
-    if (cashAccountId && assetAccountId) {
+    {
       // Use the advisory-locked sequence generator (same as every other JE
       // path) so concurrent JE inserts can't collide on entryNo.
       const entryNo = await nextNumber(tx, 'JournalEntry', 'entryNo', 'JE');

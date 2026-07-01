@@ -43,22 +43,28 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async f
   if (action === 'unmatch') {
     const previousTxId = line.matchedTxId;
 
-    const updated = await prisma.bankStatementLine.update({
-      where: { id: lineId },
-      data: { matchStatus: 'UNMATCHED', matchedTxId: null },
-    });
-
-    // Reset the previously matched transaction if present
-    if (previousTxId) {
-      await prisma.bankTransaction.updateMany({
-        where: {
-          id: previousTxId,
-          organizationId: orgId,
-          status: 'MATCHED',
-        },
-        data: { status: 'UNMATCHED' },
+    // Both writes must commit together: a failure between them would leave the
+    // line UNMATCHED while the bank transaction stays MATCHED (orphaned state).
+    const updated = await prisma.$transaction(async (txdb) => {
+      const result = await txdb.bankStatementLine.update({
+        where: { id: lineId },
+        data: { matchStatus: 'UNMATCHED', matchedTxId: null },
       });
-    }
+
+      // Reset the previously matched transaction if present
+      if (previousTxId) {
+        await txdb.bankTransaction.updateMany({
+          where: {
+            id: previousTxId,
+            organizationId: orgId,
+            status: 'MATCHED',
+          },
+          data: { status: 'UNMATCHED' },
+        });
+      }
+
+      return result;
+    });
 
     return ok(updated);
   }

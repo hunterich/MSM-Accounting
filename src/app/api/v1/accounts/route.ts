@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -44,7 +43,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const type = searchParams.get('type');
   const search = searchParams.get('search');
   const where: any = { organizationId: orgId };
-  if (type) where.type = toPrismaAccountType(type);
+  if (type) where.type = toPrismaAccountType(type as Parameters<typeof toPrismaAccountType>[0]);
   if (search) where.OR = [
     { name: { contains: search, mode: 'insensitive' } },
     { code: { contains: search, mode: 'insensitive' } },
@@ -121,8 +120,9 @@ export const POST = withPermission({ module: 'GL_COA', action: 'create' }, async
       data: {
         ...nextAccount,
         organizationId: orgId,
-        type: toPrismaAccountType(nextAccount.type),
-        normalSide: toPrismaNormalSide(nextAccount.normalSide),
+        // toPrisma* helpers return plain string; cast to the generated enums.
+        type: toPrismaAccountType(nextAccount.type) as Prisma.AccountUncheckedCreateInput['type'],
+        normalSide: toPrismaNormalSide(nextAccount.normalSide) as Prisma.AccountUncheckedCreateInput['normalSide'],
         level: getAccountLevel(nextAccount.parentId, validationAccounts),
       },
     });
