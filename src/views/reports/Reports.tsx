@@ -1657,8 +1657,8 @@ const Reports: React.FC<ReportsProps> = ({
         report: reportToRun,
         data,
         params,
-        dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateFrom : null,
-        dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateTo   : null,
+        dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateFrom : null,
+        dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateTo   : null,
         asOfDate: reportToRun.filterMode === 'as-of'      ? asOfDate : null,
       };
 
@@ -3366,6 +3366,9 @@ const Reports: React.FC<ReportsProps> = ({
     activeReport.params.sortBy === 'qty' ? 'Urut: Qty (pcs)' : null,
     activeReport.params.status ? `Status: ${activeReport.params.status}` : null,
     activeReport.params.compareAsOfDate ? `Compare: ${formatDateID(activeReport.params.compareAsOfDate)}` : null,
+    activeReport.report.filterMode === 'bank-period'
+      ? `Bank: ${activeReport.params.bankAccountId ? (bankAccounts.find((a) => a.id === activeReport.params.bankAccountId)?.name ?? 'Bank') : 'Semua bank'}`
+      : null,
   ].filter((x): x is string => x !== null) : [];
 
   const valuationFilterLabel = activeReport
