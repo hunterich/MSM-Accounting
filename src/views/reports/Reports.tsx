@@ -3535,6 +3535,38 @@ const Reports: React.FC<ReportsProps> = ({
                   </div>
                 </div>
               </div>
+            ) : paramModal.filterMode === 'bank-period' ? (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Periode &amp; Bank</div>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">Dari</label>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">s/d</label>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    />
+                  </div>
+                </div>
+                <SearchableSelect
+                  label={paramModal.bankRequired ? 'Bank' : 'Bank (Opsional — semua bank bila kosong)'}
+                  options={bankAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                  value={selectedBankAccountId}
+                  onChange={(id) => setSelectedBankAccountId(id)}
+                  placeholder={paramModal.bankRequired ? 'Pilih bank...' : 'Semua bank'}
+                  className="mb-0"
+                />
+              </div>
             ) : paramModal.filterMode === 'date-range' ? (
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">
@@ -3799,7 +3831,8 @@ const Reports: React.FC<ReportsProps> = ({
                 onClick={handleRunReport}
                 disabled={
                   (paramModal.id === 'statement' && !selectedCustomerId) ||
-                  (paramModal.id === 'ap-statement' && !selectedVendorId)
+                  (paramModal.id === 'ap-statement' && !selectedVendorId) ||
+                  (paramModal.filterMode === 'bank-period' && paramModal.bankRequired && !selectedBankAccountId)
                 }
               />
             </div>
