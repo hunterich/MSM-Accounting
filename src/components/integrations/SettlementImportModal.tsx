@@ -1,9 +1,12 @@
 import React, { useState, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import Modal from '../UI/Modal';
 import Button from '../UI/Button';
-import { Upload, CheckCircle, AlertTriangle, Loader, XCircle, PackageX } from 'lucide-react';
+import { Upload, CheckCircle, AlertTriangle, Loader, XCircle, PackageX, Info } from 'lucide-react';
 import { useImportSettlement, type SettlementImportResult } from '../../hooks/useIntegrations';
 import { parseShopeeSettlement, type SettlementParseResult } from '../../utils/shopeeSettlement';
+import { parseTikTokSettlement } from '../../utils/tiktokSettlement';
+import { isShopeeSettlement, isTikTokSettlement } from '../../utils/marketplaceFormat';
 import { formatIDR } from '../../utils/formatters';
 
 type WizardStep = 'upload' | 'preview' | 'importing' | 'done';
@@ -11,10 +14,11 @@ type WizardStep = 'upload' | 'preview' | 'importing' | 'done';
 interface SettlementImportModalProps {
     isOpen: boolean;
     connectionId: string;
+    platform: string;
     onClose: () => void;
 }
 
-const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, connectionId, onClose }) => {
+const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, connectionId, platform, onClose }) => {
     const importMutation = useImportSettlement();
 
     const [step, setStep] = useState<WizardStep>('upload');
@@ -46,7 +50,20 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
         setError('');
         setParsing(true);
         try {
-            const res = await parseShopeeSettlement(f);
+            const buf = await f.arrayBuffer();
+            const sheets = XLSX.read(buf, { type: 'array' }).SheetNames;
+            const detected = isShopeeSettlement(sheets) ? 'Shopee' : isTikTokSettlement(sheets) ? 'TikTok' : null;
+            if (!detected) {
+                setError('Unrecognised settlement file — expected a Shopee (Summary/Income/Adjustment) or TikTok (Detail pesanan/Laporan) statement.');
+                setParsing(false);
+                return;
+            }
+            if (platform && detected !== platform) {
+                setError(`This looks like a ${detected} settlement, but the store is ${platform}. Upload the matching file.`);
+                setParsing(false);
+                return;
+            }
+            const res = detected === 'Shopee' ? await parseShopeeSettlement(f) : await parseTikTokSettlement(f);
             setParsed(res);
             setParsing(false);
             setStep('preview');
@@ -131,6 +148,15 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 Each order is reconciled against its outstanding receivable. Already-settled orders are skipped.
             </div>
 
+            {(parsed?.nonOrderRows?.length ?? 0) > 0 && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800">
+                    <Info size={14} className="shrink-0 mt-0.5" />
+                    <span>
+                        <strong>{parsed!.nonOrderRows.length}</strong> non-order row{parsed!.nonOrderRows.length > 1 ? 's' : ''} (ads/adjustments) will be listed on the completion screen, not posted — book them manually.
+                    </span>
+                </div>
+            )}
+
             {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
                     <div className="flex items-center gap-2 font-semibold">
@@ -208,6 +234,25 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                                         <li key={s.orderId} className="grid grid-cols-2 gap-2 py-1 border-b border-neutral-200 last:border-0">
                                             <span className="font-mono font-medium">{s.orderId}</span>
                                             <span className="text-neutral-500 text-right">{formatIDR(s.netReleased)}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    )}
+
+                    {(parsed?.nonOrderRows?.length ?? 0) > 0 && (
+                        <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                            <div className="flex items-center gap-2 font-semibold mb-2">
+                                <Info size={14} />
+                                {parsed!.nonOrderRows.length} non-order row{parsed!.nonOrderRows.length > 1 ? 's' : ''} — book manually
+                            </div>
+                            <div className="max-h-48 overflow-y-auto">
+                                <ul className="space-y-1 text-xs">
+                                    {parsed!.nonOrderRows.map((row, idx) => (
+                                        <li key={`${row.orderId}-${idx}`} className="grid grid-cols-2 gap-2 py-1 border-b border-amber-100 last:border-0">
+                                            <span className="text-amber-900">{row.type}</span>
+                                            <span className="text-amber-700 text-right">{formatIDR(row.amount)}</span>
                                         </li>
                                     ))}
                                 </ul>

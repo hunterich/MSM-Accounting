@@ -141,6 +141,7 @@ const Integrations = () => {
             <SettlementImportModal
                 isOpen={!!settlementShopId}
                 connectionId={settlementShopId ?? ''}
+                platform={shops.find((s) => s.id === settlementShopId)?.platform ?? ''}
                 onClose={() => setSettlementShopId(null)}
             />
 
