@@ -1321,7 +1321,9 @@ const Reports: React.FC<ReportsProps> = ({
   const { data: warehousesData } = useWarehouses();
   const { data: categoriesData } = useItemCategories();
   const { data: bankAccountsData } = useBankAccounts();
-  const bankAccounts = bankAccountsData ?? [];
+  // Only active accounts are selectable — the bank-history query scopes to
+  // isActive, so offering an inactive bank would just yield an empty report.
+  const bankAccounts = (bankAccountsData ?? []).filter((a) => a.isActive);
   const customers = customersData?.data || [];
   const vendors = vendorsData?.data || [];
   const items = itemsData?.data || [];
