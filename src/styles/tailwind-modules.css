@@ -53,40 +53,12 @@
     @apply mb-6 flex items-center justify-between border-b border-neutral-200 pb-4;
   }
 
-  .page-header.no-border {
-    @apply border-b-0 pb-0;
-  }
-
-  .page-header-main {
-    @apply flex items-center gap-4;
-  }
-
-  .page-header-back {
-    @apply inline-flex items-center gap-[5px] pl-0;
-  }
-
-  .page-header-title {
-    @apply m-0 text-2xl;
-  }
-
-  .page-header-subtitle {
-    @apply mt-1 text-[0.9rem] text-neutral-600;
-  }
-
   .page-title {
     @apply m-0 text-2xl font-semibold text-neutral-900;
   }
 
   .page-actions {
     @apply flex items-center gap-2;
-  }
-
-  .page-actions-divider {
-    @apply mx-2 h-6 w-px bg-neutral-300;
-  }
-
-  .modal-footer-actions-end {
-    @apply flex justify-end gap-2.5;
   }
 
   /* Form primitives */
@@ -100,10 +72,6 @@
 
   .invalid-feedback {
     @apply text-danger-600;
-  }
-
-  .valid-feedback {
-    @apply text-success-600;
   }
 
   .form-grid-tight {
@@ -130,10 +98,6 @@
     @apply flex gap-1.5;
   }
 
-  .numbering-mode-select {
-    @apply w-[90px];
-  }
-
   .numbering-preview {
     @apply mt-1.5 text-xs text-neutral-600;
   }
@@ -145,14 +109,6 @@
 
   .filter-bar--3col {
     @apply grid grid-cols-[1fr_200px_200px] items-center;
-  }
-
-  .filter-bar--period {
-    @apply flex-wrap items-end gap-4;
-  }
-
-  .filter-bar--search-only {
-    @apply mb-0 rounded-none border-0 border-b border-neutral-200 bg-transparent px-3 py-2;
   }
 
   .filter-bar__search {
@@ -167,20 +123,12 @@
     @apply min-w-0;
   }
 
-  .filter-bar__label {
-    @apply self-center whitespace-nowrap text-sm text-neutral-600;
-  }
-
   .payments-filter-card {
     @apply mb-4 grid grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto] items-center gap-2.5 rounded-lg border border-neutral-200 bg-neutral-0 p-3;
   }
 
   .payments-filter-card.filter-4 {
     @apply grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto];
-  }
-
-  .payments-filter-card.filter-3 {
-    @apply grid-cols-[minmax(280px,1fr)_220px_220px];
   }
 
   .payments-filter-search {
@@ -197,10 +145,6 @@
 
   .payments-filter-clear {
     @apply justify-self-end;
-  }
-
-  .report-tabs-row {
-    @apply mb-4 flex flex-wrap gap-2.5;
   }
 
   /* Panels + module tables */
@@ -368,11 +312,6 @@
     @apply inline-flex h-[22px] w-[22px] items-center justify-center rounded-full bg-neutral-100 text-neutral-600;
   }
 
-  .invoice-tax-title,
-  .invoice-label-strong {
-    @apply font-semibold;
-  }
-
   .stock-danger {
     @apply font-bold text-danger-500;
   }
@@ -390,10 +329,6 @@
     @apply mb-8;
   }
 
-  .banking-account-row {
-    @apply flex items-center justify-between;
-  }
-
   .banking-account-label {
     @apply mb-1 text-sm font-medium text-neutral-600;
   }
@@ -404,22 +339,6 @@
 
   .banking-account-meta {
     @apply flex items-center gap-1.5 text-sm text-neutral-600;
-  }
-
-  .banking-account-status-icon {
-    @apply flex h-10 w-10 items-center justify-center rounded-full bg-success-50 text-success-600;
-  }
-
-  .banking-feed-grid {
-    @apply grid min-h-[400px] grid-cols-2 gap-6;
-  }
-
-  .banking-feed-empty {
-    @apply flex h-full flex-col items-center justify-center p-10 text-center text-neutral-600;
-  }
-
-  .banking-feed-empty-icon {
-    @apply mb-4 rounded-full bg-[#f0f4f8] p-4;
   }
 
   .banking-account-selector {
@@ -477,14 +396,6 @@
 
   .integrations-field-hint {
     @apply text-[0.8rem] text-neutral-600;
-  }
-
-  .integrations-divider {
-    @apply my-2 border-t border-neutral-200;
-  }
-
-  .integrations-section-title {
-    @apply mb-2 text-[0.95rem] font-semibold text-neutral-800;
   }
 
   .integrations-modal-actions {
@@ -622,22 +533,6 @@
 
   .invoice-workbench-detail {
     @apply min-w-0;
-  }
-
-  .invoice-workbench-head {
-    @apply flex items-center justify-between border-b border-neutral-200 px-3.5 py-3;
-  }
-
-  .invoice-workbench-head h2 {
-    @apply m-0 text-[1.1rem];
-  }
-
-  .invoice-workbench-toolbar {
-    @apply grid grid-cols-[minmax(220px,1fr)_160px_150px_150px] gap-2 border-b border-neutral-200 px-3.5 py-2.5;
-  }
-
-  .invoice-workbench-table-wrap {
-    @apply max-h-[calc(100vh-300px)] overflow-auto;
   }
 
   .invoice-workbench-card {
@@ -839,29 +734,8 @@
     @apply bg-neutral-100 text-neutral-600;
   }
 
-  .coa-state-used,
-  .coa-state-group {
-    @apply bg-neutral-100 text-neutral-700;
-  }
-
-  .coa-state-postable {
-    @apply bg-primary-100 text-primary-700;
-  }
-
-  .coa-state-active {
-    @apply bg-success-100 text-success-700;
-  }
-
   .journal-account-legacy {
     @apply inline-flex items-center gap-2;
-  }
-
-  .journal-account-warning {
-    @apply font-medium text-danger-600;
-  }
-
-  .journal-warning-banner {
-    @apply mb-3 rounded-md border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-700;
   }
 
   .journal-totals-bar {
@@ -870,14 +744,6 @@
 
   .journal-totals-meta {
     @apply flex items-center gap-4;
-  }
-
-  .journal-balanced {
-    @apply flex items-center gap-1.5 text-success-500;
-  }
-
-  .journal-unbalanced {
-    @apply text-danger-500;
   }
 
   .text-strong {
@@ -935,10 +801,6 @@
     @apply flex-row justify-end border-l-0 border-t;
   }
 
-  .banking-feed-grid {
-    @apply grid-cols-1;
-  }
-
   .invoice-workbench.with-detail {
     @apply grid-cols-1;
   }
@@ -953,10 +815,6 @@
 
   .invoice-workbench-mobile-toggle {
     @apply block;
-  }
-
-  .invoice-workbench-toolbar {
-    @apply grid-cols-2;
   }
 
   .audit-journal-grid {
