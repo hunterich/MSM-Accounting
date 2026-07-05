@@ -1,5 +1,4 @@
 import React, { useRef } from 'react';
-import Input from '@/src/components/UI/Input';
 import { t } from '../i18n/strings';
 import type { CatalogRow } from '../hooks/usePos';
 
@@ -22,7 +21,14 @@ export default function ScanBox({ catalog, onPick }: { catalog: CatalogRow[]; on
   return (
     <div>
       <form onSubmit={submit}>
-        <Input inputClassName="text-lg" placeholder={t('checkout.scan')} value={term} onChange={(e) => setTerm(e.target.value)} />
+        <input
+          ref={ref}
+          autoFocus
+          className="w-full rounded border p-2 text-lg"
+          placeholder={t('checkout.scan')}
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+        />
       </form>
       {matches.length > 0 && (
         <ul className="mt-1 max-h-64 overflow-auto rounded border bg-white">

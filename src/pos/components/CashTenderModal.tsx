@@ -14,7 +14,7 @@ export default function CashTenderModal({ total, isOpen, onClose, onConfirm, bus
     <Modal isOpen={isOpen} onClose={onClose} title={t('tender.cash')} size="sm">
       <div className="space-y-4">
         <div className="flex justify-between text-lg font-semibold"><span>{t('checkout.total')}</span><span>{total.toLocaleString('id-ID')}</span></div>
-        <Input label={t('tender.received')} type="number" value={cash} onChange={(e) => setCash(e.target.value)} />
+        <Input id="pos-cash-received" label={t('tender.received')} type="number" value={cash} onChange={(e) => setCash(e.target.value)} />
         <div className="flex justify-between"><span>{t('tender.change')}</span><span>{res.ok ? res.change.toLocaleString('id-ID') : '—'}</span></div>
         <Button variant="primary" className="w-full" disabled={!res.ok} loading={busy} text={t('tender.complete')} onClick={() => onConfirm(cashNum)} />
       </div>

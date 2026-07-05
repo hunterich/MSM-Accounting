@@ -23,7 +23,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
   const [error, setError] = useState<string | null>(null);
   const [saleId, setSaleId] = useState(uuid());
 
-  if (catalog.isError && (catalog.error as Error).message.includes('403')) {
+  if (catalog.isError && (catalog.error as { status?: number })?.status === 403) {
     return <div className="min-h-screen flex items-center justify-center text-red-600">{t('auth.forbidden')}</div>;
   }
   if (receipt) {
