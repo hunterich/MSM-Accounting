@@ -191,6 +191,7 @@ async function main() {
       { roleId: cashierRole.id, moduleKey: ModuleKey.AR_INVOICES, canView: true, canCreate: true, canEdit: true, canDelete: false },
       { roleId: cashierRole.id, moduleKey: ModuleKey.AR_CUSTOMERS, canView: true, canCreate: false, canEdit: false, canDelete: false },
       { roleId: cashierRole.id, moduleKey: ModuleKey.AR_PAYMENTS, canView: true, canCreate: true, canEdit: false, canDelete: false },
+      { roleId: cashierRole.id, moduleKey: ModuleKey.POS_RETAIL, canView: true, canCreate: true, canEdit: true, canDelete: false },
     ],
     skipDuplicates: true,
   });
