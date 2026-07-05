@@ -14,6 +14,14 @@ export default defineConfig({
             ignored: ['**/.claude/**', '**/dist/**', '**/.next/**'],
         },
     },
+    build: {
+        rollupOptions: {
+            input: {
+                main: path.resolve(__dirname, 'index.html'),
+                pos: path.resolve(__dirname, 'pos.html'),
+            },
+        },
+    },
     test: {
         exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/.claude/**', '**/__tests__/integration/**'],
     },
