@@ -42,6 +42,11 @@ const dict = {
   'receipt.print':    { id: 'Cetak',               en: 'Print' },
   'receipt.newSale':  { id: 'Transaksi baru',      en: 'New sale' },
   'common.cancel':    { id: 'Batal',               en: 'Cancel' },
+  'offline.online':   { id: 'Online',              en: 'Online' },
+  'offline.offline':  { id: 'Offline',             en: 'Offline' },
+  'offline.queued':   { id: 'antre',               en: 'queued' },
+  'offline.sync':     { id: 'Sinkronkan',          en: 'Sync now' },
+  'offline.exceptions': { id: 'Perlu ditinjau',    en: 'Needs review' },
 } as const;
 
 export type StringKey = keyof typeof dict;
