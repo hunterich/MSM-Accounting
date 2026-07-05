@@ -19,7 +19,7 @@ export interface FefoResult {
 export function pickFefo(batches: BatchAvailability[], qtyNeeded: number): FefoResult {
   const sorted = [...batches]
     .filter((b) => b.qtyOnHand > 0)
-    .sort((a, b) => a.expiryDate.getTime() - b.expiryDate.getTime());
+    .sort((a, b) => a.expiryDate.getTime() - b.expiryDate.getTime() || a.stockBatchId.localeCompare(b.stockBatchId));
 
   const allocations: BatchAllocation[] = [];
   let remaining = qtyNeeded;

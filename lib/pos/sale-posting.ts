@@ -91,7 +91,7 @@ export async function postPosSale(
   // 2. Validate shift + register.
   const shift = await tx.posShift.findFirst({
     where: { id: input.shiftId, organizationId: orgId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, registerId: true },
   });
   if (!shift || shift.status !== 'OPEN') throw new ApiError('Shift is not open', 400);
   const register = await tx.posRegister.findFirst({
@@ -99,6 +99,7 @@ export async function postPosSale(
     select: { id: true, warehouseId: true, cashAccountId: true },
   });
   if (!register) throw new ApiError('Register not found', 404);
+  if (shift.registerId !== input.registerId) throw new ApiError('Shift does not belong to this register', 400);
   const warehouseId = input.warehouseId ?? register.warehouseId ?? null;
 
   // 3. Totals + cash validation.

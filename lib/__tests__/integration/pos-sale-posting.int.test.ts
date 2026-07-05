@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { prisma, createTestOrg, assertTrialBalanced, cleanupOrg, disconnect, TOLERANCE, type TestOrg } from './harness';
+import { prisma, createTestOrg, assertTrialBalanced, accountBalance, cleanupOrg, disconnect, TOLERANCE, type TestOrg } from './harness';
 import { receiveBatch } from '@/lib/pos/batch-stock-in';
 import { postPosSale, type PosSaleInput } from '@/lib/pos/sale-posting';
 
@@ -72,6 +72,9 @@ describe('postPosSale', () => {
     const late = await prisma.stockBatch.findFirst({ where: { organizationId: org.orgId, itemId, batchNumber: 'PCT-LATE' }, select: { qtyOnHand: true } });
     expect(Number(early?.qtyOnHand)).toBe(0);
     expect(Number(late?.qtyOnHand)).toBe(99);
+    const arAccount = await prisma.account.findFirst({ where: { organizationId: org.orgId, code: '1210' }, select: { id: true } });
+    const arBalance = await accountBalance(org.orgId, arAccount!.id);
+    expect(Math.abs(arBalance)).toBeLessThan(TOLERANCE);
     await cleanupOrg(org.orgId);
   });
 
@@ -91,6 +94,19 @@ describe('postPosSale', () => {
     tooMany.lines[0].quantity = 10000;
     tooMany.tenders[0].amount = 50000000;
     await expect(prisma.$transaction((tx) => postPosSale(tx, org.orgId, tooMany))).rejects.toThrow(/insufficient|stock/i);
+    await cleanupOrg(org.orgId);
+  });
+
+  it('rejects a sale when the shift belongs to a different register', async () => {
+    const { org, itemId, shiftId } = await setup();
+    // A SECOND register in the same org. The open shift from setup() is bound to
+    // the FIRST register, so posting against this one must be rejected.
+    const secondRegister = await prisma.posRegister.create({
+      data: { organizationId: org.orgId, code: 'REG-2', name: 'Register 2', warehouseId: org.warehouseId },
+      select: { id: true },
+    });
+    const input = saleInput(itemId, secondRegister.id, shiftId, 'client-mismatch');
+    await expect(prisma.$transaction((tx) => postPosSale(tx, org.orgId, input))).rejects.toThrow(/does not belong/i);
     await cleanupOrg(org.orgId);
   });
 });
