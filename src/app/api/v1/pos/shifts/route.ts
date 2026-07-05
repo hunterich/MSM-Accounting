@@ -23,7 +23,7 @@ export const POST = withPermission({ module: 'POS_RETAIL', action: 'create' }, a
   const parsed = openPosShiftSchema.safeParse(await req.json());
   if (!parsed.success) return err(parsed.error.issues[0]?.message ?? 'Invalid shift payload', 400);
   const result = await prisma.$transaction((tx) =>
-    openShift(tx, orgId, { registerId: parsed.data.registerId, cashierId: userId, openingFloat: parsed.data.openingFloat }),
+    openShift(tx, orgId, { registerId: parsed.data.registerId, cashierId: userId, openingFloat: parsed.data.openingFloat, clientShiftId: parsed.data.clientShiftId }),
   );
   return ok(result, 201);
 });

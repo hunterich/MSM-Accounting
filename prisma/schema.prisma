@@ -2410,6 +2410,7 @@ model PosShift {
   organizationId     String
   registerId         String
   cashierId          String
+  clientShiftId      String?
   openedAt           DateTime       @default(now())
   closedAt           DateTime?
   openingFloat       Decimal        @default(0) @db.Decimal(18, 2)
@@ -2424,6 +2425,7 @@ model PosShift {
   register     PosRegister  @relation(fields: [registerId], references: [id], onDelete: Restrict)
   sales        PosSale[]
 
+  @@unique([organizationId, clientShiftId])
   @@index([organizationId, status])
   @@index([registerId, status])
 }

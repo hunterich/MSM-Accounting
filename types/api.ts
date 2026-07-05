@@ -1102,6 +1102,7 @@ export const createPosSaleSchema = z.object({
 export const openPosShiftSchema = z.object({
   registerId: z.string().trim().min(1),
   openingFloat: positiveDecimal,
+  clientShiftId: z.string().trim().optional(),
 });
 
 export const closePosShiftSchema = z.object({
