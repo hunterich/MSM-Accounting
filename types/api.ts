@@ -1044,3 +1044,45 @@ export type CreateRoleInput = z.infer<typeof createRoleInputSchema>;
 export type UpdateRoleInput = z.infer<typeof updateRoleInputSchema>;
 export type AssignUserRoleInput = z.infer<typeof assignUserRoleInputSchema>;
 export type CreateUserInput = z.infer<typeof createUserInputSchema>;
+
+/* ------------------------------------------------------------------ */
+/* POS (retail) schemas                                                */
+/* ------------------------------------------------------------------ */
+
+export const posSaleLineSchema = z.object({
+  itemId: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  quantity: positiveDecimal.refine((n) => n > 0, 'Quantity must be > 0'),
+  price: positiveDecimal,
+  discountPct: positiveDecimal.max(100).default(0),
+});
+
+export const posTenderSchema = z.object({
+  method: z.literal('CASH'),
+  amount: positiveDecimal,
+  reference: z.string().trim().optional(),
+});
+
+export const createPosSaleSchema = z.object({
+  clientSaleId: z.string().trim().min(1),
+  registerId: z.string().trim().min(1),
+  shiftId: z.string().trim().min(1),
+  lines: z.array(posSaleLineSchema).min(1, 'At least one line required'),
+  tenders: z.array(posTenderSchema).min(1, 'At least one tender required'),
+});
+
+export const openPosShiftSchema = z.object({
+  registerId: z.string().trim().min(1),
+  openingFloat: positiveDecimal,
+});
+
+export const closePosShiftSchema = z.object({
+  countedCash: positiveDecimal,
+});
+
+export const createPosRegisterSchema = z.object({
+  code: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  warehouseId: z.string().trim().optional(),
+  cashAccountId: z.string().trim().optional(),
+});
