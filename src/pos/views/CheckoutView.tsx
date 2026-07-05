@@ -3,7 +3,9 @@ import Button from '@/src/components/UI/Button';
 import { useAuthStore } from '@/src/stores/useAuthStore';
 import { computeSaleTotals } from '@/lib/pos/pricing';
 import { useCatalog, useRegisters, usePostSale, type CatalogRow, type PostSaleResult } from '../hooks/usePos';
-import { emptyCart, addItem, setQty, removeLine, toSaleLines, type Cart } from '../state/cart';
+import { useOfflineSync, cacheCatalog, readCachedCatalog } from '../hooks/useOfflinePos';
+import { db } from '../offline/db';
+import { emptyCart, addItem, setQty, removeLine, toSaleLines, cartTotal, type Cart } from '../state/cart';
 import ScanBox, { type ScanBoxHandle } from '../components/ScanBox';
 import StatusBar from '../components/StatusBar';
 import CategoryChips, { matchesCategory, type CategoryFilter } from '../components/CategoryChips';
@@ -19,9 +21,11 @@ function uuid(): string {
 
 export default function CheckoutView({ shiftId, registerId, onCloseShift }: { shiftId: string; registerId: string; onCloseShift: () => void }): React.ReactElement {
   const logout = useAuthStore((s) => s.logout);
+  const { online, enqueueOp } = useOfflineSync();
   const catalog = useCatalog(true);
   const registers = useRegisters();
   const postSale = usePostSale();
+  const [cachedCatalog, setCachedCatalog] = useState<CatalogRow[]>([]);
   const [cart, setCart] = useState<Cart>(emptyCart());
   const [term, setTerm] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('ALL');
@@ -41,6 +45,16 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
     return () => window.removeEventListener('keydown', onKey);
   }, [cart.lines.length]);
 
+  // Cache the catalog whenever it loads successfully, so the grid works offline.
+  useEffect(() => {
+    if (catalog.data) void cacheCatalog(catalog.data);
+  }, [catalog.data]);
+
+  // On mount, load the cached catalog so we have a fallback when the online query is in error offline.
+  useEffect(() => {
+    void readCachedCatalog().then(setCachedCatalog);
+  }, []);
+
   if (catalog.isError && (catalog.error as { status?: number })?.status === 403) {
     return <div className="flex h-screen items-center justify-center text-red-600">{t('auth.forbidden')}</div>;
   }
@@ -52,20 +66,53 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
   const totals = computeSaleTotals(toSaleLines(cart), 11);
   const registerName = (registers.data ?? []).find((r) => r.id === registerId)?.name ?? t('shift.register');
 
-  const items = (catalog.data ?? []).filter((it) => {
+  // Prefer the live catalog; fall back to the cached rows when the query is in error (offline) and has no data.
+  const catalogRows = catalog.data ?? (catalog.isError ? cachedCatalog : []);
+
+  const items = catalogRows.filter((it) => {
     if (!matchesCategory(category, it.drugClass)) return false;
     const q = term.trim().toLowerCase();
     if (!q) return true;
     return it.name.toLowerCase().includes(q) || it.sku.toLowerCase().includes(q) || (it.barcode ?? '').toLowerCase().includes(q);
   });
 
+  // Enqueue the sale locally and show a receipt built from local data (used when offline or on a network failure).
+  async function payOffline(cash: number) {
+    const current = await db.shiftState.get('current');
+    const currentServerShiftId = current?.serverShiftId; // set for online-opened shifts; undefined for offline-opened
+    await enqueueOp({
+      localId: uuid(),
+      type: 'sale',
+      clientShiftId: shiftId,
+      createdAt: Date.now(),
+      payload: {
+        clientSaleId: saleId,
+        clientShiftId: shiftId,
+        registerId,
+        shiftId: currentServerShiftId,
+        lines: toSaleLines(cart),
+        tenders: [{ method: 'CASH', amount: cash }],
+      },
+    });
+    const total = cartTotal(cart);
+    const result: PostSaleResult = { posSaleId: saleId, salesInvoiceId: saleId, totalAmount: total, change: cash - total };
+    setPayOpen(false);
+    setReceipt({ result, lines: cart });
+  }
+
   async function pay(cash: number) {
     setError(null);
+    // Offline up-front: skip the network entirely and queue the sale.
+    if (!online) { await payOffline(cash); return; }
     try {
       const result = await postSale.mutateAsync({ clientSaleId: saleId, registerId, shiftId, lines: toSaleLines(cart), tenders: [{ method: 'CASH', amount: cash }] });
       setPayOpen(false);
       setReceipt({ result, lines: cart });
-    } catch (err) { setError((err as Error).message); }
+    } catch (err) {
+      // A network error (no HTTP status) means the server was unreachable → fall back to the offline queue.
+      if ((err as { status?: number }).status === undefined) { await payOffline(cash); return; }
+      setError((err as Error).message);
+    }
   }
 
   return (
@@ -75,7 +122,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
       <div className="grid min-h-0 flex-1 grid-cols-[1.6fr_1fr] gap-3 p-3">
         <section className="flex min-h-0 flex-col gap-3">
           <div className="relative">
-            <ScanBox ref={scanRef} catalog={catalog.data ?? []} term={term} onTermChange={setTerm} onPick={pick} />
+            <ScanBox ref={scanRef} catalog={catalogRows} term={term} onTermChange={setTerm} onPick={pick} />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border bg-white px-1.5 py-0.5 text-xs text-gray-400">F2</span>
           </div>
           <CategoryChips selected={category} onSelect={setCategory} />

@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import Button from '@/src/components/UI/Button';
 import { useAuthStore } from '@/src/stores/useAuthStore';
+import { useOfflineSync } from '../hooks/useOfflinePos';
+import OfflineBar from './OfflineBar';
 import { t } from '../i18n/strings';
 
 export default function StatusBar({ registerName, onLogout, onCloseShift }: { registerName: string; onLogout: () => void; onCloseShift: () => void }): React.ReactElement {
+  const { online, pendingCount, exceptionCount, sync } = useOfflineSync();
   const org = useAuthStore((s) => s.org) as { name?: string; legalName?: string; displayName?: string } | null;
   const user = useAuthStore((s) => s.user);
   const [now, setNow] = useState<Date>(() => new Date());
@@ -24,6 +27,7 @@ export default function StatusBar({ registerName, onLogout, onCloseShift }: { re
         <span className="hidden truncate text-sm text-gray-500 md:inline">{cashier}</span>
       </div>
       <div className="flex items-center gap-3">
+        <OfflineBar online={online} pendingCount={pendingCount} exceptionCount={exceptionCount} onSync={() => void sync()} />
         <span className="tabular-nums text-sm font-medium text-gray-700">{now.toLocaleTimeString('id-ID')}</span>
         <Button variant="secondary" size="sm" text={t('shift.close')} onClick={onCloseShift} />
         <Button variant="ghost" size="sm" text={t('auth.logout')} onClick={onLogout} />
