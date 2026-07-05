@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Button from '@/src/components/UI/Button';
 import Input from '@/src/components/UI/Input';
-import { useRegisters, useOpenShift, useOpenShifts } from '../hooks/usePos';
+import { useRegisters, useOpenShift, useOpenShifts, type PosRegister } from '../hooks/usePos';
 import { useOfflineSync, uuid } from '../hooks/useOfflinePos';
 import { db } from '../offline/db';
 import { t } from '../i18n/strings';
@@ -14,8 +14,12 @@ export default function ShiftOpenView({ onOpened }: { onOpened: (shiftId: string
   const [registerId, setRegisterId] = useState('');
   const [float, setFloat] = useState('0');
   const [error, setError] = useState<string | null>(null);
+  const [cachedRegs, setCachedRegs] = useState<PosRegister[]>([]);
 
-  const chosen = registerId || registers.data?.[0]?.id || '';
+  useEffect(() => { void db.registers.get('current').then((r) => setCachedRegs(r?.rows ?? [])); }, []);
+
+  const regList = registers.data ?? cachedRegs;
+  const chosen = registerId || regList[0]?.id || '';
   const existing = (openShifts.data ?? []).find((s) => s.registerId === chosen);
 
   // Open the shift offline: queue the shift-open op, persist local shift state, and resume into checkout.
@@ -57,7 +61,7 @@ export default function ShiftOpenView({ onOpened }: { onOpened: (shiftId: string
         <div>
           <label className="mb-1 block text-sm font-medium">{t('shift.register')}</label>
           <select className="w-full rounded border p-2" value={chosen} onChange={(e) => setRegisterId(e.target.value)}>
-            {(registers.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            {regList.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         </div>
 

@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '@/src/stores/useAuthStore';
+import { api } from '@/src/api/apiClient';
 import { db } from './offline/db';
+import { cacheCatalog } from './hooks/useOfflinePos';
+import type { CatalogRow, PosRegister } from './hooks/usePos';
 import LoginView from './views/LoginView';
 import ShiftOpenView from './views/ShiftOpenView';
 import ShiftCloseView from './views/ShiftCloseView';
@@ -17,6 +20,16 @@ export default function PosApp(): React.ReactElement {
   const [resuming, setResuming] = useState(true);
 
   useEffect(() => { void checkSession(); }, [checkSession]);
+
+  // When logged in and online, warm the offline caches so the register list + product
+  // grid still work if the connection drops before/while a shift is open.
+  useEffect(() => {
+    if (!user || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+    void api.get<CatalogRow[]>('/api/v1/pos/catalog').then(cacheCatalog).catch(() => {});
+    void api.get<PosRegister[]>('/api/v1/pos/registers')
+      .then((rows) => db.registers.put({ key: 'current', rows, fetchedAt: Date.now() }))
+      .catch(() => {});
+  }, [user]);
 
   // On mount, resume a persisted open shift (online- or offline-opened) so a reload lands back in checkout.
   useEffect(() => {
