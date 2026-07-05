@@ -5,6 +5,7 @@ export interface OpenShiftInput {
   registerId: string;
   cashierId: string;
   openingFloat: number;
+  clientShiftId?: string;
 }
 
 export interface CloseShiftInput {
@@ -32,10 +33,14 @@ export interface CloseShiftResult {
 
 /** Open a POS shift. One OPEN shift per register at a time. Must run inside a $transaction. */
 export async function openShift(tx: Prisma.TransactionClient, orgId: string, input: OpenShiftInput): Promise<OpenShiftResult> {
+  if (input.clientShiftId) {
+    const existing = await tx.posShift.findFirst({ where: { organizationId: orgId, clientShiftId: input.clientShiftId }, select: { id: true } });
+    if (existing) return { id: existing.id, status: 'OPEN' };
+  }
   const already = await tx.posShift.findFirst({ where: { organizationId: orgId, registerId: input.registerId, status: 'OPEN' }, select: { id: true } });
   if (already) throw new ApiError('Register already has an open shift', 409);
   const shift = await tx.posShift.create({
-    data: { organizationId: orgId, registerId: input.registerId, cashierId: input.cashierId, openingFloat: input.openingFloat, status: 'OPEN' },
+    data: { organizationId: orgId, registerId: input.registerId, cashierId: input.cashierId, openingFloat: input.openingFloat, clientShiftId: input.clientShiftId ?? null, status: 'OPEN' },
     select: { id: true },
   });
   return { id: shift.id, status: 'OPEN' };
@@ -43,9 +48,25 @@ export async function openShift(tx: Prisma.TransactionClient, orgId: string, inp
 
 /** Close a POS shift: compute expected cash, variance, and a Z-report. Must run inside a $transaction. */
 export async function closeShift(tx: Prisma.TransactionClient, orgId: string, input: CloseShiftInput): Promise<CloseShiftResult> {
-  const shift = await tx.posShift.findFirst({ where: { id: input.shiftId, organizationId: orgId }, select: { id: true, status: true, openingFloat: true } });
+  const shift = await tx.posShift.findFirst({ where: { id: input.shiftId, organizationId: orgId }, select: { id: true, status: true, openingFloat: true, expectedCash: true, cashVariance: true } });
   if (!shift) throw new ApiError('Shift not found', 404);
-  if (shift.status !== 'OPEN') throw new ApiError('Shift is not open', 400);
+
+  // Idempotent: closing an already-CLOSED shift recomputes + returns its result
+  // (so a queued offline shift-close can be safely replayed on sync).
+  if (shift.status === 'CLOSED') {
+    const closedSales = await tx.posSale.findMany({
+      where: { organizationId: orgId, shiftId: input.shiftId },
+      select: { salesInvoice: { select: { totalAmount: true } }, tenders: { select: { method: true, amount: true, changeGiven: true } } },
+    });
+    let ts = 0, cc = 0;
+    for (const s of closedSales) { ts += Number(s.salesInvoice?.totalAmount ?? 0); for (const t of s.tenders) if (t.method === 'CASH') cc += Number(t.amount) - Number(t.changeGiven); }
+    return {
+      status: 'CLOSED',
+      expectedCash: Number(shift.expectedCash ?? 0),
+      cashVariance: Number(shift.cashVariance ?? 0),
+      zReport: { totalSales: Math.round((ts + Number.EPSILON) * 100) / 100, saleCount: closedSales.length, cashCollected: cc },
+    };
+  }
 
   const sales = await tx.posSale.findMany({
     where: { organizationId: orgId, shiftId: input.shiftId },
