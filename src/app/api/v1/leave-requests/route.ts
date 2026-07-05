@@ -44,6 +44,16 @@ export const POST = withPermission({ module: 'HR_ATTENDANCE', action: 'create' }
   const parsed = leaveRequestInputSchema.safeParse({ ...body, organizationId: orgId });
   if (!parsed.success) return ok({ error: parsed.error.issues[0]?.message }, 400);
 
+  // Tenant-isolation guard: employee and leave type must belong to this org.
+  // The balance lookup and create key off these ids without org scoping, so a
+  // request could otherwise reference another org's employee/leave type.
+  const [employee, leaveType] = await Promise.all([
+    prisma.employee.findFirst({ where: { id: parsed.data.employeeId, organizationId: orgId }, select: { id: true } }),
+    prisma.leaveType.findFirst({ where: { id: parsed.data.leaveTypeId, organizationId: orgId }, select: { id: true } }),
+  ]);
+  if (!employee) return ok({ error: 'Employee not found in organization' }, 400);
+  if (!leaveType) return ok({ error: 'Leave type not found in organization' }, 400);
+
   // Validate leave balance
   const year = new Date(parsed.data.startDate).getFullYear();
   const balance = await prisma.leaveBalance.findUnique({

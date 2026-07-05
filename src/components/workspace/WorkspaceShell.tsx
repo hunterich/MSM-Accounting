@@ -6,7 +6,7 @@ import TabContentHost from './TabContentHost';
 import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-import { pageModuleForPath } from '../../stores/workspace/modules';
+import { pageModuleForPath, moduleKeyOf } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
     const navigate = useNavigate();
@@ -210,6 +210,19 @@ const WorkspaceShell = (): React.ReactElement => {
                 open({ kind: 'doc-view', target: { module: 'stock-count', entity: 'count', recordId: id, mode: 'view' }, title: id, path: `/inventory/counts?countId=${id}` });
             } else {
                 open({ kind: 'list', target: { module: 'stock-count', entity: 'count', recordId: 'catalog', mode: 'view' }, title: 'Stock counts', path: '/inventory/counts' });
+            }
+            return;
+        }
+
+        if (path === '/reports') {
+            // Report sub-tabs share this path, so re-entering the module (e.g. via
+            // the row-1 Reports tab, which restores the last report and syncs the
+            // URL to /reports) must not snap focus back to the catalog. Only open
+            // the catalog when we're arriving from outside the Reports module.
+            const ws = useWorkspaceStore.getState();
+            const active = ws.tabs.find((t) => t.id === ws.activeTabId);
+            if (!active || moduleKeyOf(active.target) !== 'reports') {
+                open({ kind: 'list', target: { module: 'reports', entity: 'catalog', recordId: 'catalog', mode: 'view' }, title: 'Reports', path: '/reports' });
             }
             return;
         }

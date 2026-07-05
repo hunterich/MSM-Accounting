@@ -50,6 +50,9 @@ vi.mock('@/lib/prisma', () => ({
     bankTransaction: {
       findMany: vi.fn(),
     },
+    bankAccount: {
+      findMany: vi.fn(),
+    },
     inventoryLedgerEntry: {
       findMany: vi.fn(),
     },
@@ -83,6 +86,7 @@ import { prisma } from '@/lib/prisma';
 import { GET as getArReport } from '../reports/ar/route';
 import { GET as getApReport } from '../reports/ap/route';
 import { GET as getGlReport } from '../reports/gl/route';
+import { GET as getBankingReport } from '../reports/banking/route';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -113,6 +117,7 @@ beforeEach(() => {
   vi.mocked(prisma.account.findMany).mockResolvedValue([]);
   vi.mocked(prisma.journalLine.findMany).mockResolvedValue([]);
   vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([]);
+  vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([]);
   vi.mocked(prisma.inventoryLedgerEntry.findMany).mockResolvedValue([]);
 });
 
@@ -279,5 +284,71 @@ describe('GET /api/v1/reports/gl', () => {
   it('returns 200 for balance-sheet type', async () => {
     const res = await getGlReport(makeReq('/api/v1/reports/gl?type=balance-sheet', 'org-a'));
     expect(res.status).toBe(200);
+  });
+});
+
+// ── Banking cash & bank reports ───────────────────────────────────────────────
+
+describe('GET /api/v1/reports/banking — cash & bank reports', () => {
+  const req = (qs: string) => makeReq(`/api/v1/reports/banking?${qs}`, 'org1');
+
+  it('bank-history: opening = account opening + prior movements, with running balance and transfers both directions', async () => {
+    vi.mocked(prisma.bankAccount.findMany)
+      // first call: scoped accounts (has openingBalance); second call: id→name map
+      .mockResolvedValueOnce([{ id: 'A', name: 'BCA', code: 'BCA', bankName: 'BCA', openingBalance: 100 } as never])
+      .mockResolvedValueOnce([{ id: 'A', name: 'BCA' }, { id: 'B', name: 'Mandiri' }] as never);
+    vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([
+      { id: 't0', number: 'BK0', date: new Date('2026-05-31'), description: 'prior', amount: 50, type: 'INCOME', reference: null, payee: null, receivedFrom: 'x', bankAccountId: 'A', toBankAccountId: null, createdAt: new Date('2026-05-31'), journalEntry: { entryNo: 'JE0' } },
+      { id: 't1', number: 'BK1', date: new Date('2026-06-02'), description: 'sale', amount: 30, type: 'INCOME', reference: null, payee: null, receivedFrom: 'Cust', bankAccountId: 'A', toBankAccountId: null, createdAt: new Date('2026-06-02'), journalEntry: { entryNo: 'JE1' } },
+      { id: 't2', number: 'BK2', date: new Date('2026-06-05'), description: 'to Mandiri', amount: 20, type: 'TRANSFER', reference: null, payee: null, receivedFrom: null, bankAccountId: 'A', toBankAccountId: 'B', createdAt: new Date('2026-06-05'), journalEntry: { entryNo: 'JE2' } },
+    ] as never);
+
+    const res = await getBankingReport(req('type=bank-history&bankAccountId=A&dateFrom=2026-06-01&dateTo=2026-06-30'));
+    const body = await res.json();
+    expect(body.banks).toHaveLength(1);
+    const bank = body.banks[0];
+    expect(bank.openingBalance).toBe(150); // 100 opening + 50 prior income
+    expect(bank.rows).toHaveLength(2);      // t1 (in) + t2 (transfer out); t0 excluded (prior)
+    expect(bank.rows[0].moneyIn).toBe(30);
+    expect(bank.rows[0].runningBalance).toBe(180);
+    expect(bank.rows[1].moneyOut).toBe(20); // transfer OUT of A
+    expect(bank.rows[1].runningBalance).toBe(160);
+    expect(bank.closingBalance).toBe(160);
+    expect(bank.totalIn).toBe(30);
+    expect(bank.totalOut).toBe(20);
+  });
+
+  it('bank-received: includes income + incoming transfers, excludes payments', async () => {
+    vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([{ id: 'A', name: 'BCA' }, { id: 'B', name: 'Mandiri' }] as never);
+    vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([
+      { id: 'r1', number: 'BK1', date: new Date('2026-06-02'), description: 'sale', amount: 30, type: 'INCOME', reference: null, payee: null, receivedFrom: 'Cust', bankAccountId: 'A', toBankAccountId: null, createdAt: new Date('2026-06-02'), journalEntry: { entryNo: 'JE1' } },
+      { id: 'r2', number: 'BK2', date: new Date('2026-06-04'), description: 'from Mandiri', amount: 15, type: 'TRANSFER', reference: null, payee: null, receivedFrom: null, bankAccountId: 'B', toBankAccountId: 'A', createdAt: new Date('2026-06-04'), journalEntry: { entryNo: 'JE2' } },
+    ] as never);
+
+    const res = await getBankingReport(req('type=bank-received&bankAccountId=A&dateFrom=2026-06-01&dateTo=2026-06-30'));
+    const body = await res.json();
+    expect(body.summary).toEqual({ count: 2, totalReceived: 45 });
+    expect(body.rows[1].from).toBe('Mandiri'); // incoming transfer's source bank name
+    expect(body.rows[0].journalEntryNo).toBe('JE1');
+  });
+
+  it('bank-payment: includes expense + outgoing transfers, with dest bank as payee', async () => {
+    vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([{ id: 'A', name: 'BCA' }, { id: 'B', name: 'Mandiri' }] as never);
+    vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([
+      { id: 'p1', number: 'BK1', date: new Date('2026-06-03'), description: 'buy', amount: 8, type: 'EXPENSE', reference: null, payee: 'Vendor', receivedFrom: null, bankAccountId: 'A', toBankAccountId: null, createdAt: new Date('2026-06-03'), journalEntry: { entryNo: 'JE1' } },
+      { id: 'p2', number: 'BK2', date: new Date('2026-06-06'), description: 'to Mandiri', amount: 20, type: 'TRANSFER', reference: null, payee: null, receivedFrom: null, bankAccountId: 'A', toBankAccountId: 'B', createdAt: new Date('2026-06-06'), journalEntry: { entryNo: 'JE2' } },
+    ] as never);
+
+    const res = await getBankingReport(req('type=bank-payment&bankAccountId=A&dateFrom=2026-06-01&dateTo=2026-06-30'));
+    const body = await res.json();
+    expect(body.summary).toEqual({ count: 2, totalPaid: 28 });
+    expect(body.rows[1].payee).toBe('Mandiri'); // outgoing transfer's destination bank name
+  });
+
+  it('bank-received returns empty when no bankAccountId given', async () => {
+    const res = await getBankingReport(req('type=bank-received&dateFrom=2026-06-01&dateTo=2026-06-30'));
+    const body = await res.json();
+    expect(body.summary).toEqual({ count: 0, totalReceived: 0 });
+    expect(body.rows).toEqual([]);
   });
 });

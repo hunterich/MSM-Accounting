@@ -77,4 +77,11 @@ describe('calculateAndPostCOGS overselling guard', () => {
     const cogs = await calculateAndPostCOGS(tx as never, ...args);
     expect(cogs).toBe(500); // 10 × 50
   });
+
+  it('allows overselling when the caller passes allowNegativeStock override (org flag off)', async () => {
+    const tx = makeTx({ allowNegativeStock: false, lots: [{ id: 'L1', qtyBalance: 1, unitCost: 100 }] });
+    await expect(
+      calculateAndPostCOGS(tx as never, 'org1', 'item1', null, 5, InventoryDocumentType.SALES, 'doc1', new Date(), { allowNegativeStock: true }),
+    ).resolves.toBeTypeOf('number');
+  });
 });

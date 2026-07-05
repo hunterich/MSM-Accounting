@@ -82,3 +82,44 @@ export function withPermission<TContext = unknown>(
     return handler(req, ctx);
   });
 }
+
+/**
+ * Platform-superadmin gate for system-global operations (e.g. full-database
+ * backups). These are NOT per-tenant: a backup dump contains every org's data,
+ * so they must not be reachable through an org-scoped permission a tenant admin
+ * can grant their own role. Authorization is by an env allowlist of emails
+ * (`PLATFORM_ADMIN_EMAILS`, comma-separated) that tenant admins cannot edit.
+ *
+ * Fail-closed: if no allowlist is configured the operation is denied outright —
+ * disabling backups is safer than leaving them tenant-exploitable. Set
+ * PLATFORM_ADMIN_EMAILS to the operator email(s) to enable them.
+ */
+export async function requirePlatformAdmin(req: NextRequest, db: Db = prisma): Promise<void> {
+  const { userId } = authActor(req);
+  const allow = (process.env.PLATFORM_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (allow.length === 0) {
+    throw new ApiError('Operation disabled: no platform administrators are configured', 403);
+  }
+  const user = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const email = user?.email?.toLowerCase();
+  if (!email || !allow.includes(email)) {
+    throw new ApiError('Forbidden: platform administrator access required', 403);
+  }
+}
+
+/**
+ * Declarative platform-superadmin wrapper. Runs `requirePlatformAdmin` before the
+ * handler, reusing `withHandler`'s error handling (a denied request returns a
+ * clean 403 and never reaches the handler).
+ */
+export function withPlatformAdmin<TContext = unknown>(
+  handler: (req: NextRequest, ctx: TContext) => Promise<NextResponse>,
+) {
+  return withHandler<TContext>(async (req, ctx) => {
+    await requirePlatformAdmin(req);
+    return handler(req, ctx);
+  });
+}

@@ -1,7 +1,8 @@
 // src/components/ar/invoices/InvoiceListPane.tsx
 import React, { useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import InvoiceCatalogPanel from './InvoiceCatalogPanel';
+import ImportInvoicesModal from './ImportInvoicesModal';
 import PageHeader from '../../Layout/PageHeader';
 import Button from '../../UI/Button';
 import { useInvoices } from '../../../hooks/useAR';
@@ -11,9 +12,10 @@ import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePe
 interface InvoiceFilters { searchTerm: string; status: string; dateFrom: string; dateTo: string }
 
 const InvoiceListPane = (): React.ReactElement => {
-    const { canCreate, canEdit } = useModulePermissions('ar_invoices');
+    const { canEdit, canCreate } = useModulePermissions('ar_invoices');
     const canReprint = useExtraAction('ar_invoices', 'reprint');
     const { open } = useWorkspaceNav();
+    const [isImportOpen, setIsImportOpen] = useState(false);
     // Read from the same source the form writes to (the invoices API via React
     // Query), so seeded + just-saved invoices both appear here and can be
     // opened as tabs.
@@ -21,14 +23,6 @@ const InvoiceListPane = (): React.ReactElement => {
     const invoices = useMemo(() => invoicesResult?.data ?? [], [invoicesResult?.data]);
 
     const [filters, setFilters] = useState<InvoiceFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
-
-    const openNew = () => open({
-        kind: 'doc-form',
-        target: { module: 'ar', entity: 'invoice', recordId: null, mode: 'create' },
-        title: 'New invoice',
-        path: '/ar/invoices/new',
-        unique: true,
-    });
 
     const filteredData = useMemo(() => invoices.filter((item) => {
         const keyword = filters.searchTerm.toLowerCase();
@@ -70,7 +64,7 @@ const InvoiceListPane = (): React.ReactElement => {
                 title="Invoices"
                 subtitle="Create, send, and track customer invoices."
                 actions={canCreate ? (
-                    <Button text="New Invoice" size="small" icon={<Plus size={16} />} onClick={openNew} />
+                    <Button text="Import" size="small" variant="secondary" icon={<Upload size={16} />} onClick={() => setIsImportOpen(true)} />
                 ) : undefined}
             />
             <InvoiceCatalogPanel
@@ -88,6 +82,7 @@ const InvoiceListPane = (): React.ReactElement => {
                 onEditInvoice={openEdit}
                 onPrintInvoice={() => {}}
             />
+            <ImportInvoicesModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
         </div>
     );
 };

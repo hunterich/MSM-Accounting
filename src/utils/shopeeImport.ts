@@ -1,4 +1,6 @@
 import * as XLSX from 'xlsx';
+import { normalizeHeader as _normalizeHeader } from './headerUtils';
+import { preferredSheetFor } from './marketplaceFormat';
 
 // ── Raw XLSX row (after sheet_to_json) ────────────────────────────────────────
 
@@ -308,10 +310,9 @@ const COLUMN_SPECS: ColumnSpec[] = [
 /** Normalise a header string for fuzzy matching.
  *  Lowercases, strips all non-alphanumeric characters (punctuation, whitespace,
  *  parentheses), so e.g. "No. Pesanan", "no pesanan", "NO-PESANAN" all collapse
- *  to "nopesanan". Uses Unicode-aware regex to preserve non-ASCII letters. */
-export function normalizeHeader(s: string): string {
-    return String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-}
+ *  to "nopesanan". Uses Unicode-aware regex to preserve non-ASCII letters.
+ *  Re-exported from `./headerUtils` for backward compatibility. */
+export const normalizeHeader = _normalizeHeader;
 
 /** Resolve the headers found in a file against COLUMN_SPECS using fuzzy
  *  (normalised) matching. Returns a full resolution report so callers can
@@ -412,17 +413,22 @@ export function buildProductKey(item: Pick<ShopeeLineItem, 'parentSKU' | 'skuRef
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Parse a Shopee Excel file and return grouped orders.
+ * Parse a Shopee/TikTok Excel file and return grouped orders.
  * @param file - The .xlsx/.xls file
  * @param importStatusFilter - 'Selesai' or 'All'
+ * @param platform - Optional platform name ('Shopee' | 'TikTok') — used to
+ *   select the preferred sheet by name; falls back to the first sheet when
+ *   the platform is unknown or the named sheet is not present.
  */
 export async function parseShopeeExcel(
     file: File,
     importStatusFilter = 'Selesai',
+    platform?: string,
 ): Promise<ShopeeParseResult> {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
+    const preferred = platform ? preferredSheetFor(platform) : undefined;
+    const sheetName = (preferred && workbook.SheetNames.includes(preferred)) ? preferred : workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rawRows = XLSX.utils.sheet_to_json<ShopeeRawRow>(worksheet, { defval: '' });
 

@@ -4,6 +4,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
+import { updateCreditNoteInputSchema } from '@/types/api';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 
@@ -73,6 +74,12 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       );
     }
 
+    const parsed = updateCreditNoteInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid credit note payload' }, { status: 400 }));
+    }
+    const d = parsed.data;
+
     const cn = await prisma.$transaction(async (tx) => {
       const prior = await tx.creditNote.findFirst({
         where: { id, organizationId: orgId },
@@ -82,8 +89,8 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         throw Object.assign(new Error('Not found'), { status: 404 });
       }
 
-      const nextStatus = body.status as 'DRAFT' | 'APPLIED' | 'VOID' | undefined;
-      const isStatusOnly = Object.keys(body).every((k) => STATUS_ONLY_FIELDS.has(k));
+      const nextStatus = d.status;
+      const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));
 
       if (isPosted(prior) && !isStatusOnly) {
         throw Object.assign(
@@ -102,10 +109,10 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       const updated = await tx.creditNote.update({
         where: { id, organizationId: orgId },
         data: {
-          ...body,
-          ...(body.amount !== undefined && { amount: asMoney(toNumber(body.amount)) }),
-          ...(body.taxAmount !== undefined && { taxAmount: asMoney(toNumber(body.taxAmount)) }),
-          ...(body.date && { date: new Date(body.date) }),
+          ...d,
+          ...(d.amount !== undefined && { amount: asMoney(toNumber(d.amount)) }),
+          ...(d.taxAmount !== undefined && { taxAmount: asMoney(toNumber(d.taxAmount)) }),
+          ...(d.date !== undefined && { date: new Date(d.date) }),
           updatedAt: new Date(),
         },
       });
@@ -132,7 +139,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       return updated;
     });
 
-    logAudit({ orgId, actorId: userId, entityType: 'CreditNote', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: userId, entityType: 'CreditNote', entityId: id, action: 'UPDATE', payload: d });
     return withCors(NextResponse.json(cn));
   } catch (error) {
     const status = (error as { status?: number }).status ?? 500;

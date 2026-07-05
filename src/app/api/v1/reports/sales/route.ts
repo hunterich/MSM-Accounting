@@ -7,6 +7,14 @@ import { withPermission } from '@/lib/authz';
 export const runtime = 'nodejs';
 export async function OPTIONS() { return corsPreflightResponse(); }
 
+// Safety bound for the in-memory aggregation branches below. These load matching
+// rows and aggregate in JS; without a cap an all-time query on a large dataset
+// can exhaust memory. We over-fetch by one and reject rather than silently
+// truncate (a truncated set would produce wrong totals). Normal date-scoped
+// reports stay well under this and are unaffected.
+const ROW_CAP = 100_000;
+const ROW_CAP_MSG = 'Report dataset too large — narrow the date range and try again';
+
 export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
 
@@ -43,7 +51,9 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     const invoices = await prisma.salesInvoice.findMany({
       where: customerWhere,
       include: { customer: { select: { id: true, name: true } } },
+      take: ROW_CAP + 1,
     });
+    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
     const map = new Map();
     for (const inv of invoices) {
       const key  = inv.customerId || 'unknown';
@@ -62,7 +72,9 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   if (type === 'by-item') {
     const lines = await prisma.salesInvoiceLine.findMany({
       where: { invoice: dateFilter },
+      take: ROW_CAP + 1,
     });
+    if (lines.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
     const map = new Map();
     for (const line of lines) {
       const key = line.description;
@@ -84,12 +96,46 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
+  /* ── Top Products (best sellers, grouped by master item) ── */
+  // Like `by-item` but keyed on the master `itemId` (not free-text description),
+  // so the same product always rolls up to one row. Master-only: lines without
+  // an `itemId` are excluded. Used by the Best Selling Products dashboard widget.
+  if (type === 'top-products') {
+    const lines = await prisma.salesInvoiceLine.findMany({
+      where: { invoice: dateFilter, itemId: { not: null } },
+      include: { item: { select: { id: true, sku: true, name: true } } },
+    });
+    const map = new Map();
+    for (const line of lines) {
+      const key = line.itemId as string;
+      if (!map.has(key)) {
+        map.set(key, {
+          itemId: key,
+          sku:    line.item?.sku || line.code || '',
+          name:   line.item?.name || line.description,
+          qty:    0,
+          total:  0,
+        });
+      }
+      const row = map.get(key);
+      row.qty   += Number(line.quantity || 0);
+      row.total += Number(line.lineSubtotal || 0);
+    }
+    let rows = Array.from(map.values());
+    // Default ranking is by units sold (qty); `sortBy=total` ranks by revenue.
+    rows = rows.sort((a, b) => sortBy === 'total' ? b.total - a.total : b.qty - a.qty);
+    if (topN && topN > 0) rows = rows.slice(0, topN);
+    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+  }
+
   /* ── Sales Item × Customer ── */
   if (type === 'by-item-customer') {
     const lines = await prisma.salesInvoiceLine.findMany({
       where: { invoice: dateFilter },
       include: { invoice: { select: { customerId: true, customer: { select: { name: true } } } } },
+      take: ROW_CAP + 1,
     });
+    if (lines.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
     const map = new Map();
     for (const line of lines) {
       const key          = `${line.invoice.customerId}||${line.description}`;
@@ -138,7 +184,9 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       where: dateFilter,
       select: { issueDate: true, totalAmount: true },
       orderBy: { issueDate: 'asc' },
+      take: ROW_CAP + 1,
     });
+    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
     const map = new Map();
     for (const inv of invoices) {
       const d   = new Date(inv.issueDate);
@@ -154,7 +202,9 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     const invoices = await prisma.salesInvoice.findMany({
       where: dateFilter,
       include: { customer: { select: { name: true } } },
+      take: ROW_CAP + 1,
     });
+    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
     const map = new Map();
     for (const inv of invoices) {
       const key  = inv.customerId || 'unknown';

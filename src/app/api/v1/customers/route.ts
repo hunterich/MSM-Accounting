@@ -1,7 +1,7 @@
-// @ts-nocheck
 // Customer model: code (required), name, email, phone, status (PartnerStatus: ACTIVE|INACTIVE)
 // Unique: @@unique([organizationId, code])
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, ok, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
@@ -76,10 +76,15 @@ export const POST = withPermission({ module: 'AR_CUSTOMERS', action: 'create' },
   });
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid customer payload', 400);
 
+  // Schema's superRefine already requires code or id; this guard narrows the
+  // type to a non-undefined string for the (required) Customer.code column.
+  const code = parsed.data.code?.trim() || parsed.data.id?.trim();
+  if (!code) return err('Customer code is required', 400);
+
   const categoryId = await resolveCustomerCategoryId(orgId, parsed.data.categoryId, parsed.data.category);
-  const customerData: Record<string, unknown> = {
+  const customerData: Prisma.CustomerUncheckedCreateInput = {
     organizationId: orgId,
-    code: parsed.data.code?.trim() || parsed.data.id?.trim(),
+    code,
     name: parsed.data.name,
     status: parsed.data.status ?? 'ACTIVE',
   };

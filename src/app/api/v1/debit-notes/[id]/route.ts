@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
+import { updateDebitNoteInputSchema } from '@/types/api';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission } from '@/lib/authz';
@@ -65,6 +66,12 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       );
     }
 
+    const parsed = updateDebitNoteInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid debit note payload' }, { status: 400 }));
+    }
+    const d = parsed.data;
+
     const dn = await prisma.$transaction(async (tx) => {
       const prior = await tx.debitNote.findFirst({
         where: { id, organizationId: orgId },
@@ -74,8 +81,8 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
         throw Object.assign(new Error('Not found'), { status: 404 });
       }
 
-      const nextStatus = body.status as 'DRAFT' | 'APPLIED' | 'VOID' | undefined;
-      const isStatusOnly = Object.keys(body).every((k) => STATUS_ONLY_FIELDS.has(k));
+      const nextStatus = d.status;
+      const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));
 
       if (isPosted(prior) && !isStatusOnly) {
         throw Object.assign(
@@ -94,10 +101,10 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       const updated = await tx.debitNote.update({
         where: { id, organizationId: orgId },
         data: {
-          ...body,
-          ...(body.amount !== undefined && { amount: asMoney(toNumber(body.amount)) }),
-          ...(body.taxAmount !== undefined && { taxAmount: asMoney(toNumber(body.taxAmount)) }),
-          ...(body.date && { date: new Date(body.date) }),
+          ...d,
+          ...(d.amount !== undefined && { amount: asMoney(toNumber(d.amount)) }),
+          ...(d.taxAmount !== undefined && { taxAmount: asMoney(toNumber(d.taxAmount)) }),
+          ...(d.date !== undefined && { date: new Date(d.date) }),
           updatedAt: new Date(),
         },
       });
@@ -124,7 +131,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       return updated;
     });
 
-    logAudit({ orgId, actorId: userId, entityType: 'DebitNote', entityId: id, action: 'UPDATE', payload: body });
+    logAudit({ orgId, actorId: userId, entityType: 'DebitNote', entityId: id, action: 'UPDATE', payload: d });
     return withCors(NextResponse.json(dn));
   } catch (error) {
     const status = (error as { status?: number }).status ?? 500;

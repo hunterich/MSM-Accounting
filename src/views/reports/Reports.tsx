@@ -12,10 +12,12 @@ import { useCustomers } from '../../hooks/useAR';
 import { useVendors } from '../../hooks/useAP';
 import { useItems, useWarehouses, useItemCategories } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import { useBankAccounts } from '../../hooks/useBanking';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../api/apiClient';
+import { useNavigate } from 'react-router-dom';
 
 // ── Domain types ────────────────────────────────────────────────────────────────
 
@@ -46,7 +48,10 @@ export type ReportType =
   | 'stock-movement'
   | 'stock-valuation'
   | 'pph21-summary'
-  | 'bank-reconciliation';
+  | 'bank-reconciliation'
+  | 'bank-history'
+  | 'bank-received'
+  | 'bank-payment';
 
 /** Category IDs available in the sidebar. */
 export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inventory' | 'hr';
@@ -54,7 +59,7 @@ export type ReportCategoryId = 'sales' | 'gl' | 'banking' | 'ar' | 'ap' | 'inven
 /** How a report is filtered: by date-range, as-of a single date, a current
  *  inventory snapshot (category/warehouse filters), or a per-party statement
  *  (party picker + date range). */
-export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot' | 'statement';
+export type FilterMode = 'date-range' | 'as-of' | 'inventory-snapshot' | 'statement' | 'bank-period';
 
 /** Report card visual type. */
 export type ReportCardType = 'table' | 'chart';
@@ -68,6 +73,8 @@ export interface ReportDefinition {
   description: string;
   type: ReportCardType;
   filterMode: FilterMode;
+  /** bank-period reports: require a specific bank (Received/Payment) vs allow "All banks" (History). */
+  bankRequired?: boolean;
 }
 
 /** Query parameters sent to the API for a given report run. */
@@ -89,6 +96,7 @@ export interface ReportParams {
   warehouseId?: string;
   customerId?: string;
   vendorId?: string;
+  bankAccountId?: string;
 }
 
 /** One open report tab entry. */
@@ -328,6 +336,47 @@ export interface CashFlowSummary {
   totalOutflow: number;
   totalNet: number;
 }
+
+export interface BankHistoryRow {
+  bankTransactionId: string;
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  journalEntryNo: string | null;
+  txnNumber: string | null;
+  date: string;
+  description: string;
+  counterparty: string;
+  reference: string | null;
+  moneyIn: number;
+  moneyOut: number;
+  runningBalance: number;
+}
+export interface BankHistoryGroup {
+  bankAccountId: string;
+  bankAccountName: string;
+  bankName: string | null;
+  accountCode: string | null;
+  openingBalance: number;
+  rows: BankHistoryRow[];
+  totalIn: number;
+  totalOut: number;
+  closingBalance: number;
+}
+export interface BankHistoryData { banks: BankHistoryGroup[]; summary: { totalIn: number; totalOut: number; netChange: number }; }
+
+export interface BankDetailRow {
+  bankTransactionId: string;
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  journalEntryNo: string | null;
+  txnNumber: string | null;
+  date: string;
+  description: string;
+  reference: string | null;
+  amount: number;
+  from?: string;   // bank-received
+  payee?: string;  // bank-payment
+}
+export interface BankReceivedData { rows: BankDetailRow[]; summary: { count: number; totalReceived: number }; bankAccount: { id: string; name: string } | null; }
+export interface BankPaymentData { rows: BankDetailRow[]; summary: { count: number; totalPaid: number }; bankAccount: { id: string; name: string } | null; }
 
 // ── Bank Reconciliation ────────────────────────────────────────────────────────
 
@@ -817,6 +866,36 @@ const BANKING_REPORTS: ReportDefinition[] = [
     type: 'table',
     filterMode: 'date-range',
   },
+  {
+    id: 'bank-history',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Bank History',
+    description: 'Passbook of all movements per bank with a running balance (Mutasi Bank).',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: false,
+  },
+  {
+    id: 'bank-received',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Detail Received per Bank',
+    description: 'Money received by a bank in a period — income plus incoming transfers.',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: true,
+  },
+  {
+    id: 'bank-payment',
+    category: 'banking',
+    apiPath: '/api/v1/reports/banking',
+    name: 'Detail Payment per Bank',
+    description: 'Money paid out of a bank in a period — expense plus outgoing transfers.',
+    type: 'table',
+    filterMode: 'bank-period',
+    bankRequired: true,
+  },
 ];
 
 const INVENTORY_REPORTS: ReportDefinition[] = [
@@ -861,6 +940,15 @@ const REPORTS_BY_CATEGORY: Partial<Record<ReportCategoryId, ReportDefinition[]>>
   inventory: INVENTORY_REPORTS,
   hr:        HR_REPORTS,
 };
+
+/** Flat list of every report definition, for looking a report up by id. */
+export const ALL_REPORTS: ReportDefinition[] = Object.values(REPORTS_BY_CATEGORY).flat() as ReportDefinition[];
+
+/** Find a report definition by its id (used by the workspace report tab). */
+export function findReportById(id: string | undefined | null): ReportDefinition | undefined {
+  if (!id) return undefined;
+  return ALL_REPORTS.find((r) => r.id === id);
+}
 
 const IMPLEMENTED_CATEGORIES: CategoryMeta[] = ALL_CATEGORIES.filter((category) => {
   const reports = REPORTS_BY_CATEGORY[category.id];
@@ -1203,7 +1291,28 @@ const buildGlCsv = (report: ReportDefinition, data: Record<string, unknown>): st
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const Reports: React.FC = () => {
+export interface ReportsProps {
+  /** 'legacy' (default): standalone-route behaviour — internal tab strip + "Laporan Lainnya".
+   *  'catalog': render only the category sidebar + cards; running a report calls onRunReport.
+   *  'single': render exactly one report (singleReport/singleParams); no catalog, no other-report cards. */
+  variant?: 'legacy' | 'catalog' | 'single';
+  /** catalog: called when the user runs a report from the parameter modal. */
+  onRunReport?: (report: ReportDefinition, params: ReportParams) => void;
+  /** single: the report to display and its run parameters. */
+  singleReport?: ReportDefinition;
+  singleParams?: ReportParams;
+  /** single: called when the user re-runs via "Ubah Filter", to persist new params. */
+  onParamsChange?: (params: ReportParams) => void;
+}
+
+const Reports: React.FC<ReportsProps> = ({
+  variant = 'legacy',
+  onRunReport,
+  singleReport,
+  singleParams,
+  onParamsChange,
+}) => {
+  const navigate = useNavigate();
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: vendorsData } = useVendors({ limit: 200 });
@@ -1211,6 +1320,10 @@ const Reports: React.FC = () => {
   const { data: accountsData } = useChartOfAccounts();
   const { data: warehousesData } = useWarehouses();
   const { data: categoriesData } = useItemCategories();
+  const { data: bankAccountsData } = useBankAccounts();
+  // Only active accounts are selectable — the bank-history query scopes to
+  // isActive, so offering an inactive bank would just yield an empty report.
+  const bankAccounts = (bankAccountsData ?? []).filter((a) => a.isActive);
   const customers = customersData?.data || [];
   const vendors = vendorsData?.data || [];
   const items = itemsData?.data || [];
@@ -1263,6 +1376,7 @@ const Reports: React.FC = () => {
   const [compareDateFrom, setCompareDateFrom] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)));
   const [compareDateTo, setCompareDateTo] = useState<string>(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
 
   const [openReports, setOpenReports] = useState<OpenReportEntry[]>([]);
   const [activeReportId, setActiveReportId] = useState<ReportType | null>(null);
@@ -1305,6 +1419,10 @@ const Reports: React.FC = () => {
   const categoryReports: ReportDefinition[] = REPORTS_BY_CATEGORY[activeCategory] || [];
   const activeCategoryMeta = IMPLEMENTED_CATEGORIES.find((category) => category.id === activeCategory);
   const activeReport = openReports.find((entry) => entry.report.id === activeReportId) || null;
+  const showCategorySidebar = variant !== 'single';
+  const showCatalog = variant === 'legacy' || variant === 'catalog';
+  const showInternalTabs = variant === 'legacy';
+  const showOtherReports = variant === 'legacy';
   const filteredReports = categoryReports.filter((report) =>
     report.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -1330,6 +1448,7 @@ const Reports: React.FC = () => {
     setValuationCategoryId('');
     setValuationWarehouseId('');
     setSelectedVendorId('');
+    setSelectedBankAccountId('');
   };
 
   const closeReportTab = (reportId: ReportType) => {
@@ -1379,6 +1498,7 @@ const Reports: React.FC = () => {
     setValuationWarehouseId(params.warehouseId || '');
     if (report.id === 'statement') setSelectedCustomerId(params.customerId || '');
     setSelectedVendorId(params.vendorId || '');
+    setSelectedBankAccountId(params.bankAccountId || '');
     setParamModal(report);
   };
 
@@ -1403,6 +1523,7 @@ const Reports: React.FC = () => {
     setValuationCategoryId('');
     setValuationWarehouseId('');
     setSelectedVendorId('');
+    setSelectedBankAccountId('');
     setReportPresets((prev) => {
       const next = { ...prev };
       delete next[paramModal.id];
@@ -1479,6 +1600,12 @@ const Reports: React.FC = () => {
       return params;
     }
 
+    if (report.filterMode === 'bank-period') {
+      const params: ReportParams = { type: report.id, dateFrom, dateTo };
+      if (selectedBankAccountId) params.bankAccountId = selectedBankAccountId;
+      return params;
+    }
+
     if (report.category === 'banking' || report.category === 'inventory') {
       return { type: report.id, dateFrom, dateTo };
     }
@@ -1498,6 +1625,10 @@ const Reports: React.FC = () => {
       setError('Pilih vendor terlebih dahulu.');
       return;
     }
+    if (reportToRun.filterMode === 'bank-period' && reportToRun.bankRequired && !selectedBankAccountId) {
+      setError('Pilih bank terlebih dahulu.');
+      return;
+    }
     setParamModal(null);
     setIsLoading(true);
     setError(null);
@@ -1508,6 +1639,17 @@ const Reports: React.FC = () => {
         ...prev,
         [reportToRun.id]: params,
       }));
+      if (variant === 'catalog') {
+        onRunReport?.(reportToRun, params);
+        return;
+      }
+      if (variant === 'single') {
+        // The single-mode effect is the sole fetch path: persisting the new
+        // params re-renders this component with fresh singleParams, which the
+        // effect picks up and fetches. Returning here avoids a double request.
+        onParamsChange?.(params);
+        return;
+      }
       // api.get returns unknown; cast to record since shape varies per report
       // Cast via unknown because ReportParams has no index signature; api.get accepts Record<string, unknown>
       const data = await api.get<Record<string, unknown>>(reportToRun.apiPath, params as unknown as Record<string, unknown>);
@@ -1515,8 +1657,8 @@ const Reports: React.FC = () => {
         report: reportToRun,
         data,
         params,
-        dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateFrom : null,
-        dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement') ? dateTo   : null,
+        dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateFrom : null,
+        dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateTo   : null,
         asOfDate: reportToRun.filterMode === 'as-of'      ? asOfDate : null,
       };
 
@@ -1536,6 +1678,46 @@ const Reports: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  // `single` variant: fetch the one report from its saved params on mount and
+  // whenever the params change (e.g. after "Ubah Filter"). With no saved params
+  // yet (a fresh/deep-linked report tab), open the parameter modal to collect them.
+  const singleParamsKey = singleParams ? JSON.stringify(singleParams) : '';
+  useEffect(() => {
+    if (variant !== 'single' || !singleReport) return;
+    if (!singleParams) {
+      openParamModal(singleReport);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const data = await api.get<Record<string, unknown>>(
+          singleReport.apiPath,
+          singleParams as unknown as Record<string, unknown>,
+        );
+        if (cancelled) return;
+        const entry: OpenReportEntry = {
+          report: singleReport,
+          data,
+          params: singleParams,
+          dateFrom: singleParams.dateFrom ?? null,
+          dateTo: singleParams.dateTo ?? null,
+          asOfDate: singleParams.asOfDate ?? null,
+        };
+        setOpenReports([entry]);
+        setActiveReportId(singleReport.id);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant, singleReport, singleParamsKey]);
 
   const buildApCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
     if (report.id === 'ap-statement') return buildStatementCsv(data);
@@ -1615,6 +1797,43 @@ const Reports: React.FC = () => {
         row.unmatchedAmount,
         escapeCsvCell(row.lastStatementDate ? formatDateID(row.lastStatementDate) : ''),
       ].join(',')).join('\n');
+      return csv;
+    }
+    if (report.id === 'bank-history') {
+      const hist = data as unknown as BankHistoryData;
+      let csv = '';
+      for (const bank of hist.banks || []) {
+        csv += `${escapeCsvCell(bank.bankAccountName)}\n`;
+        csv += 'Tanggal,No. Jurnal,Keterangan,Lawan Transaksi,Masuk,Keluar,Saldo\n';
+        csv += `,,Saldo Awal,,,,${bank.openingBalance}\n`;
+        csv += (bank.rows || []).map((row) => [
+          escapeCsvCell(formatDateID(row.date)),
+          escapeCsvCell(row.journalEntryNo ?? row.txnNumber ?? ''),
+          escapeCsvCell(row.description),
+          escapeCsvCell(row.counterparty),
+          row.moneyIn,
+          row.moneyOut,
+          row.runningBalance,
+        ].join(',')).join('\n');
+        csv += `\nTotal,,,,${bank.totalIn},${bank.totalOut},${bank.closingBalance}\n\n`;
+      }
+      return csv.trimEnd();
+    }
+
+    if (report.id === 'bank-received' || report.id === 'bank-payment') {
+      const isReceived = report.id === 'bank-received';
+      const detail = data as unknown as (BankReceivedData | BankPaymentData);
+      const rows = detail.rows || [];
+      let csv = `Tanggal,No. Jurnal,${isReceived ? 'Dari' : 'Kepada'},Keterangan,Jumlah\n`;
+      csv += rows.map((row) => [
+        escapeCsvCell(formatDateID(row.date)),
+        escapeCsvCell(row.journalEntryNo ?? row.txnNumber ?? ''),
+        escapeCsvCell(isReceived ? (row.from ?? '') : (row.payee ?? '')),
+        escapeCsvCell(row.description),
+        row.amount,
+      ].join(',')).join('\n');
+      const total = isReceived ? (detail as BankReceivedData).summary.totalReceived : (detail as BankPaymentData).summary.totalPaid;
+      csv += `\nTotal (${rows.length} transaksi),,,,${total}`;
       return csv;
     }
     return '';
@@ -1732,6 +1951,16 @@ const Reports: React.FC = () => {
     if (!activeReport) return null;
 
     const { report, data } = activeReport;
+
+    const journalLink = (row: { journalEntryNo: string | null; txnNumber: string | null; bankTransactionId: string }) => (
+      <button
+        type="button"
+        onClick={() => navigate(`/banking?txnId=${row.bankTransactionId}`)}
+        className="text-primary-600 underline hover:text-primary-800"
+      >
+        {row.journalEntryNo ?? row.txnNumber ?? '—'}
+      </button>
+    );
 
     if (report.id === 'statement' || report.id === 'ap-statement') {
       const stmt = data as StatementData;
@@ -2480,6 +2709,103 @@ const Reports: React.FC = () => {
       );
     }
 
+    if (report.id === 'bank-history') {
+      const hist = data as BankHistoryData;
+      const banks = hist.banks || [];
+      if (!banks.length) return renderEmptyReport('Tidak ada transaksi bank pada periode yang dipilih.');
+      return (
+        <div className="space-y-6">
+          {banks.map((bank) => (
+            <div key={bank.bankAccountId}>
+              <div className="text-sm font-semibold text-neutral-800 mb-2">
+                {bank.bankAccountName}{bank.bankName ? ` — ${bank.bankName}` : ''}
+              </div>
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-blue-50">
+                    <th className="p-2 text-left font-semibold border border-neutral-300">Tanggal</th>
+                    <th className="p-2 text-left font-semibold border border-neutral-300">No. Jurnal</th>
+                    <th className="p-2 text-left font-semibold border border-neutral-300">Keterangan</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Masuk</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Keluar</th>
+                    <th className="p-2 text-right font-semibold border border-neutral-300">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-neutral-50">
+                    <td colSpan={5} className="p-2 border border-neutral-200 text-neutral-500">Saldo Awal</td>
+                    <td className="p-2 border border-neutral-200 text-right text-neutral-600">{formatIDR(bank.openingBalance)}</td>
+                  </tr>
+                  {bank.rows.map((row) => (
+                    <tr key={row.bankTransactionId} className="hover:bg-neutral-50">
+                      <td className="p-2 border border-neutral-200">{formatDateID(row.date)}</td>
+                      <td className="p-2 border border-neutral-200">{journalLink(row)}</td>
+                      <td className="p-2 border border-neutral-200">
+                        {row.description}{row.counterparty ? <span className="text-neutral-500"> — {row.counterparty}</span> : null}
+                      </td>
+                      <td className="p-2 border border-neutral-200 text-right text-success-700">{row.moneyIn ? formatIDR(row.moneyIn) : ''}</td>
+                      <td className="p-2 border border-neutral-200 text-right text-danger-600">{row.moneyOut ? formatIDR(row.moneyOut) : ''}</td>
+                      <td className="p-2 border border-neutral-200 text-right">{formatIDR(row.runningBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-blue-50 font-bold">
+                    <td colSpan={3} className="p-2 border border-neutral-300">Saldo Akhir &amp; Total</td>
+                    <td className="p-2 border border-neutral-300 text-right text-success-700">{formatIDR(bank.totalIn)}</td>
+                    <td className="p-2 border border-neutral-300 text-right text-danger-600">{formatIDR(bank.totalOut)}</td>
+                    <td className="p-2 border border-neutral-300 text-right">{formatIDR(bank.closingBalance)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (report.id === 'bank-received' || report.id === 'bank-payment') {
+      const isReceived = report.id === 'bank-received';
+      const detail = data as BankReceivedData | BankPaymentData;
+      const rows = detail.rows || [];
+      if (!rows.length) return renderEmptyReport('Tidak ada transaksi pada periode yang dipilih.');
+      const total = isReceived
+        ? (detail as BankReceivedData).summary.totalReceived
+        : (detail as BankPaymentData).summary.totalPaid;
+      return (
+        <div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="p-2 text-left font-semibold border border-neutral-300">Tanggal</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">No. Jurnal</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">{isReceived ? 'Dari' : 'Kepada'}</th>
+                <th className="p-2 text-left font-semibold border border-neutral-300">Keterangan</th>
+                <th className="p-2 text-right font-semibold border border-neutral-300">Jumlah</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.bankTransactionId} className="hover:bg-neutral-50">
+                  <td className="p-2 border border-neutral-200">{formatDateID(row.date)}</td>
+                  <td className="p-2 border border-neutral-200">{journalLink(row)}</td>
+                  <td className="p-2 border border-neutral-200">{isReceived ? row.from : row.payee}</td>
+                  <td className="p-2 border border-neutral-200">{row.description}</td>
+                  <td className="p-2 border border-neutral-200 text-right">{formatIDR(row.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-blue-50 font-bold">
+                <td colSpan={4} className="p-2 border border-neutral-300">Total ({rows.length} transaksi)</td>
+                <td className="p-2 border border-neutral-300 text-right">{formatIDR(total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      );
+    }
+
     // ── Bank Reconciliation ───────────────────────────────────────────────────
     if (report.id === 'bank-reconciliation') {
       const reconData = data as { rows: BankReconciliationRow[]; summary: BankReconciliationSummary };
@@ -3040,6 +3366,9 @@ const Reports: React.FC = () => {
     activeReport.params.sortBy === 'qty' ? 'Urut: Qty (pcs)' : null,
     activeReport.params.status ? `Status: ${activeReport.params.status}` : null,
     activeReport.params.compareAsOfDate ? `Compare: ${formatDateID(activeReport.params.compareAsOfDate)}` : null,
+    activeReport.report.filterMode === 'bank-period'
+      ? `Bank: ${activeReport.params.bankAccountId ? (bankAccounts.find((a) => a.id === activeReport.params.bankAccountId)?.name ?? 'Bank') : 'Semua bank'}`
+      : null,
   ].filter((x): x is string => x !== null) : [];
 
   const valuationFilterLabel = activeReport
@@ -3071,44 +3400,48 @@ const Reports: React.FC = () => {
 
   return (
     <div className="flex h-full min-h-0" style={{ height: 'calc(100vh - 56px)' }}>
-      <div className="w-[200px] shrink-0 border-r border-neutral-200 bg-neutral-50 p-3 flex flex-col gap-1 overflow-y-auto">
-        {IMPLEMENTED_CATEGORIES.map((cat) => {
-          const Icon = cat.icon;
-          return (
-            <button
-              key={cat.id}
-              onClick={() => resetCategoryState(cat.id)}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-colors w-full ${
-                activeCategory === cat.id
-                  ? 'bg-primary-600 text-white'
-                  : 'text-neutral-700 hover:bg-neutral-200'
-              }`}
-            >
-              <Icon size={16} strokeWidth={1.8} />
-              {cat.label}
-            </button>
-          );
-        })}
-      </div>
+      {showCategorySidebar && (
+        <div className="w-[200px] shrink-0 border-r border-neutral-200 bg-neutral-50 p-3 flex flex-col gap-1 overflow-y-auto">
+          {IMPLEMENTED_CATEGORIES.map((cat) => {
+            const Icon = cat.icon;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => resetCategoryState(cat.id)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-colors w-full ${
+                  activeCategory === cat.id
+                    ? 'bg-primary-600 text-white'
+                    : 'text-neutral-700 hover:bg-neutral-200'
+                }`}
+              >
+                <Icon size={16} strokeWidth={1.8} />
+                {cat.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex-1 min-w-0 overflow-y-auto">
-        {categoryReports.length > 0 && (
+        {(variant === 'single' || categoryReports.length > 0) && (
           <div className="p-6">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-bold text-neutral-900">{activeCategoryMeta?.label}</h2>
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
-                <input
-                  type="text"
-                  placeholder="Cari laporan..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="h-9 pl-9 pr-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 w-[220px]"
-                />
+            {showCatalog && (
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-bold text-neutral-900">{activeCategoryMeta?.label}</h2>
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari laporan..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="h-9 pl-9 pr-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 w-[220px]"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
-            {!activeReport && !isLoading && (
+            {showCatalog && !activeReport && !isLoading && (
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {filteredReports.map((report) => (
                   <ReportCard key={report.id} report={report} onClick={handleCardClick} />
@@ -3116,7 +3449,7 @@ const Reports: React.FC = () => {
               </div>
             )}
 
-            {!activeReport && !isLoading && !filteredReports.length && (
+            {showCatalog && !activeReport && !isLoading && !filteredReports.length && (
               renderEmptyReport('Tidak ada laporan yang cocok dengan pencarian.')
             )}
 
@@ -3130,7 +3463,7 @@ const Reports: React.FC = () => {
               </div>
             )}
 
-            {openReports.length > 0 && !isLoading && (
+            {showInternalTabs && openReports.length > 0 && !isLoading && (
               <div className="mb-4 overflow-x-auto">
                 <div className="inline-flex min-w-full items-end gap-1 border-b border-neutral-300">
                   {openReports.map((entry) => {
@@ -3170,16 +3503,20 @@ const Reports: React.FC = () => {
                 <div className="mb-4 pb-3 border-b border-neutral-200">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => {
-                          closeReportTab(activeReport.report.id);
-                          setError(null);
-                        }}
-                        className="flex items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
-                      >
-                        <X size={14} /> Tutup
-                      </button>
-                      <div className="h-4 w-px bg-neutral-300" />
+                      {variant === 'legacy' && (
+                        <>
+                          <button
+                            onClick={() => {
+                              closeReportTab(activeReport.report.id);
+                              setError(null);
+                            }}
+                            className="flex items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
+                          >
+                            <X size={14} /> Tutup
+                          </button>
+                          <div className="h-4 w-px bg-neutral-300" />
+                        </>
+                      )}
                       <span className="font-semibold text-neutral-900">{activeReport.report.name}</span>
                       <span className="text-xs text-neutral-500">{periodLabel}</span>
                     </div>
@@ -3239,18 +3576,20 @@ const Reports: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="mt-8 pt-6 border-t border-neutral-200 print:hidden">
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
-                    Laporan Lainnya
+                {showOtherReports && (
+                  <div className="mt-8 pt-6 border-t border-neutral-200 print:hidden">
+                    <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
+                      Laporan Lainnya
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {categoryReports
+                        .filter((report) => report.id !== activeReport.report.id)
+                        .map((report) => (
+                          <ReportCard key={report.id} report={report} onClick={handleCardClick} />
+                        ))}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {categoryReports
-                      .filter((report) => report.id !== activeReport.report.id)
-                      .map((report) => (
-                        <ReportCard key={report.id} report={report} onClick={handleCardClick} />
-                      ))}
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -3346,6 +3685,38 @@ const Reports: React.FC = () => {
                     </select>
                   </div>
                 </div>
+              </div>
+            ) : paramModal.filterMode === 'bank-period' ? (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Periode &amp; Bank</div>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">Dari</label>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">s/d</label>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    />
+                  </div>
+                </div>
+                <SearchableSelect
+                  label={paramModal.bankRequired ? 'Bank' : 'Bank (Opsional — semua bank bila kosong)'}
+                  options={bankAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                  value={selectedBankAccountId}
+                  onChange={(id) => setSelectedBankAccountId(id)}
+                  placeholder={paramModal.bankRequired ? 'Pilih bank...' : 'Semua bank'}
+                  className="mb-0"
+                />
               </div>
             ) : paramModal.filterMode === 'date-range' ? (
               <div>
@@ -3611,7 +3982,8 @@ const Reports: React.FC = () => {
                 onClick={handleRunReport}
                 disabled={
                   (paramModal.id === 'statement' && !selectedCustomerId) ||
-                  (paramModal.id === 'ap-statement' && !selectedVendorId)
+                  (paramModal.id === 'ap-statement' && !selectedVendorId) ||
+                  (paramModal.filterMode === 'bank-period' && paramModal.bankRequired && !selectedBankAccountId)
                 }
               />
             </div>

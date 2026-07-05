@@ -8,6 +8,7 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { useToastStore } from '../../stores/useToastStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,28 +86,13 @@ function moduleKeyFor(documentType: DocumentType): string {
     return MODULE_KEY_BY_TYPE[documentType] ?? '__unknown__';
 }
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-interface Toast {
-    id: number;
-    message: string;
-    type: 'success' | 'error';
-}
-
-let toastSeq = 0;
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const ApprovalInbox: React.FC = () => {
     const queryClient = useQueryClient();
     const hasPermission = useAuthStore((s) => s.hasPermission);
 
-    const [toasts, setToasts] = useState<Toast[]>([]);
-    const pushToast = (message: string, type: 'success' | 'error' = 'success') => {
-        const id = ++toastSeq;
-        setToasts((prev) => [...prev, { id, message, type }]);
-        setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
-    };
+    const pushToast = useToastStore((s) => s.pushToast);
 
     const [filterType, setFilterType] = useState<FilterType>('ALL');
 
@@ -309,20 +295,6 @@ const ApprovalInbox: React.FC = () => {
 
     return (
         <div className="container ar-module container-full-width">
-            {/* Toast notifications */}
-            <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-                {toasts.map((t) => (
-                    <div
-                        key={t.id}
-                        className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-neutral-0 transition-all ${
-                            t.type === 'error' ? 'bg-danger-500' : 'bg-success-500'
-                        }`}
-                    >
-                        {t.message}
-                    </div>
-                ))}
-            </div>
-
             {/* Page header */}
             <div className="flex items-center justify-between mb-4">
                 <div>

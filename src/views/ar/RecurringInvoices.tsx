@@ -8,6 +8,7 @@ import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID } from '../../utils/formatters';
+import { useToastStore } from '../../stores/useToastStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,27 +94,12 @@ function statusTagProps(status: RecurringStatus): { status: string; label: strin
     return { status: 'neutral', label: 'Ended' };
 }
 
-// ── Toast helper ──────────────────────────────────────────────────────────────
-
-interface Toast {
-    id: number;
-    message: string;
-    type: 'success' | 'error';
-}
-
-let toastSeq = 0;
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const RecurringInvoices: React.FC = () => {
     const queryClient = useQueryClient();
 
-    const [toasts, setToasts] = useState<Toast[]>([]);
-    const pushToast = (message: string, type: 'success' | 'error' = 'success') => {
-        const id = ++toastSeq;
-        setToasts((prev) => [...prev, { id, message, type }]);
-        setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
-    };
+    const pushToast = useToastStore((s) => s.pushToast);
 
     const [modalOpen, setModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -367,20 +353,6 @@ const RecurringInvoices: React.FC = () => {
 
     return (
         <div>
-            {/* Toast notifications */}
-            <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-                {toasts.map((t) => (
-                    <div
-                        key={t.id}
-                        className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-neutral-0 transition-all ${
-                            t.type === 'error' ? 'bg-danger-500' : 'bg-success-500'
-                        }`}
-                    >
-                        {t.message}
-                    </div>
-                ))}
-            </div>
-
             {/* Toolbar */}
             <div className="flex items-center justify-end gap-2 mb-4">
                 <Button

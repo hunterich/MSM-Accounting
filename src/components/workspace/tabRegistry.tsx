@@ -38,6 +38,8 @@ import APDebitNoteListPane from '../ap/debits/APDebitNoteListPane';
 import APDebitNoteDetailPane from '../ap/debits/APDebitNoteDetailPane';
 import DebitNoteForm from '../../views/ap/DebitNoteForm';
 import PurchaseReturnForm from '../../views/ap/PurchaseReturnForm';
+import ReportsCatalogTab from './ReportsCatalogTab';
+import ReportsReportTab from './ReportsReportTab';
 
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
@@ -144,6 +146,11 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
             const returnId = rid.startsWith('return:') ? rid.slice('return:'.length) : undefined;
             return <SalesReturnForm recordId={returnId} mode={returnId ? 'edit' : 'create'} workspaceTabId={tab.id} />;
         }
+    }
+
+    if (module === 'reports') {
+        if (tab.kind === 'list') return <ReportsCatalogTab />;
+        if (tab.kind === 'report') return <ReportsReportTab tabId={tab.id} />;
     }
 
     return (

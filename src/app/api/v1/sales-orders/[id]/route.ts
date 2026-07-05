@@ -1,5 +1,5 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
@@ -79,7 +79,7 @@ export const PUT = withPermission({ module: 'AR_SALES_ORDERS', action: 'edit' },
           ...(expiryDate  !== undefined && { expiryDate: expiryDate ? new Date(expiryDate) : null }),
           ...(number      !== undefined && { number }),
           ...(notes       !== undefined && { notes }),
-          ...(nextStatus  !== undefined && { status: nextStatus }),
+          ...(nextStatus  !== undefined && { status: nextStatus as Prisma.SalesOrderUpdateInput['status'] }),
           ...(items       !== undefined && {
             items: {
               deleteMany: {},

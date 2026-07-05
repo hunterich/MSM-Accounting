@@ -56,7 +56,7 @@ function ppnTaxOf(base: number, taxType: string, taxRate: unknown): number {
  * — everything `buildBankPosting` / `postBankOpeningBalance` need to resolve GL
  * accounts. Shared so every posting reads the same data the same way.
  */
-async function loadBankPostingContext(tx: Tx, orgId: string) {
+export async function loadBankPostingContext(tx: Tx, orgId: string) {
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },

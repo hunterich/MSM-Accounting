@@ -21,6 +21,7 @@ import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { addCostLayer, getWeightedAverageCost } from './inventory-costing';
 import { toNumber, asMoney } from './money';
+import { assertPeriodOpen } from './period-guard';
 
 type Tx = Prisma.TransactionClient;
 
@@ -33,6 +34,9 @@ export async function postSalesReturnOnApproval(
     include: { lines: true },
   });
   if (!sr || sr.journalEntryId) return;
+
+  // Refuse to post inventory/GL into a closed/locked accounting period.
+  await assertPeriodOpen(tx, sr.organizationId, sr.returnDate);
 
   const itemIds = sr.lines
     .map((l) => l.itemId)

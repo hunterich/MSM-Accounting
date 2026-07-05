@@ -133,3 +133,58 @@ export function useDeleteEcommerceConnection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ecommerceConnections'] }),
   });
 }
+
+export interface MarketplaceImportPayload {
+  orders: Array<{
+    orderNo: string;
+    issueDate: string;
+    lines: Array<{
+      itemId: string;
+      description: string;
+      sku: string;
+      quantity: number;
+      unitPrice: number;
+    }>;
+  }>;
+  options: { customerId?: string; recordPayment: boolean };
+}
+
+export interface MarketplaceImportResult {
+  created: number;
+  skipped: number;
+  failed: Array<{ orderNo: string; reason: string }>;
+}
+
+export function useImportMarketplaceOrders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ connectionId, ...body }: MarketplaceImportPayload & { connectionId: string }) =>
+      api.post<MarketplaceImportResult>(`/api/v1/integrations/${connectionId}/import`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['arInvoices'] });
+      qc.invalidateQueries({ queryKey: ['arPayments'] });
+    },
+  });
+}
+
+export interface SettlementImportPayload {
+  orders: Array<{ orderId: string; netReleased: number; charges: Record<string, number> }>;
+}
+export interface SettlementImportResult {
+  posted: number;
+  alreadySettled: number;
+  skipped: Array<{ orderId: string; netReleased: number }>;
+  failed: Array<{ orderId: string; reason: string }>;
+}
+
+export function useImportSettlement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ connectionId, ...body }: SettlementImportPayload & { connectionId: string }) =>
+      api.post<SettlementImportResult>(`/api/v1/integrations/${connectionId}/settlement-import`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['arPayments'] });
+      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
+    },
+  });
+}

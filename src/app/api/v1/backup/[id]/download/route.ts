@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { err } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPlatformAdmin } from '@/lib/authz';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { prisma } from '@/lib/prisma';
 import { getSettings } from '@/lib/backup/backup-service';
@@ -13,8 +13,7 @@ export function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withPermission(
-  { module: 'SYSTEM_BACKUP', action: 'view' },
+export const GET = withPlatformAdmin(
   async function GET(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> },

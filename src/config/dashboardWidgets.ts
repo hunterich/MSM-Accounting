@@ -16,6 +16,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     { id: 'recent_payments',   label: 'Recent Payments Received', description: 'Last 5 AR payments received',            permission: 'ar_payments', size: 'lg' },
     { id: 'recent_bills',      label: 'Recent Bills',             description: 'Last 5 AP bills by date',                permission: 'ap_bills',    size: 'lg' },
     { id: 'pending_approvals', label: 'Pending Approvals',        description: 'Documents awaiting your approval',       permission: 'dashboard',   size: 'lg', requiresApproveRight: true },
+    { id: 'top_selling_products', label: 'Best Selling Products', description: 'Top 20 products by units sold, per quarter', permission: 'reports', size: 'lg' },
 ];
 
 export const DEFAULT_WIDGET_IDS: string[] = [
