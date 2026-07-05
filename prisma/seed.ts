@@ -118,6 +118,49 @@ async function main() {
     },
   });
 
+  // ── POS: operator role, walk-in customer, one register ──────────────────────
+  const posRole = await prisma.role.upsert({
+    where: { organizationId_name: { organizationId: org.id, name: 'POS Operator' } },
+    update: {},
+    create: {
+      organizationId: org.id,
+      name: 'POS Operator',
+      roleType: RoleType.CUSTOM,
+      invoiceAccessScope: 'OWN',
+      isActive: true,
+      allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      startTime: '08:00',
+      endTime: '22:00',
+    },
+  });
+  await prisma.rolePermission.createMany({
+    data: [
+      { roleId: posRole.id, moduleKey: ModuleKey.POS_RETAIL, canView: true, canCreate: true, canEdit: true, canDelete: false, canApprove: false },
+      { roleId: posRole.id, moduleKey: ModuleKey.AR_INVOICES, canView: true, canCreate: true, canEdit: false, canDelete: false, canApprove: false },
+      { roleId: posRole.id, moduleKey: ModuleKey.AR_PAYMENTS, canView: true, canCreate: true, canEdit: false, canDelete: false, canApprove: false },
+    ],
+    skipDuplicates: true,
+  });
+
+  await prisma.customer.upsert({
+    where: { organizationId_code: { organizationId: org.id, code: 'WALK-IN' } },
+    update: {},
+    create: { organizationId: org.id, code: 'WALK-IN', name: 'Walk-in Customer', status: 'ACTIVE' },
+  });
+
+  const firstWarehouse = await prisma.warehouse.findFirst({ where: { organizationId: org.id }, select: { id: true } });
+  const posWarehouseId = firstWarehouse?.id ?? (await prisma.warehouse.upsert({
+    where: { organizationId_code: { organizationId: org.id, code: 'WH-MAIN' } },
+    update: {},
+    create: { organizationId: org.id, code: 'WH-MAIN', name: 'Apotek Utama' },
+    select: { id: true },
+  })).id;
+  await prisma.posRegister.upsert({
+    where: { organizationId_code: { organizationId: org.id, code: 'REG-1' } },
+    update: {},
+    create: { organizationId: org.id, code: 'REG-1', name: 'Register 1', warehouseId: posWarehouseId, isActive: true },
+  });
+
   const cashierRole = await prisma.role.upsert({
     where: {
       organizationId_name: {
