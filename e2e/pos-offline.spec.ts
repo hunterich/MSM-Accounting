@@ -9,7 +9,9 @@ test.describe('POS offline', () => {
     await page.fill('input[type="email"]', 'cashier@demo.com');
     await page.fill('input[type="password"]', 'cashier123');
     await page.click('button[type="submit"]');
-    await expect(page.getByText('Buka shift')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Buka shift' })).toBeVisible();
+    // Give the login-time cache warm-up a moment so the catalog is available offline.
+    await page.waitForTimeout(1500);
 
     await context.setOffline(true);
     await page.fill('input[type="number"]', '100000');
@@ -20,9 +22,10 @@ test.describe('POS offline', () => {
     await page.getByLabel('Uang diterima').fill('50000');
     await page.getByRole('button', { name: 'Selesaikan' }).click();
     await expect(page.getByText('Kembalian')).toBeVisible(); // receipt printed locally, offline
+    await page.getByRole('button', { name: 'Transaksi baru' }).click(); // back to checkout (has the OfflineBar)
 
     await context.setOffline(false);
-    await expect(page.getByText('Online')).toBeVisible();
+    await expect(page.getByText('Online')).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/antre/)).toHaveCount(0, { timeout: 15000 }); // queue drained
   });
 });

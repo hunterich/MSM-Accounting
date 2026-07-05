@@ -66,8 +66,9 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
   const totals = computeSaleTotals(toSaleLines(cart), 11);
   const registerName = (registers.data ?? []).find((r) => r.id === registerId)?.name ?? t('shift.register');
 
-  // Prefer the live catalog; fall back to the cached rows when the query is in error (offline) and has no data.
-  const catalogRows = catalog.data ?? (catalog.isError ? cachedCatalog : []);
+  // Prefer the live catalog; fall back to the cached rows whenever there's no live data.
+  // (React Query pauses — not errors — offline, so don't gate the fallback on isError.)
+  const catalogRows = catalog.data ?? cachedCatalog;
 
   const items = catalogRows.filter((it) => {
     if (!matchesCategory(category, it.drugClass)) return false;
@@ -127,7 +128,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
           </div>
           <CategoryChips selected={category} onSelect={setCategory} />
           <div className="min-h-0 flex-1 overflow-auto">
-            {catalog.isLoading
+            {catalog.isLoading && catalogRows.length === 0
               ? <p className="p-8 text-center text-gray-400">…</p>
               : <ProductGrid items={items} onPick={pick} />}
           </div>
