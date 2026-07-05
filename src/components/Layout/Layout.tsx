@@ -4,6 +4,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { UserCircle } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Button from '../UI/Button';
+import Toaster from '../UI/Toaster';
 import { useAuthStore } from '../../stores/useAuthStore';
 import ChangePasswordModal from '../auth/ChangePasswordModal';
 import { WORKSPACE_TABS_ENABLED } from '../../config/featureFlags';
@@ -41,6 +42,7 @@ const Layout = (): React.ReactElement => {
                     {WORKSPACE_TABS_ENABLED ? <WorkspaceShell /> : <Outlet />}
                 </main>
             </div>
+            <Toaster />
         </div>
     );
 };
