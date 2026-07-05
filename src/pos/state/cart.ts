@@ -6,6 +6,7 @@ export interface CatalogItem {
   name: string;
   barcode?: string | null;
   sellingPrice: number;
+  earliestExpiry?: string | null;
 }
 
 export interface CartLine {
@@ -14,6 +15,7 @@ export interface CartLine {
   price: number;      // tax-inclusive unit price
   quantity: number;
   discountPct: number;
+  earliestExpiry?: string | null;
 }
 
 export interface Cart {
@@ -30,7 +32,7 @@ export function addItem(cart: Cart, item: CatalogItem): Cart {
     return { lines: cart.lines.map((l) => (l.itemId === item.id ? { ...l, quantity: l.quantity + 1 } : l)) };
   }
   return {
-    lines: [...cart.lines, { itemId: item.id, name: item.name, price: item.sellingPrice, quantity: 1, discountPct: 0 }],
+    lines: [...cart.lines, { itemId: item.id, name: item.name, price: item.sellingPrice, quantity: 1, discountPct: 0, earliestExpiry: item.earliestExpiry ?? null }],
   };
 }
 

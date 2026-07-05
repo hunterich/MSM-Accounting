@@ -17,8 +17,15 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
     by: ['itemId'],
     where: { organizationId: orgId, qtyOnHand: { gt: 0 } },
     _sum: { qtyOnHand: true },
+    _min: { expiryDate: true },
   });
   const stockByItem = new Map(batches.map((b) => [b.itemId, Number(b._sum.qtyOnHand ?? 0)]));
+  const expiryByItem = new Map(batches.map((b) => [b.itemId, b._min.expiryDate ?? null]));
 
-  return ok(items.map((it) => ({ ...it, sellingPrice: Number(it.sellingPrice), qtyAvailable: stockByItem.get(it.id) ?? 0 })));
+  return ok(items.map((it) => ({
+    ...it,
+    sellingPrice: Number(it.sellingPrice),
+    qtyAvailable: stockByItem.get(it.id) ?? 0,
+    earliestExpiry: expiryByItem.get(it.id)?.toISOString() ?? null,
+  })));
 });
