@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from '@ta
 import PosApp from './PosApp';
 import { useAuthStore } from '../stores/useAuthStore';
 import '../index.css';
-import './styles/print.css';
 
 const on401 = (e: unknown) => {
   if ((e as { status?: number })?.status === 401) {
