@@ -4,7 +4,7 @@ import type { CatalogItem } from '../state/cart';
 import type { SaleLineInput } from '@/lib/pos/pricing';
 
 export interface PosRegister { id: string; code: string; name: string; warehouseId: string | null }
-export interface CatalogRow extends CatalogItem { drugClass: string; requiresBatchTracking: boolean; qtyAvailable: number }
+export interface CatalogRow extends CatalogItem { drugClass: string; requiresBatchTracking: boolean; qtyAvailable: number; earliestExpiry: string | null }
 export interface OpenShiftResult { id: string; status: 'OPEN' }
 export interface CloseShiftResult {
   status: 'CLOSED'; expectedCash: number; cashVariance: number;
