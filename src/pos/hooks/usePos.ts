@@ -11,9 +11,14 @@ export interface CloseShiftResult {
   zReport: { totalSales: number; saleCount: number; cashCollected: number };
 }
 export interface PostSaleResult { posSaleId: string; salesInvoiceId: string; totalAmount: number; change: number }
+export interface OpenShiftRow { id: string; registerId: string; openedAt: string; openingFloat: number }
 
 export function useRegisters() {
   return useQuery({ queryKey: ['pos', 'registers'], queryFn: () => api.get<PosRegister[]>('/api/v1/pos/registers') });
+}
+
+export function useOpenShifts() {
+  return useQuery({ queryKey: ['pos', 'openShifts'], queryFn: () => api.get<OpenShiftRow[]>('/api/v1/pos/shifts') });
 }
 
 export function useCatalog(enabled: boolean) {

@@ -10,6 +10,8 @@ const dict = {
   'shift.register':   { id: 'Kasir/Register',      en: 'Register' },
   'shift.openingFloat': { id: 'Modal awal',        en: 'Opening float' },
   'shift.open':       { id: 'Buka shift',          en: 'Open shift' },
+  'shift.continue':   { id: 'Lanjutkan shift',     en: 'Continue shift' },
+  'shift.alreadyOpen': { id: 'Register ini sudah punya shift terbuka', en: 'This register already has an open shift' },
   'shift.close':      { id: 'Tutup shift',         en: 'Close shift' },
   'shift.countedCash': { id: 'Uang tunai dihitung', en: 'Counted cash' },
   'shift.expected':   { id: 'Seharusnya',          en: 'Expected' },
