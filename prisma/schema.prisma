@@ -99,6 +99,10 @@ model Organization {
   emailTemplates         EmailTemplate[]
   subscriptionPlans      SubscriptionPlan[]
   subscriptions          Subscription[]
+  stockBatches           StockBatch[]
+  posRegisters           PosRegister[]
+  posShifts              PosShift[]
+  posSales               PosSale[]
 }
 
 model User {
@@ -420,6 +424,8 @@ model Item {
   sellingPrice             Decimal       @default(0) @db.Decimal(18, 2)
   openingStock             Decimal       @default(0) @db.Decimal(18, 4)
   reorderPoint             Decimal       @default(0) @db.Decimal(18, 4)
+  drugClass                DrugClass     @default(NON_OBAT)
+  requiresBatchTracking    Boolean       @default(false)
   inventoryAccountId       String?
   revenueAccountId         String?
   cogsAccountId            String?
@@ -440,6 +446,8 @@ model Item {
   documentMappings   VendorDocumentMapping[]
   inventoryLots      InventoryLot[]
   deliveryNoteLines  DeliveryNoteLine[]
+  stockBatches       StockBatch[]
+  posBatchAllocations PosSaleBatchAllocation[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -462,6 +470,8 @@ model Warehouse {
   ledgerEntries  InventoryLedgerEntry[]
   deliveryNotes  DeliveryNote[]
   inventoryLots  InventoryLot[]
+  stockBatches   StockBatch[]
+  posRegisters   PosRegister[]
 
   @@unique([organizationId, code])
 }
@@ -508,6 +518,7 @@ model SalesInvoice {
   paymentAllocations ARPaymentAllocation[]
   salesReturns       SalesReturn[]
   creditNotes        CreditNote[]
+  posSale            PosSale?
 
   @@unique([organizationId, number])
   @@index([organizationId, createdById, issueDate])
@@ -591,6 +602,34 @@ enum SoStatus {
 enum InventoryCostingMethod {
   FIFO
   WEIGHTED_AVERAGE
+}
+
+enum DrugClass {
+  OBAT_BEBAS
+  OBAT_BEBAS_TERBATAS
+  OBAT_KERAS
+  PSIKOTROPIKA
+  NARKOTIKA
+  NON_OBAT
+}
+
+enum PosShiftStatus {
+  OPEN
+  CLOSED
+}
+
+enum PosTenderMethod {
+  CASH
+  QRIS
+  EWALLET
+  EDC_DEBIT
+  EDC_CREDIT
+}
+
+enum PosSaleSyncStatus {
+  SYNCED
+  PENDING
+  FAILED
 }
 
 model SalesOrder {
@@ -1600,6 +1639,7 @@ enum ModuleKey {
   COMPANY
   SETTINGS
   SYSTEM_BACKUP
+  POS_RETAIL
 }
 
 enum AccountType {
@@ -2321,4 +2361,121 @@ model BackupRecord {
   error             String?
 
   @@index([createdAt])
+}
+
+model StockBatch {
+  id             String   @id @default(cuid())
+  organizationId String
+  itemId         String
+  warehouseId    String?
+  batchNumber    String
+  expiryDate     DateTime
+  qtyOnHand      Decimal  @default(0) @db.Decimal(18, 4)
+  unitCost       Decimal  @default(0) @db.Decimal(18, 2)
+  receivedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  item         Item         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  allocations  PosSaleBatchAllocation[]
+
+  @@unique([organizationId, itemId, warehouseId, batchNumber, expiryDate])
+  @@index([organizationId, itemId, warehouseId, expiryDate])
+}
+
+model PosRegister {
+  id             String   @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  warehouseId    String?
+  cashAccountId  String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  shifts       PosShift[]
+  sales        PosSale[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model PosShift {
+  id                 String         @id @default(cuid())
+  organizationId     String
+  registerId         String
+  cashierId          String
+  openedAt           DateTime       @default(now())
+  closedAt           DateTime?
+  openingFloat       Decimal        @default(0) @db.Decimal(18, 2)
+  closingCountedCash Decimal?       @db.Decimal(18, 2)
+  expectedCash       Decimal?       @db.Decimal(18, 2)
+  cashVariance       Decimal?       @db.Decimal(18, 2)
+  status             PosShiftStatus @default(OPEN)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  register     PosRegister  @relation(fields: [registerId], references: [id], onDelete: Restrict)
+  sales        PosSale[]
+
+  @@index([organizationId, status])
+  @@index([registerId, status])
+}
+
+model PosSale {
+  id             String            @id @default(cuid())
+  organizationId String
+  salesInvoiceId String            @unique
+  registerId     String
+  shiftId        String
+  cashierId      String
+  clientSaleId   String
+  syncStatus     PosSaleSyncStatus @default(SYNCED)
+  soldAt         DateTime          @default(now())
+  createdAt      DateTime          @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  salesInvoice  SalesInvoice  @relation(fields: [salesInvoiceId], references: [id], onDelete: Restrict)
+  register      PosRegister   @relation(fields: [registerId], references: [id], onDelete: Restrict)
+  shift         PosShift      @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  tenders       PosTender[]
+  batchAllocations PosSaleBatchAllocation[]
+
+  @@unique([organizationId, clientSaleId])
+  @@index([organizationId, soldAt])
+  @@index([shiftId])
+}
+
+model PosTender {
+  id         String          @id @default(cuid())
+  posSaleId  String
+  method     PosTenderMethod
+  amount     Decimal         @default(0) @db.Decimal(18, 2)
+  changeGiven Decimal        @default(0) @db.Decimal(18, 2)
+  reference  String?
+
+  posSale PosSale @relation(fields: [posSaleId], references: [id], onDelete: Cascade)
+
+  @@index([posSaleId])
+}
+
+model PosSaleBatchAllocation {
+  id           String  @id @default(cuid())
+  posSaleId    String
+  itemId       String
+  stockBatchId String
+  qty          Decimal @db.Decimal(18, 4)
+
+  posSale    PosSale    @relation(fields: [posSaleId], references: [id], onDelete: Cascade)
+  item       Item       @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  stockBatch StockBatch @relation(fields: [stockBatchId], references: [id], onDelete: Restrict)
+
+  @@index([posSaleId])
+  @@index([stockBatchId])
 }
