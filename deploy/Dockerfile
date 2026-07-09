@@ -47,7 +47,7 @@ RUN apt-get update \
 ENV NODE_ENV=production
 
 # Copy the fully-built app, including node_modules. This keeps the Prisma CLI and
-# the tsx seed runner available so `docker compose run backend npx prisma db push`
+# the tsx seed runner available so `docker compose run backend npx prisma migrate deploy`
 # and `npm run db:seed` work against the running database.
 COPY --from=build /app ./
 
