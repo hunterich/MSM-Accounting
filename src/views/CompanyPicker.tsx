@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Building2, ChevronRight } from 'lucide-react';
 import Button from '../components/UI/Button';
 import { useAuthStore } from '../stores/useAuthStore';
-import { getLastOrgId } from '../lib/activeOrg';
+import { getActiveOrgId, getLastOrgId } from '../lib/activeOrg';
 
 /**
  * Post-login company picker (Accurate-style database list). Shown by
@@ -20,12 +20,16 @@ const CompanyPicker = (): React.ReactElement => {
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const lastOrgId = getLastOrgId();
 
-  // Bounce case: the previously used org is not resolvable against this
-  // session's membership list — either the membership was revoked (the 403
-  // path cleared the tab pin) or a just-granted membership isn't in this
-  // session's JWT yet and the ?org= reload bounced back here.
-  const previousSelectionRejected =
-    needsOrgSelection && !!lastOrgId && !memberships.some((m) => m.orgId === lastOrgId);
+  // Bounce case: this tab still carries an org pin, yet /auth/me could not
+  // resolve it — the selection was rejected. The ?org= handshake pins the tab
+  // BEFORE checkSession, and nothing clears the pin when /me bounces
+  // (apiClient clears only on data-route 403s, and no data route mounts
+  // behind the picker gate), so "pin present AND needsOrgSelection" detects
+  // the rejection directly. Note the JWT/DB split: resolution validates
+  // against JWT claims while this list is DB-derived, so a just-granted
+  // membership can appear below yet still bounce until re-login. Fresh
+  // logins stay silent (logout clears the pin; new tabs have none).
+  const previousSelectionRejected = needsOrgSelection && getActiveOrgId() !== null;
 
   const handleSelect = (orgId: string): void => {
     if (selectingId) return;
