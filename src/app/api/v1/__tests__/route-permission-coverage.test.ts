@@ -26,6 +26,7 @@ function listRouteFiles(dir: string, base = ''): string[] {
 // Keep this list tight and justified.
 const OPEN_ALLOWLIST = new Set([
   'auth/google/route.ts', 'auth/login/route.ts', 'auth/logout/route.ts', 'auth/me/route.ts',
+  'auth/refresh/route.ts',                      // self-service: re-issues the caller's own token (cookie-guarded)
   'users/me/password/route.ts',                 // self-service: change your own password
   'item-categories/[id]/next-sku/route.ts',     // read-only lookup (computes next SKU)
   'approvals/[id]/approve/route.ts',            // guarded by assertApprovalAuthorized (approval engine)
