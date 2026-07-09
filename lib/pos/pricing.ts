@@ -4,6 +4,9 @@ export interface SaleLineInput {
   quantity: number;
   price: number;      // tax-inclusive unit price
   discountPct: number; // 0..100
+  /** Staff member (Employee id) credited for this line. Optional: the pharmacy
+   *  sends none and the server defaults it to the cashier's staff record. */
+  performedById?: string | null;
 }
 
 export interface SaleTotals {

@@ -1083,6 +1083,7 @@ export const posSaleLineSchema = z.object({
   quantity: positiveDecimal.refine((n) => n > 0, 'Quantity must be > 0'),
   price: positiveDecimal,
   discountPct: positiveDecimal.max(100).default(0),
+  performedById: z.string().trim().min(1).nullish(),
 });
 
 export const posTenderSchema = z.object({
