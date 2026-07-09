@@ -1,0 +1,25 @@
+# Caddy config for the internal LAN deployment.
+#
+# {$SITE_HOST} is provided by docker-compose (defaults to accounting.msm).
+# `tls internal` makes Caddy issue the cert from its own CA — no public domain
+# needed. Install Caddy's root cert on each client PC once (see deploy/README.md)
+# so browsers trust it without a warning.
+
+{$SITE_HOST} {
+	tls internal
+	encode gzip
+
+	# API -> Next.js backend. Path is preserved: /api/v1/... reaches the backend
+	# unchanged, so the session cookie stays same-origin (SameSite=Lax works).
+	handle /api/* {
+		reverse_proxy backend:3000
+	}
+
+	# Everything else is the static SPA. Real files (e.g. /pos.html, assets) are
+	# served directly; unknown client-side routes fall back to index.html.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

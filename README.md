@@ -75,6 +75,13 @@ Seed default login:
 - `npm run prisma:migrate:dev` - Run dev migrations
 - `npm run db:seed` - Seed demo data
 
+## Deployment
+
+For a self-hosted, multi-user install (e.g. one Windows 11 PC serving an office
+LAN), use the Docker setup in [`deploy/`](deploy/). It runs Postgres, the Next.js
+API, and a Caddy reverse proxy as three containers behind a single HTTPS origin.
+Follow [`deploy/README.md`](deploy/README.md).
+
 ## Documentation
 
 - Product roadmap: `ROADMAP.md`

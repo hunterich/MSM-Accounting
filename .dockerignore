@@ -1,0 +1,25 @@
+# Keep the Docker build context small and never bake host artifacts/secrets
+# into the image. node_modules/.next/dist are rebuilt inside the image.
+node_modules
+.next
+dist
+build
+test-results
+playwright-report
+e2e
+
+# Local secrets / env — the container gets its env from docker-compose instead
+.env
+.env.*
+!.env.example
+
+# VCS + tooling
+.git
+.gitignore
+.claude
+.github
+*.log
+npm-debug.log*
+
+# OS cruft
+.DS_Store
