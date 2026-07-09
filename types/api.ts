@@ -1083,6 +1083,7 @@ export const posSaleLineSchema = z.object({
   quantity: positiveDecimal.refine((n) => n > 0, 'Quantity must be > 0'),
   price: positiveDecimal,
   discountPct: positiveDecimal.max(100).default(0),
+  performedById: z.string().trim().min(1).nullish(),
 });
 
 export const posTenderSchema = z.object({
@@ -1103,6 +1104,14 @@ export const openPosShiftSchema = z.object({
   registerId: z.string().trim().min(1),
   openingFloat: positiveDecimal,
   clientShiftId: z.string().trim().optional(),
+});
+
+export const putPosTargetsSchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM'),
+  targets: z.array(z.object({
+    employeeId: z.string().trim().min(1),
+    targetAmount: z.number().nonnegative().nullable(),
+  })),
 });
 
 export const closePosShiftSchema = z.object({
