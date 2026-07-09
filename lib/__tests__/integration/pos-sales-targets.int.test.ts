@@ -5,10 +5,11 @@ import { GET as getTargets, PUT as putTargets } from '@/src/app/api/v1/pos/targe
 
 afterAll(async () => { await disconnect(); });
 
-function adminReq(orgId: string, url: string, init?: RequestInit) {
+function adminReq(orgId: string, url: string, init?: { method?: string; body?: string }) {
   return new NextRequest(url, {
-    ...init,
-    headers: { 'x-org-id': orgId, 'x-user-id': 'admin', 'x-role-type': 'ADMIN', 'content-type': 'application/json', ...(init?.headers ?? {}) },
+    method: init?.method,
+    body: init?.body,
+    headers: { 'x-org-id': orgId, 'x-user-id': 'admin', 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
   });
 }
 
