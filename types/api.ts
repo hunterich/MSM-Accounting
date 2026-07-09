@@ -1107,7 +1107,7 @@ export const openPosShiftSchema = z.object({
 });
 
 export const putPosTargetsSchema = z.object({
-  month: z.string().regex(/^\d{4}-\d{2}$/, 'month must be YYYY-MM'),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM'),
   targets: z.array(z.object({
     employeeId: z.string().trim().min(1),
     targetAmount: z.number().nonnegative().nullable(),

@@ -12,7 +12,7 @@ export async function OPTIONS() { return corsPreflightResponse(); }
 export const GET = withPermission({ module: 'POS_REPORTS', action: 'view' }, async (req: NextRequest) => {
   const orgId = requireOrg(req);
   const month = new URL(req.url).searchParams.get('month') ?? '';
-  if (!/^\d{4}-\d{2}$/.test(month)) return err('month=YYYY-MM is required', 400);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return err('month=YYYY-MM is required', 400);
 
   const employees = await prisma.employee.findMany({
     where: { organizationId: orgId, status: 'ACTIVE' },

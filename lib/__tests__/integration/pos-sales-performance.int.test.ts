@@ -37,13 +37,16 @@ describe('Sales Performance report', () => {
     const res = await report(adminReq(o.org.orgId, 'http://localhost/api/v1/pos/reports/sales-performance?month=2026-07'));
     expect(res.status).toBe(200);
     const body = await res.json();
+    // Each Haircut rings up at a tax-INCLUSIVE 50000; the target is measured on
+    // the PRE-TAX net, so each line credits 50000 / 1.11 toward the salesperson.
+    const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const netLine = 50000 / 1.11;
     const aniRow = body.rows.find((r: any) => r.employeeId === ani.id);
-    // Each Haircut line subtotal is the pre-tax 50000 (tax is embedded in the gross tender).
-    expect(aniRow.sold).toBe(100000);
+    expect(aniRow.sold).toBe(round2(2 * netLine)); // ~90090.09
     expect(aniRow.target).toBe(500000);
     const unassigned = body.rows.find((r: any) => r.employeeId === null);
-    expect(unassigned.sold).toBe(50000);
-    expect(body.totals.sold).toBe(150000);
+    expect(unassigned.sold).toBe(round2(netLine)); // ~45045.05
+    expect(body.totals.sold).toBe(round2(round2(2 * netLine) + round2(netLine)));
 
     await cleanupOrg(o.org.orgId);
   });

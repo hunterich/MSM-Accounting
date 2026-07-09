@@ -11,21 +11,25 @@ export async function OPTIONS() { return corsPreflightResponse(); }
 export const GET = withPermission({ module: 'POS_REPORTS', action: 'view' }, async (req: NextRequest) => {
   const orgId = requireOrg(req);
   const month = new URL(req.url).searchParams.get('month') ?? '';
-  if (!/^\d{4}-\d{2}$/.test(month)) return err('month=YYYY-MM is required', 400);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return err('month=YYYY-MM is required', 400);
 
   const { start, end, daysInMonth, daysElapsed } = wibMonthRange(month, new Date());
 
-  // Sum each invoice line's pre-tax subtotal, keyed by the credited staff member,
-  // over POS sales whose soldAt falls in the WIB month.
+  // Sum each invoice line's PRE-TAX value, keyed by the credited staff member,
+  // over POS sales whose soldAt falls in the WIB month. POS lines store a
+  // tax-INCLUSIVE `lineSubtotal` (price is tax-inclusive), so for a tax-inclusive
+  // invoice we divide out the embedded PPN to get the net the target measures.
   const sales = await prisma.posSale.findMany({
     where: { organizationId: orgId, soldAt: { gte: start, lt: end } },
-    select: { salesInvoice: { select: { lines: { select: { performedById: true, lineSubtotal: true } } } } },
+    select: { salesInvoice: { select: { taxInclusive: true, taxRate: true, lines: { select: { performedById: true, lineSubtotal: true } } } } },
   });
   const soldByEmployee: Record<string, number> = {};
   for (const s of sales) {
-    for (const line of s.salesInvoice.lines) {
+    const inv = s.salesInvoice;
+    const divisor = inv.taxInclusive ? 1 + Number(inv.taxRate) / 100 : 1;
+    for (const line of inv.lines) {
       const key = line.performedById ?? UNASSIGNED;
-      soldByEmployee[key] = (soldByEmployee[key] ?? 0) + Number(line.lineSubtotal);
+      soldByEmployee[key] = (soldByEmployee[key] ?? 0) + Number(line.lineSubtotal) / divisor;
     }
   }
 

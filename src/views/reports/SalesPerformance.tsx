@@ -1,11 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import Card from '../../components/UI/Card';
 import { formatIDR } from '../../utils/formatters';
-import { useSalesPerformance, usePosTargets, useSavePosTargets } from '../../hooks/usePosReports';
+import { api } from '../../api/apiClient';
+import { useSalesPerformance, usePosTargets, useSavePosTargets, type TargetsResponse } from '../../hooks/usePosReports';
 
 function currentWibMonth(): string {
   const wib = new Date(Date.now() + 7 * 60 * 60 * 1000);
   return `${wib.getUTCFullYear()}-${String(wib.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function prevMonth(m: string): string {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(Date.UTC(y, mo - 1, 1));
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -117,10 +125,20 @@ function TargetEditor({ month, onClose }: { month: string; onClose: () => void }
     onClose();
   };
 
+  const copyLastMonth = async () => {
+    const res = await api.get<TargetsResponse>('/api/v1/pos/targets', { month: prevMonth(month) });
+    const next: Record<string, string> = {};
+    for (const t of res.targets) if (t.targetAmount != null) next[t.employeeId] = String(t.targetAmount);
+    setDraft(next);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-lg w-[28rem] max-h-[80vh] overflow-auto p-5 space-y-3">
-        <h2 className="font-semibold">Targets — {month}</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Targets — {month}</h2>
+          <button onClick={copyLastMonth} className="text-xs px-2 py-1 rounded border">Copy last month</button>
+        </div>
         <div className="space-y-2">
           {(data?.targets ?? []).map((t) => (
             <div key={t.employeeId} className="flex items-center justify-between gap-3">
