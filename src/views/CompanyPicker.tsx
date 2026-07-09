@@ -7,7 +7,8 @@ import { getLastOrgId } from '../lib/activeOrg';
  * Post-login company picker (Accurate-style database list). Shown by
  * ProtectedRoute when the session has multiple memberships and no active org
  * has been chosen for this tab yet. Clicking a company pins it to this tab
- * (sessionStorage) and re-runs the session check against that org.
+ * (sessionStorage) and hard-reloads so every org-scoped persisted store
+ * hydrates from the chosen company's bucket.
  */
 const CompanyPicker = (): React.ReactElement => {
   const user = useAuthStore((s) => s.user);
@@ -16,14 +17,12 @@ const CompanyPicker = (): React.ReactElement => {
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const lastOrgId = getLastOrgId();
 
-  const handleSelect = async (orgId: string): Promise<void> => {
+  const handleSelect = (orgId: string): void => {
     if (selectingId) return;
     setSelectingId(orgId);
-    try {
-      await selectOrg(orgId);
-    } finally {
-      setSelectingId(null);
-    }
+    // selectOrg hard-reloads into the chosen org; the spinner stays visible
+    // (and the list disabled) until navigation replaces the page.
+    selectOrg(orgId);
   };
 
   return (

@@ -47,7 +47,7 @@ interface AuthStore {
     hasPermission:       (moduleKey: string, action?: PermissionAction) => boolean;
     updateOrganizationContext: (nextOrg: Partial<AuthOrg>, needsInventoryValuationSetup?: boolean) => void;
     checkSession:        () => Promise<void>;
-    selectOrg:           (orgId: string) => Promise<void>;
+    selectOrg:           (orgId: string) => void;
     login:               (email: string, password: string) => Promise<unknown>;
     loginWithGoogle:     (credential: string) => Promise<unknown>;
     logout:              () => Promise<void>;
@@ -188,9 +188,14 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     }
   },
 
-  selectOrg: async (orgId) => {
+  selectOrg: (orgId) => {
     setActiveOrgId(orgId);
-    await get().checkSession();
+    // Hard reload — the same mechanism as the header switcher. After reload
+    // the bootstrap finds the sessionStorage org, the picker gate passes, and
+    // every org-scoped persisted store hydrates from the right per-company
+    // bucket (they hydrate synchronously at import, so an in-place
+    // checkSession would leave them on the ':default' bucket).
+    window.location.assign('/');
   },
 
   login: async (email, password) => {
