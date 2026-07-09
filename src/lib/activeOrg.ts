@@ -41,3 +41,11 @@ export function bootstrapActiveOrg(): string | null {
   } catch { /* noop */ }
   return getActiveOrgId();
 }
+
+// Also consume ?org= at module-evaluation time: ES imports are hoisted, so the
+// explicit bootstrapActiveOrg() call in main.tsx runs AFTER the app's module
+// graph — including zustand persist stores, which hydrate synchronously at
+// import. This module is a dependency of every org-scoped store, so it always
+// evaluates first, guaranteeing the new tab is pinned to its org before any
+// storage key is computed. The main.tsx call is then an idempotent no-op.
+if (typeof window !== 'undefined') bootstrapActiveOrg();

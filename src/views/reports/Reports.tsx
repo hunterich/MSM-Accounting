@@ -17,6 +17,7 @@ import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../api/apiClient';
+import { getActiveOrgId } from '../../lib/activeOrg';
 import { useNavigate } from 'react-router-dom';
 
 // ── Domain types ────────────────────────────────────────────────────────────────
@@ -965,10 +966,14 @@ const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 const REPORT_PRESETS_KEY = 'msm-report-presets';
 
+// Presets hold org entity ids (accountId, warehouseId, customerId, …) so they
+// are partitioned per company, mirroring the org-scoped zustand stores.
+const reportPresetsKey = (): string => `${REPORT_PRESETS_KEY}:${getActiveOrgId() ?? 'default'}`;
+
 const loadReportPresets = (): Record<string, ReportParams> => {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = window.localStorage.getItem(REPORT_PRESETS_KEY);
+    const raw = window.localStorage.getItem(reportPresetsKey());
     return raw ? (JSON.parse(raw) as Record<string, ReportParams>) : {};
   } catch {
     return {};
@@ -1387,7 +1392,7 @@ const Reports: React.FC<ReportsProps> = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(REPORT_PRESETS_KEY, JSON.stringify(reportPresets));
+    window.localStorage.setItem(reportPresetsKey(), JSON.stringify(reportPresets));
   }, [reportPresets]);
 
   useEffect(() => {

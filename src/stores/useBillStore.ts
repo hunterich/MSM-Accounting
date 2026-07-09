@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { orgScopedStorage } from '../lib/orgScopedStorage';
 import { bills as seed, billItemTemplates as templatesSeed } from '../data/mockData';
 
 type BillRecord = { id: string } & Record<string, unknown>;
@@ -54,6 +55,7 @@ export const useBillStore = create<BillStore>()(
         }),
         {
             name: 'msm-bills',
+            storage: createJSONStorage(() => orgScopedStorage), // org-scoped data — partition per company
             version: 1,
         }
     )
