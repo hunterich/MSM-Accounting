@@ -46,11 +46,32 @@ On **every client PC** (and the server itself), add a line to
 
 > A local DNS server is nicer for many machines, but the hosts file is fine to start.
 
-## 3. Build and start
+## 3. Start it
+
+There are two ways to run, both using the same `deploy\.env`:
+
+- **Pull prebuilt images (recommended for the server).** CI publishes images to
+  GHCR on every merge to `main`; the server just downloads them. Uses
+  `docker-compose.prod.yml`.
+- **Build from source on this PC.** Uses `docker-compose.yml`. No registry login
+  needed, but the build runs here. Use this before the images exist (i.e. before
+  this change is merged to `main`).
+
+**For the server (pull mode):** add this line to `deploy\.env` so every command
+below uses the prebuilt images, and log in to GHCR once (create a GitHub token
+with the `read:packages` scope):
 
 ```powershell
-docker compose build
-docker compose up -d db          # start the database first
+# in deploy\.env:
+#   COMPOSE_FILE=docker-compose.prod.yml
+echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+```
+
+Then bring it up (start the DB first, create tables, seed, then the rest):
+
+```powershell
+docker compose pull              # build-from-source mode: use `docker compose build` instead
+docker compose up -d db
 docker compose run --rm backend npx prisma db push   # create all tables
 docker compose run --rm backend npm run db:seed      # seed demo admin + defaults
 docker compose up -d             # bring up backend + web
@@ -102,16 +123,26 @@ confirm Backup & Restore writes to your `BACKUP_DIR_HOST` folder.
 
 ## Day-2 operations
 
-**Update after a code change (`git pull`):**
+**Push an upgrade** — once new code is merged to `main`, CI builds and publishes
+the images automatically (watch the Actions tab). On the server:
 ```powershell
-docker compose up -d --build
-# only if the Prisma schema changed:
-docker compose run --rm backend npx prisma db push
+# 1. Back up first — this is accounting data.
+docker compose exec -T db pg_dump -U postgres msm_accounting > backup-before-upgrade.sql
+# 2. Pull the new images, apply any schema change, then swap containers.
+docker compose pull
+docker compose run --rm backend npx prisma db push   # only if the Prisma schema changed
+docker compose up -d
 ```
+(Build-from-source mode: replace `docker compose pull` with `docker compose build`.)
 
-**Change the hostname (`SITE_HOST`):** the SPA bakes the API URL at build time, so
-rebuild the web image: `docker compose up -d --build web` (and update the hosts
-files + re-trust the cert if the name changed).
+**Roll back** to a previous version: find the commit's short SHA on GitHub, set
+`IMAGE_TAG=sha-<that-sha>` in `deploy\.env`, then `docker compose pull` and
+`docker compose up -d`. Note a schema change may not roll back cleanly — restore
+the pre-upgrade backup if the older code can't read the newer DB.
+
+**Change the hostname (`SITE_HOST`):** just update it in `deploy\.env`, update the
+hosts-file entries, re-trust the new cert (§4), and `docker compose up -d`. No
+rebuild needed — the frontend calls the API relative to its own origin.
 
 **Logs:** `docker compose logs -f backend` (or `web`, `db`).
 

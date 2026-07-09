@@ -1,15 +1,17 @@
-# MSM Accounting Software — internal LAN deployment.
+# Production stack for the server — pulls PREBUILT images from GHCR instead of
+# building from source. This is what runs on the office Windows 11 PC.
 #
-# Three services on one Docker network, exposed as a single HTTPS origin:
-#   db      PostgreSQL 16 (data persisted in a named volume)
-#   backend Next.js API (:3000, internal only)
-#   web     Caddy — serves the SPA + reverse-proxies /api, terminates TLS (:443)
-#
-# Values come from deploy/.env (copy from deploy/.env.example first).
+# CI (.github/workflows/deploy-images.yml) builds and publishes the images on
+# every merge to main. Upgrading the server is then just:
 #
 #   cd deploy
-#   docker compose up -d --build
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
 #
+# Rollback: set IMAGE_TAG in deploy/.env to a previous "sha-<...>" tag, then
+# re-run the two commands above.
+#
+# Values come from deploy/.env (same file as the build setup).
 name: msm-accounting
 
 services:
@@ -29,10 +31,7 @@ services:
       retries: 5
 
   backend:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-      target: backend
+    image: ${IMAGE_BASE:-ghcr.io/hunterich/msm-accounting}-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       db:
@@ -41,28 +40,16 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-msm_accounting}?schema=public
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
       NODE_ENV: production
-      # Single origin behind Caddy; the auth cookie is Secure (HTTPS) + SameSite=Lax.
       FRONTEND_ORIGIN: https://${SITE_HOST:-accounting.msm}
       COOKIE_SECURE: "true"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
       BACKUP_DIR: /data/backups
     volumes:
-      # In-app Backup & Restore writes here → mapped to a real host folder so
-      # dumps survive and can be synced to OneDrive/Drive.
       - ${BACKUP_DIR_HOST:-./backups}:/data/backups
 
   web:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-      target: web
-      args:
-        # "/" makes the SPA call the API relative to its own origin. Caddy serves
-        # the SPA and proxies /api on one origin, so nothing host-specific is baked
-        # in and the image is portable (same image works for any SITE_HOST).
-        VITE_API_URL: "/"
-        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    image: ${IMAGE_BASE:-ghcr.io/hunterich/msm-accounting}-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend
@@ -72,7 +59,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - caddydata:/data      # holds Caddy's internal CA + issued certs
+      - caddydata:/data
       - caddyconfig:/config
 
 volumes:

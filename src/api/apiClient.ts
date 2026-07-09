@@ -4,11 +4,7 @@
  * Tenant context is derived server-side from the session cookie — no x-org-id header is sent.
  */
 
-const resolveApiBase = () => {
-  if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (typeof window !== 'undefined') return `${window.location.protocol}//${window.location.hostname}:3000`;
-  return 'http://localhost:3000';
-};
+import { resolveApiBase } from '../lib/apiBase';
 
 const API_BASE = resolveApiBase();
 
