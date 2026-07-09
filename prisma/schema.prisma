@@ -103,6 +103,7 @@ model Organization {
   posRegisters           PosRegister[]
   posShifts              PosShift[]
   posSales               PosSale[]
+  posSalesTargets   PosSalesTarget[]
 }
 
 model User {
@@ -123,6 +124,7 @@ model User {
   deliveryNotes  DeliveryNote[]
   approvalRequestsBy  ApprovalRequest[] @relation("ApprovalReqBy")
   approvalRequestsRev ApprovalRequest[] @relation("ApprovalRevBy")
+  employeeProfile   Employee?
 }
 
 model UserOrganization {
@@ -539,12 +541,15 @@ model SalesInvoiceLine {
   price         Decimal  @default(0) @db.Decimal(18, 2)
   discountPct   Decimal  @default(0) @db.Decimal(5, 2)
   lineSubtotal  Decimal  @default(0) @db.Decimal(18, 2)
+  performedById String?
 
   invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   item           Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  performedBy    Employee?    @relation(fields: [performedById], references: [id], onDelete: SetNull)
 
   @@unique([invoiceId, lineNo])
   @@index([itemId])
+  @@index([performedById])
 }
 
 // Additional charge on a sales invoice (delivery, handling). On the AR side these
@@ -1376,17 +1381,21 @@ model Employee {
   bpjsKesehatan         String?
   bpjsKetenagakerjaan   String?
   basicSalary           Decimal          @default(0) @db.Decimal(18, 2)
+  userId                String?          @unique
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
 
   organization          Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   department            Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   position              Position?        @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  user                  User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   compensationItems     EmployeeCompensationItem[]
   attendanceRecords     AttendanceRecord[]
   leaveRequests         LeaveRequest[]
   leaveBalances         LeaveBalance[]
   payrollLines          PayrollLine[]
+  salesTargets          PosSalesTarget[]
+  performedLines        SalesInvoiceLine[]
 
   @@unique([organizationId, employeeNo])
   @@index([organizationId, name])
@@ -1640,6 +1649,7 @@ enum ModuleKey {
   SETTINGS
   SYSTEM_BACKUP
   POS_RETAIL
+  POS_REPORTS
 }
 
 enum AccountType {
@@ -2480,4 +2490,20 @@ model PosSaleBatchAllocation {
 
   @@index([posSaleId])
   @@index([stockBatchId])
+}
+
+model PosSalesTarget {
+  id             String   @id @default(cuid())
+  organizationId String
+  employeeId     String
+  month          String   // "YYYY-MM" (WIB calendar month)
+  targetAmount   Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, employeeId, month])
+  @@index([organizationId, month])
 }
