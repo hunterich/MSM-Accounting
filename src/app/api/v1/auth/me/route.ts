@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyToken, COOKIE_NAME } from '@/lib/auth';
+import { verifyToken, resolveActiveOrg, COOKIE_NAME } from '@/lib/auth';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 
 export const runtime = 'nodejs';
@@ -21,14 +21,15 @@ export async function GET(req: NextRequest) {
       return withCors(NextResponse.json({ error: 'Invalid token' }, { status: 401 }));
     }
 
+    // This route bypasses middleware, so it resolves the active org itself.
+    const resolution = resolveActiveOrg(payload, req.headers.get('x-active-org'));
+
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
       include: {
         memberships: {
-          where: {
-            organizationId: payload.orgId,
-            isActive: true,
-          },
+          where: { isActive: true },
+          orderBy: [{ joinedAt: 'asc' as const }, { id: 'asc' as const }],
           include: {
             role: {
               include: {
@@ -37,7 +38,6 @@ export async function GET(req: NextRequest) {
             },
             organization: true,
           },
-          take: 1,
         },
       },
     });
@@ -46,7 +46,26 @@ export async function GET(req: NextRequest) {
       return withCors(NextResponse.json({ error: 'User not found' }, { status: 404 }));
     }
 
-    const membership = user.memberships[0];
+    const membershipsOut = user.memberships.map((m) => ({
+      orgId: m.organizationId,
+      name: m.organization.displayName,
+      roleType: m.role.roleType,
+    }));
+
+    if (!resolution.ok) {
+      // No/invalid active org: return identity + memberships so the client can show the picker.
+      return withCors(
+        NextResponse.json({
+          user: { id: user.id, email: user.email, fullName: user.fullName },
+          memberships: membershipsOut,
+          org: null,
+          needsOrgSelection: true,
+          mustChangePassword: user.mustChangePassword === true,
+        })
+      );
+    }
+
+    const membership = user.memberships.find((m) => m.organizationId === resolution.orgId);
     if (!membership) {
       return withCors(NextResponse.json({ error: 'Membership not found' }, { status: 403 }));
     }
@@ -71,6 +90,7 @@ export async function GET(req: NextRequest) {
           permissions: membership.role.permissions,
           invoiceAccessScope: membership.role.invoiceAccessScope,
         },
+        memberships: membershipsOut,
       })
     );
   } catch {
