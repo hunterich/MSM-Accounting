@@ -1,14 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Check, ChevronDown, ExternalLink } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
-import { setActiveOrgId } from '../../lib/activeOrg';
 
 /**
  * Header company switcher. With a single membership it renders today's plain
  * org-name text (strict no-op); with several it becomes a dropdown where each
- * company offers "Switch here" (pin this tab + hard reload — deliberately
- * wipes React Query cache and Zustand state so no cross-company data can
- * linger) and "Open in new tab" (?org= handshake pins the new tab).
+ * company offers "Switch here" (hard reload through the ?org= handshake —
+ * deliberately wipes React Query cache and Zustand state so no cross-company
+ * data can linger) and "Open in new tab" (same handshake, new tab).
+ *
+ * The org pin is written only by the NEW document's bootstrap (module-eval in
+ * activeOrg.ts) — never pre-set here, or the still-live old page would stamp
+ * the new org header on in-flight background requests.
  */
 const CompanySwitcher = (): React.ReactElement => {
     const org = useAuthStore((s) => s.org);
@@ -35,12 +38,11 @@ const CompanySwitcher = (): React.ReactElement => {
 
     const switchHere = (orgId: string): void => {
         if (orgId === org?.id) { setOpen(false); return; }
-        setActiveOrgId(orgId);
-        window.location.assign('/');
+        window.location.assign(`/?org=${encodeURIComponent(orgId)}`);
     };
 
     const openInNewTab = (orgId: string): void => {
-        window.open(`/?org=${orgId}`, '_blank');
+        window.open(`/?org=${encodeURIComponent(orgId)}`, '_blank');
         setOpen(false);
     };
 

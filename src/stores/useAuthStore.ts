@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getActiveOrgId, setActiveOrgId } from '../lib/activeOrg';
+import { getActiveOrgId, clearActiveOrg } from '../lib/activeOrg';
 
 interface AuthUser {
     id:       string;
@@ -189,13 +189,15 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   },
 
   selectOrg: (orgId) => {
-    setActiveOrgId(orgId);
-    // Hard reload — the same mechanism as the header switcher. After reload
-    // the bootstrap finds the sessionStorage org, the picker gate passes, and
-    // every org-scoped persisted store hydrates from the right per-company
-    // bucket (they hydrate synchronously at import, so an in-place
-    // checkSession would leave them on the ':default' bucket).
-    window.location.assign('/');
+    // Hard reload through the ?org= handshake — the same mechanism as the
+    // header switcher. The org pin is written only by the NEW document's
+    // bootstrap (module-eval in activeOrg.ts): pre-setting it here would let
+    // the still-live old page stamp the new org header on in-flight requests.
+    // After reload the picker gate passes and every org-scoped persisted
+    // store hydrates from the right per-company bucket (they hydrate
+    // synchronously at import, so an in-place checkSession would leave them
+    // on the ':default' bucket).
+    window.location.assign(`/?org=${encodeURIComponent(orgId)}`);
   },
 
   login: async (email, password) => {
@@ -266,6 +268,9 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         credentials: 'include',
       });
     } finally {
+      // Drop this tab's org pin so the next login here doesn't inherit the
+      // previous user's active company.
+      clearActiveOrg();
       set(EMPTY_SESSION);
     }
   },

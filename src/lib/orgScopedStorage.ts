@@ -10,8 +10,19 @@ import { getActiveOrgId } from './activeOrg';
  * document caches). Org-agnostic preferences (theme, sidebar collapse, paper
  * size) stay on plain localStorage.
  */
+const orgKey = (k: string): string => `${k}:${getActiveOrgId() ?? 'default'}`;
+
 export const orgScopedStorage = {
-  getItem: (k: string) => localStorage.getItem(`${k}:${getActiveOrgId() ?? 'default'}`),
-  setItem: (k: string, v: string) => localStorage.setItem(`${k}:${getActiveOrgId() ?? 'default'}`, v),
-  removeItem: (k: string) => localStorage.removeItem(`${k}:${getActiveOrgId() ?? 'default'}`),
+  getItem: (k: string): string | null => {
+    if (typeof localStorage === 'undefined') return null;
+    try { return localStorage.getItem(orgKey(k)); } catch { return null; }
+  },
+  setItem: (k: string, v: string): void => {
+    if (typeof localStorage === 'undefined') return;
+    try { localStorage.setItem(orgKey(k), v); } catch { /* private mode — state simply won't persist */ }
+  },
+  removeItem: (k: string): void => {
+    if (typeof localStorage === 'undefined') return;
+    try { localStorage.removeItem(orgKey(k)); } catch { /* noop */ }
+  },
 };
