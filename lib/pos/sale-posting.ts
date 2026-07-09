@@ -148,6 +148,15 @@ export async function postPosSale(
   const cashAccountId = register.cashAccountId ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
   if (!arAccountId || !cashAccountId) throw new ApiError('AR or cash account not configured', 500);
 
+  // 5b. Resolve the staff member each line is credited to. A line's explicit
+  //     performedById wins; otherwise credit the cashier's linked staff record
+  //     (Employee.userId === cashierId); otherwise null (Unassigned).
+  const cashierEmployee = await tx.employee.findFirst({
+    where: { organizationId: orgId, userId: input.cashierId },
+    select: { id: true },
+  });
+  const defaultPerformerId = cashierEmployee?.id ?? null;
+
   // 6. Create SalesInvoice (DRAFT) with tax-inclusive totals.
   //    NOTE: no createdById — it is a nullable FK to User and the POS cashier
   //    id is not guaranteed to be a User row (the cashier lives on
@@ -175,6 +184,7 @@ export async function postPosSale(
           price: l.price,
           discountPct: l.discountPct ?? 0,
           lineSubtotal: round2(l.quantity * l.price * (1 - (l.discountPct ?? 0) / 100)),
+          performedById: l.performedById ?? defaultPerformerId,
         })),
       },
     },
