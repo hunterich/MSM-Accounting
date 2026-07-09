@@ -72,10 +72,18 @@ Then bring it up (start the DB first, create tables, seed, then the rest):
 ```powershell
 docker compose pull              # build-from-source mode: use `docker compose build` instead
 docker compose up -d db
-docker compose run --rm backend npx prisma db push   # create all tables
-docker compose run --rm backend npm run db:seed      # seed demo admin + defaults
+docker compose run --rm backend npx prisma migrate deploy   # create all tables (runs migrations)
+docker compose run --rm backend npm run db:seed             # seed demo admin + defaults + indexes
 docker compose up -d             # bring up backend + web
 ```
+
+> **Already have a database from an earlier `db push` install?** Don't run
+> `migrate deploy` on it — the tables already exist. Baseline it once instead so
+> Prisma records the current schema as already applied, then future upgrades use
+> `migrate deploy` normally:
+> ```powershell
+> docker compose run --rm backend npx prisma migrate resolve --applied 0_init
+> ```
 
 Check everything is up:
 
@@ -128,12 +136,16 @@ the images automatically (watch the Actions tab). On the server:
 ```powershell
 # 1. Back up first — this is accounting data.
 docker compose exec -T db pg_dump -U postgres msm_accounting > backup-before-upgrade.sql
-# 2. Pull the new images, apply any schema change, then swap containers.
+# 2. Pull the new images, apply any new migrations, then swap containers.
 docker compose pull
-docker compose run --rm backend npx prisma db push   # only if the Prisma schema changed
+docker compose run --rm backend npx prisma migrate deploy   # applies any new DB migrations
 docker compose up -d
 ```
 (Build-from-source mode: replace `docker compose pull` with `docker compose build`.)
+
+`migrate deploy` only runs migrations that haven't been applied yet, so it's safe
+to run every upgrade — it's a no-op when the schema hasn't changed. Unlike the old
+`db push`, it never silently drops columns or data.
 
 **Roll back** to a previous version: find the commit's short SHA on GitHub, set
 `IMAGE_TAG=sha-<that-sha>` in `deploy\.env`, then `docker compose pull` and

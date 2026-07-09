@@ -48,8 +48,8 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Push schema to test DB
-        run: npx prisma db push --skip-generate
+      - name: Apply migrations to test DB
+        run: npx prisma migrate deploy
 
       - name: TypeScript type-check
         run: npx tsc --noEmit

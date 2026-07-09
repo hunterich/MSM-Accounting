@@ -34,9 +34,14 @@ Required env values:
 
 ```bash
 npm run prisma:generate
-npx prisma db push
-npm run db:seed
+npx prisma migrate deploy   # apply migrations (creates all tables)
+npm run db:seed             # demo admin + defaults + raw indexes
 ```
+
+> Already have a database from before migrations were adopted (created with
+> `prisma db push`)? Baseline it once instead of applying migrations onto
+> existing tables: `npx prisma migrate resolve --applied 0_init`. See
+> [Database migrations](#database-migrations).
 
 4. Run apps in separate terminals:
 
@@ -72,8 +77,36 @@ Seed default login:
 - `npm run build` - Build frontend
 - `npm run backend:build` - Build backend
 - `npm run prisma:generate` - Generate Prisma client
-- `npm run prisma:migrate:dev` - Run dev migrations
+- `npm run prisma:migrate:deploy` - Apply pending migrations
+- `npm run db:migration -- <name>` - Create a new migration from a schema change
 - `npm run db:seed` - Seed demo data
+
+## Database migrations
+
+Schema changes are versioned with **Prisma Migrate** (not `prisma db push`), so
+every change is a reviewed, ordered SQL file and nothing gets dropped silently on
+a database with real data. Migrations live in `prisma/migrations/`.
+
+To make a schema change:
+
+```bash
+# 1. Edit prisma/schema.prisma
+# 2. Generate a migration by diffing your dev DB against the schema:
+npm run db:migration -- add_supplier_rating
+# 3. Review the generated prisma/migrations/<timestamp>_add_supplier_rating/migration.sql
+# 4. Apply it to your dev DB, then commit the migration folder:
+npm run prisma:migrate:deploy
+```
+
+Notes:
+- Use `db:migration` + `migrate deploy`, **not** `prisma migrate dev` — the latter
+  reads the DB's partial unique index (which Prisma's schema can't model, see
+  `scripts/apply-db-indexes.mjs`) as drift and offers to reset the database.
+- That one partial index is applied out-of-band by the seed / `npm run db:indexes`,
+  so run one of those on a freshly-migrated database.
+- The initial migration `0_init` is a baseline of the whole schema. On a database
+  created before migrations existed, run `npx prisma migrate resolve --applied 0_init`
+  once instead of applying it.
 
 ## Deployment
 
