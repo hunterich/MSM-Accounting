@@ -32,7 +32,20 @@ let creditNoteRow: NoteRow | null = null;
 let debitNoteRow: NoteRow | null = null;
 
 const txStub = () => ({
+  // nextEntryNo (JE numbering) + calculateAndPostCOGS take a per-org/per-item
+  // advisory lock via $executeRaw before their reads.
+  $executeRaw: vi.fn().mockResolvedValue(0),
+  // Serves both nextEntryNo's MAX read and assertPeriodOpen's FOR SHARE lookup
+  // (the latter tolerates the extra field / missing status → treated as open).
   $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 50 }]),
+  // Tenant-isolation FK checks: the note routes now verify customer/vendor (and
+  // any source refs) belong to the caller's org via validateForeignKey.
+  customer: { findFirst: vi.fn(async () => ({ id: 'cust-1' })) },
+  vendor: { findFirst: vi.fn(async () => ({ id: 'v-1' })) },
+  salesInvoice: { findFirst: vi.fn(async () => ({ id: 'src-inv' })) },
+  salesReturn: { findFirst: vi.fn(async () => ({ id: 'src-sr' })) },
+  bill: { findFirst: vi.fn(async () => ({ id: 'src-bill' })) },
+  purchaseReturn: { findFirst: vi.fn(async () => ({ id: 'src-pr' })) },
   creditNote: {
     create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 'cn-1',
@@ -113,8 +126,6 @@ const txStub = () => ({
     ]),
   },
   organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
-  // assertPeriodOpen() looks up the posting period; null = no period defined = open.
-  accountingPeriod: { findFirst: vi.fn(async () => null) },
 });
 
 const deleteCalls = { creditNote: 0, debitNote: 0 };

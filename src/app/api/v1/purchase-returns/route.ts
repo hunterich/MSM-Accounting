@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
@@ -48,6 +48,17 @@ export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, as
   const { lines, ...header } = parsed.data;
 
   const purchaseReturn = await prisma.$transaction(async (tx) => {
+    // Tenant isolation: the vendor, the source bill, and every referenced line
+    // item must belong to this org — otherwise they leak back through the GET
+    // `include` joins (vendor / bill / lines.item).
+    await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
+    await validateForeignKey(tx.bill, { id: header.billId, organizationId: orgId }, 'Bill not found in organization');
+    const returnItemIds = Array.from(
+      new Set((lines ?? []).map((l: any) => l.itemId).filter((id: unknown): id is string => !!id)),
+    );
+    for (const itemId of returnItemIds) {
+      await validateForeignKey(tx.item, { id: itemId, organizationId: orgId }, 'Item not found in organization');
+    }
     const number = await nextNumber(tx, 'PurchaseReturn', 'number', 'PRN');
     const created = await tx.purchaseReturn.create({
       data: {

@@ -101,12 +101,22 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
     if (parsed.data.lines && parsed.data.lines.length > 0) {
       const linesWithPO = parsed.data.lines.filter(l => l.purchaseOrderLineId && !l.alreadyReceived);
       for (const line of linesWithPO) {
-        // Validate: no over-receiving (read-only).
+        // Validate: PO line belongs to this org + no over-receiving (read-only).
         const poLine = await tx.purchaseOrderLine.findUnique({
           where: { id: line.purchaseOrderLineId },
-          select: { id: true, quantity: true, receivedQty: true },
+          select: {
+            id: true,
+            quantity: true,
+            receivedQty: true,
+            purchaseOrder: { select: { organizationId: true } },
+          },
         });
-        if (!poLine) throw new ApiError(`PO line ${line.purchaseOrderLineId} not found`, 422);
+        // Reject a missing OR cross-org PO line with the SAME generic 4xx, BEFORE
+        // the over-receive branch below — so the response never reveals another
+        // org's line, nor leaks its ordered/received quantities.
+        if (!poLine || poLine.purchaseOrder.organizationId !== orgId) {
+          throw new ApiError('PO line not found in organization', 422);
+        }
         const newTotal = Number(poLine.receivedQty) + Number(line.quantity);
         if (newTotal > Number(poLine.quantity) + 0.0001) {
           throw new ApiError(`Over-receiving: PO line allows ${Number(poLine.quantity) - Number(poLine.receivedQty)} more units`, 422);

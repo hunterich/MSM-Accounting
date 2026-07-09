@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { createCreditNoteInputSchema } from '@/types/api';
@@ -48,6 +48,16 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
   const d = parsed.data;
 
   const creditNote = await prisma.$transaction(async (tx) => {
+    // Tenant isolation: the customer + any source refs must belong to this org,
+    // else they'd leak through the GET `include` joins (customer / sourceInvoice
+    // / salesReturn) — or attach this org's note to another org's document.
+    await validateForeignKey(tx.customer, { id: d.customerId, organizationId: orgId }, 'Customer not found in organization');
+    if (d.sourceInvoiceId) {
+      await validateForeignKey(tx.salesInvoice, { id: d.sourceInvoiceId, organizationId: orgId }, 'Source invoice not found in organization');
+    }
+    if (d.salesReturnId) {
+      await validateForeignKey(tx.salesReturn, { id: d.salesReturnId, organizationId: orgId }, 'Sales return not found in organization');
+    }
     const number = await nextNumber(tx, 'CreditNote', 'number', 'CRN');
     return tx.creditNote.create({
       data: {

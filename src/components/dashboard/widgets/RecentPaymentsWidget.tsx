@@ -4,7 +4,7 @@ import Card from '../../UI/Card';
 import Table from '../../UI/Table';
 import StatusTag from '../../UI/StatusTag';
 import Button from '../../UI/Button';
-import { usePaymentStore } from '../../../stores/usePaymentStore';
+import { useARPayments } from '../../../hooks/useAR';
 import { formatIDR } from '../../../utils/formatters';
 
 interface PaymentRow extends Record<string, unknown> {
@@ -25,20 +25,20 @@ const columns = [
 
 const RecentPaymentsWidget = (): React.ReactElement => {
     const navigate = useNavigate();
-    const payments = usePaymentStore((s) => s.payments);
+    const { data, isLoading, isError } = useARPayments();
 
     const rows = useMemo<PaymentRow[]>(() =>
-        [...payments]
-            .sort((a, b) => new Date((b.date as string | number) || 0).getTime() - new Date((a.date as string | number) || 0).getTime())
+        [...(data?.data ?? [])]
+            .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
             .slice(0, 5)
             .map((p) => ({
                 id:       p.id,
-                customer: (p.customerName as string) || '—',
+                customer: p.customerName || '—',
                 amount:   formatIDR(Number(p.amount) || 0),
-                method:   (p.method as string) || '—',
-                status:   (p.status as string) || 'Pending',
+                method:   p.method || '—',
+                status:   p.status || 'Pending',
             })),
-        [payments]
+        [data]
     );
 
     return (
@@ -49,8 +49,15 @@ const RecentPaymentsWidget = (): React.ReactElement => {
                     onClick={() => navigate('/ar/payments')} />
             }
         >
-            <Table columns={columns} data={rows} />
-            {rows.length === 0 && <div className="module-empty-state">No payments yet.</div>}
+            {isLoading ? (
+                <div className="module-empty-state">Loading…</div>
+            ) : isError ? (
+                <div className="module-empty-state">Couldn&apos;t load payments.</div>
+            ) : rows.length === 0 ? (
+                <div className="module-empty-state">No payments yet.</div>
+            ) : (
+                <Table columns={columns} data={rows} />
+            )}
         </Card>
     );
 };

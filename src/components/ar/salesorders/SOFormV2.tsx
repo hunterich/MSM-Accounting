@@ -14,10 +14,8 @@ import type { DocLine } from '../../documents/types';
 
 import SearchableSelect from '../../UI/SearchableSelect';
 import { formatIDR } from '../../../utils/formatters';
-import { useCustomerStore } from '../../../stores/useCustomerStore';
-import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
 import { useWorkspaceStore } from '../../../stores/useWorkspaceStore';
-import { useCustomers, useInvoices } from '../../../hooks/useAR';
+import { useCustomers, useInvoices, useSalesOrder, useCreateSalesOrder, useUpdateSalesOrder, useConvertSOToInvoice } from '../../../hooks/useAR';
 import { useItems } from '../../../hooks/useInventory';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import PrintPreviewModal from '../../UI/PrintPreviewModal';
@@ -30,10 +28,10 @@ import { useDraftAutosave } from '../../../hooks/useDraftAutosave';
  * Thin host: header fields + data wiring + save. All heavy lifting (line table,
  * costs, totals math, layout, action bar) lives in /components/documents.
  *
- * Persistence note: the SalesOrder store persists header + line templates +
- * `amount` (the grand total). Additional costs and tax are folded into `amount`
- * but their breakdown isn't persisted yet (needs a store/schema field) — they
- * re-default to empty/off on reload. Tracked as a follow-up.
+ * Persistence note: the SO record + line items persist to the backend
+ * (`/api/v1/sales-orders`). The backend SO schema has no columns for additional
+ * costs, the tax breakdown, shipping address, or delivery notes, so those stay
+ * display-only and re-default on reload. Tracked as a follow-up.
  */
 
 const TAX_RATE = 11; // PPN
@@ -70,22 +68,15 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
     const soId = recordId ?? searchParams.get('soId') ?? '';
     const isEdit = mode === 'edit';
 
-    // ── Stores & server data ────────────────────────────────────────────────
-    const seedCustomers = (useCustomerStore((s) => s.customers) as Rec[]) || [];
+    // ── Server data ─────────────────────────────────────────────────────────
     const { data: customersResult } = useCustomers({ limit: 100 });
     const { data: itemsResult } = useItems({ limit: 100 });
     const { data: invoicesResult } = useInvoices({ limit: 100 });
 
-    const salesOrders = useSalesOrderStore((s) => s.salesOrders);
-    const soItemTemplates = useSalesOrderStore((s) => s.soItemTemplates);
-    const addSalesOrder = useSalesOrderStore((s) => s.addSalesOrder);
-    const updateSalesOrder = useSalesOrderStore((s) => s.updateSalesOrder);
-    const setSoItemTemplates = useSalesOrderStore((s) => s.setSoItemTemplates);
-
-    const selectedSO = useMemo(
-        () => salesOrders.find((so) => so.id === soId) || null,
-        [salesOrders, soId],
-    );
+    const { data: selectedSO = null } = useSalesOrder(isEdit ? soId : undefined);
+    const createSO = useCreateSalesOrder();
+    const updateSO = useUpdateSalesOrder();
+    const convertSO = useConvertSOToInvoice();
 
     const draftSeed = useWorkspaceStore((s) =>
         (workspaceTabId ? s.tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
@@ -93,13 +84,10 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
             | undefined,
     );
 
-    const customers = useMemo<Rec[]>(() => {
-        const byId = new Map<string, Rec>();
-        [...seedCustomers, ...((customersResult?.data as unknown as Rec[]) || [])].forEach((c) => {
-            if (c?.id) byId.set(c.id, { ...(byId.get(c.id) || {}), ...c });
-        });
-        return [...byId.values()];
-    }, [seedCustomers, customersResult?.data]);
+    const customers = useMemo<Rec[]>(
+        () => ((customersResult?.data as unknown as Rec[]) || []),
+        [customersResult?.data],
+    );
 
     const inventoryItems = useMemo<Rec[]>(
         () => ((itemsResult?.data as unknown as Rec[]) || []),
@@ -111,14 +99,28 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
     );
 
     // ── Header state ────────────────────────────────────────────────────────
-    const [customerId, setCustomerId] = useState(draftSeed?.customerId ?? selectedSO?.customerId ?? '');
-    const [orderDate, setOrderDate] = useState(draftSeed?.orderDate ?? selectedSO?.date ?? todayString());
-    const [expectedDate, setExpectedDate] = useState(draftSeed?.expectedDate ?? selectedSO?.expectedDate ?? '');
-    const [shippingAddress, setShippingAddress] = useState(draftSeed?.shippingAddress ?? selectedSO?.shippingAddress ?? '');
-    const [deliveryNotes, setDeliveryNotes] = useState(draftSeed?.deliveryNotes ?? selectedSO?.deliveryNotes ?? '');
+    // In edit mode `selectedSO` arrives asynchronously, so the header is seeded
+    // from the workspace draft (if any) and hydrated from `selectedSO` in the
+    // effect below once the fetch resolves.
+    const [customerId, setCustomerId] = useState(draftSeed?.customerId ?? '');
+    const [orderDate, setOrderDate] = useState(draftSeed?.orderDate ?? todayString());
+    const [expectedDate, setExpectedDate] = useState(draftSeed?.expectedDate ?? '');
+    const [shippingAddress, setShippingAddress] = useState(draftSeed?.shippingAddress ?? '');
+    const [deliveryNotes, setDeliveryNotes] = useState(draftSeed?.deliveryNotes ?? '');
     const [reference, setReference] = useState(draftSeed?.reference ?? '');
     const [autoClose, setAutoClose] = useState('60');
     const [tax, setTax] = useState<TaxState>(draftSeed?.tax ?? { on: false, rate: TAX_RATE, mode: 'exclusive' });
+
+    // Hydrate the header once the SO loads. A workspace draft, if present, wins
+    // and is left untouched. (Backend has no shipping/delivery columns.)
+    const hydratedRef = useRef(false);
+    useEffect(() => {
+        if (hydratedRef.current || draftSeed || !selectedSO) return;
+        hydratedRef.current = true;
+        setCustomerId(selectedSO.customerId || '');
+        setOrderDate(selectedSO.issueDate || todayString());
+        setExpectedDate(selectedSO.expiryDate || '');
+    }, [selectedSO, draftSeed]);
 
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -128,16 +130,17 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
     const seedLines = useMemo<DocLine[]>(() => {
         if (draftSeed?.lines && draftSeed.lines.length) return draftSeed.lines;
         if (!selectedSO) return [];
-        return (soItemTemplates[selectedSO.id] || []).map((l, i) => ({
+        return (selectedSO.items || []).map((l, i) => ({
             id: l.id || `li-${i}`,
-            code: '',
+            productId: l.productId || undefined,
+            code: l.code || '',
             description: str(l.description),
-            qty: num(l.qty),
+            qty: num(l.quantity),
             unit: str(l.unit) || 'PCS',
             price: num(l.price),
             discount: num(l.discount),
         }));
-    }, [draftSeed, selectedSO, soItemTemplates]);
+    }, [draftSeed, selectedSO]);
 
     const doc = useDocumentLines(seedLines, []);
     const { setLines } = doc;
@@ -265,41 +268,42 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
     const persist = async (status: string): Promise<string | null> => {
         if (!validate()) return null;
         const customerName = firstStr(customer?.name) || selectedSO?.customerName || '';
-        const cleanedLines = doc.lines
+        const items = doc.lines
             .filter((l) => l.description.trim())
             .map((l) => ({
-                id: l.id,
+                ...(l.productId ? { productId: l.productId } : {}),
+                ...(l.code ? { code: l.code } : {}),
                 description: l.description.trim(),
-                qty: num(l.qty),
+                quantity: num(l.qty),
                 unit: l.unit || 'PCS',
                 price: num(l.price),
                 discount: num(l.discount),
             }));
 
+        // Backend SO enum is uppercase (DRAFT | CONFIRMED | …). Shipping address,
+        // delivery notes, additional costs and the tax breakdown have no columns
+        // in the SO schema and are intentionally omitted (display-only).
         const payload = {
             customerId,
             customerName,
-            date: orderDate,
-            expectedDate,
-            status,
-            currency: 'IDR',
-            amount: totals.grandTotal,
+            issueDate: orderDate,
+            ...(expectedDate ? { expiryDate: expectedDate } : {}),
             notes: reference ? `Ref: ${reference}` : (selectedSO?.notes || ''),
-            shippingAddress,
-            deliveryNotes,
-            convertedInvoiceId: selectedSO?.convertedInvoiceId ?? null,
+            status: status.toUpperCase(),
+            items,
         };
 
         setSaving(true);
         try {
             if (isEdit && selectedSO) {
-                await updateSalesOrder(selectedSO.id, payload);
-                await setSoItemTemplates(selectedSO.id, cleanedLines as Parameters<typeof setSoItemTemplates>[1]);
+                await updateSO.mutateAsync({ id: selectedSO.id, ...payload });
                 return selectedSO.id;
             }
-            const created = await addSalesOrder(payload);
-            await setSoItemTemplates(created.id, cleanedLines as Parameters<typeof setSoItemTemplates>[1]);
+            const created = await createSO.mutateAsync(payload) as { id: string };
             return created.id;
+        } catch (err) {
+            window.alert(`Failed to save sales order: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            return null;
         } finally {
             setSaving(false);
         }
@@ -317,7 +321,16 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
 
     const handleSaveDraft = async () => finishSave(await persist('Draft'));
     const handleConfirm = async () => finishSave(await persist('Confirmed'));
-    const handleSaveAndInvoice = async () => finishSave(await persist('Confirmed'));
+    const handleSaveAndInvoice = async () => {
+        const id = await persist('Confirmed');
+        if (!id) return;
+        try {
+            await convertSO.mutateAsync(id);
+        } catch (err) {
+            window.alert(`Saved, but couldn't convert to invoice: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+        finishSave(id);
+    };
 
     // ── UI helpers ──────────────────────────────────────────────────────────
     const lbl = 'block mb-1 text-[12px] font-medium text-neutral-700';
@@ -379,7 +392,7 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
                     <div className="col-span-3">
                         <label className={lbl}>SO Number</label>
                         <div className={`${ctl} flex items-center justify-between font-mono text-neutral-500`}>
-                            {isEdit ? (selectedSO?.id || soId) : 'Auto'}
+                            {isEdit ? (selectedSO?.number || soId) : 'Auto'}
                             {!isEdit && <span className="text-[10px] text-neutral-400 font-sans">on save</span>}
                         </div>
                     </div>
@@ -490,12 +503,12 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
                 isOpen={isPrintOpen}
                 onClose={() => setIsPrintOpen(false)}
                 title="Sales Order Print Preview"
-                documentTitle={`SalesOrder_${selectedSO?.id || 'DRAFT'}`}
+                documentTitle={`SalesOrder_${selectedSO?.number || 'DRAFT'}`}
                 defaultPaperSize={printSettings.defaultPaperSize}
             >
                 <SalesOrderPrintTemplate
                     salesOrder={{
-                        id: selectedSO?.id || 'DRAFT',
+                        id: selectedSO?.number || 'DRAFT',
                         customerName: firstStr(customer?.name) || selectedSO?.customerName || '',
                         date: orderDate,
                         expectedDate,

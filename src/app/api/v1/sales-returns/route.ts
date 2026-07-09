@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -48,6 +48,17 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
   const { lines, ...header } = parsed.data;
 
   const salesReturn = await prisma.$transaction(async (tx) => {
+    // Tenant isolation: the customer, the source invoice, and every referenced
+    // line item must belong to this org — otherwise they leak back through the
+    // GET `include` joins (customer / invoice / lines.item).
+    await validateForeignKey(tx.customer, { id: header.customerId, organizationId: orgId }, 'Customer not found in organization');
+    await validateForeignKey(tx.salesInvoice, { id: header.invoiceId, organizationId: orgId }, 'Invoice not found in organization');
+    const returnItemIds = Array.from(
+      new Set((lines ?? []).map((l: any) => l.itemId).filter((id: unknown): id is string => !!id)),
+    );
+    for (const itemId of returnItemIds) {
+      await validateForeignKey(tx.item, { id: itemId, organizationId: orgId }, 'Item not found in organization');
+    }
     const number = await nextNumber(tx, 'SalesReturn', 'number', 'SRN');
     const created = await tx.salesReturn.create({
       data: {

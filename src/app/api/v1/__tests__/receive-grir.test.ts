@@ -40,7 +40,8 @@ it('posts Dr Inventory / Cr GR/IR at net cost and a cost layer for an inventory 
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO', accountDefaults: null })) },
-    accountingPeriod: { findFirst: vi.fn(async () => null) },
+    // assertPeriodOpen FOR SHARE-locks the period via a raw query; [] = open.
+    $queryRaw: vi.fn(async () => []),
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 
@@ -68,7 +69,8 @@ it('refuses to receive into a closed/locked period and posts nothing', async () 
     item: { findMany: vi.fn() },
     account: { findMany: vi.fn() },
     organization: { findUnique: vi.fn() },
-    accountingPeriod: { findFirst: vi.fn(async () => ({ name: 'Mar 2026', status: 'OPEN', isLocked: true })) },
+    // assertPeriodOpen FOR SHARE-locks the period via a raw query; a locked row here.
+    $queryRaw: vi.fn(async () => [{ name: 'Mar 2026', status: 'OPEN', isLocked: true }]),
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 
@@ -95,7 +97,8 @@ it('values a discounted PO line at its net (post-discount) cost', async () => {
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO', accountDefaults: null })) },
-    accountingPeriod: { findFirst: vi.fn(async () => null) },
+    // assertPeriodOpen FOR SHARE-locks the period via a raw query; [] = open.
+    $queryRaw: vi.fn(async () => []),
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
 

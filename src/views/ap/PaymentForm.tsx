@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
-import type { Account, APPayment, BankAccount, Bill, Vendor } from '../../types';
+import type { Account, BankAccount, Bill, Vendor } from '../../types';
 
 interface BillAdjustment {
     discount: number;
@@ -24,13 +24,6 @@ interface APPaymentData {
     selectedBills:    string[];
     adjustments:      Record<string, BillAdjustment>;
     totalAmount:      number;
-}
-
-interface StoredAPPayment extends APPayment {
-    depositAccountId?: string;
-    apAccountId?: string;
-    discountAccountId?: string;
-    penaltyAccountId?: string;
 }
 
 interface PaymentLocationState {
@@ -62,12 +55,11 @@ interface PostingPreviewLine {
 type AccountFieldKey = 'cashAccountId' | 'apAccountId' | 'discountAccountId' | 'penaltyAccountId';
 import StatusTag from '../../components/UI/StatusTag';
 import { Calendar, CreditCard, FileText, Hash } from 'lucide-react';
-import { useVendors, useBills, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';
+import { useVendors, useBills, useAPPayments, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
-import { useAPPaymentStore } from '../../stores/useAPPaymentStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 
@@ -105,7 +97,8 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
     const bankAccounts = Array.isArray(bankAccountsData) ? bankAccountsData : [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
 
-    const { apPayments } = useAPPaymentStore() as unknown as { apPayments: StoredAPPayment[] };
+    const { data: apPaymentsData } = useAPPayments();
+    const apPayments = apPaymentsData?.data ?? [];
 
     const createAPPayment = useCreateAPPayment();
     const updateAPPayment = useUpdateAPPayment();
@@ -243,7 +236,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
         }
 
         if (state.paymentId) {
-            const found = apPayments.find((p) => p.id === state.paymentId);
+            const found = apPayments.find((p) => p.id === state.paymentId || p._id === state.paymentId);
             if (!found) return;
             setPaymentNumberingMode('manual');
             setPaymentData({
@@ -471,7 +464,10 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
 
         try {
             if (mode === 'edit' && paymentData.paymentNumber) {
-                await updateAPPayment.mutateAsync({ id: paymentData.paymentNumber, ...newPayment });
+                // The row id shown to the user is the payment number; the update
+                // endpoint keys off the DB id (`_id`), so resolve it here.
+                const existing = apPayments.find((p) => p.id === paymentData.paymentNumber || p._id === paymentData.paymentNumber);
+                await updateAPPayment.mutateAsync({ id: existing?._id || paymentData.paymentNumber, ...newPayment });
             } else {
                 await createAPPayment.mutateAsync(newPayment);
             }

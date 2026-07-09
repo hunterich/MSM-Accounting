@@ -61,10 +61,13 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
     throw new ApiError(parsed.error.issues[0]?.message || 'Invalid purchase order payload', 400);
   }
   const { lines, charges, ...header } = parsed.data;
-  const number = await nextNumber(prisma, 'PurchaseOrder', 'number', 'PO');
 
   const po = await prisma.$transaction(async (tx) => {
     await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
+    // Allocate the number INSIDE the transaction with `tx` so its advisory lock
+    // stays held until the insert commits (calling it on the base `prisma`
+    // client releases the lock before the insert → spurious 409s under load).
+    const number = await nextNumber(tx, 'PurchaseOrder', 'number', 'PO');
     const created = await tx.purchaseOrder.create({
       data: { ...header, organizationId: orgId, number },
     });
@@ -110,6 +113,6 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
     });
   });
 
-  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'PurchaseOrder', entityId: po!.id, action: 'CREATE', payload: { number } });
+  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'PurchaseOrder', entityId: po!.id, action: 'CREATE', payload: { number: po!.number } });
   return ok(po, 201);
 });

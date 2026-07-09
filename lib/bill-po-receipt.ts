@@ -48,8 +48,12 @@ export async function applyBillPoReceipt(tx: Tx, orgId: string, billId: string):
   const affectedPoIds = new Set<string>();
   for (const line of lines) {
     const poLineId = line.purchaseOrderLineId as string;
+    // Scope the write through the parent PO's org so it can NEVER touch another
+    // org's row — even if a cross-org poLineId somehow got persisted. A no-match
+    // (wrong org) raises P2025 and aborts the finalize, rather than mutating
+    // a victim org's PO line.
     const updated = await tx.purchaseOrderLine.update({
-      where: { id: poLineId },
+      where: { id: poLineId, purchaseOrder: { organizationId: orgId } },
       data: { receivedQty: { increment: Number(line.quantity) } },
       select: { purchaseOrderId: true },
     });
@@ -59,7 +63,7 @@ export async function applyBillPoReceipt(tx: Tx, orgId: string, billId: string):
   // Recompute + flip each affected PO's status from its (now updated) lines.
   for (const purchaseOrderId of affectedPoIds) {
     const poLines = await tx.purchaseOrderLine.findMany({
-      where: { purchaseOrderId },
+      where: { purchaseOrderId, purchaseOrder: { organizationId: orgId } },
       select: { quantity: true, receivedQty: true },
     });
     const allFull = poLines.every((pl) => Number(pl.receivedQty) >= Number(pl.quantity) - 0.0001);
@@ -67,7 +71,7 @@ export async function applyBillPoReceipt(tx: Tx, orgId: string, billId: string):
     const newPoStatus = allFull ? 'CLOSED' : anyReceived ? 'PARTIAL_RECEIVED' : undefined;
     if (newPoStatus) {
       await tx.purchaseOrder.update({
-        where: { id: purchaseOrderId },
+        where: { id: purchaseOrderId, organizationId: orgId },
         data: { status: newPoStatus as never },
       });
     }
