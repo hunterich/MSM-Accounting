@@ -30,6 +30,13 @@ describe('resolveActiveOrg', () => {
     });
   });
 
+  it('treats an empty-string header as absent and defaults to the sole membership', () => {
+    const single: TokenPayload = { ...payload, memberships: [payload.memberships[0]] };
+    expect(resolveActiveOrg(single, '')).toEqual({
+      ok: true, orgId: 'org-a', roleType: 'ADMIN',
+    });
+  });
+
   it('requires the header when the user has multiple memberships', () => {
     expect(resolveActiveOrg(payload, null)).toEqual({
       ok: false, status: 400, error: 'x-active-org header required', code: 'ORG_REQUIRED',

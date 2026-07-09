@@ -26,7 +26,7 @@ import {
   cleanupOrg,
   disconnect,
 } from './harness';
-import { resolveActiveOrg, signToken, COOKIE_NAME, type TokenPayload } from '../../auth';
+import { resolveActiveOrg, signToken, verifyToken, COOKIE_NAME, type TokenPayload } from '../../auth';
 import { GET as listCustomers } from '../../../src/app/api/v1/customers/route';
 import { POST as refreshSession } from '../../../src/app/api/v1/auth/refresh/route';
 
@@ -162,6 +162,60 @@ describe('multi-org session (two orgs, one cookie)', () => {
 
       // A fresh cookie is re-issued.
       expect(res.headers.get('set-cookie')).toContain(`${COOKIE_NAME}=`);
+    } finally {
+      await cleanupOrg(orgA.orgId);
+      await cleanupOrg(orgB.orgId);
+    }
+  });
+
+  it('POST /auth/refresh rejects a missing or garbage cookie with 401', async () => {
+    const noCookie = await refreshSession(
+      new NextRequest('http://localhost/api/v1/auth/refresh', { method: 'POST' }),
+    );
+    expect(noCookie.status).toBe(401);
+
+    const garbage = await refreshSession(
+      new NextRequest('http://localhost/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { cookie: `${COOKIE_NAME}=not.a.valid.jwt` },
+      }),
+    );
+    expect(garbage.status).toBe(401);
+  });
+
+  it('POST /auth/refresh drops a deactivated membership from the response AND the re-signed token', async () => {
+    const orgA = await createTestOrg();
+    const orgB = await createTestOrg();
+    try {
+      const user = await seedTwoOrgUser(orgA.orgId, orgB.orgId);
+      const token = await signToken(tokenPayloadFor(user, orgA.orgId, orgB.orgId));
+
+      // Revoke access to org B after the token was signed.
+      await prisma.userOrganization.updateMany({
+        where: { userId: user.id, organizationId: orgB.orgId },
+        data: { isActive: false },
+      });
+
+      const res = await refreshSession(
+        new NextRequest('http://localhost/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { cookie: `${COOKIE_NAME}=${token}` },
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        memberships: Array<{ orgId: string; name: string; roleType: string }>;
+      };
+      expect(body.memberships.map((m) => m.orgId)).toEqual([orgA.orgId]);
+
+      // The re-signed cookie no longer carries the revoked org either.
+      const setCookie = res.headers.get('set-cookie') ?? '';
+      const freshToken = setCookie.match(new RegExp(`${COOKIE_NAME}=([^;]+)`))?.[1];
+      expect(freshToken).toBeTruthy();
+      const freshPayload = await verifyToken(freshToken!);
+      expect(freshPayload).not.toBeNull();
+      expect(freshPayload!.memberships.map((m) => m.orgId)).toEqual([orgA.orgId]);
     } finally {
       await cleanupOrg(orgA.orgId);
       await cleanupOrg(orgB.orgId);

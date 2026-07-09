@@ -21,7 +21,9 @@ export type ActiveOrgResolution =
 /** Pure, edge-safe resolution of the tab's requested org against the signed membership list. */
 export function resolveActiveOrg(payload: TokenPayload, requestedOrgId: string | null): ActiveOrgResolution {
   const memberships = payload.memberships ?? [];
-  const requested = requestedOrgId ?? (memberships.length === 1 ? memberships[0].orgId : null);
+  // Treat a blank header ("" or whitespace) as absent so the single-membership default still applies.
+  const requested =
+    (requestedOrgId?.trim() || null) ?? (memberships.length === 1 ? memberships[0].orgId : null);
   if (!requested) {
     return { ok: false, status: 400, error: 'x-active-org header required', code: 'ORG_REQUIRED' };
   }
