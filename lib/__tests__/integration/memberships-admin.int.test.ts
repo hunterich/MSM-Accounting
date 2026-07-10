@@ -399,6 +399,10 @@ describe('DELETE /api/v1/users/memberships/[id]', () => {
     }
   });
 
+  // NB: this exercises the route's own advisory lock only when the Prisma pool is
+  // >= 2 (the default) — the two removals then run on separate connections and
+  // race. With a pool of 1 the connection pool alone would serialize them, so the
+  // test would pass even without the in-route lock.
   it('(j) two concurrent removals of the two remaining admins → exactly one wins, an admin survives', async () => {
     const orgA = await createTestOrg();
     try {

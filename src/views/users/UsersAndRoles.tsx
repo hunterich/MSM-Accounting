@@ -140,7 +140,11 @@ const UsersAndRoles = (): React.ReactElement => {
   /* ---- Server data ---- */
   const { data: roles = [], isLoading: rolesLoading } = useRoles();
   const { data: loginAccountsData } = useLoginAccounts();
-  const loginAccounts: LoginAccount[] = loginAccountsData?.data ?? [];
+  // Memoize the source array — `?? []` produces a fresh reference every render,
+  // which would defeat the downstream `activeAdminCount` useMemo (and is this
+  // repo's known inline-`= []`-into-useMemo footgun; harmless here with no
+  // useEffect consumer, but done right).
+  const loginAccounts = useMemo<LoginAccount[]>(() => loginAccountsData?.data ?? [], [loginAccountsData]);
 
   /* ---- Mutations ---- */
   const createRole = useCreateRole();
@@ -170,14 +174,10 @@ const UsersAndRoles = (): React.ReactElement => {
   // Membership id currently being removed (disables that row's remove button).
   const [removingMembershipId, setRemovingMembershipId] = useState<string | null>(null);
 
-  const rolesById = useMemo(() => {
-    const map = new Map<string, ApiRole>();
-    for (const r of roles) map.set(r.id, r);
-    return map;
-  }, [roles]);
-
-  // Active admins in THIS company — the last one cannot be removed (the server
-  // enforces this too; the UI just disables the action with an explanation).
+  // Active admins in THIS company — the last one cannot be removed. This count is
+  // only correct because the users list is unpaginated/unfiltered (one request
+  // returns every active member); the DELETE endpoint's 422 last-admin guard is
+  // the real enforcement — this just disables the button with an explanation.
   const activeAdminCount = useMemo(
     () => loginAccounts.filter((a) => a.roleType === 'ADMIN').length,
     [loginAccounts],
