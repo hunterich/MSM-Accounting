@@ -1,35 +1,20 @@
-import { PrismaClient, ModuleKey, RoleType } from '@prisma/client';
+import { PrismaClient, ModuleKey } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import {
+  ROLE_TEMPLATES,
+  STANDARD_CHILD_ACCOUNTS,
+  STANDARD_ROOT_ACCOUNTS,
+} from '../lib/organization/bootstrap';
 
 const prisma = new PrismaClient();
 
-const ALL_MODULE_KEYS: ModuleKey[] = [
-  ModuleKey.DASHBOARD,
-  ModuleKey.GL_COA,
-  ModuleKey.GL_JOURNAL,
-  ModuleKey.AR_INVOICES,
-  ModuleKey.AR_SALES_ORDERS,
-  ModuleKey.AR_PAYMENTS,
-  ModuleKey.AR_CREDITS,
-  ModuleKey.AR_CUSTOMERS,
-  ModuleKey.AP_POS,
-  ModuleKey.AP_BILLS,
-  ModuleKey.AP_PAYMENTS,
-  ModuleKey.AP_DEBITS,
-  ModuleKey.AP_VENDORS,
-  ModuleKey.INV_ITEMS,
-  ModuleKey.INV_CATEGORIES,
-  ModuleKey.INV_ADJ,
-  ModuleKey.HR_EMPLOYEES,
-  ModuleKey.HR_ATTENDANCE,
-  ModuleKey.HR_PAYROLL,
-  ModuleKey.BANKING,
-  ModuleKey.INTEGRATIONS,
-  ModuleKey.REPORTS,
-  ModuleKey.COMPANY,
-  ModuleKey.SETTINGS,
-  ModuleKey.SYSTEM_BACKUP,
-];
+// Template data (module keys, standard COA, role permission matrices) lives in
+// lib/organization/bootstrap.ts, shared with the in-app "New Company" wizard so
+// the seed and the wizard can never drift. The seed keeps its own idempotent
+// upsert loops below.
+const adminTemplate = ROLE_TEMPLATES.find((t) => t.name === 'Administrator')!;
+const posTemplate = ROLE_TEMPLATES.find((t) => t.name === 'POS Operator')!;
+const cashierTemplate = ROLE_TEMPLATES.find((t) => t.name === 'Cashier')!;
 
 async function main() {
   const org = await prisma.organization.upsert({
@@ -74,36 +59,28 @@ async function main() {
     where: {
       organizationId_name: {
         organizationId: org.id,
-        name: 'Administrator',
+        name: adminTemplate.name,
       },
     },
     update: {
-      roleType: RoleType.ADMIN,
-      invoiceAccessScope: 'ALL',
+      roleType: adminTemplate.roleType,
+      invoiceAccessScope: adminTemplate.invoiceAccessScope,
       isActive: true,
     },
     create: {
       organizationId: org.id,
-      name: 'Administrator',
-      roleType: RoleType.ADMIN,
-      invoiceAccessScope: 'ALL',
+      name: adminTemplate.name,
+      roleType: adminTemplate.roleType,
+      invoiceAccessScope: adminTemplate.invoiceAccessScope,
       isActive: true,
-      allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-      startTime: '00:00',
-      endTime: '23:59',
+      allowedDays: adminTemplate.allowedDays,
+      startTime: adminTemplate.startTime,
+      endTime: adminTemplate.endTime,
     },
   });
 
   await prisma.rolePermission.createMany({
-    data: ALL_MODULE_KEYS.map((moduleKey) => ({
-      roleId: role.id,
-      moduleKey,
-      canView: true,
-      canCreate: true,
-      canEdit: true,
-      canDelete: true,
-      canApprove: true,
-    })),
+    data: adminTemplate.permissions.map((p) => ({ roleId: role.id, ...p })),
     skipDuplicates: true,
   });
 
@@ -120,25 +97,21 @@ async function main() {
 
   // ── POS: operator role, walk-in customer, one register ──────────────────────
   const posRole = await prisma.role.upsert({
-    where: { organizationId_name: { organizationId: org.id, name: 'POS Operator' } },
+    where: { organizationId_name: { organizationId: org.id, name: posTemplate.name } },
     update: {},
     create: {
       organizationId: org.id,
-      name: 'POS Operator',
-      roleType: RoleType.CUSTOM,
-      invoiceAccessScope: 'OWN',
+      name: posTemplate.name,
+      roleType: posTemplate.roleType,
+      invoiceAccessScope: posTemplate.invoiceAccessScope,
       isActive: true,
-      allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-      startTime: '08:00',
-      endTime: '22:00',
+      allowedDays: posTemplate.allowedDays,
+      startTime: posTemplate.startTime,
+      endTime: posTemplate.endTime,
     },
   });
   await prisma.rolePermission.createMany({
-    data: [
-      { roleId: posRole.id, moduleKey: ModuleKey.POS_RETAIL, canView: true, canCreate: true, canEdit: true, canDelete: false, canApprove: false },
-      { roleId: posRole.id, moduleKey: ModuleKey.AR_INVOICES, canView: true, canCreate: true, canEdit: false, canDelete: false, canApprove: false },
-      { roleId: posRole.id, moduleKey: ModuleKey.AR_PAYMENTS, canView: true, canCreate: true, canEdit: false, canDelete: false, canApprove: false },
-    ],
+    data: posTemplate.permissions.map((p) => ({ roleId: posRole.id, ...p })),
     skipDuplicates: true,
   });
 
@@ -165,34 +138,28 @@ async function main() {
     where: {
       organizationId_name: {
         organizationId: org.id,
-        name: 'Cashier',
+        name: cashierTemplate.name,
       },
     },
     update: {
-      roleType: RoleType.CUSTOM,
-      invoiceAccessScope: 'OWN',
+      roleType: cashierTemplate.roleType,
+      invoiceAccessScope: cashierTemplate.invoiceAccessScope,
       isActive: true,
     },
     create: {
       organizationId: org.id,
-      name: 'Cashier',
-      roleType: RoleType.CUSTOM,
-      invoiceAccessScope: 'OWN',
+      name: cashierTemplate.name,
+      roleType: cashierTemplate.roleType,
+      invoiceAccessScope: cashierTemplate.invoiceAccessScope,
       isActive: true,
-      allowedDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-      startTime: '08:00',
-      endTime: '18:00',
+      allowedDays: cashierTemplate.allowedDays,
+      startTime: cashierTemplate.startTime,
+      endTime: cashierTemplate.endTime,
     },
   });
 
   await prisma.rolePermission.createMany({
-    data: [
-      { roleId: cashierRole.id, moduleKey: ModuleKey.DASHBOARD, canView: true, canCreate: false, canEdit: false, canDelete: false },
-      { roleId: cashierRole.id, moduleKey: ModuleKey.AR_INVOICES, canView: true, canCreate: true, canEdit: true, canDelete: false },
-      { roleId: cashierRole.id, moduleKey: ModuleKey.AR_CUSTOMERS, canView: true, canCreate: false, canEdit: false, canDelete: false },
-      { roleId: cashierRole.id, moduleKey: ModuleKey.AR_PAYMENTS, canView: true, canCreate: true, canEdit: false, canDelete: false },
-      { roleId: cashierRole.id, moduleKey: ModuleKey.POS_RETAIL, canView: true, canCreate: true, canEdit: true, canDelete: false },
-    ],
+    data: cashierTemplate.permissions.map((p) => ({ roleId: cashierRole.id, ...p })),
     skipDuplicates: true,
   });
 
@@ -321,20 +288,11 @@ async function main() {
 
 
   // ============================================================
-  // 1. Chart of Accounts
+  // 1. Chart of Accounts (standard template from lib/organization/bootstrap.ts)
   // ============================================================
-  // normalSide: DEBIT for ASSET/EXPENSE, CREDIT for LIABILITY/EQUITY/REVENUE
-  const rootAccountsData = [
-    { code: '1-0000', name: 'Current Assets',      type: 'ASSET',     normalSide: 'DEBIT'  },
-    { code: '2-0000', name: 'Current Liabilities',  type: 'LIABILITY', normalSide: 'CREDIT' },
-    { code: '3-0000', name: 'Equity',              type: 'EQUITY',    normalSide: 'CREDIT' },
-    { code: '4-0000', name: 'Revenue',             type: 'REVENUE',   normalSide: 'CREDIT' },
-    { code: '5-0000', name: 'Operating Expenses',  type: 'EXPENSE',   normalSide: 'DEBIT'  },
-  ] as const;
-
   const accountMap: Record<string, string> = {};
 
-  for (const a of rootAccountsData) {
+  for (const a of STANDARD_ROOT_ACCOUNTS) {
     const acc = await prisma.account.upsert({
       where: { organizationId_code: { organizationId: org.id, code: a.code } },
       update: {},
@@ -344,20 +302,7 @@ async function main() {
   }
 
   // Child accounts (pass 1 — non-grandchildren)
-  const childAccountsData = [
-    { code: '1-1000', name: 'Cash and Bank',        type: 'ASSET',     normalSide: 'DEBIT',  parentCode: '1-0000' },
-    { code: '1-1200', name: 'Accounts Receivable',   type: 'ASSET',     normalSide: 'DEBIT',  parentCode: '1-0000' },
-    { code: '1-1300', name: 'Inventory',             type: 'ASSET',     normalSide: 'DEBIT',  parentCode: '1-0000' },
-    { code: '2-1000', name: 'Accounts Payable',      type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
-    { code: '2-1100', name: 'Tax Payable (PPN)',     type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
-    { code: '3-1000', name: 'Retained Earnings',     type: 'EQUITY',    normalSide: 'CREDIT', parentCode: '3-0000' },
-    { code: '3-9000', name: 'Opening Balance Equity', type: 'EQUITY',   normalSide: 'CREDIT', parentCode: '3-0000' },
-    { code: '4-1000', name: 'Sales Revenue',         type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
-    { code: '5-1000', name: 'Cost of Goods Sold',    type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
-    { code: '5-1100', name: 'Salaries Expense',      type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
-  ] as const;
-
-  for (const a of childAccountsData) {
+  for (const a of STANDARD_CHILD_ACCOUNTS) {
     const acc = await prisma.account.upsert({
       where: { organizationId_code: { organizationId: org.id, code: a.code } },
       update: {},
