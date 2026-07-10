@@ -72,14 +72,42 @@ async function seedUser() {
   return user;
 }
 
-function addRequest(orgId: string, actorId: string, body: unknown): NextRequest {
+/**
+ * A NON-admin actor whose CUSTOM role holds SETTINGS.canEdit — enough to pass
+ * withPermission(SETTINGS.edit) but NOT enough to grant an admin-capable role.
+ */
+async function seedSettingsEditor(orgId: string) {
+  const role = await prisma.role.create({
+    data: {
+      organizationId: orgId,
+      name: `SETTINGS-EDITOR-${randomUUID()}`,
+      roleType: 'CUSTOM',
+      permissions: {
+        create: [
+          { moduleKey: 'SETTINGS', canView: true, canCreate: false, canEdit: true, canDelete: false, canApprove: false },
+        ],
+      },
+    },
+    select: { id: true },
+  });
+  const user = await prisma.user.create({
+    data: { email: `editor-${randomUUID()}@test.local`, fullName: 'Settings Editor', passwordHash: 'x', status: 'ACTIVE' },
+    select: { id: true },
+  });
+  await prisma.userOrganization.create({
+    data: { userId: user.id, organizationId: orgId, roleId: role.id, isActive: true },
+  });
+  return { userId: user.id, roleId: role.id };
+}
+
+function addRequest(orgId: string, actorId: string, body: unknown, roleType = 'ADMIN'): NextRequest {
   return new NextRequest('http://localhost/api/v1/users/memberships', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'x-org-id': orgId,
       'x-user-id': actorId,
-      'x-role-type': 'ADMIN',
+      'x-role-type': roleType,
     },
     body: JSON.stringify(body),
   });
@@ -214,6 +242,68 @@ describe('POST /api/v1/users/memberships', () => {
       await cleanupOrg(orgA.orgId);
     }
   });
+
+  it('(h) a non-admin SETTINGS-editor cannot grant the ADMIN role (403), but can grant a non-admin role (201)', async () => {
+    const orgA = await createTestOrg();
+    try {
+      const editor = await seedSettingsEditor(orgA.orgId); // CUSTOM actor with SETTINGS.edit
+      const adminRoleId = (await seedAdmin(orgA.orgId)).roleId; // an ADMIN role in this org
+      const invitee = await seedUser();
+
+      // Escalation attempt: grant the org's ADMIN role → blocked before any write.
+      const blocked = await addMembership(
+        addRequest(orgA.orgId, editor.userId, { email: invitee.email, roleId: adminRoleId }, 'CUSTOM'),
+      );
+      expect(blocked.status).toBe(403);
+      const blockedBody = (await blocked.json()) as { error: string };
+      expect(blockedBody.error).toBe('Only an administrator can assign an admin-level role');
+      expect(await prisma.userOrganization.count({ where: { userId: invitee.id } })).toBe(0);
+
+      // The guard is targeted, not a blanket block: the same actor may grant a
+      // plain non-admin role.
+      const nonAdminRoleId = await seedRole(orgA.orgId);
+      const allowed = await addMembership(
+        addRequest(orgA.orgId, editor.userId, { email: invitee.email, roleId: nonAdminRoleId }, 'CUSTOM'),
+      );
+      expect(allowed.status).toBe(201);
+      const membership = await prisma.userOrganization.findUnique({
+        where: { userId_organizationId: { userId: invitee.id, organizationId: orgA.orgId } },
+        select: { isActive: true, roleId: true },
+      });
+      expect(membership).toMatchObject({ isActive: true, roleId: nonAdminRoleId });
+    } finally {
+      await cleanupOrg(orgA.orgId);
+    }
+  });
+
+  it('(i) the escalation guard also fires when REACTIVATING an inactive membership with the ADMIN role (403)', async () => {
+    const orgA = await createTestOrg();
+    try {
+      const editor = await seedSettingsEditor(orgA.orgId);
+      const adminRoleId = (await seedAdmin(orgA.orgId)).roleId;
+      const invitee = await seedUser();
+      const oldRole = await seedRole(orgA.orgId, 'VIEWER');
+      // A previously-removed membership the escalation could try to reactivate-as-admin.
+      const stale = await prisma.userOrganization.create({
+        data: { userId: invitee.id, organizationId: orgA.orgId, roleId: oldRole, isActive: false },
+        select: { id: true },
+      });
+
+      const res = await addMembership(
+        addRequest(orgA.orgId, editor.userId, { email: invitee.email, roleId: adminRoleId }, 'CUSTOM'),
+      );
+      expect(res.status).toBe(403);
+
+      // Blocked before the reactivation update — the stale membership is untouched.
+      const after = await prisma.userOrganization.findUnique({
+        where: { id: stale.id },
+        select: { isActive: true, roleId: true },
+      });
+      expect(after).toMatchObject({ isActive: false, roleId: oldRole });
+    } finally {
+      await cleanupOrg(orgA.orgId);
+    }
+  });
 });
 
 describe('DELETE /api/v1/users/memberships/[id]', () => {
@@ -306,6 +396,36 @@ describe('DELETE /api/v1/users/memberships/[id]', () => {
     } finally {
       await cleanupOrg(orgA.orgId);
       await cleanupOrg(orgB.orgId);
+    }
+  });
+
+  it('(j) two concurrent removals of the two remaining admins → exactly one wins, an admin survives', async () => {
+    const orgA = await createTestOrg();
+    try {
+      const adminOne = await seedAdmin(orgA.orgId);
+      const adminTwo = await seedAdmin(orgA.orgId);
+
+      // Fire both removals at once. Without the per-org advisory lock both would
+      // see the OTHER admin still active and both pass, zeroing out admins.
+      const [res1, res2] = await Promise.all([
+        removeMembership(deleteRequest(orgA.orgId, adminOne.userId), {
+          params: Promise.resolve({ id: adminOne.membershipId }),
+        }),
+        removeMembership(deleteRequest(orgA.orgId, adminTwo.userId), {
+          params: Promise.resolve({ id: adminTwo.membershipId }),
+        }),
+      ]);
+
+      // Exactly one 200 and one 422 — the guard serialized them.
+      expect([res1.status, res2.status].sort()).toEqual([200, 422]);
+
+      // At least one active ADMIN membership remains (in fact exactly one).
+      const activeAdmins = await prisma.userOrganization.count({
+        where: { organizationId: orgA.orgId, isActive: true, role: { roleType: 'ADMIN' } },
+      });
+      expect(activeAdmins).toBe(1);
+    } finally {
+      await cleanupOrg(orgA.orgId);
     }
   });
 });

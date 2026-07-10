@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { ok, err, requireAuth, logAudit, validateForeignKey } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { ok, err, requireAuth, logAudit } from '@/lib/api-utils';
+import { withPermission, authActor } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
+import { roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
 
 export const runtime = 'nodejs';
 
@@ -35,9 +36,23 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async
   const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (!user) return err('User not found', 404);
 
-  // The role must belong to THIS org (cross-org guard). validateForeignKey
-  // throws ApiError(404) → surfaced as 404 by withHandler; nothing is created.
-  await validateForeignKey(prisma.role, { id: parsed.data.roleId, organizationId: orgId }, 'Role not found');
+  // The role must belong to THIS org (cross-org guard) — 404 otherwise, and
+  // nothing is created. Load its SETTINGS permission for the escalation guard.
+  const role = await prisma.role.findFirst({
+    where: { id: parsed.data.roleId, organizationId: orgId },
+    include: { permissions: { where: { moduleKey: 'SETTINGS' }, select: { moduleKey: true, canEdit: true } } },
+  });
+  if (!role) return err('Role not found', 404);
+
+  // Privilege-escalation guard: only an ADMIN actor may grant an admin-capable
+  // role (ADMIN type, or SETTINGS.canEdit which bypasses every RBAC check).
+  // withPermission(SETTINGS.edit) alone would let a non-admin holding SETTINGS
+  // edit add a second account and mint it a full administrator. Mirrors the same
+  // guard in users/route.ts. Runs before the upsert, so it also covers the
+  // reactivation path (which re-assigns roleId).
+  if (roleGrantsSettingsEdit(role.roleType, role.permissions) && authActor(req).roleType !== 'ADMIN') {
+    return err('Only an administrator can assign an admin-level role', 403);
+  }
 
   const existing = await prisma.userOrganization.findUnique({
     where: { userId_organizationId: { userId: user.id, organizationId: orgId } },
