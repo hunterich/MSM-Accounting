@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '@/src/stores/useAuthStore';
 import { api } from '@/src/api/apiClient';
-import { getActiveOrgId } from '@/src/lib/activeOrg';
+import { getActiveOrgId, setActiveOrgId } from '@/src/lib/activeOrg';
+import { resolvePosGate } from './posGate';
 import { db } from './offline/db';
 import { runLegacyMigrationOnce } from './offline/legacyMigration';
 import { cacheCatalog } from './hooks/useOfflinePos';
@@ -21,6 +22,7 @@ const Splash = (): React.ReactElement => (
 export default function PosApp(): React.ReactElement {
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const org = useAuthStore((s) => s.org);
   const memberships = useAuthStore((s) => s.memberships);
   const needsOrgSelection = useAuthStore((s) => s.needsOrgSelection);
   const checkSession = useAuthStore((s) => s.checkSession);
@@ -30,15 +32,31 @@ export default function PosApp(): React.ReactElement {
   if (isLoading) return <Splash />;
   if (!user) return <LoginView />;
 
-  // Gate on company selection BEFORE mounting anything that touches the offline
-  // DB. Single-membership users never hit this (the me-route defaults to their
-  // sole org, so needsOrgSelection stays false and org is already pinned) — POS
-  // opens straight in, exactly as before. We NEVER auto-pick a company.
-  const needsPicker = needsOrgSelection || (!getActiveOrgId() && memberships.length > 1);
-  if (needsPicker) return <CompanyPickerView />;
+  // Decide the gate BEFORE mounting anything that touches the org-scoped DB.
+  const gate = resolvePosGate({
+    activeOrgId: getActiveOrgId(),
+    orgId: org?.id ?? null,
+    membershipCount: memberships.length,
+    needsOrgSelection,
+  });
 
-  // Org is resolved: mount the DB-touching shell, keyed so it fully remounts if
-  // the active org ever changes within this document.
+  // >1 company (or a rejected selection) → let the user choose. Never auto-pick.
+  if (gate.kind === 'picker') return <CompanyPickerView />;
+
+  // Single-company users have a server-defaulted org but NO pin (there is no
+  // ?org= handshake and no picker to write it). Unlike the main SPA — which
+  // silently falls back to a ':default' storage bucket — POS has no shared-DB
+  // fallback by design, so without a pin getPosDb()/migration would throw and
+  // blank the till. Pin the sole company synchronously here, BEFORE PosShell
+  // mounts and before any db.* access. Pinning the ONLY choice is not
+  // auto-picking among several.
+  if (gate.kind === 'pin') setActiveOrgId(gate.orgId);
+
+  // No pin and no resolved org yet: hold rather than open a DB with no company.
+  if (gate.kind === 'wait') return <Splash />;
+
+  // Org is resolved and pinned: mount the DB-touching shell, keyed so it fully
+  // remounts if the active org ever changes within this document.
   return <PosShell key={getActiveOrgId()} membershipCount={memberships.length} />;
 }
 
@@ -54,12 +72,17 @@ function PosShell({ membershipCount }: { membershipCount: number }): React.React
   const [screen, setScreen] = useState<Screen>({ name: 'checkout' });
   const [resuming, setResuming] = useState(true);
 
-  // One-time migration off the legacy shared DB, before any db write below.
+  // One-time migration off the legacy shared DB, before any db write below. A
+  // migration failure must NEVER blank the till: we always flip `migrated` so
+  // POS opens, and surface the warning banner (legacy data may be un-rescued).
   useEffect(() => {
     let cancelled = false;
     void runLegacyMigrationOnce(membershipCount)
       .then((r) => { if (!cancelled) setLegacyWarning(r.strandedLegacy); })
-      .catch((e) => { console.warn('[POS] legacy migration failed', e); })
+      .catch((e) => {
+        console.warn('[POS] legacy migration failed; opening POS anyway', e);
+        if (!cancelled) setLegacyWarning(true);
+      })
       .finally(() => { if (!cancelled) setMigrated(true); });
     return () => { cancelled = true; };
   }, [membershipCount]);
@@ -76,13 +99,14 @@ function PosShell({ membershipCount }: { membershipCount: number }): React.React
       .catch(() => {});
   }, [migrated]);
 
-  // Resume a persisted open shift so a reload lands back in checkout.
+  // Resume a persisted open shift so a reload lands back in checkout. Always
+  // clear `resuming` (even on read failure) so the till still opens.
   useEffect(() => {
     if (!migrated) return;
-    void db.shiftState.get('current').then((s) => {
-      if (s && s.status === 'OPEN') setShift({ shiftId: s.clientShiftId, registerId: s.registerId });
-      setResuming(false);
-    });
+    void db.shiftState.get('current')
+      .then((s) => { if (s && s.status === 'OPEN') setShift({ shiftId: s.clientShiftId, registerId: s.registerId }); })
+      .catch((e) => { console.warn('[POS] failed to resume shift', e); })
+      .finally(() => setResuming(false));
   }, [migrated]);
 
   if (!migrated || resuming) return <Splash />;

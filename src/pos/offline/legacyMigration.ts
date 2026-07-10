@@ -33,19 +33,48 @@ export function shouldAdoptLegacy(input: {
 /** Does the legacy, non-org-scoped `pharmacy-pos` database exist? */
 async function legacyDbExists(): Promise<boolean> {
   if (typeof indexedDB === 'undefined') return false;
-  // indexedDB.databases() is the reliable enumerator (Chromium/WebKit). If a
-  // browser lacks it we cannot safely enumerate, so we treat legacy as absent
-  // rather than risk touching an unknown DB — the target refetches its caches
-  // and no data is destroyed.
+  // Fast path: indexedDB.databases() is the reliable enumerator (Chromium/
+  // WebKit). Fall through to the probe if it is missing or throws.
   if (typeof indexedDB.databases === 'function') {
     try {
       const dbs = await indexedDB.databases();
       return dbs.some((d) => d.name === LEGACY_POS_DB_NAME);
     } catch {
-      return false;
+      /* fall through to the probe */
     }
   }
-  return false;
+  return probeLegacyExists();
+}
+
+/**
+ * Existence detection for browsers without indexedDB.databases() (e.g. Firefox).
+ * Opening a database triggers `onupgradeneeded` ONLY when it did not previously
+ * exist. If our probe creates it, we immediately delete the empty database we
+ * just made so no phantom is left behind — otherwise we'd silently strand any
+ * real legacy sales with no warning, violating the "never drop queued sales"
+ * rule.
+ */
+function probeLegacyExists(): Promise<boolean> {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let existed = true;
+    let req: IDBOpenDBRequest;
+    try {
+      req = indexedDB.open(LEGACY_POS_DB_NAME);
+    } catch {
+      resolve(false);
+      return;
+    }
+    req.onupgradeneeded = () => { existed = false; };
+    req.onsuccess = () => {
+      req.result.close();
+      // We just created it — remove the phantom empty DB.
+      if (!existed) { try { indexedDB.deleteDatabase(LEGACY_POS_DB_NAME); } catch { /* best effort */ } }
+      resolve(existed);
+    };
+    req.onerror = () => resolve(false);
+    req.onblocked = () => resolve(existed);
+  });
 }
 
 /** Copy the outbox + open shift from the legacy DB into the per-company DB. */
