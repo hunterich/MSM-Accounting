@@ -193,6 +193,26 @@ SETTINGS-edit permission. Effect on the invitee's token: next login/refresh.
 - Copy-COA-from-existing-company wizard option (template only, per decision).
 - Live token revocation (accepted ≤8h staleness; re-login is the manual override).
 
+## 9a. Operational consequence: backup/restore is database-wide
+
+Verified 2026-07-10: `lib/backup/backup-service.ts` runs `pg_dump` over the whole
+`DATABASE_URL` (no `--table`/`--schema` filter) and restore runs
+`pg_restore --clean --if-exists`. With companies sharing one database this means
+**backup and restore operate on ALL companies at once**: restoring a snapshot to
+undo a mistake in Company A also rolls Company B back to that snapshot. This is
+an inherent consequence of the one-shared-DB decision (§2), not a defect.
+
+Mitigations, if this ever bites: (a) treat restore as a whole-system operation and
+schedule it accordingly; (b) for a single-company rollback, restore into a scratch
+database and copy the affected rows back; (c) if per-company restore becomes a hard
+requirement, that is the point at which the separate-DB-per-company architecture
+should be revisited. Not addressed in this feature.
+
+Verified same day: the recurring-invoice and recurring-bill runners
+(`recurring-invoices/run`, `recurring-bills/run`) both derive their scope from
+`requireOrg(req)` and filter every query by `organizationId` — no "first org"
+assumption, so they are already multi-company safe.
+
 ## 10. Risks & plan-time verification items
 
 - **Frontend code that assumes a single org**: audit uses of
