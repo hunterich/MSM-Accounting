@@ -239,6 +239,8 @@ export async function bootstrapOrganization(
     accountIdByCode[a.code] = acc.id;
   }
   for (const a of STANDARD_CHILD_ACCOUNTS) {
+    const parentId = accountIdByCode[a.parentCode];
+    if (!parentId) throw new Error(`Unknown parent account code: ${a.parentCode}`);
     const acc = await tx.account.create({
       data: {
         organizationId: org.id,
@@ -246,7 +248,7 @@ export async function bootstrapOrganization(
         name: a.name,
         type: a.type,
         normalSide: a.normalSide,
-        parentId: accountIdByCode[a.parentCode],
+        parentId,
         isActive: true,
         isPostable: true,
       },

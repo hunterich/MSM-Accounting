@@ -48,26 +48,38 @@ const Companies = (): React.ReactElement => {
         }
 
         setSubmitting(true);
+        // Failure handling is scoped to the CREATE call only: once the company
+        // exists, a refresh/session hiccup must not re-show the filled form —
+        // a natural "retry" there would create a permanent duplicate.
+        let orgId: string;
         try {
-            const { orgId } = await api.post<{ orgId: string }>('/api/v1/organizations', {
+            ({ orgId } = await api.post<{ orgId: string }>('/api/v1/organizations', {
                 legalName,
                 displayName,
                 ...(form.npwp.trim() ? { npwp: form.npwp.trim() } : {}),
                 isPkp: form.isPkp,
                 ...(form.fiscalYearStart ? { fiscalYearStart: form.fiscalYearStart } : {}),
-            });
+            }));
+        } catch (e) {
+            pushToast(e instanceof Error ? e.message : 'Failed to create company.', 'error');
+            setSubmitting(false);
+            return;
+        }
+
+        // Created — clear the form immediately, whatever happens next.
+        setForm(EMPTY_FORM);
+        try {
             // The creator's token predates the new membership — re-issue the
             // cookie from DB memberships, then refresh the in-memory session so
             // the switcher and this table show the new company immediately.
             await api.post('/api/v1/auth/refresh');
             await useAuthStore.getState().checkSession();
-            setForm(EMPTY_FORM);
             pushToast(`Company "${displayName}" created.`, 'success', {
                 label: 'Open now',
                 onClick: () => window.open(`/?org=${encodeURIComponent(orgId)}`),
             });
-        } catch (e) {
-            pushToast(e instanceof Error ? e.message : 'Failed to create company.', 'error');
+        } catch {
+            pushToast('Company created — reload to see it in the switcher.', 'success');
         } finally {
             setSubmitting(false);
         }

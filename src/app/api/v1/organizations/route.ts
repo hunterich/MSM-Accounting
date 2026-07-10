@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, logAudit, ok, requireAuth, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok, requireAuth, withHandler } from '@/lib/api-utils';
+import { advisoryLockKey } from '@/lib/advisory-lock';
 import { bootstrapOrganization } from '@/lib/organization/bootstrap';
 
 export const runtime = 'nodejs';
@@ -40,8 +41,25 @@ export const POST = withHandler(async function POST(req: NextRequest) {
     return err(parsed.error.issues[0]?.message || 'Invalid company payload', 400);
   }
 
-  const { orgId } = await prisma.$transaction((tx) =>
-    bootstrapOrganization(
+  const { orgId } = await prisma.$transaction(async (tx) => {
+    // Duplicate guard: Organization has no unique name constraint and there is
+    // no delete endpoint, so an accidental double-submit would be permanent.
+    // Serialize this user's creates (xact-scoped advisory lock, released at
+    // commit/rollback), then refuse a legalName the caller already has.
+    const lockKey = advisoryLockKey(`org-create:${userId}`);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+    const duplicate = await tx.organization.findFirst({
+      where: {
+        legalName: parsed.data.legalName, // zod .trim() already normalized it
+        memberships: { some: { userId } },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ApiError('A company with this name already exists', 409);
+    }
+
+    return bootstrapOrganization(
       tx,
       {
         legalName: parsed.data.legalName,
@@ -51,8 +69,8 @@ export const POST = withHandler(async function POST(req: NextRequest) {
         fiscalYearStart: parsed.data.fiscalYearStart ?? null,
       },
       userId,
-    ),
-  );
+    );
+  });
 
   // Audit under the NEW org: "this company was created by X" belongs to the
   // company's own trail (its first entry).

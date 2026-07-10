@@ -265,6 +265,36 @@ describe('POST /api/v1/organizations', () => {
     await assertBootstrapComplete(body.orgId, user.id);
   });
 
+  it('duplicate legalName for the same caller → 409 and exactly one org row', async () => {
+    const user = await createCreatorUser();
+    const callerOrgId = await seedCallerOrg(user.id);
+    const uniqueName = `PT Duplikat ${randomUUID()}`;
+
+    const first = await createOrganization(
+      orgCreateRequest(
+        { legalName: uniqueName, displayName: uniqueName },
+        { orgId: callerOrgId, userId: user.id, roleType: 'ADMIN' },
+      ),
+    );
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as { orgId: string };
+    createdOrgIds.push(firstBody.orgId);
+
+    const second = await createOrganization(
+      orgCreateRequest(
+        { legalName: uniqueName, displayName: uniqueName },
+        { orgId: callerOrgId, userId: user.id, roleType: 'ADMIN' },
+      ),
+    );
+    expect(second.status).toBe(409);
+    const secondBody = (await second.json()) as { error: string };
+    expect(secondBody.error).toBe('A company with this name already exists');
+
+    // Organization has no unique name constraint and no delete endpoint —
+    // exactly one row must exist.
+    expect(await prisma.organization.count({ where: { legalName: uniqueName } })).toBe(1);
+  });
+
   it('non-ADMIN roleType → 403 and no organization row is created', async () => {
     const user = await createCreatorUser();
     const callerOrgId = await seedCallerOrg(user.id);
