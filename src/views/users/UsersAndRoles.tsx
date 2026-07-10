@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
+import Modal from '../../components/UI/Modal';
 import StatusTag from '../../components/UI/StatusTag';
-import { Save, Plus, Edit2, Trash2, Clock, Shield, Check } from 'lucide-react';
+import { Save, Plus, Edit2, Trash2, Clock, Shield, Check, UserPlus, UserMinus } from 'lucide-react';
 import {
   useRoles,
   useCreateRole,
@@ -14,8 +15,14 @@ import {
   type ApiRole,
   type ApiPermissionRow,
 } from '../../hooks/useRoles';
-import { useLoginAccounts, type LoginAccount } from '../../hooks/useUsers';
+import {
+  useLoginAccounts,
+  useAddMembership,
+  useRemoveMembership,
+  type LoginAccount,
+} from '../../hooks/useUsers';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { useToastStore } from '../../stores/useToastStore';
 import {
   MODULE_DEFS,
   MODULE_DEFS_BY_GROUP,
@@ -127,6 +134,8 @@ const newRoleDraft = (): RoleDraft => ({
 const UsersAndRoles = (): React.ReactElement => {
   const roleType = useAuthStore((s) => s.roleType);
   const isAdmin = roleType === 'ADMIN';
+  const currentUserId = useAuthStore((s) => s.user?.id) ?? null;
+  const pushToast = useToastStore((s) => s.pushToast);
 
   /* ---- Server data ---- */
   const { data: roles = [], isLoading: rolesLoading } = useRoles();
@@ -139,6 +148,8 @@ const UsersAndRoles = (): React.ReactElement => {
   const deleteRole = useDeleteRole();
   const assignUserRole = useAssignUserRole();
   const createUser = useCreateUser();
+  const addMembership = useAddMembership();
+  const removeMembership = useRemoveMembership();
 
   /* ---- Local UI state ---- */
   const [editingRole, setEditingRole] = useState<RoleDraft | null>(null);
@@ -152,12 +163,25 @@ const UsersAndRoles = (): React.ReactElement => {
   const [tempPasswordNotice, setTempPasswordNotice] = useState<{ email: string; password: string } | null>(null);
   // Tracks the role currently being assigned (disables that row's <select>).
   const [assigningUserId, setAssigningUserId] = useState<string | null>(null);
+  // "Add existing user to this company" modal (invite by email + per-org role).
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteForm, setInviteForm] = useState<{ email: string; roleId: string }>({ email: '', roleId: '' });
+  const [invitingMember, setInvitingMember] = useState(false);
+  // Membership id currently being removed (disables that row's remove button).
+  const [removingMembershipId, setRemovingMembershipId] = useState<string | null>(null);
 
   const rolesById = useMemo(() => {
     const map = new Map<string, ApiRole>();
     for (const r of roles) map.set(r.id, r);
     return map;
   }, [roles]);
+
+  // Active admins in THIS company — the last one cannot be removed (the server
+  // enforces this too; the UI just disables the action with an explanation).
+  const activeAdminCount = useMemo(
+    () => loginAccounts.filter((a) => a.roleType === 'ADMIN').length,
+    [loginAccounts],
+  );
 
   /* ---------------------------------------------------------------- handlers */
 
@@ -292,6 +316,48 @@ const UsersAndRoles = (): React.ReactElement => {
       window.alert(errorMessage(err));
     } finally {
       setCreatingUser(false);
+    }
+  };
+
+  const openInviteModal = (): void => {
+    setInviteForm({ email: '', roleId: roles[0]?.id ?? '' });
+    setShowInviteModal(true);
+  };
+
+  const handleInviteExisting = async (): Promise<void> => {
+    const email = inviteForm.email.trim();
+    if (!email) {
+      pushToast('Enter the email of an existing user.', 'error');
+      return;
+    }
+    if (!inviteForm.roleId) {
+      pushToast('Choose a role for this company.', 'error');
+      return;
+    }
+    setInvitingMember(true);
+    try {
+      await addMembership.mutateAsync({ email, roleId: inviteForm.roleId });
+      setShowInviteModal(false);
+      pushToast(`${email} was added to this company.`, 'success');
+    } catch (err) {
+      // Surface the server's 404 (unknown user) / 409 (already a member) message.
+      pushToast(errorMessage(err), 'error');
+    } finally {
+      setInvitingMember(false);
+    }
+  };
+
+  const handleRemoveMembership = async (acct: LoginAccount): Promise<void> => {
+    if (!window.confirm(`Remove ${acct.fullName || acct.email} from this company?`)) return;
+    setRemovingMembershipId(acct.membershipId);
+    try {
+      await removeMembership.mutateAsync(acct.membershipId);
+      pushToast(`${acct.fullName || acct.email} was removed from this company.`, 'success');
+    } catch (err) {
+      // Surface the server's 422 (last administrator) / 404 message.
+      pushToast(errorMessage(err), 'error');
+    } finally {
+      setRemovingMembershipId(null);
     }
   };
 
@@ -518,16 +584,25 @@ const UsersAndRoles = (): React.ReactElement => {
         <Card
           title="Users Directory (Daftar Pengguna)"
           actions={
-            <Button
-              text="Add User"
-              variant="secondary"
-              icon={<Plus size={16} />}
-              disabled={!isAdmin}
-              onClick={() => {
-                setShowUserForm((v) => !v);
-                setNewUser((u) => ({ ...u, roleId: u.roleId || roles[0]?.id || '' }));
-              }}
-            />
+            <div className="flex items-center gap-2">
+              <Button
+                text="Add user to this company"
+                variant="secondary"
+                icon={<UserPlus size={16} />}
+                disabled={!isAdmin}
+                onClick={openInviteModal}
+              />
+              <Button
+                text="Add User"
+                variant="secondary"
+                icon={<Plus size={16} />}
+                disabled={!isAdmin}
+                onClick={() => {
+                  setShowUserForm((v) => !v);
+                  setNewUser((u) => ({ ...u, roleId: u.roleId || roles[0]?.id || '' }));
+                }}
+              />
+            </div>
           }
           padding={false}
         >
@@ -588,6 +663,7 @@ const UsersAndRoles = (): React.ReactElement => {
                   <th className="p-3 text-sm font-semibold text-neutral-700">Email</th>
                   <th className="p-3 text-sm font-semibold text-neutral-700">Status</th>
                   <th className="p-3 text-sm font-semibold text-neutral-700 w-56">Role</th>
+                  <th className="p-3 text-sm font-semibold text-neutral-700 w-40 text-right">Access</th>
                 </tr>
               </thead>
               <tbody>
@@ -595,6 +671,15 @@ const UsersAndRoles = (): React.ReactElement => {
                   // Match the user's current role by name (the login-accounts API
                   // returns roleName, not roleId).
                   const currentRole = roles.find((r) => r.name === acct.roleName);
+                  const isSelf = acct.id === currentUserId;
+                  const isLastAdmin = acct.roleType === 'ADMIN' && activeAdminCount <= 1;
+                  const removing = removingMembershipId === acct.membershipId;
+                  const removeDisabled = !isAdmin || isSelf || isLastAdmin || removing;
+                  const removeTitle = isSelf
+                    ? 'You cannot remove yourself from this company.'
+                    : isLastAdmin
+                      ? 'The company must keep at least one administrator.'
+                      : 'Remove this user from this company.';
                   return (
                     <tr key={acct.id} className="border-b border-neutral-100 last:border-0">
                       <td className="p-3 text-sm font-medium text-neutral-800">{acct.fullName}</td>
@@ -615,12 +700,29 @@ const UsersAndRoles = (): React.ReactElement => {
                           ))}
                         </select>
                       </td>
+                      <td className="p-3 text-right">
+                        <button
+                          type="button"
+                          title={removeTitle}
+                          disabled={removeDisabled}
+                          onClick={() => handleRemoveMembership(acct)}
+                          className={`inline-flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                            removeDisabled
+                              ? 'text-neutral-300 cursor-not-allowed'
+                              : 'text-danger-600 hover:text-danger-700'
+                          }`}
+                          aria-label={`Remove ${acct.fullName || acct.email} from this company`}
+                        >
+                          <UserMinus size={15} />
+                          {removing ? 'Removing…' : 'Remove'}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
                 {loginAccounts.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="p-4 text-sm text-neutral-500 text-center">
+                    <td colSpan={5} className="p-4 text-sm text-neutral-500 text-center">
                       No users found.
                     </td>
                   </tr>
@@ -714,6 +816,59 @@ const UsersAndRoles = (): React.ReactElement => {
           </p>
         )}
       </div>
+
+      {/* Add existing user to this company (invite by email + per-company role) */}
+      <Modal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        title="Add user to this company"
+        size="sm"
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-neutral-600">
+            Grant an <span className="font-medium">existing</span> user access to this company with a
+            role. To create a brand-new account, use “Add User” instead.
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-neutral-600 mb-1">Email</label>
+            <Input
+              type="email"
+              value={inviteForm.email}
+              onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+              placeholder="user@company.com"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-neutral-600 mb-1">Role in this company</label>
+            <select
+              className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
+              value={inviteForm.roleId}
+              onChange={(e) => setInviteForm({ ...inviteForm, roleId: e.target.value })}
+            >
+              <option value="">Select a role…</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              text="Cancel"
+              variant="secondary"
+              disabled={invitingMember}
+              onClick={() => setShowInviteModal(false)}
+            />
+            <Button
+              text={invitingMember ? 'Adding…' : 'Add to company'}
+              variant="primary"
+              loading={invitingMember}
+              onClick={handleInviteExisting}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
