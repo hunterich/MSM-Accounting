@@ -7,11 +7,14 @@
  *     default-GL regression), warehouse WH-MAIN, the three template roles,
  *     twelve OPEN periods, and the creator's Admin membership.
  *   - The whole bootstrap rolls back atomically when the transaction fails.
+ *   - `POST /api/v1/organizations` bootstraps for ADMIN callers and refuses
+ *     everyone else without leaving a partial org behind.
  *
  * Run with:  npm run test:int -- org-bootstrap
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { NextRequest } from 'next/server';
 import { prisma, cleanupOrg, disconnect } from './harness';
 import {
   ALL_MODULE_KEYS,
@@ -21,6 +24,7 @@ import {
   bootstrapOrganization,
 } from '../../organization/bootstrap';
 import { resolveAccountDefaultId } from '../../account-defaults';
+import { POST as createOrganization } from '../../../src/app/api/v1/organizations/route';
 
 const createdOrgIds: string[] = [];
 const createdUserIds: string[] = [];
@@ -202,5 +206,94 @@ describe('bootstrapOrganization (shared seed template)', () => {
     expect(await prisma.account.count({ where: { organizationId: orgId! } })).toBe(0);
     expect(await prisma.accountingPeriod.count({ where: { organizationId: orgId! } })).toBe(0);
     expect(await prisma.userOrganization.count({ where: { userId: user.id } })).toBe(0);
+  });
+});
+
+describe('POST /api/v1/organizations', () => {
+  function orgCreateRequest(
+    body: unknown,
+    headers: { orgId: string; userId: string; roleType: string },
+  ): NextRequest {
+    return new NextRequest('http://localhost/api/v1/organizations', {
+      method: 'POST',
+      // The trusted headers the middleware stamps after resolveActiveOrg.
+      headers: {
+        'content-type': 'application/json',
+        'x-org-id': headers.orgId,
+        'x-user-id': headers.userId,
+        'x-role-type': headers.roleType,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** The creator's existing org — company creation happens FROM an active org. */
+  async function seedCallerOrg(userId: string): Promise<string> {
+    const { orgId } = await prisma.$transaction((tx) =>
+      bootstrapOrganization(
+        tx,
+        { legalName: `PT Caller ${randomUUID().slice(0, 6)}`, displayName: 'Caller Org' },
+        userId,
+      ),
+    );
+    createdOrgIds.push(orgId);
+    return orgId;
+  }
+
+  it('ADMIN caller → 201 with a bootstrap-complete company', async () => {
+    const user = await createCreatorUser();
+    const callerOrgId = await seedCallerOrg(user.id);
+
+    const res = await createOrganization(
+      orgCreateRequest(
+        { legalName: 'PT Uji Coba Route', displayName: 'Uji Coba Route', isPkp: true, npwp: '01.234.567.8-901.000' },
+        { orgId: callerOrgId, userId: user.id, roleType: 'ADMIN' },
+      ),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { orgId: string };
+    expect(body.orgId).toBeTruthy();
+    createdOrgIds.push(body.orgId);
+
+    const org = await prisma.organization.findUnique({ where: { id: body.orgId } });
+    expect(org).toMatchObject({
+      legalName: 'PT Uji Coba Route',
+      displayName: 'Uji Coba Route',
+      isPkp: true,
+      npwp: '01.234.567.8-901.000',
+    });
+    await assertBootstrapComplete(body.orgId, user.id);
+  });
+
+  it('non-ADMIN roleType → 403 and no organization row is created', async () => {
+    const user = await createCreatorUser();
+    const callerOrgId = await seedCallerOrg(user.id);
+    const uniqueName = `PT Ditolak ${randomUUID()}`;
+
+    const res = await createOrganization(
+      orgCreateRequest(
+        { legalName: uniqueName, displayName: uniqueName },
+        { orgId: callerOrgId, userId: user.id, roleType: 'FINANCE' },
+      ),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('Only administrators can create companies');
+    expect(await prisma.organization.count({ where: { legalName: uniqueName } })).toBe(0);
+  });
+
+  it('invalid body (short displayName) → 400 and nothing created', async () => {
+    const user = await createCreatorUser();
+    const callerOrgId = await seedCallerOrg(user.id);
+    const uniqueName = `PT Invalid ${randomUUID()}`;
+
+    const res = await createOrganization(
+      orgCreateRequest(
+        { legalName: uniqueName, displayName: 'X' },
+        { orgId: callerOrgId, userId: user.id, roleType: 'ADMIN' },
+      ),
+    );
+    expect(res.status).toBe(400);
+    expect(await prisma.organization.count({ where: { legalName: uniqueName } })).toBe(0);
   });
 });

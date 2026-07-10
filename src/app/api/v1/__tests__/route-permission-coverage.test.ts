@@ -31,6 +31,7 @@ const OPEN_ALLOWLIST = new Set([
   'item-categories/[id]/next-sku/route.ts',     // read-only lookup (computes next SKU)
   'approvals/[id]/approve/route.ts',            // guarded by assertApprovalAuthorized (approval engine)
   'approvals/[id]/reject/route.ts',             // guarded by assertApprovalAuthorized
+  'organizations/route.ts',                     // guarded by x-role-type === 'ADMIN': company creation is an owner capability above module RBAC (no per-module permission exists for a not-yet-created org)
 ]);
 
 // GET-only handlers we DO enforce (sensitive reads). Every other GET-only file may stay open.
