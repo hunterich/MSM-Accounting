@@ -1,18 +1,19 @@
 import React, { useMemo } from 'react';
 import { AlertCircle } from 'lucide-react';
 import Card from '../../UI/Card';
-import { useInvoiceStore } from '../../../stores/useInvoiceStore';
+import { useInvoices } from '../../../hooks/useAR';
 import { formatIDR } from '../../../utils/formatters';
 
 const OverdueInvoicesWidget = (): React.ReactElement => {
-    const invoices = useInvoiceStore((s) => s.invoices);
+    const { data, isLoading, isError } = useInvoices();
 
+    // Hook normalizes the API enum OVERDUE → 'Overdue' (title case).
     const overdue = useMemo(
-        () => invoices.filter((inv) => inv.status === 'Overdue'),
-        [invoices]
+        () => (data?.data ?? []).filter((inv) => inv.status === 'Overdue'),
+        [data]
     );
     const total = useMemo(
-        () => overdue.reduce((sum, inv) => sum + (Number(inv.total || inv.amount) || 0), 0),
+        () => overdue.reduce((sum, inv) => sum + (Number(inv.totalAmount ?? inv.amount) || 0), 0),
         [overdue]
     );
 
@@ -26,9 +27,11 @@ const OverdueInvoicesWidget = (): React.ReactElement => {
             }
             padding
         >
-            <div className="text-[2rem] font-bold my-2.5">{formatIDR(total)}</div>
+            <div className="text-[2rem] font-bold my-2.5">{isLoading || isError ? '—' : formatIDR(total)}</div>
             <div className="text-sm text-danger-600">
-                {overdue.length} invoice{overdue.length !== 1 ? 's' : ''} overdue
+                {isError
+                    ? "Couldn't load invoices"
+                    : `${overdue.length} invoice${overdue.length !== 1 ? 's' : ''} overdue`}
             </div>
         </Card>
     );

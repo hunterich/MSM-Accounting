@@ -41,7 +41,6 @@ export async function POST(req: NextRequest) {
             },
             organization: true,
           },
-          take: 1,
         },
       },
     });
@@ -55,10 +54,14 @@ export async function POST(req: NextRequest) {
       return withCors(NextResponse.json({ error: 'Invalid email or password' }, { status: 401 }));
     }
 
-    const membership = user.memberships[0];
-    if (!membership) {
+    const memberships = user.memberships; // all active
+    if (memberships.length === 0) {
       return withCors(NextResponse.json({ error: 'No organization found for user' }, { status: 403 }));
     }
+
+    // Keep today's response shape computed from the FIRST membership so
+    // single-org clients behave identically.
+    const membership = memberships[0];
     const organization = membership.organization as typeof membership.organization & {
       costingMethod: string | null;
       costingMethodEffectiveDate: Date | null;
@@ -66,9 +69,8 @@ export async function POST(req: NextRequest) {
 
     const token = await signToken({
       userId: user.id,
-      orgId: membership.organizationId,
       email: user.email,
-      roleType: membership.role.roleType,
+      memberships: memberships.map((m) => ({ orgId: m.organizationId, roleType: m.role.roleType })),
     });
 
     const response = NextResponse.json({
@@ -86,6 +88,11 @@ export async function POST(req: NextRequest) {
         permissions: membership.role.permissions,
         invoiceAccessScope: membership.role.invoiceAccessScope,
       },
+      memberships: memberships.map((m) => ({
+        orgId: m.organizationId,
+        name: m.organization.displayName,
+        roleType: m.role.roleType,
+      })),
     });
 
     response.cookies.set(COOKIE_NAME, token, {

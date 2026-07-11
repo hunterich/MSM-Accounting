@@ -102,6 +102,10 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         throw new AccessError(`Cannot edit a ${existing.status} invoice — void it to change.`, 403);
       }
 
+      // A DRAFT → SENT finalize ("send"). Gated below by an atomic status claim so
+      // two concurrent sends can't both post the GL (double AR + revenue).
+      const isDraftSend = isDraft && header.status === 'SENT';
+
       if (isPostedEdit) {
         // v1 keeps the reverse+re-post pure-GL: inventory invoices involve cost-layer
         // re-consumption that must be voided + re-sent instead.
@@ -121,10 +125,28 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         await reverseInvoicePosting(tx, existing.organizationId, { id: existing.id, number: existing.number }, { date: newDate });
       }
 
+      // Atomically claim the DRAFT → SENT transition before any GL side effect:
+      // only the request whose guarded updateMany flips the row (count === 1) may
+      // post. A concurrent send blocks on the row lock, then sees status ≠ DRAFT →
+      // count 0 → skips posting (the invoice is already SENT/PENDING_APPROVAL, so a
+      // double-click is a harmless no-op). Mirrors the claim in lib/invoice-void.ts.
+      let sendClaimWon = false;
+      if (isDraftSend) {
+        const claim = await tx.salesInvoice.updateMany({
+          where: { id, organizationId: orgId, status: 'DRAFT' },
+          data: { status: 'SENT' },
+        });
+        sendClaimWon = claim.count === 1;
+      }
+
       await tx.salesInvoice.update({
         where: { id },
         data: {
           ...header,
+          // The claim above is the sole authority for the DRAFT → SENT status flip —
+          // don't let the blind header spread re-write it (that would revert the
+          // claimed SENT, or clobber a concurrent PENDING_APPROVAL hold).
+          ...(isDraftSend && { status: undefined }),
           // An edit never un-posts an invoice — keep it SENT/OVERDUE.
           ...(isPostedEdit && { status: existing.status }),
           updatedAt: new Date(),
@@ -165,12 +187,15 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         await postInvoiceSend(tx, existing.organizationId, existing.id);
       }
 
-      // Post AR + COGS journals when invoice transitions DRAFT → SENT,
-      // unless the approval engine routes the finalize for approval first.
+      // Post AR + COGS journals when the invoice transitions DRAFT → SENT,
+      // unless the approval engine routes the finalize for approval first. Only
+      // the request that won the atomic claim above reaches here — the loser
+      // (sendClaimWon === false) already left the row SENT/PENDING_APPROVAL and
+      // must NOT post a second time.
       // The AR-side post (DR AR / CR Sales / CR Tax) runs for every invoice;
       // the COGS post only runs when the org has a costing method and the
       // invoice has inventory lines.
-      if (existing.status === 'DRAFT' && header.status === 'SENT') {
+      if (isDraftSend && sendClaimWon) {
         const routed = await routeForApproval(tx, {
           orgId: existing.organizationId,
           userId,
@@ -178,8 +203,8 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
           documentId: existing.id,
         });
         if (routed) {
-          // HELD for approval: the header update above already stamped
-          // status='SENT'; override it back to PENDING_APPROVAL and post NO GL.
+          // HELD for approval: the claim above stamped status='SENT'; override it
+          // back to PENDING_APPROVAL and post NO GL.
           await tx.salesInvoice.update({
             where: { id: existing.id },
             data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },

@@ -31,6 +31,11 @@ let creditNoteUpdateThrows: Error | null = null;
 let debitNoteUpdateThrows:  Error | null = null;
 
 const txStub = () => ({
+  // nextEntryNo (JE numbering) takes a per-org advisory lock via $executeRaw
+  // before its MAX read.
+  $executeRaw: vi.fn().mockResolvedValue(0),
+  // Serves both nextEntryNo's MAX read and assertPeriodOpen's FOR SHARE lookup
+  // (the latter tolerates the extra field / missing status → treated as open).
   $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 50 }]),
   creditNote: {
     update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -98,8 +103,6 @@ const txStub = () => ({
     ]),
   },
   organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
-  // assertPeriodOpen() looks up the posting period; null = no period defined = open.
-  accountingPeriod: { findFirst: vi.fn(async () => null) },
 });
 
 vi.mock('@/lib/prisma', () => ({

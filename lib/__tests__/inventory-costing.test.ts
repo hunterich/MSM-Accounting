@@ -20,6 +20,8 @@ function makeTx(opts: {
 }) {
   const lotRows = opts.lots.map((l) => ({ ...l, date: new Date('2026-01-01') }));
   return {
+    // calculateAndPostCOGS takes a per-item advisory lock before the guard.
+    $executeRaw: vi.fn().mockResolvedValue(0),
     organization: {
       findUnique: vi.fn().mockResolvedValue({
         allowNegativeStock: opts.allowNegativeStock,

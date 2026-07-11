@@ -1,8 +1,11 @@
 /**
  * Central API client for MSM Accounting Software.
  * Reads VITE_API_URL and attaches credentials cookie on every request.
- * Tenant context is derived server-side from the session cookie — no x-org-id header is sent.
+ * Tenant context is derived server-side from the session cookie plus the
+ * per-tab `x-active-org` header, validated against the signed membership list.
  */
+
+import { getActiveOrgId, clearActiveOrg } from '../lib/activeOrg';
 
 const resolveApiBase = () => {
   if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
@@ -22,14 +25,24 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { headers: extraHeaders, ...rest } = options;
   const isFormData = typeof FormData !== 'undefined' && rest.body instanceof FormData;
+  const activeOrg = getActiveOrgId();
+  const orgHeader: Record<string, string> = activeOrg ? { 'x-active-org': activeOrg } : {};
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    headers: isFormData ? (extraHeaders as Record<string, string>) : getHeaders(extraHeaders as Record<string, string>),
+    headers: isFormData
+      ? { ...orgHeader, ...(extraHeaders as Record<string, string>) }
+      : getHeaders({ ...orgHeader, ...(extraHeaders as Record<string, string>) }),
     ...rest,
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string };
+    const body = await res.json().catch(() => ({})) as { error?: string; code?: string };
+    if (res.status === 403 && body.code === 'ORG_MEMBERSHIP') {
+      // The stored org is no longer valid for this session (membership revoked
+      // or stale tab). Reset and go back through bootstrap → company picker.
+      clearActiveOrg();
+      window.location.assign('/');
+    }
     throw Object.assign(new Error(body.error || `API error ${res.status}`), { status: res.status });
   }
 

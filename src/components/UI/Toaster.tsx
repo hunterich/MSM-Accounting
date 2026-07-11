@@ -21,11 +21,24 @@ const Toaster = (): React.ReactElement | null => {
                     key={t.id}
                     role="status"
                     onClick={() => dismissToast(t.id)}
-                    className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-neutral-0 transition-all pointer-events-auto cursor-pointer ${
+                    className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-neutral-0 transition-all pointer-events-auto cursor-pointer flex items-center gap-3 ${
                         t.type === 'error' ? 'bg-danger-500' : 'bg-success-500'
                     }`}
                 >
-                    {t.message}
+                    <span>{t.message}</span>
+                    {t.action && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                t.action!.onClick();
+                                dismissToast(t.id);
+                            }}
+                            className="shrink-0 rounded-md border border-white/60 px-2 py-1 text-xs font-semibold uppercase tracking-wide hover:bg-white/15"
+                        >
+                            {t.action.label}
+                        </button>
+                    )}
                 </div>
             ))}
         </div>

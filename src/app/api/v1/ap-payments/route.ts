@@ -52,9 +52,12 @@ export const POST = withPermission({ module: 'AP_PAYMENTS', action: 'create' }, 
     throw new ApiError(parsed.error.issues[0]?.message || 'Invalid AP payment payload', 400);
   }
   const { allocations, ...payload } = parsed.data;
-  const number = await nextNumber(prisma, 'APPayment', 'number', 'APP');
   const payment = await prisma.$transaction(async (tx) => {
     await validateForeignKey(tx.vendor, { id: payload.vendorId, organizationId: orgId, status: 'ACTIVE' }, 'Vendor not found in organization');
+    // Allocate the number INSIDE the transaction with `tx` so its advisory lock
+    // stays held until the insert commits (calling it on the base `prisma`
+    // client releases the lock before the insert → spurious 409s under load).
+    const number = await nextNumber(tx, 'APPayment', 'number', 'APP');
     if (allocations?.length) {
       for (const allocation of allocations) {
         const bill = await tx.bill.findFirst({
@@ -63,6 +66,18 @@ export const POST = withPermission({ module: 'AP_PAYMENTS', action: 'create' }, 
         });
         if (!bill) {
           throw new ApiError('Bill not found in organization', 404);
+        }
+        // Lock the bill row FOR UPDATE and re-read its status UNDER the lock, so
+        // a concurrent payment (over-application, H-3) or a concurrent void (H-4)
+        // serializes here: the loser blocks until the winner commits, then reads
+        // the committed status + allocations before deciding.
+        const [locked] = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT "status" FROM "Bill" WHERE "id" = ${allocation.billId} FOR UPDATE
+        `;
+        // Refuse a payment against a non-payable bill (H-4): a VOID / DRAFT /
+        // PENDING_APPROVAL bill has no live A/P to settle.
+        if (locked && ['VOID', 'DRAFT', 'PENDING_APPROVAL'].includes(locked.status)) {
+          throw new ApiError(`Cannot apply a payment to a ${locked.status} bill`, 422);
         }
         // Only COMPLETED-payment allocations have actually cleared the bill.
         // VOID / PENDING_APPROVAL / DRAFT allocations posted no GL and must NOT
@@ -124,6 +139,6 @@ export const POST = withPermission({ module: 'AP_PAYMENTS', action: 'create' }, 
 
     return created;
   });
-  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'APPayment', entityId: payment.id, action: 'CREATE', payload: { number } });
+  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'APPayment', entityId: payment.id, action: 'CREATE', payload: { number: payment.number } });
   return ok(payment, 201);
 });

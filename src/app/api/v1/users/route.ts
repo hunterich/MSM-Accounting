@@ -20,17 +20,21 @@ export const GET = withPermission({ module: 'SETTINGS', action: 'view' }, async 
     where: { organizationId: orgId, isActive: true },
     include: {
       user: { select: { id: true, fullName: true, email: true, status: true } },
-      role: { select: { name: true } },
+      role: { select: { name: true, roleType: true } },
     },
     orderBy: { joinedAt: 'asc' },
   });
 
   const data = memberships.map((m) => ({
     id: m.user.id,
+    // The UserOrganization row id — the handle the DELETE membership endpoint
+    // (remove-from-company) operates on, distinct from the user id above.
+    membershipId: m.id,
     fullName: m.user.fullName,
     email: m.user.email,
     status: m.user.status,
     roleName: m.role.name,
+    roleType: m.role.roleType,
   }));
 
   return ok({ data });

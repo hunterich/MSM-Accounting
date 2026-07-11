@@ -144,3 +144,29 @@ describe('resolveAccountDefaultId with Prisma enum casing', () => {
         expect(resolveAccountDefaultId(uiAccounts as never, {}, 'apControl')).toBe('acc-ap');
     });
 });
+
+// ── Keyword fallback is case-insensitive on the account NAME (regression) ─────
+// Orgs on a `1-1200` / `2-1100` code scheme don't match the hardcoded preferred
+// codes ('121', '22', …), so resolution reaches the keyword step. That step must
+// match a normally-capitalised name ("Accounts Receivable") — previously it only
+// normalised the keyword, not the haystack, so it silently fell through to
+// candidates[0] and posted A/R to Cash and output tax to Accounts Payable.
+describe('resolveAccountDefaultId keyword fallback (case-insensitive name)', () => {
+    const orgAccounts = [
+        { id: 'acc-cashbank', code: '1-1000', name: 'Cash and Bank', type: 'Asset', isActive: true, isPostable: true },
+        { id: 'acc-ar', code: '1-1200', name: 'Accounts Receivable', type: 'Asset', isActive: true, isPostable: true },
+        { id: 'acc-inventory', code: '1-1300', name: 'Inventory', type: 'Asset', isActive: true, isPostable: true },
+        { id: 'acc-ap', code: '2-1000', name: 'Accounts Payable', type: 'Liability', isActive: true, isPostable: true },
+        { id: 'acc-taxppn', code: '2-1100', name: 'Tax Payable (PPN)', type: 'Liability', isActive: true, isPostable: true },
+        { id: 'acc-sales', code: '4-1000', name: 'Sales Revenue', type: 'Revenue', isActive: true, isPostable: true },
+        { id: 'acc-cogs', code: '5-1000', name: 'Cost of Goods Sold', type: 'Expense', isActive: true, isPostable: true },
+    ];
+
+    it('resolves arControl to Accounts Receivable, not the first Asset (Cash and Bank)', () => {
+        expect(resolveAccountDefaultId(orgAccounts as never, undefined, 'arControl')).toBe('acc-ar');
+    });
+
+    it('resolves arTax to Tax Payable (PPN), not the first Liability (Accounts Payable)', () => {
+        expect(resolveAccountDefaultId(orgAccounts as never, undefined, 'arTax')).toBe('acc-taxppn');
+    });
+});

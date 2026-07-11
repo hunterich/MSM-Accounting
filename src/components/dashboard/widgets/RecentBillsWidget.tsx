@@ -4,7 +4,7 @@ import Card from '../../UI/Card';
 import Table from '../../UI/Table';
 import StatusTag from '../../UI/StatusTag';
 import Button from '../../UI/Button';
-import { useBillStore } from '../../../stores/useBillStore';
+import { useBills } from '../../../hooks/useAP';
 import { formatIDR } from '../../../utils/formatters';
 
 interface BillRow extends Record<string, unknown> {
@@ -25,20 +25,20 @@ const columns = [
 
 const RecentBillsWidget = (): React.ReactElement => {
     const navigate = useNavigate();
-    const bills = useBillStore((s) => s.bills);
+    const { data, isLoading, isError } = useBills();
 
     const rows = useMemo<BillRow[]>(() =>
-        [...bills]
-            .sort((a, b) => new Date((b.date as string | number) || 0).getTime() - new Date((a.date as string | number) || 0).getTime())
+        [...(data?.data ?? [])]
+            .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
             .slice(0, 5)
             .map((b) => ({
                 id:     b.id,
-                vendor: (b.vendor as string) || '—',
-                amount: formatIDR(Number(b.total || b.amount) || 0),
-                due:    (b.due as string) || (b.dueDate as string) || '—',
-                status: (b.status as string) || 'Unpaid',
+                vendor: b.vendor || '—',
+                amount: formatIDR(Number(b.totalAmount ?? b.amount) || 0),
+                due:    b.due || b.dueDate || '—',
+                status: b.status || 'Unpaid',
             })),
-        [bills]
+        [data]
     );
 
     return (
@@ -49,8 +49,15 @@ const RecentBillsWidget = (): React.ReactElement => {
                     onClick={() => navigate('/ap/bills')} />
             }
         >
-            <Table columns={columns} data={rows} />
-            {rows.length === 0 && <div className="module-empty-state">No bills yet.</div>}
+            {isLoading ? (
+                <div className="module-empty-state">Loading…</div>
+            ) : isError ? (
+                <div className="module-empty-state">Couldn&apos;t load bills.</div>
+            ) : rows.length === 0 ? (
+                <div className="module-empty-state">No bills yet.</div>
+            ) : (
+                <Table columns={columns} data={rows} />
+            )}
         </Card>
     );
 };

@@ -51,9 +51,12 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
     throw new ApiError(parsed.error.issues[0]?.message || 'Invalid AR payment payload', 400);
   }
   const { allocations, ...payload } = parsed.data;
-  const number = await nextNumber(prisma, 'ARPayment', 'number', 'ARP');
   const payment = await prisma.$transaction(async (tx) => {
     await validateForeignKey(tx.customer, { id: payload.customerId, organizationId: orgId, status: 'ACTIVE' }, 'Customer not found in organization');
+    // Allocate the number INSIDE the transaction with `tx` so its advisory lock
+    // stays held until the insert commits (calling it on the base `prisma`
+    // client releases the lock before the insert → spurious 409s under load).
+    const number = await nextNumber(tx, 'ARPayment', 'number', 'ARP');
     if (allocations?.length) {
       for (const allocation of allocations) {
         const invoice = await tx.salesInvoice.findFirst({
@@ -62,6 +65,18 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
         });
         if (!invoice) {
           throw new ApiError('Invoice not found in organization', 404);
+        }
+        // Lock the invoice row FOR UPDATE and re-read its status UNDER the lock,
+        // so a concurrent payment (over-application, H-3) or a concurrent void
+        // (H-4) serializes here: the loser blocks until the winner commits, then
+        // reads the committed status + allocations before deciding.
+        const [locked] = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT "status" FROM "SalesInvoice" WHERE "id" = ${allocation.invoiceId} FOR UPDATE
+        `;
+        // Refuse a payment against a non-payable invoice (H-4): a VOID / DRAFT /
+        // PENDING_APPROVAL invoice has no live A/R to settle.
+        if (locked && ['VOID', 'DRAFT', 'PENDING_APPROVAL'].includes(locked.status)) {
+          throw new ApiError(`Cannot apply a payment to a ${locked.status} invoice`, 422);
         }
         // Only COMPLETED-payment allocations have actually cleared the invoice.
         // VOID / PENDING_APPROVAL / DRAFT allocations posted no GL and must NOT
@@ -123,6 +138,6 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
 
     return created;
   });
-  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ARPayment', entityId: payment.id, action: 'CREATE', payload: { number } });
+  logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ARPayment', entityId: payment.id, action: 'CREATE', payload: { number: payment.number } });
   return ok(payment, 201);
 });

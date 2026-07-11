@@ -60,6 +60,22 @@ export async function createBillRecord(
     );
   }
 
+  // Every bill line that carries a PO-line ref must point at a PurchaseOrderLine
+  // owned by THIS org. PurchaseOrderLine has no organizationId column, so scope
+  // through its parent PurchaseOrder. This is the authoritative chokepoint: it
+  // covers ALL lines (including `alreadyReceived` ones, which the POST route's
+  // over-receive loop skips), so a cross-org purchaseOrderLineId can never be
+  // persisted verbatim on a BillLine and later leaked/mutated.
+  for (const line of lines ?? []) {
+    if (line.purchaseOrderLineId) {
+      await validateForeignKey(
+        tx.purchaseOrderLine,
+        { id: line.purchaseOrderLineId, purchaseOrder: { organizationId: orgId } },
+        'Purchase order line not found in organization',
+      );
+    }
+  }
+
   const created = await tx.bill.create({
     data: {
       ...header,

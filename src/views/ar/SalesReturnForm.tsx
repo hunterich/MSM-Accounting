@@ -51,7 +51,6 @@ import { formatIDR, formatDateID } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import NotePrintTemplate from '../../components/print/NotePrintTemplate';
-import { useReturnStore } from '../../stores/useReturnStore';
 import { useCustomers, useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
@@ -87,7 +86,6 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         : (location.state || {})) as { mode?: string; returnId?: string };
     const mode = state.mode || 'create'; // create | view | edit
     const isView = mode === 'view';
-    const { addSalesReturn, updateSalesReturn } = useReturnStore();
 
     const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = customersData?.data ?? [];

@@ -5,9 +5,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { assertPeriodOpen } from '../period-guard';
 
+// assertPeriodOpen now resolves + FOR SHARE-locks the period row via a raw
+// query (so a concurrent close serializes), so the tx stub returns rows.
 function makeTx(period: unknown) {
   return {
-    accountingPeriod: { findFirst: vi.fn().mockResolvedValue(period) },
+    $queryRaw: vi.fn().mockResolvedValue(period ? [period] : []),
   } as never;
 }
 
