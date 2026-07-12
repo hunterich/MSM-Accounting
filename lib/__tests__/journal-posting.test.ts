@@ -10,12 +10,15 @@ import { postJournalEntry } from '../journal-posting';
 import { assertLinesBalanced } from './journal-balance-helper';
 
 type MockTx = {
+  $executeRaw: ReturnType<typeof vi.fn>;
   $queryRaw: ReturnType<typeof vi.fn>;
   journalEntry: { create: ReturnType<typeof vi.fn> };
 };
 
 function makeTx(): MockTx {
   return {
+    // nextEntryNo takes a per-org advisory lock before reading the max sequence.
+    $executeRaw: vi.fn().mockResolvedValue(0),
     $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 7 }]),
     journalEntry: {
       create: vi.fn().mockImplementation(async ({ data }: { data: { entryNo: string } }) => ({

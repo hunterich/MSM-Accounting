@@ -346,6 +346,14 @@ export const useSalesOrders = (params: Record<string, unknown> = {}) =>
             .then((r) => ({ ...r, data: r.data.map(normalizeSO) })),
     });
 
+export const useSalesOrder = (id: string | undefined) =>
+    useQuery({
+        queryKey: [...SO_KEYS.all, id ?? ''],
+        queryFn:  () => api.get<RawSalesOrder>(`/api/v1/sales-orders/${id}`),
+        select:   normalizeSO,
+        enabled:  Boolean(id),
+    });
+
 export const useCreateSalesOrder = () => {
     const qc = useQueryClient();
     return useMutation({

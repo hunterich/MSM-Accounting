@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { resolveApiBase } from '../lib/apiBase';
+import { getActiveOrgId, clearActiveOrg } from '../lib/activeOrg';
 
 interface AuthUser {
     id:       string;
@@ -14,6 +15,12 @@ interface AuthOrg {
     costingMethod?: string | null;
     costingMethodEffectiveDate?: string | null;
     [key: string]: unknown;
+}
+
+export interface OrgMembership {
+    orgId:    string;
+    name:     string;
+    roleType: string;
 }
 
 interface RolePermission {
@@ -32,6 +39,8 @@ interface AuthStore {
     roleType:            string | null;
     invoiceAccessScope:  string;
     permissions:         RolePermission[];
+    memberships:         OrgMembership[];
+    needsOrgSelection:   boolean;
     isLoading:           boolean;
     needsInventoryValuationSetup: boolean;
     mustChangePassword:  boolean;
@@ -39,6 +48,7 @@ interface AuthStore {
     hasPermission:       (moduleKey: string, action?: PermissionAction) => boolean;
     updateOrganizationContext: (nextOrg: Partial<AuthOrg>, needsInventoryValuationSetup?: boolean) => void;
     checkSession:        () => Promise<void>;
+    selectOrg:           (orgId: string) => void;
     login:               (email: string, password: string) => Promise<unknown>;
     loginWithGoogle:     (credential: string) => Promise<unknown>;
     logout:              () => Promise<void>;
@@ -51,6 +61,8 @@ interface AuthResponseLike {
   org?: AuthOrg | null;
   roleType?: string | null;
   permissions?: RolePermission[];
+  memberships?: OrgMembership[];
+  needsOrgSelection?: boolean;
   needsInventoryValuationSetup?: boolean;
   mustChangePassword?: boolean;
   role?: {
@@ -68,6 +80,8 @@ const EMPTY_SESSION = {
   roleType: null,
   invoiceAccessScope: 'ALL',
   permissions: [],
+  memberships: [] as OrgMembership[],
+  needsOrgSelection: false,
   isLoading: false,
   needsInventoryValuationSetup: false,
   mustChangePassword: false,
@@ -80,6 +94,9 @@ const getPermissionsFromResponse = (data: AuthResponseLike = {}) => data.role?.p
 const getRoleTypeFromResponse = (data: AuthResponseLike = {}) => data.role?.type || data.roleType || null;
 
 const getInvoiceAccessScopeFromResponse = (data: AuthResponseLike = {}) => data.role?.invoiceAccessScope || 'ALL';
+
+const getMembershipsFromResponse = (data: AuthResponseLike = {}) =>
+  Array.isArray(data.memberships) ? data.memberships : [];
 
 export const hasModulePermission = (
   permissions: RolePermission[] | Record<string, Record<PermissionAction, boolean>>,
@@ -117,6 +134,8 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   roleType: null,
   invoiceAccessScope: 'ALL',
   permissions: [],
+  memberships: [],
+  needsOrgSelection: false,
   isLoading: true,
   needsInventoryValuationSetup: false,
   mustChangePassword: false,
@@ -135,8 +154,10 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   checkSession: async () => {
     set({ isLoading: true });
     try {
+      const activeOrg = getActiveOrgId();
       const res = await fetch(`${API}/api/v1/auth/me`, {
         credentials: 'include',
+        headers: { ...(activeOrg ? { 'x-active-org': activeOrg } : {}) },
       });
 
       if (res.ok) {
@@ -147,6 +168,8 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
           roleType: getRoleTypeFromResponse(data),
           invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
           permissions: getPermissionsFromResponse(data),
+          memberships: getMembershipsFromResponse(data),
+          needsOrgSelection: data.needsOrgSelection === true,
           needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
           mustChangePassword: data.mustChangePassword === true,
           isLoading: false,
@@ -158,6 +181,18 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     } catch {
       set(EMPTY_SESSION);
     }
+  },
+
+  selectOrg: (orgId) => {
+    // Hard reload through the ?org= handshake — the same mechanism as the
+    // header switcher. The org pin is written only by the NEW document's
+    // bootstrap (module-eval in activeOrg.ts): pre-setting it here would let
+    // the still-live old page stamp the new org header on in-flight requests.
+    // After reload the picker gate passes and every org-scoped persisted
+    // store hydrates from the right per-company bucket (they hydrate
+    // synchronously at import, so an in-place checkSession would leave them
+    // on the ':default' bucket).
+    window.location.assign(`/?org=${encodeURIComponent(orgId)}`);
   },
 
   login: async (email, password) => {
@@ -181,6 +216,8 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       roleType: getRoleTypeFromResponse(data),
       invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
       permissions: getPermissionsFromResponse(data),
+      memberships: getMembershipsFromResponse(data),
+      needsOrgSelection: data.needsOrgSelection === true,
       needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
       mustChangePassword: data.mustChangePassword === true,
       isLoading: false,
@@ -210,6 +247,8 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       roleType: getRoleTypeFromResponse(data),
       invoiceAccessScope: getInvoiceAccessScopeFromResponse(data),
       permissions: getPermissionsFromResponse(data),
+      memberships: getMembershipsFromResponse(data),
+      needsOrgSelection: data.needsOrgSelection === true,
       needsInventoryValuationSetup: data.needsInventoryValuationSetup === true,
       isLoading: false,
     });
@@ -224,6 +263,9 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         credentials: 'include',
       });
     } finally {
+      // Drop this tab's org pin so the next login here doesn't inherit the
+      // previous user's active company.
+      clearActiveOrg();
       set(EMPTY_SESSION);
     }
   },

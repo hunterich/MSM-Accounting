@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { ApiError } from '@/lib/errors';
+import { advisoryLockKey } from '@/lib/advisory-lock';
 import { nextNumber } from '@/lib/api-utils';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
@@ -118,6 +119,13 @@ export async function postPosSale(
       select: { requiresBatchTracking: true },
     });
     if (!item?.requiresBatchTracking) continue;
+    // Serialize per-item BEFORE the FEFO sufficiency read. Two concurrent sales
+    // otherwise both read the same qtyOnHand, both pass pickFefo, and both
+    // decrement the batch (step 8) below zero. Same lock key as the COGS/lot
+    // path (calculateAndPostCOGS) so this item's batch + lot draw-downs stay
+    // serialized under one transaction-scoped lock; the loser blocks here and
+    // re-reads the winner's committed qtyOnHand.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`item-stock:${orgId}:${line.itemId}`)})`;
     const batches = await tx.stockBatch.findMany({
       where: { organizationId: orgId, itemId: line.itemId, warehouseId, qtyOnHand: { gt: 0 } },
       select: { id: true, expiryDate: true, qtyOnHand: true },

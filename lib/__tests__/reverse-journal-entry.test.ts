@@ -11,6 +11,8 @@ function makeTx(original: unknown) {
       findUnique: vi.fn().mockResolvedValue(original),
       create: vi.fn().mockImplementation(async ({ data }: any) => ({ id: 'je-rev', entryNo: data.entryNo })),
     },
+    // postJournalEntry → nextEntryNo takes a per-org advisory lock first.
+    $executeRaw: vi.fn().mockResolvedValue(0),
     $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 41 }]),
   };
 }

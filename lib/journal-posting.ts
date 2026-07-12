@@ -11,6 +11,7 @@
  */
 import type { Prisma } from '@prisma/client';
 import { asMoney } from './money';
+import { advisoryLockKey } from './advisory-lock';
 
 type Tx = Prisma.TransactionClient;
 
@@ -39,6 +40,11 @@ export const BALANCE_TOLERANCE = 0.005; // half a cent — covers Decimal roundi
  * monotonic under sequential POSTs (one transaction at a time per request).
  */
 async function nextEntryNo(tx: Tx, organizationId: string): Promise<string> {
+  // Serialize entryNo allocation per org (mirrors nextInvoiceNumber). Without
+  // it, two concurrent posts read the same MAX and both derive the same next
+  // number, colliding on @@unique([organizationId, entryNo]) → one legitimate
+  // post rolls back. Transaction-scoped; released at commit/rollback.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`je-seq:${organizationId}`)})`;
   const rows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
     SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
     FROM "JournalEntry"

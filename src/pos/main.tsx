@@ -5,7 +5,15 @@ import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from '@ta
 import { registerSW } from 'virtual:pwa-register';
 import PosApp from './PosApp';
 import { useAuthStore } from '../stores/useAuthStore';
+import { bootstrapActiveOrg } from '../lib/activeOrg';
 import '../index.css';
+
+// Consume the ?org= open-in-new-tab handshake and pin this tab's active company
+// BEFORE React renders — the offline database name is derived from it, so it
+// must be resolved before any component touches the DB. (activeOrg also
+// self-bootstraps at module-eval; this explicit first call mirrors main.tsx and
+// is an idempotent no-op.)
+bootstrapActiveOrg();
 
 registerSW({ immediate: true });
 

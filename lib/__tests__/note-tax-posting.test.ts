@@ -42,8 +42,9 @@ function makeTx(note: AnyRecord, kind: 'creditNote' | 'debitNote') {
       update: vi.fn().mockResolvedValue({}),
     },
     account: { findMany: vi.fn().mockResolvedValue([]) },
-    // assertPeriodOpen() looks up the posting period; null = no period defined = open.
-    accountingPeriod: { findFirst: vi.fn().mockResolvedValue(null) },
+    // assertPeriodOpen() FOR SHARE-locks the posting period via a raw query;
+    // an empty result = no period defined = open.
+    $queryRaw: vi.fn().mockResolvedValue([]),
   } as AnyRecord;
 }
 

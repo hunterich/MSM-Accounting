@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { orgScopedStorage } from '../lib/orgScopedStorage';
 import type { WorkspaceTab, TabStatus } from './workspace/types';
 import { moduleKeyOf } from './workspace/modules';
 import { capBlock, pushClosed } from './workspace/reducers';
@@ -198,6 +199,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         {
             name: 'msm-workspace',
             version: 2,
+            // Partitioned per company: keys become `msm-workspace:<orgId>`
+            // (`:default` before an org is chosen), so two tabs on different
+            // companies stop sharing workspace state through localStorage.
+            storage: createJSONStorage(() => orgScopedStorage),
             // The shape changed from the flat single-row model — start fresh.
             migrate: () => ({ tabs: [], activeTabId: null, moduleActive: {}, closedStack: [] }),
             // capPrompt is transient UI state — never persist a half-open prompt.

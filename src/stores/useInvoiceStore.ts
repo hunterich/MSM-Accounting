@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { orgScopedStorage } from '../lib/orgScopedStorage';
 import { invoices as seed, invoiceItemTemplates as templatesSeed } from '../data/mockData';
 
 type E = { id: string } & Record<string, unknown>;
@@ -73,6 +74,7 @@ export const useInvoiceStore = create<InvoiceStore>()(
         }),
         {
             name: 'msm-invoices',
+            storage: createJSONStorage(() => orgScopedStorage), // org-scoped data — partition per company
             version: 1,
         }
     )

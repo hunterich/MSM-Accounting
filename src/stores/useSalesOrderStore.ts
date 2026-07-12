@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { orgScopedStorage } from '../lib/orgScopedStorage';
 import { useInvoiceStore } from './useInvoiceStore';
 
 interface SOItem {
@@ -208,6 +209,7 @@ export const useSalesOrderStore = create<SalesOrderStore>()(
         }),
         {
             name: 'msm-sales-orders',
+            storage: createJSONStorage(() => orgScopedStorage), // org-scoped data — partition per company
             version: 1,
         }
     )

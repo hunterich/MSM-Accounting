@@ -200,7 +200,7 @@ const normalize = (value: string | null | undefined) =>
     .trim();
 
 const includesKeyword = (haystack: string, keywords: string[]) =>
-  keywords.some((keyword) => haystack.includes(normalize(keyword)));
+  keywords.some((keyword) => normalize(haystack).includes(normalize(keyword)));
 
 const byAllowedType = (account: AccountLike, key: AccountDefaultKey) => {
   const allowedTypes = ACCOUNT_DEFAULT_SPECS[key].allowedTypes as readonly AccountTypeValue[];

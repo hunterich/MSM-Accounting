@@ -4,7 +4,7 @@ import Card from '../../UI/Card';
 import Table from '../../UI/Table';
 import StatusTag from '../../UI/StatusTag';
 import Button from '../../UI/Button';
-import { useInvoiceStore } from '../../../stores/useInvoiceStore';
+import { useInvoices } from '../../../hooks/useAR';
 import { formatIDR } from '../../../utils/formatters';
 
 interface InvoiceRow extends Record<string, unknown> {
@@ -23,19 +23,19 @@ const columns = [
 
 const RecentInvoicesWidget = (): React.ReactElement => {
     const navigate = useNavigate();
-    const invoices = useInvoiceStore((s) => s.invoices);
+    const { data, isLoading, isError } = useInvoices();
 
     const rows = useMemo<InvoiceRow[]>(() =>
-        [...invoices]
-            .sort((a, b) => new Date((b.date as string | number) || 0).getTime() - new Date((a.date as string | number) || 0).getTime())
+        [...(data?.data ?? [])]
+            .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
             .slice(0, 5)
             .map((inv) => ({
-                id:     inv.id,
-                client: (inv.customerName as string) || '—',
-                amount: formatIDR(Number(inv.total || inv.amount) || 0),
-                status: (inv.status as string) || 'Draft',
+                id:     inv.number || inv.id,
+                client: inv.customerName || '—',
+                amount: formatIDR(Number(inv.totalAmount ?? inv.amount) || 0),
+                status: inv.status || 'Draft',
             })),
-        [invoices]
+        [data]
     );
 
     return (
@@ -46,8 +46,15 @@ const RecentInvoicesWidget = (): React.ReactElement => {
                     onClick={() => navigate('/ar/invoices')} />
             }
         >
-            <Table columns={columns} data={rows} />
-            {rows.length === 0 && <div className="module-empty-state">No invoices yet.</div>}
+            {isLoading ? (
+                <div className="module-empty-state">Loading…</div>
+            ) : isError ? (
+                <div className="module-empty-state">Couldn&apos;t load invoices.</div>
+            ) : rows.length === 0 ? (
+                <div className="module-empty-state">No invoices yet.</div>
+            ) : (
+                <Table columns={columns} data={rows} />
+            )}
         </Card>
     );
 };

@@ -22,14 +22,16 @@ describe('GET /api/v1/users', () => {
 
   it('returns org-scoped users for an admin', async () => {
     (prisma.userOrganization.findMany as any).mockResolvedValue([
-      { user: { id: 'u2', fullName: 'Staff One', email: 's1@demo.com', status: 'ACTIVE' }, role: { name: 'Accounting Staff' } },
+      { id: 'm2', user: { id: 'u2', fullName: 'Staff One', email: 's1@demo.com', status: 'ACTIVE' }, role: { name: 'Accounting Staff', roleType: 'CUSTOM' } },
     ]);
     const req = new NextRequest('http://localhost/api/v1/users', { headers: adminHeaders });
     const res = await GET(req);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toEqual([
-      { id: 'u2', fullName: 'Staff One', email: 's1@demo.com', status: 'ACTIVE', roleName: 'Accounting Staff' },
+      // membershipId (the UserOrganization row id) + roleType drive the Users-tab
+      // remove-from-company action and last-admin disable logic.
+      { id: 'u2', membershipId: 'm2', fullName: 'Staff One', email: 's1@demo.com', status: 'ACTIVE', roleName: 'Accounting Staff', roleType: 'CUSTOM' },
     ]);
     expect((prisma.userOrganization.findMany as any).mock.calls[0][0].where.organizationId).toBe('org-a');
   });

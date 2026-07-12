@@ -14,7 +14,6 @@ import type { DocLine } from '../../documents/types';
 
 import SearchableSelect from '../../UI/SearchableSelect';
 import { formatIDR } from '../../../utils/formatters';
-import { useCustomerStore } from '../../../stores/useCustomerStore';
 import {
     useCustomers,
     useInvoices,
@@ -86,7 +85,6 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
     const isEdit = mode === 'edit' || !!invoiceId;
 
     // ── Stores & server data ────────────────────────────────────────────────
-    const seedCustomers = (useCustomerStore((s) => s.customers) as Rec[]) || [];
     const { data: customersResult } = useCustomers({ limit: 100 });
     const { data: itemsResult } = useItems({ limit: 100 });
     const { data: invoicesResult } = useInvoices({ limit: 100 });
@@ -102,13 +100,10 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
         [revenueAccountsData],
     );
 
-    const customers = useMemo<Rec[]>(() => {
-        const byId = new Map<string, Rec>();
-        [...seedCustomers, ...((customersResult?.data as unknown as Rec[]) || [])].forEach((c) => {
-            if (c?.id) byId.set(c.id, { ...(byId.get(c.id) || {}), ...c });
-        });
-        return [...byId.values()];
-    }, [seedCustomers, customersResult?.data]);
+    const customers = useMemo<Rec[]>(
+        () => ((customersResult?.data as unknown as Rec[]) || []),
+        [customersResult?.data],
+    );
 
     const inventoryItems = useMemo<Rec[]>(
         () => ((itemsResult?.data as unknown as Rec[]) || []),

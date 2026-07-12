@@ -41,8 +41,12 @@ export function useRoles() {
  * the current user picks up any permission changes immediately.
  * /api/v1/auth/me is fetched imperatively by useAuthStore.checkSession() —
  * it is not a React Query query — so we call checkSession() directly.
+ *
+ * Exported so membership mutations (useAddMembership/useRemoveMembership) share
+ * the same invalidation set — an invite/removal changes each role's active
+ * `memberCount`, so the Roles card must refetch too, not just the users list.
  */
-function useInvalidateRbac() {
+export function useInvalidateRbac() {
   const qc = useQueryClient();
   return () => {
     qc.invalidateQueries({ queryKey: ROLES_KEY });

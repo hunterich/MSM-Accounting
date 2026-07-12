@@ -177,8 +177,11 @@ describe('POST /api/v1/invoices — validation', () => {
         taxInclusiveByDefault: false,
         costingMethod: null,
       })) },
+      // Tenant-isolation FK check: the invoice route now verifies customerId (and
+      // any line itemId) belong to the caller's org via validateForeignKey.
+      customer: { findFirst: vi.fn(async () => ({ id: 'cust-1' })) },
       salesInvoice: { create: vi.fn(async () => stubInvoice) },
-      item: { findMany: vi.fn(async () => []) },
+      item: { findMany: vi.fn(async () => []), findFirst: vi.fn(async () => ({ id: 'item-1' })) },
       account: { findMany: vi.fn(async () => []) },
       journalEntry: { create: vi.fn() },
       $queryRaw: vi.fn(async () => [{ max_seq: null }]),

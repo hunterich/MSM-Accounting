@@ -22,14 +22,24 @@ export async function assertPeriodOpen(
   organizationId: string,
   date: Date,
 ): Promise<void> {
-  const period = await tx.accountingPeriod.findFirst({
-    where: {
-      organizationId,
-      startDate: { lte: date },
-      endDate: { gte: date },
-    },
-    select: { name: true, status: true, isLocked: true },
-  });
+  // Lock the matching period row FOR SHARE (if one exists). Concurrent posts
+  // share the lock and don't block each other, but a concurrent period-close
+  // (FOR UPDATE on the same row) waits for in-flight posts to commit and blocks
+  // new posts until it finishes — closing the close-vs-post TOCTOU. When the
+  // posting date falls outside every defined period the query returns no row and
+  // takes no lock, preserving the auto-open ("not yet closed") behavior.
+  const rows = await tx.$queryRaw<
+    Array<{ name: string; status: string; isLocked: boolean }>
+  >`
+    SELECT "name", "status", "isLocked"
+    FROM "AccountingPeriod"
+    WHERE "organizationId" = ${organizationId}
+      AND "startDate" <= ${date}
+      AND "endDate" >= ${date}
+    LIMIT 1
+    FOR SHARE
+  `;
+  const period = rows[0];
 
   if (period && (period.status === 'CLOSED' || period.isLocked)) {
     const on = date.toISOString().slice(0, 10);
