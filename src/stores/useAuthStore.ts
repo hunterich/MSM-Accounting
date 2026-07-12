@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { resolveApiBase } from '../lib/apiBase';
 import { getActiveOrgId, clearActiveOrg } from '../lib/activeOrg';
 
 interface AuthUser {
@@ -70,12 +71,6 @@ interface AuthResponseLike {
     invoiceAccessScope?: string;
   };
 }
-
-const resolveApiBase = () => {
-  if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (typeof window !== 'undefined') return `${window.location.protocol}//${window.location.hostname}:3000`;
-  return 'http://localhost:3000';
-};
 
 const API = resolveApiBase();
 

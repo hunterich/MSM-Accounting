@@ -1,0 +1,81 @@
+# MSM Accounting Software — internal LAN deployment.
+#
+# Three services on one Docker network, exposed as a single HTTPS origin:
+#   db      PostgreSQL 16 (data persisted in a named volume)
+#   backend Next.js API (:3000, internal only)
+#   web     Caddy — serves the SPA + reverse-proxies /api, terminates TLS (:443)
+#
+# Values come from deploy/.env (copy from deploy/.env.example first).
+#
+#   cd deploy
+#   docker compose up -d --build
+#
+name: msm-accounting
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-msm_accounting}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-msm_accounting}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-msm_accounting}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      NODE_ENV: production
+      # Single origin behind Caddy; the auth cookie is Secure (HTTPS) + SameSite=Lax.
+      FRONTEND_ORIGIN: https://${SITE_HOST:-accounting.msm}
+      COOKIE_SECURE: "true"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      BACKUP_DIR: /data/backups
+    volumes:
+      # In-app Backup & Restore writes here → mapped to a real host folder so
+      # dumps survive and can be synced to OneDrive/Drive.
+      - ${BACKUP_DIR_HOST:-./backups}:/data/backups
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: web
+      args:
+        # "/" makes the SPA call the API relative to its own origin. Caddy serves
+        # the SPA and proxies /api on one origin, so nothing host-specific is baked
+        # in and the image is portable (same image works for any SITE_HOST).
+        VITE_API_URL: "/"
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      SITE_HOST: ${SITE_HOST:-accounting.msm}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddydata:/data      # holds Caddy's internal CA + issued certs
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  caddydata:
+  caddyconfig:

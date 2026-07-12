@@ -5,13 +5,8 @@
  * per-tab `x-active-org` header, validated against the signed membership list.
  */
 
+import { resolveApiBase } from '../lib/apiBase';
 import { getActiveOrgId, clearActiveOrg } from '../lib/activeOrg';
-
-const resolveApiBase = () => {
-  if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (typeof window !== 'undefined') return `${window.location.protocol}//${window.location.hostname}:3000`;
-  return 'http://localhost:3000';
-};
 
 const API_BASE = resolveApiBase();
 
