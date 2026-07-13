@@ -104,6 +104,7 @@ model Organization {
   posShifts              PosShift[]
   posSales               PosSale[]
   posSalesTargets   PosSalesTarget[]
+  migrationBatches       MigrationBatch[]
   modifierGroups      ModifierGroup[]
   modifierAttachments ModifierAttachment[]
   salesTypes          SalesType[]
@@ -128,6 +129,7 @@ model User {
   approvalRequestsBy  ApprovalRequest[] @relation("ApprovalReqBy")
   approvalRequestsRev ApprovalRequest[] @relation("ApprovalRevBy")
   employeeProfile   Employee?
+  migrationBatches  MigrationBatch[]
 }
 
 model UserOrganization {
@@ -196,6 +198,7 @@ model Account {
   hasPostings    Boolean    @default(false)
   reportGroup    String?
   reportSubGroup String?
+  migrationBatchId String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -204,11 +207,13 @@ model Account {
   children       Account[]    @relation("AccountHierarchy")
   journalLines   JournalLine[]
   vendorDocumentMappings VendorDocumentMapping[]
+  migrationBatch MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
   salesTypeCharges SalesType[] @relation("SalesTypeChargeAccount")
 
   @@unique([organizationId, code])
   @@index([organizationId, parentId])
   @@index([organizationId, type, isActive])
+  @@index([migrationBatchId])
 }
 
 model AccountingPeriod {
@@ -242,6 +247,7 @@ model JournalEntry {
   totalCredit    Decimal       @default(0) @db.Decimal(18, 2)
   postedAt       DateTime?
   createdById    String?
+  migrationBatchId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -256,10 +262,12 @@ model JournalEntry {
   debitNote       DebitNote?       @relation("DebitNoteJournal")
   bankTransaction BankTransaction? @relation("BankTxnJournal")
   arPaymentSettlement ARPayment? @relation("ARPaymentSettlement")
+  migrationBatch  MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, entryNo])
   @@index([organizationId, date, status])
   @@index([organizationId, periodId])
+  @@index([migrationBatchId])
 }
 
 model JournalLine {
@@ -319,6 +327,7 @@ model Customer {
   useCategoryDefaults Boolean      @default(true)
   openingBalance    Decimal        @default(0) @db.Decimal(18, 2)
   categoryId        String?
+  migrationBatchId  String?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
@@ -331,10 +340,12 @@ model Customer {
   ecommerceConnections EcommerceConnection[]
   recurringInvoices RecurringInvoice[]
   subscriptions     Subscription[]
+  migrationBatch    MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
   @@index([organizationId, status])
+  @@index([migrationBatchId])
 }
 
 model Vendor {
@@ -351,6 +362,7 @@ model Vendor {
   status           PartnerStatus @default(ACTIVE)
   openingBalance   Decimal       @default(0) @db.Decimal(18, 2)
   defaultApAccountId String?
+  migrationBatchId String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
@@ -364,11 +376,13 @@ model Vendor {
   debitNotes       DebitNote[]
   billImportSessions BillImportSession[]
   documentMappings VendorDocumentMapping[]
+  migrationBatch   MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
   @@index([organizationId, status])
   @@index([organizationId, categoryId])
+  @@index([migrationBatchId])
 }
 
 model VendorCategory {
@@ -437,6 +451,7 @@ model Item {
   revenueAccountId         String?
   cogsAccountId            String?
   isActive                 Boolean       @default(true)
+  migrationBatchId         String?
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt
 
@@ -455,12 +470,14 @@ model Item {
   deliveryNoteLines  DeliveryNoteLine[]
   stockBatches       StockBatch[]
   posBatchAllocations PosSaleBatchAllocation[]
+  migrationBatch     MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
   modifierOptions     ModifierOption[]
   modifierAttachments ModifierAttachment[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
   @@index([organizationId, categoryId])
+  @@index([migrationBatchId])
 }
 
 model Warehouse {
@@ -512,6 +529,7 @@ model SalesInvoice {
   soId               String?
   recurringInvoiceId String?
   notes              String?
+  migrationBatchId   String?
   salesTypeId        String?
   deletedAt          DateTime?
   createdAt          DateTime      @default(now())
@@ -530,12 +548,14 @@ model SalesInvoice {
   salesReturns       SalesReturn[]
   creditNotes        CreditNote[]
   posSale            PosSale?
+  migrationBatch     MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, number])
   @@index([organizationId, createdById, issueDate])
   @@index([organizationId, issueDate])
   @@index([organizationId, status])
   @@index([customerId, status])
+  @@index([migrationBatchId])
   @@index([salesTypeId])
 }
 
@@ -916,6 +936,7 @@ model Bill {
   notes          String?
   recurringBillId String?
   journalEntryId String?
+  migrationBatchId String?
   voidedAt       DateTime?
   deletedAt      DateTime?
   createdAt      DateTime    @default(now())
@@ -932,11 +953,13 @@ model Bill {
   paymentAllocations APPaymentAllocation[]
   purchaseReturns PurchaseReturn[]
   debitNotes     DebitNote[]
+  migrationBatch MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, number])
   @@unique([organizationId, vendorId, vendorInvoiceNo])
   @@index([organizationId, issueDate, status])
   @@index([vendorId])
+  @@index([migrationBatchId])
 }
 
 model BillLine {
@@ -1281,14 +1304,52 @@ model InventoryLedgerEntry {
   qtyOut         Decimal     @default(0) @db.Decimal(18, 4)
   unitCost       Decimal     @default(0) @db.Decimal(18, 2)
   valueChange    Decimal     @default(0) @db.Decimal(18, 2)
+  migrationBatchId String?
   createdAt      DateTime    @default(now())
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   item           Item         @relation(fields: [itemId], references: [id], onDelete: Restrict)
   warehouse      Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  migrationBatch MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, date])
   @@index([itemId, warehouseId, date])
+  @@index([migrationBatchId])
+}
+
+enum MigrationBatchStatus {
+  DRAFT
+  COMMITTED
+  ROLLED_BACK
+}
+
+model MigrationBatch {
+  id             String               @id @default(cuid())
+  organizationId String
+  cutoverDate    DateTime
+  status         MigrationBatchStatus @default(DRAFT)
+  // Staged, mapped-and-validated rows per entity, keyed by entity name.
+  stagedData     Json                 @default("{}")
+  // Denormalised counts/totals captured at commit for the summary + audit.
+  summary        Json?
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  accounts               Account[]
+  customers              Customer[]
+  vendors                Vendor[]
+  items                  Item[]
+  journalEntries         JournalEntry[]
+  salesInvoices          SalesInvoice[]
+  bills                  Bill[]
+  inventoryLots          InventoryLot[]
+  inventoryLedgerEntries InventoryLedgerEntry[]
+
+  @@index([organizationId, status])
 }
 
 model BankAccount {
@@ -1961,12 +2022,15 @@ model InventoryLot {
   qtyOut         Decimal               @default(0) @db.Decimal(15, 4)
   qtyBalance     Decimal               @db.Decimal(15, 4)
   unitCost       Decimal               @db.Decimal(15, 6)
+  migrationBatchId String?
   createdAt      DateTime              @default(now())
   organization   Organization          @relation(fields: [organizationId], references: [id])
   item           Item                  @relation(fields: [itemId], references: [id])
   warehouse      Warehouse?            @relation(fields: [warehouseId], references: [id])
+  migrationBatch MigrationBatch?       @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
   @@index([organizationId, itemId, date])
   @@index([itemId, warehouseId, date])
+  @@index([migrationBatchId])
 }
 
 model BankStatement {

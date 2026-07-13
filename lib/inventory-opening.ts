@@ -42,7 +42,14 @@ export async function postOpeningStockIfNeeded(
   orgId: string,
   itemId: string,
   date: Date = new Date(),
+  opts: { postGl?: boolean } = {},
 ): Promise<void> {
+  // Default true — preserves every existing caller. Migration passes false so
+  // the perpetual lot is written but no journal is posted (the migrated trial
+  // balance already carries the inventory-asset balance; re-posting would
+  // double-count inventory).
+  const postGl = opts.postGl !== false;
+
   // Serialize concurrent opening-stock posts for the same item. The idempotency
   // check below is a non-atomic findFirst with no backing unique constraint, so
   // two concurrent item updates could both pass it and double-post. Holding this
@@ -83,9 +90,10 @@ export async function postOpeningStockIfNeeded(
   // correct even for zero-cost items.
   await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date);
 
-  // Only post a journal entry when the opening stock carries value.
+  // Only post a journal entry when the opening stock carries value — and only
+  // when GL posting is enabled (migration passes postGl:false: lots only).
   const value = asMoney(qty * unitCost);
-  if (value <= 0) return;
+  if (value <= 0 || !postGl) return;
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },

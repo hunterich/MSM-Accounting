@@ -5,8 +5,10 @@ import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import DataMigrationPanel from '../settings/DataMigrationPanel';
 import CsvImportPanel from '../settings/CsvImportPanel';
 import BackupPanel from '../settings/BackupPanel';
-import { ScrollText, DatabaseZap, Upload, DatabaseBackup } from 'lucide-react';
+import { ScrollText, DatabaseZap, Upload, DatabaseBackup, ArrowRightLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { MIGRATION_WIZARD_ENABLED } from '../../config/featureFlags';
+import MigrationWizard from '../../components/migration/MigrationWizard';
 
 interface ToolItem {
     id: string;
@@ -22,6 +24,9 @@ const TOOL_ITEMS: ToolItem[] = [
     { id: 'migration', label: 'Data Migration', icon: DatabaseZap },
     { id: 'csv-import', label: 'CSV Import', icon: Upload },
     { id: 'backup', label: 'Backup & Restore', icon: DatabaseBackup },
+    ...(MIGRATION_WIZARD_ENABLED
+        ? [{ id: 'migration-wizard', label: 'Migration Wizard', icon: ArrowRightLeft }]
+        : []),
 ];
 
 const VALID_TAB_IDS = new Set(TOOL_ITEMS.map((i) => i.id));
@@ -85,6 +90,10 @@ const DataTools = (): React.ReactElement => {
 
                 {activeTab === 'backup' && (
                     <BackupPanel />
+                )}
+
+                {activeTab === 'migration-wizard' && (
+                    <MigrationWizard />
                 )}
             </div>
         </div>
