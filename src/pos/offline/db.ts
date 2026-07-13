@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { CatalogRow, PosRegister } from '../hooks/usePos';
+import type { CatalogRow, PosRegister, SalesTypeRow } from '../hooks/usePos';
 import type { SaleLineInput } from '@/lib/pos/pricing';
 import { getActiveOrgId } from '@/src/lib/activeOrg';
 
@@ -7,7 +7,7 @@ export type OutboxType = 'shift-open' | 'sale' | 'shift-close';
 export type OutboxStatus = 'pending' | 'synced' | 'failed';
 
 export interface ShiftOpenPayload { clientShiftId: string; registerId: string; openingFloat: number }
-export interface SalePayload { clientSaleId: string; clientShiftId: string; registerId: string; shiftId?: string; lines: SaleLineInput[]; tenders: { method: 'CASH'; amount: number }[] }
+export interface SalePayload { clientSaleId: string; clientShiftId: string; registerId: string; shiftId?: string; salesTypeId?: string | null; lines: SaleLineInput[]; tenders: { method: 'CASH'; amount: number }[] }
 export interface ShiftClosePayload { clientShiftId: string; shiftId?: string; countedCash: number }
 
 export interface OutboxItem {
@@ -32,6 +32,7 @@ export interface ShiftStateRow {
 
 export interface CachedCatalog { key: 'current'; rows: CatalogRow[]; fetchedAt: number }
 export interface CachedRegisters { key: 'current'; rows: PosRegister[]; fetchedAt: number }
+export interface CachedSalesTypes { key: 'current'; rows: SalesTypeRow[]; fetchedAt: number }
 
 /** Legacy, pre-multi-company database name (one shared DB per browser profile). */
 export const LEGACY_POS_DB_NAME = 'pharmacy-pos';
@@ -50,6 +51,7 @@ export class PosDB extends Dexie {
   shiftState!: Table<ShiftStateRow, string>;
   catalog!: Table<CachedCatalog, string>;
   registers!: Table<CachedRegisters, string>;
+  salesTypes!: Table<CachedSalesTypes, string>;
 
   constructor(dbName: string) {
     super(dbName);
@@ -58,6 +60,12 @@ export class PosDB extends Dexie {
       shiftState: 'key',
       catalog: 'key',
       registers: 'key',
+    });
+    // v2 adds the offline cache of org sales types (for the checkout selector).
+    // Existing v1 databases upgrade in place; the new store starts empty and is
+    // seeded on the next online catalog fetch.
+    this.version(2).stores({
+      salesTypes: 'key',
     });
   }
 }

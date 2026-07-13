@@ -4,7 +4,7 @@ import { db, type OutboxItem } from '../offline/db';
 import { enqueue, pending, exceptions } from '../offline/outbox';
 import { syncQueue, type Poster } from '../offline/sync';
 import { useOnline } from '../offline/connectivity';
-import type { CatalogRow } from './usePos';
+import type { CatalogRow, SalesTypeRow } from './usePos';
 
 export function uuid(): string { return (crypto as Crypto).randomUUID(); }
 
@@ -22,6 +22,10 @@ async function saveQueue(q: OutboxItem[]): Promise<void> {
 /** Cache the catalog whenever we successfully fetch it online, so the grid works offline. */
 export async function cacheCatalog(rows: CatalogRow[]): Promise<void> { await db.catalog.put({ key: 'current', rows, fetchedAt: Date.now() }); }
 export async function readCachedCatalog(): Promise<CatalogRow[]> { return (await db.catalog.get('current'))?.rows ?? []; }
+
+/** Cache the org's sales types alongside the catalog, so the checkout selector works offline. */
+export async function cacheSalesTypes(rows: SalesTypeRow[]): Promise<void> { await db.salesTypes.put({ key: 'current', rows, fetchedAt: Date.now() }); }
+export async function readCachedSalesTypes(): Promise<SalesTypeRow[]> { return (await db.salesTypes.get('current'))?.rows ?? []; }
 
 /** Offline queue state + operations. Enqueue locally; auto-sync when online. */
 export function useOfflineSync() {

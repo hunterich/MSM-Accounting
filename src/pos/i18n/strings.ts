@@ -25,6 +25,8 @@ const dict = {
   'checkout.cart':    { id: 'Keranjang',           en: 'Cart' },
   'checkout.subtotal': { id: 'Subtotal',           en: 'Subtotal' },
   'checkout.ppn':     { id: 'PPN 11%',             en: 'VAT 11%' },
+  'checkout.salesType': { id: 'Tipe Penjualan',    en: 'Sales type' },
+  'checkout.serviceCharge': { id: 'Biaya layanan', en: 'Service charge' },
   'checkout.stock':   { id: 'stok',                en: 'stock' },
   'checkout.exp':     { id: 'exp',                 en: 'exp' },
   'checkout.items':   { id: 'item',                en: 'items' },
