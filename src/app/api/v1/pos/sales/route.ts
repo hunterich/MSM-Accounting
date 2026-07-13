@@ -17,6 +17,7 @@ export const POST = withPermission({ module: 'POS_RETAIL', action: 'create' }, a
       clientSaleId: parsed.data.clientSaleId,
       registerId: parsed.data.registerId,
       shiftId: parsed.data.shiftId,
+      salesTypeId: parsed.data.salesTypeId,
       cashierId: userId,
       warehouseId: null,
       lines: parsed.data.lines,

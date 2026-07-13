@@ -5,8 +5,8 @@ import { getActiveOrgId, setActiveOrgId } from '@/src/lib/activeOrg';
 import { resolvePosGate } from './posGate';
 import { db } from './offline/db';
 import { runLegacyMigrationOnce } from './offline/legacyMigration';
-import { cacheCatalog } from './hooks/useOfflinePos';
-import type { CatalogRow, PosRegister } from './hooks/usePos';
+import { cacheCatalog, cacheSalesTypes } from './hooks/useOfflinePos';
+import type { PosCatalogResponse, PosRegister } from './hooks/usePos';
 import LoginView from './views/LoginView';
 import CompanyPickerView from './views/CompanyPickerView';
 import ShiftOpenView from './views/ShiftOpenView';
@@ -93,7 +93,9 @@ function PosShell({ membershipCount }: { membershipCount: number }): React.React
   useEffect(() => {
     if (!migrated) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-    void api.get<CatalogRow[]>('/api/v1/pos/catalog').then(cacheCatalog).catch(() => {});
+    void api.get<PosCatalogResponse>('/api/v1/pos/catalog')
+      .then((data) => { void cacheCatalog(data.items); void cacheSalesTypes(data.salesTypes); })
+      .catch(() => {});
     void api.get<PosRegister[]>('/api/v1/pos/registers')
       .then((rows) => db.registers.put({ key: 'current', rows, fetchedAt: Date.now() }))
       .catch(() => {});

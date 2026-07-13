@@ -3,7 +3,7 @@ import type { ShiftOpenPayload, SalePayload, ShiftClosePayload } from './db';
 
 export interface Poster {
   openShift: (p: { registerId: string; openingFloat: number; clientShiftId: string }) => Promise<{ id: string }>;
-  sale: (p: { clientSaleId: string; registerId: string; shiftId: string; lines: unknown[]; tenders: { method: 'CASH'; amount: number }[] }) => Promise<unknown>;
+  sale: (p: { clientSaleId: string; registerId: string; shiftId: string; salesTypeId?: string | null; lines: unknown[]; tenders: { method: 'CASH'; amount: number }[] }) => Promise<unknown>;
   closeShift: (shiftId: string, p: { countedCash: number }) => Promise<unknown>;
 }
 
@@ -27,7 +27,7 @@ export async function syncQueue(queue: OutboxItem[], poster: Poster): Promise<Ou
       } else if (item.type === 'sale') {
         const p = item.payload as SalePayload;
         if (!p.shiftId) throw Object.assign(new Error('Shift not yet synced'), { status: 409 });
-        await poster.sale({ clientSaleId: p.clientSaleId, registerId: p.registerId, shiftId: p.shiftId, lines: p.lines, tenders: p.tenders });
+        await poster.sale({ clientSaleId: p.clientSaleId, registerId: p.registerId, shiftId: p.shiftId, salesTypeId: p.salesTypeId, lines: p.lines, tenders: p.tenders });
         q = markSynced(q, item.localId);
       } else {
         const p = item.payload as ShiftClosePayload;

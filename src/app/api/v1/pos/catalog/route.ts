@@ -23,6 +23,12 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
   const stockByItem = new Map(batches.map((b) => [b.itemId, Number(b._sum.qtyOnHand ?? 0)]));
   const expiryByItem = new Map(batches.map((b) => [b.itemId, b._min.expiryDate ?? null]));
 
+  const salesTypes = await prisma.salesType.findMany({
+    where: { organizationId: orgId, isActive: true },
+    select: { id: true, name: true, channel: true, serviceChargePct: true, taxable: true },
+    orderBy: { sortOrder: 'asc' },
+  });
+
   const groups = await prisma.modifierGroup.findMany({
     where: { organizationId: orgId, isActive: true },
     include: { options: true, attachments: { select: { itemId: true, itemCategoryId: true } } },
@@ -35,11 +41,20 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
     attachedCategoryIds: g.attachments.filter((a) => a.itemCategoryId).map((a) => a.itemCategoryId!),
   }));
 
-  return ok(items.map((it) => ({
-    ...it,
-    sellingPrice: Number(it.sellingPrice),
-    qtyAvailable: stockByItem.get(it.id) ?? 0,
-    earliestExpiry: expiryByItem.get(it.id)?.toISOString() ?? null,
-    modifierGroups: resolveItemGroups(groupData, { itemId: it.id, categoryId: it.categoryId ?? null }),
-  })));
+  return ok({
+    items: items.map((it) => ({
+      ...it,
+      sellingPrice: Number(it.sellingPrice),
+      qtyAvailable: stockByItem.get(it.id) ?? 0,
+      earliestExpiry: expiryByItem.get(it.id)?.toISOString() ?? null,
+      modifierGroups: resolveItemGroups(groupData, { itemId: it.id, categoryId: it.categoryId ?? null }),
+    })),
+    salesTypes: salesTypes.map((s) => ({
+      id: s.id,
+      name: s.name,
+      channel: s.channel,
+      serviceChargePct: Number(s.serviceChargePct),
+      taxable: s.taxable,
+    })),
+  });
 });

@@ -53,6 +53,7 @@ const StockValuation = lazy(() => import('./views/inventory/StockValuation'))
 const StockCounts = lazy(() => import('./views/inventory/StockCounts'))
 const StockCountForm = lazy(() => import('./views/inventory/StockCountForm'))
 const ModifierSettings = lazy(() => import('./views/pos/ModifierSettings'))
+const SalesTypeSettings = lazy(() => import('./views/pos/SalesTypeSettings'))
 const DeliveryNotes = lazy(() => import('./views/ar/DeliveryNotes'))
 const Banking = lazy(() => import('./views/banking/Banking'))
 const BankingActionForm = lazy(() => import('./views/banking/BankingActionForm'))
@@ -72,6 +73,7 @@ const DepreciationRun = lazy(() => import('./views/assets/DepreciationRun'))
 const Reports = lazy(() => import('./views/reports/Reports'))
 const BankReconciliation = lazy(() => import('./views/reports/BankReconciliation'))
 const SalesPerformance = lazy(() => import('./views/reports/SalesPerformance'))
+const SalesByType = lazy(() => import('./views/reports/SalesByType'))
 const Settings = lazy(() => import('./views/settings/Settings'))
 const DataTools = lazy(() => import('./views/tools/DataTools'))
 const UsersAndRoles = lazy(() => import('./views/users/UsersAndRoles'))
@@ -177,6 +179,8 @@ function App(): JSX.Element {
 
                     {/* Point of Sale */}
                     <Route path="pos/modifiers" element={withPermission(<ModifierSettings />, 'pos_reports')} />
+                    {/* TODO: switch to 'pos_retail' when the RBAC key lands */}
+                    <Route path="pos/sales-types" element={withPermission(<SalesTypeSettings />, 'pos_reports')} />
 
                     {/* Banking */}
                     <Route path="banking" element={withPermission(<Banking />, 'banking')} />
@@ -209,6 +213,7 @@ function App(): JSX.Element {
                     <Route path="reports" element={withPermission(<Reports />, 'reports')} />
                     <Route path="reports/bank-reconciliation" element={withPermission(<BankReconciliation />, 'reports')} />
                     <Route path="reports/sales-performance" element={withPermission(<SalesPerformance />, 'pos_reports')} />
+                    <Route path="reports/sales-by-type" element={withPermission(<SalesByType />, 'pos_reports')} />
                     <Route path="company-setup" element={withPermission(<CompanySetup />, 'company')} />
                     <Route path="settings" element={withPermission(<Settings />, 'settings')} />
                     <Route path="tools" element={withPermission(<DataTools />, 'settings')} />

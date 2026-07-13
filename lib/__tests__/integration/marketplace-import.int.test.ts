@@ -76,6 +76,27 @@ async function createConnection(
   return conn.id;
 }
 
+/** A connection whose imported invoices should be stamped with a sales type. */
+async function createConnectionWithSalesType(
+  orgId: string,
+  customerId: string,
+  holdingAccountId: string,
+  salesTypeId: string,
+): Promise<string> {
+  const conn = await prisma.ecommerceConnection.create({
+    data: {
+      organizationId: orgId,
+      platform: 'SHOPEE',
+      shopName: `Shop-ST-${Date.now()}-${userSeq}`,
+      customerId,
+      holdingAccountId,
+      salesTypeId,
+    },
+    select: { id: true },
+  });
+  return conn.id;
+}
+
 /** An active product carrying real on-hand stock. Posts opening stock the same
  *  way production does (creates the lot + balanced opening JE), so COGS has a
  *  cost layer to consume and the trial balance stays meaningful. */
@@ -293,5 +314,39 @@ describe('marketplace import orchestrator', () => {
 
     await assertTrialBalanced(s.org.orgId, 'marketplace zero-stock');
     await cleanupOrg(s.org.orgId);
+  });
+
+  it('stamps the connection sales type onto every imported invoice', async () => {
+    const org = await createTestOrg();
+    const userId = await createUser();
+    const customerId = await createCustomer(org.orgId);
+    const bankId = await createSettlementBank(org.orgId);
+    const salesType = await prisma.salesType.create({
+      data: { organizationId: org.orgId, name: 'Shopee', channel: 'ONLINE' },
+      select: { id: true },
+    });
+    const connectionId = await createConnectionWithSalesType(org.orgId, customerId, bankId, salesType.id);
+    const itemId = await createStockedItem(org.orgId, 50_000, 10);
+
+    const order: ImportOrder = {
+      orderNo: 'ORDER-ST-1',
+      issueDate: '2026-06-05',
+      lines: [{ itemId, description: 'Stocked Product', sku: 'SKU-STK', quantity: 2, unitPrice: 100_000 }],
+    };
+
+    const result = await importMarketplaceOrders(org.orgId, userId, connectionId, [order], {
+      recordPayment: true,
+    });
+    expect(result.created).toBe(1);
+    expect(result.failed).toHaveLength(0);
+
+    const invoice = await prisma.salesInvoice.findFirst({
+      where: { organizationId: org.orgId, poNumber: 'ORDER-ST-1' },
+      select: { salesTypeId: true },
+    });
+    expect(invoice?.salesTypeId).toBe(salesType.id);
+
+    await assertTrialBalanced(org.orgId, 'marketplace sales-type stamp');
+    await cleanupOrg(org.orgId);
   });
 });

@@ -16,8 +16,24 @@ export const POST = withPermission({ module: 'POS_RETAIL', action: 'create' }, a
   if (!orgId) return err('Unauthenticated', 401);
   const parsed = createPosRegisterSchema.safeParse(await req.json());
   if (!parsed.success) return err(parsed.error.issues[0]?.message ?? 'Invalid register payload', 400);
+
+  if (parsed.data.defaultSalesTypeId) {
+    const salesType = await prisma.salesType.findFirst({
+      where: { id: parsed.data.defaultSalesTypeId, organizationId: orgId },
+      select: { id: true },
+    });
+    if (!salesType) return err('Selected sales type was not found', 400);
+  }
+
   const register = await prisma.posRegister.create({
-    data: { organizationId: orgId, code: parsed.data.code, name: parsed.data.name, warehouseId: parsed.data.warehouseId ?? null, cashAccountId: parsed.data.cashAccountId ?? null },
+    data: {
+      organizationId: orgId,
+      code: parsed.data.code,
+      name: parsed.data.name,
+      warehouseId: parsed.data.warehouseId ?? null,
+      cashAccountId: parsed.data.cashAccountId ?? null,
+      defaultSalesTypeId: parsed.data.defaultSalesTypeId ?? null,
+    },
   });
   return ok(register, 201);
 });

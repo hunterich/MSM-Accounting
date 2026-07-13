@@ -91,8 +91,8 @@ describe('POS authorization + cross-org isolation', () => {
     const res = await getCatalog(req);
     expect(res.status).toBe(200);
     const body = await res.json();
-    // ok() returns the payload unwrapped (an array of catalog items).
-    const catalog = Array.isArray(body) ? body : (body.data ?? []);
+    // ok() returns the payload unwrapped. The catalog endpoint returns { items, salesTypes }.
+    const catalog = Array.isArray(body) ? body : (body.items ?? body.data ?? []);
     expect(catalog.some((it: { sku: string }) => it.sku === skuA)).toBe(false);
 
     await cleanupOrg(orgA.orgId);
