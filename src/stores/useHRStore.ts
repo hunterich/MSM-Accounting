@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { orgScopedStorage } from '../lib/orgScopedStorage';
 
 type E = { id: string } & Record<string, unknown>;
 
@@ -99,6 +100,7 @@ export const useHRStore = create<HRStore>()(
         }),
         {
             name: 'msm-hr',
+            storage: createJSONStorage(() => orgScopedStorage), // org-scoped data — partition per company
             version: 1,
         }
     )

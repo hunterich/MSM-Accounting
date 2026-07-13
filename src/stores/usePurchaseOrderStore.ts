@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { orgScopedStorage } from '../lib/orgScopedStorage';
 
 interface POItem {
     id:          string;
@@ -83,6 +84,7 @@ export const usePurchaseOrderStore = create<PurchaseOrderStore>()(
         }),
         {
             name: 'msm-po-storage',
+            storage: createJSONStorage(() => orgScopedStorage), // org-scoped data — partition per company
             version: 1,
         }
     )

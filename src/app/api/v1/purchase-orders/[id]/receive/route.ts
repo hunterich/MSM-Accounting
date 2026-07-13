@@ -53,8 +53,6 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
 
   const rate = po.taxable ? Number(po.taxRate) / 100 : 0;
 
-  const billNumber = await nextNumber(prisma, 'Bill', 'number', 'BILL');
-
   const receiptDate = new Date();
 
   const bill = await prisma.$transaction(async (tx) => {
@@ -68,6 +66,11 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
 
     // Refuse to receive into a closed/locked accounting period.
     await assertPeriodOpen(tx, orgId, receiptDate);
+
+    // Allocate the bill number INSIDE the transaction with `tx` so its advisory
+    // lock stays held until the insert commits (calling it on the base `prisma`
+    // client releases the lock before the insert → spurious 409s under load).
+    const billNumber = await nextNumber(tx, 'Bill', 'number', 'BILL');
 
     // Validate and build bill lines
     const billLinesData: any[] = [];

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
 import { withPermission } from '@/lib/authz';
 import { createDebitNoteInputSchema } from '@/types/api';
@@ -48,6 +48,16 @@ export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, as
   const d = parsed.data;
 
   const debitNote = await prisma.$transaction(async (tx) => {
+    // Tenant isolation: the vendor + any source refs must belong to this org,
+    // else they'd leak through the GET `include` joins (vendor / sourceBill /
+    // purchaseReturn) — or attach this org's note to another org's document.
+    await validateForeignKey(tx.vendor, { id: d.vendorId, organizationId: orgId }, 'Vendor not found in organization');
+    if (d.sourceBillId) {
+      await validateForeignKey(tx.bill, { id: d.sourceBillId, organizationId: orgId }, 'Source bill not found in organization');
+    }
+    if (d.purchaseReturnId) {
+      await validateForeignKey(tx.purchaseReturn, { id: d.purchaseReturnId, organizationId: orgId }, 'Purchase return not found in organization');
+    }
     const number = await nextNumber(tx, 'DebitNote', 'number', 'DBN');
     return tx.debitNote.create({
       data: {

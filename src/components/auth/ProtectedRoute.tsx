@@ -3,7 +3,9 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { hasModulePermission } from '../../stores/useAuthStore';
 import { useHydrateCompanyInfoFromOrg } from '../../hooks/useOrganizationSettings';
+import { getActiveOrgId } from '../../lib/activeOrg';
 import ForcedPasswordChange from './ForcedPasswordChange';
+import CompanyPicker from '../../views/CompanyPicker';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -14,12 +16,21 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps): React
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const permissions = useAuthStore((s) => s.permissions);
+  const memberships = useAuthStore((s) => s.memberships);
+  const needsOrgSelection = useAuthStore((s) => s.needsOrgSelection);
   const needsInventoryValuationSetup = useAuthStore((s) => s.needsInventoryValuationSetup);
   const mustChangePassword = useAuthStore((s) => s.mustChangePassword);
   const checkSession = useAuthStore((s) => s.checkSession);
 
-  // Hydrate companyInfo from the org record once authenticated (DB is source of truth).
-  useHydrateCompanyInfoFromOrg(!!user);
+  // Multi-company: no org resolved for this tab yet → show the picker instead
+  // of the app. Single-membership users never hit this (the me-route defaults
+  // to their sole org, so needsOrgSelection stays false).
+  const needsPicker =
+    !!user && (needsOrgSelection || (!getActiveOrgId() && memberships.length > 1));
+
+  // Hydrate companyInfo from the org record once authenticated (DB is source
+  // of truth). Skipped during the picker phase — no active org to fetch yet.
+  useHydrateCompanyInfoFromOrg(!!user && !needsPicker);
 
   useEffect(() => {
     checkSession();
@@ -39,6 +50,10 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps): React
 
   if (mustChangePassword) {
     return <ForcedPasswordChange />;
+  }
+
+  if (needsPicker) {
+    return <CompanyPicker />;
   }
 
   if (needsInventoryValuationSetup) {

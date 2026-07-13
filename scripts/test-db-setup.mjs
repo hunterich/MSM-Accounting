@@ -27,26 +27,24 @@ const testDbName = baseDbName.endsWith('_test') ? baseDbName : `${baseDbName}_te
 testUrlObj.pathname = `/${testDbName}`
 const testUrl = testUrlObj.toString()
 
-console.log(`[test-db-setup] ensuring database "${testDbName}" exists…`)
-try {
-  execFileSync(
-    'npx',
-    ['prisma', 'db', 'execute', '--url', baseUrl, '--stdin'],
-    { input: `CREATE DATABASE "${testDbName}";`, stdio: ['pipe', 'inherit', 'pipe'] },
-  )
-  console.log(`[test-db-setup] created "${testDbName}".`)
-} catch (err) {
-  const stderr = String(err.stderr ?? err.message ?? '')
-  if (/already exists/i.test(stderr)) {
-    console.log(`[test-db-setup] "${testDbName}" already exists — ok.`)
-  } else {
-    console.error(stderr)
-    process.exit(1)
-  }
-}
+// Recreate the (disposable) test DB fresh each run so `migrate deploy` applies
+// the migration history onto a clean slate — this also upgrades any legacy
+// db-push test DB that has no _prisma_migrations table.
+console.log(`[test-db-setup] recreating database "${testDbName}" (fresh)…`)
+execFileSync(
+  'npx',
+  ['prisma', 'db', 'execute', '--url', baseUrl, '--stdin'],
+  { input: `DROP DATABASE IF EXISTS "${testDbName}";`, stdio: ['pipe', 'inherit', 'inherit'] },
+)
+execFileSync(
+  'npx',
+  ['prisma', 'db', 'execute', '--url', baseUrl, '--stdin'],
+  { input: `CREATE DATABASE "${testDbName}";`, stdio: ['pipe', 'inherit', 'inherit'] },
+)
+console.log(`[test-db-setup] created "${testDbName}".`)
 
-console.log('[test-db-setup] pushing schema…')
-execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate'], {
+console.log('[test-db-setup] applying migrations…')
+execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: testUrl },
 })

@@ -23,6 +23,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:indexes": "node --env-file-if-exists=.env scripts/apply-db-indexes.mjs",
+    "db:migration": "node --env-file-if-exists=.env scripts/new-migration.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:int": "vitest run --config vitest.integration.config.ts",

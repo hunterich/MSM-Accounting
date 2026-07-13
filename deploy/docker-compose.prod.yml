@@ -1,0 +1,68 @@
+# Production stack for the server — pulls PREBUILT images from GHCR instead of
+# building from source. This is what runs on the office Windows 11 PC.
+#
+# CI (.github/workflows/deploy-images.yml) builds and publishes the images on
+# every merge to main. Upgrading the server is then just:
+#
+#   cd deploy
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Rollback: set IMAGE_TAG in deploy/.env to a previous "sha-<...>" tag, then
+# re-run the two commands above.
+#
+# Values come from deploy/.env (same file as the build setup).
+name: msm-accounting
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-msm_accounting}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-msm_accounting}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${IMAGE_BASE:-ghcr.io/hunterich/msm-accounting}-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-msm_accounting}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      NODE_ENV: production
+      FRONTEND_ORIGIN: https://${SITE_HOST:-accounting.msm}
+      COOKIE_SECURE: "true"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      BACKUP_DIR: /data/backups
+    volumes:
+      - ${BACKUP_DIR_HOST:-./backups}:/data/backups
+
+  web:
+    image: ${IMAGE_BASE:-ghcr.io/hunterich/msm-accounting}-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      SITE_HOST: ${SITE_HOST:-accounting.msm}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  caddydata:
+  caddyconfig:

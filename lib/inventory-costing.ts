@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import { InventoryDocumentType } from '@prisma/client'
 import { toNumber, asMoney } from './money'
 import { ApiError } from './errors'
+import { advisoryLockKey } from './advisory-lock'
 
 const QTY_EPSILON = 1e-6
 
@@ -571,6 +572,14 @@ export async function calculateAndPostCOGS(
   date: Date,
   opts: { allowNegativeStock?: boolean } = {},
 ): Promise<number> {
+  // Serialize outbound consumption per item BEFORE the sufficiency check. Two
+  // concurrent sales of the same item each read on-hand with a plain findMany
+  // then decrement relatively (qtyBalance:{decrement}); under READ COMMITTED
+  // both pass assertSufficientStock against the same balance and drive stock
+  // negative. This transaction-scoped advisory lock makes the loser block here
+  // and re-read the winner's committed balance, so its sufficiency check
+  // correctly fails. (The lock is txn-scoped — released at commit/rollback.)
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`item-stock:${orgId}:${itemId}`)})`
   await assertSufficientStock(tx, orgId, itemId, warehouseId, qty, opts.allowNegativeStock ?? false)
   return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date)
 }

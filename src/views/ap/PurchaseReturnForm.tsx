@@ -39,7 +39,6 @@ import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import NotePrintTemplate from '../../components/print/NotePrintTemplate';
-import { useReturnStore } from '../../stores/useReturnStore';
 import { useVendors, useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn } from '../../hooks/useReturns';
@@ -74,7 +73,6 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         : (location.state || {})) as { mode?: string; returnId?: string };
     const mode = state.mode || 'create';
     const isView = mode === 'view';
-    const { addPurchaseReturn, updatePurchaseReturn } = useReturnStore();
 
     const { data: vendorsData, isLoading: vendorsLoading } = useVendors();
     const vendors = vendorsData?.data ?? [];

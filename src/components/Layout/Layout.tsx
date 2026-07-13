@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { UserCircle } from 'lucide-react';
 import Sidebar from './Sidebar';
+import CompanySwitcher from './CompanySwitcher';
 import Button from '../UI/Button';
 import Toaster from '../UI/Toaster';
 import { useAuthStore } from '../../stores/useAuthStore';
@@ -13,7 +14,6 @@ import WorkspaceShell from '../workspace/WorkspaceShell';
 const Layout = (): React.ReactElement => {
     const navigate = useNavigate();
     const user = useAuthStore((s) => s.user);
-    const org = useAuthStore((s) => s.org);
     const logout = useAuthStore((s) => s.logout);
     const [showChangePassword, setShowChangePassword] = useState(false);
 
@@ -31,7 +31,7 @@ const Layout = (): React.ReactElement => {
 
                     <div className="flex items-center gap-3">
                         <UserCircle size={20} className="text-neutral-400" />
-                        <span className="text-sm text-neutral-600">{org?.name || 'Organization'}</span>
+                        <CompanySwitcher />
                         <span className="text-sm font-medium text-neutral-800">{user?.fullName || 'User'}</span>
                         <Button text="Change Password" size="small" variant="tertiary" onClick={() => setShowChangePassword(true)} />
                         <Button text="Logout" size="small" variant="tertiary" onClick={handleLogout} />

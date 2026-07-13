@@ -5,7 +5,7 @@ import {
   createInvoiceInputSchema,
   createInvoiceResponseSchema,
 } from '@/types/api';
-import { ApiError, logAudit, withHandler, ok, err, requireAuth, parsePaginationParams, listResponse } from '@/lib/api-utils';
+import { ApiError, logAudit, withHandler, ok, err, requireAuth, parsePaginationParams, listResponse, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { toNumber } from '@/lib/money';
 import { calculateInvoiceTotals } from '@/lib/invoice-totals';
@@ -103,6 +103,25 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
 
     if (!organization) {
       throw new ApiError('Organization not found', 404);
+    }
+
+    // Tenant isolation: the customer and every referenced line item must belong
+    // to this org. Without these checks a caller could attach another org's
+    // customer/item, which then leaks back through the GET `include` joins.
+    await validateForeignKey(
+      tx.customer,
+      { id: payload.customerId, organizationId: payload.organizationId },
+      'Customer not found in organization',
+    );
+    const lineItemIds = Array.from(
+      new Set(payload.lines.map((l) => l.itemId).filter((id): id is string => !!id)),
+    );
+    for (const itemId of lineItemIds) {
+      await validateForeignKey(
+        tx.item,
+        { id: itemId, organizationId: payload.organizationId },
+        'Item not found in organization',
+      );
     }
 
     const totals = calculateInvoiceTotals(payload, {

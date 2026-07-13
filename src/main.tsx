@@ -5,7 +5,11 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { GoogleOAuthProvider } from '@react-oauth/google'
 import App from './App'
 import { queryClient } from './lib/queryClient.js'
+import { bootstrapActiveOrg } from './lib/activeOrg'
 import './index.css' // We will migrate styles here momentarily
+
+// Consume the ?org= open-in-new-tab handshake before the router mounts.
+bootstrapActiveOrg()
 
 const googleClientId = import.meta.env?.VITE_GOOGLE_CLIENT_ID
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, COOKIE_NAME } from '../lib/auth';
+import { verifyToken, resolveActiveOrg, COOKIE_NAME } from '../lib/auth';
 import { CORS_HEADERS } from '../lib/cors';
 
 const withCors = (response: NextResponse) => {
@@ -30,10 +30,18 @@ export async function middleware(req: NextRequest) {
     return withCors(NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 }));
   }
 
+  const resolution = resolveActiveOrg(payload, req.headers.get('x-active-org'));
+  if (!resolution.ok) {
+    return withCors(NextResponse.json(
+      { error: resolution.error, code: resolution.code },
+      { status: resolution.status },
+    ));
+  }
+
   const requestHeaders = new Headers(req.headers);
-  requestHeaders.set('x-user-id', payload.userId);
-  requestHeaders.set('x-org-id', payload.orgId);
-  requestHeaders.set('x-role-type', payload.roleType);
+  requestHeaders.set('x-user-id', payload.userId);   // always overwrite — never trust client values
+  requestHeaders.set('x-org-id', resolution.orgId);
+  requestHeaders.set('x-role-type', resolution.roleType);
 
   return withCors(NextResponse.next({ request: { headers: requestHeaders } }));
 }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import { resolveApiBase } from '../lib/apiBase';
 
 export type FolderDestination = { label: string; path: string; enabled: boolean };
 export type BackupSettings = {
@@ -76,12 +77,7 @@ export function useRestoreBackup() {
  * (no x-org-id header).
  */
 export async function downloadBackupFile(id: string, fileName: string): Promise<void> {
-  const env = (import.meta as { env?: Record<string, string> }).env;
-  const base =
-    env?.VITE_API_URL ||
-    (typeof window !== 'undefined'
-      ? `${window.location.protocol}//${window.location.hostname}:3000`
-      : 'http://localhost:3000');
+  const base = resolveApiBase();
   const res = await fetch(`${base}/api/v1/backup/${id}/download`, {
     credentials: 'include',
   });
