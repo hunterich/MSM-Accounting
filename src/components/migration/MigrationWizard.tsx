@@ -73,7 +73,6 @@ interface Batch {
 /**
  * Wizard shell / state machine for the Accurate → MSM data migration. Owns the
  * created batch and the current step; each step body advances via `goNext()`.
- * Real reconcile/commit/done screens land in Tasks 8 & 9 (placeholders below).
  */
 const MigrationWizard: React.FC = () => {
   const { canCreate } = useModulePermissions('settings');
