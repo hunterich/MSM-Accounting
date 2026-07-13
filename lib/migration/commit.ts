@@ -45,7 +45,7 @@ type OpeningJournalRowT = z.infer<typeof OpeningJournalRow>;
 type OpeningInvoiceRowT = z.infer<typeof OpeningInvoiceRow>;
 type OpeningBillRowT = z.infer<typeof OpeningBillRow>;
 
-interface StagedData {
+export interface StagedData {
   accounts?: AccountRowT[];
   customers?: CustomerRowT[];
   vendors?: VendorRowT[];
@@ -94,6 +94,35 @@ export async function resolveControlCodes(orgId: string): Promise<ControlCodes> 
 }
 
 const round2 = (n: number) => asMoney(n);
+
+/**
+ * Build the reconcile engine's input from a batch's staged data. Resolves the
+ * org's control-account codes and projects the staged trial balance / open AR /
+ * open AP / opening stock into the shape `reconcileMigration` expects. Shared by
+ * `commitBatch` (reconcile-gate before write) and the reconcile-preview route so
+ * the two never drift.
+ */
+export async function buildReconcileInput(
+  orgId: string,
+  staged: StagedData,
+): Promise<ReconcileInput> {
+  const codes = await resolveControlCodes(orgId);
+  const journalRows = staged['opening-journal'] ?? [];
+  const invoiceRows = staged['opening-invoices'] ?? [];
+  const billRows = staged['opening-bills'] ?? [];
+  const itemRows = staged.items ?? [];
+  return {
+    controlCodes: { ar: codes.AR, ap: codes.AP, inventory: codes.INVENTORY },
+    trialBalance: journalRows.map((l) => ({
+      accountCode: l.accountCode,
+      debit: l.debit ?? 0,
+      credit: l.credit ?? 0,
+    })),
+    openAr: invoiceRows.map((i) => ({ amount: i.amount })),
+    openAp: billRows.map((b) => ({ amount: b.amount })),
+    openingStock: itemRows.map((i) => ({ value: i.openingValue ?? 0 })),
+  };
+}
 
 // Only these item types carry inventory value (mirrors STOCKED_TYPES in
 // lib/inventory-opening.ts). A non-stocked item with opening stock/value would
@@ -144,18 +173,7 @@ export async function commitBatch(
   }
 
   // ── Reconcile BEFORE any write ──────────────────────────────────────────────
-  const codes = await resolveControlCodes(orgId);
-  const reconcileInput: ReconcileInput = {
-    controlCodes: { ar: codes.AR, ap: codes.AP, inventory: codes.INVENTORY },
-    trialBalance: journalRows.map((l) => ({
-      accountCode: l.accountCode,
-      debit: l.debit ?? 0,
-      credit: l.credit ?? 0,
-    })),
-    openAr: invoiceRows.map((i) => ({ amount: i.amount })),
-    openAp: billRows.map((b) => ({ amount: b.amount })),
-    openingStock: itemRows.map((i) => ({ value: i.openingValue ?? 0 })),
-  };
+  const reconcileInput = await buildReconcileInput(orgId, staged);
   const reconcile = reconcileMigration(reconcileInput);
   if (!reconcile.ok) {
     return { committed: false, reconcile };
