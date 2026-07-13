@@ -1,7 +1,22 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { NextRequest } from 'next/server';
 import { prisma, createTestOrg, cleanupOrg, disconnect } from './harness';
 import { receiveBatch } from '@/lib/pos/batch-stock-in';
 import { postPosSale, type PosSaleInput } from '@/lib/pos/sale-posting';
+import { GET as getSalesByType } from '@/src/app/api/v1/reports/sales/by-type/route';
+
+/** Build a NextRequest carrying the org/actor headers the report route reads.
+ *  ADMIN bypasses the permission check (matches other report int tests). */
+function makeReportGet(orgId: string, from: string, to: string): NextRequest {
+  const h = new Headers({
+    'x-org-id': orgId,
+    'x-user-id': `sales-type-reader-${randomUUID()}`,
+    'x-role-type': 'ADMIN',
+  });
+  const url = `http://localhost/api/v1/reports/sales/by-type?from=${from}&to=${to}`;
+  return new NextRequest(new URL(url), { method: 'GET', headers: h });
+}
 
 afterAll(async () => {
   await disconnect();
@@ -139,6 +154,93 @@ describe('POS sales type applies tax + service charge', () => {
     expect(Number(inv!.totalAmount)).toBeCloseTo(goodsTotal, 2);
 
     expect(await glBalance(org.orgId)).toBe(0);
+
+    await cleanupOrg(org.orgId);
+  });
+});
+
+describe('Sales-by-Type report', () => {
+  // Direct-create posted invoices tagged to two sales types (plus one untagged),
+  // then drive the report route and assert per-type counts/gross + Untagged bucket.
+  it('groups posted invoices by sales type with an Untagged bucket', async () => {
+    const org = await createTestOrg();
+    const customer = await prisma.customer.create({
+      data: { organizationId: org.orgId, code: `C-${randomUUID()}`, name: 'Report Customer' },
+      select: { id: true },
+    });
+    const online = await prisma.salesType.create({
+      data: { organizationId: org.orgId, name: 'Online', channel: 'ONLINE' },
+      select: { id: true, name: true },
+    });
+    const offline = await prisma.salesType.create({
+      data: { organizationId: org.orgId, name: 'Counter', channel: 'OFFLINE' },
+      select: { id: true, name: true },
+    });
+
+    const inWindow = new Date('2026-07-10T00:00:00.000Z');
+    async function makeInvoice(
+      salesTypeId: string | null,
+      total: number,
+      tax: number,
+      status: 'SENT' | 'PAID' | 'DRAFT' | 'VOID' = 'SENT',
+      issueDate: Date = inWindow,
+    ) {
+      await prisma.salesInvoice.create({
+        data: {
+          organizationId: org.orgId,
+          number: `INV-${randomUUID()}`,
+          customerId: customer.id,
+          issueDate,
+          status,
+          salesTypeId,
+          totalAmount: total,
+          taxAmount: tax,
+        },
+      });
+    }
+
+    // Online: 2 posted invoices → gross 300000, tax 30000 → netPreTax 270000.
+    await makeInvoice(online.id, 200000, 20000, 'SENT');
+    await makeInvoice(online.id, 100000, 10000, 'PAID');
+    // Counter: 1 posted invoice → gross 50000, no tax.
+    await makeInvoice(offline.id, 50000, 0, 'SENT');
+    // Untagged: 1 posted invoice with no sales type.
+    await makeInvoice(null, 30000, 0, 'SENT');
+    // Excluded: a DRAFT (not posted) and a VOID must not count.
+    await makeInvoice(online.id, 999999, 0, 'DRAFT');
+    await makeInvoice(online.id, 888888, 0, 'VOID');
+    // Excluded: posted but outside the [from,to] window.
+    await makeInvoice(online.id, 777777, 0, 'SENT', new Date('2026-08-01T00:00:00.000Z'));
+
+    const res = await getSalesByType(makeReportGet(org.orgId, '2026-07-01', '2026-07-31'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ id: string | null; name: string; channel: string | null; count: number; gross: number; netPreTax: number }> };
+
+    const byId = new Map(body.data.map((r) => [r.id, r]));
+
+    const onlineRow = byId.get(online.id);
+    expect(onlineRow).toBeDefined();
+    expect(onlineRow!.name).toBe('Online');
+    expect(onlineRow!.channel).toBe('ONLINE');
+    expect(onlineRow!.count).toBe(2);
+    expect(onlineRow!.gross).toBe(300000);
+    expect(onlineRow!.netPreTax).toBe(270000);
+
+    const offlineRow = byId.get(offline.id);
+    expect(offlineRow).toBeDefined();
+    expect(offlineRow!.count).toBe(1);
+    expect(offlineRow!.gross).toBe(50000);
+    expect(offlineRow!.netPreTax).toBe(50000);
+
+    const untagged = byId.get(null);
+    expect(untagged).toBeDefined();
+    expect(untagged!.name).toBe('Untagged');
+    expect(untagged!.channel).toBeNull();
+    expect(untagged!.count).toBe(1);
+    expect(untagged!.gross).toBe(30000);
+
+    // Exactly three buckets: Online, Counter, Untagged (excluded rows dropped).
+    expect(body.data).toHaveLength(3);
 
     await cleanupOrg(org.orgId);
   });
