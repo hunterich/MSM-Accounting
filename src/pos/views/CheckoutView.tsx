@@ -140,7 +140,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
             <span className="text-sm text-gray-500">{cart.lines.length} {t('checkout.items')}</span>
           </div>
           <div className="min-h-0 flex-1 overflow-auto px-4">
-            <CartLines cart={cart} onQty={(id, q) => setCart((c) => setQty(c, id, q))} onRemove={(id) => setCart((c) => removeLine(c, id))} />
+            <CartLines cart={cart} onQty={(key, q) => setCart((c) => setQty(c, key, q))} onRemove={(key) => setCart((c) => removeLine(c, key))} />
           </div>
           <div className="border-t px-4 py-3">
             <div className="mb-1 flex justify-between text-sm text-gray-500"><span>{t('checkout.subtotal')}</span><span className="tabular-nums">{totals.subtotal.toLocaleString('id-ID')}</span></div>

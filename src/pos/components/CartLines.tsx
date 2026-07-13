@@ -13,7 +13,7 @@ function expMonthYear(iso: string | null | undefined): string | null {
   return `${mm}/${yy}`;
 }
 
-export default function CartLines({ cart, onQty, onRemove }: { cart: Cart; onQty: (itemId: string, qty: number) => void; onRemove: (itemId: string) => void }): React.ReactElement {
+export default function CartLines({ cart, onQty, onRemove }: { cart: Cart; onQty: (key: string, qty: number) => void; onRemove: (key: string) => void }): React.ReactElement {
   if (cart.lines.length === 0) return <p className="p-8 text-center text-gray-400">{t('checkout.empty')}</p>;
   return (
     <ul className="divide-y">
@@ -21,16 +21,19 @@ export default function CartLines({ cart, onQty, onRemove }: { cart: Cart; onQty
         const exp = expMonthYear(l.earliestExpiry);
         const lineTotal = l.price * l.quantity * (1 - l.discountPct / 100);
         return (
-          <li key={l.itemId} className="flex items-center gap-3 py-3">
+          <li key={l.key} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-gray-800">{l.name}</div>
+              {l.modifiers.length > 0 && (
+                <div className="truncate text-xs text-gray-400">{l.modifiers.map((m) => m.optionName).join(', ')}</div>
+              )}
               {exp && <div className="text-xs text-gray-400">{t('checkout.exp')} {exp}</div>}
             </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 aria-label={t('checkout.qty')}
-                onClick={() => onQty(l.itemId, l.quantity - 1)}
+                onClick={() => onQty(l.key, l.quantity - 1)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border text-gray-600 hover:bg-gray-50"
               >
                 <Minus size={16} />
@@ -39,7 +42,7 @@ export default function CartLines({ cart, onQty, onRemove }: { cart: Cart; onQty
               <button
                 type="button"
                 aria-label={t('checkout.qty')}
-                onClick={() => onQty(l.itemId, l.quantity + 1)}
+                onClick={() => onQty(l.key, l.quantity + 1)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border text-gray-600 hover:bg-gray-50"
               >
                 <Plus size={16} />
@@ -49,7 +52,7 @@ export default function CartLines({ cart, onQty, onRemove }: { cart: Cart; onQty
             <button
               type="button"
               aria-label="remove"
-              onClick={() => onRemove(l.itemId)}
+              onClick={() => onRemove(l.key)}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600"
             >
               <Trash2 size={16} />
