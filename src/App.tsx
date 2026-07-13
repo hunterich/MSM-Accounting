@@ -73,6 +73,7 @@ const DepreciationRun = lazy(() => import('./views/assets/DepreciationRun'))
 const Reports = lazy(() => import('./views/reports/Reports'))
 const BankReconciliation = lazy(() => import('./views/reports/BankReconciliation'))
 const SalesPerformance = lazy(() => import('./views/reports/SalesPerformance'))
+const SalesByType = lazy(() => import('./views/reports/SalesByType'))
 const Settings = lazy(() => import('./views/settings/Settings'))
 const DataTools = lazy(() => import('./views/tools/DataTools'))
 const UsersAndRoles = lazy(() => import('./views/users/UsersAndRoles'))
@@ -212,6 +213,7 @@ function App(): JSX.Element {
                     <Route path="reports" element={withPermission(<Reports />, 'reports')} />
                     <Route path="reports/bank-reconciliation" element={withPermission(<BankReconciliation />, 'reports')} />
                     <Route path="reports/sales-performance" element={withPermission(<SalesPerformance />, 'pos_reports')} />
+                    <Route path="reports/sales-by-type" element={withPermission(<SalesByType />, 'pos_reports')} />
                     <Route path="company-setup" element={withPermission(<CompanySetup />, 'company')} />
                     <Route path="settings" element={withPermission(<Settings />, 'settings')} />
                     <Route path="tools" element={withPermission(<DataTools />, 'settings')} />

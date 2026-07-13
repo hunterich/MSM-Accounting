@@ -125,6 +125,7 @@ const NAV_GROUPS: NavGroup[] = [
         items: [
             { label: 'Reports', path: '/reports', icon: BarChart3 },
             { label: 'Sales Performance', path: '/reports/sales-performance', icon: BarChart3 },
+            { label: 'Sales by Type', path: '/reports/sales-by-type', icon: BarChart3 },
         ],
     },
     {

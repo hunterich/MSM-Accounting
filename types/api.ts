@@ -45,6 +45,7 @@ export const createInvoiceInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   customerId: z.string().trim().min(1),
   invoiceType: z.string().trim().default('Sales Invoice'),
+  salesTypeId: z.string().trim().nullish(),
   issueDate: isoDateString,
   dueDate: isoDateString.optional(),
   shippingDate: isoDateString.optional(),

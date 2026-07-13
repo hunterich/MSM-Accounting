@@ -178,6 +178,7 @@ export const SUBITEM_PERMISSION_MAP: Record<string, string> = {
     '/integrations':          'integrations',
     '/reports':               'reports',
     '/reports/sales-performance': 'pos_reports',
+    '/reports/sales-by-type':     'pos_reports',
     '/company-setup':         'company',
     '/settings':              'settings',
     '/tools':                 'settings',
