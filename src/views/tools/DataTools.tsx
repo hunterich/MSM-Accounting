@@ -8,6 +8,7 @@ import BackupPanel from '../settings/BackupPanel';
 import { ScrollText, DatabaseZap, Upload, DatabaseBackup, ArrowRightLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { MIGRATION_WIZARD_ENABLED } from '../../config/featureFlags';
+import MigrationWizard from '../../components/migration/MigrationWizard';
 
 interface ToolItem {
     id: string;
@@ -92,7 +93,7 @@ const DataTools = (): React.ReactElement => {
                 )}
 
                 {activeTab === 'migration-wizard' && (
-                    <div className="p-6 text-sm text-gray-500">Migration wizard coming soon</div>
+                    <MigrationWizard />
                 )}
             </div>
         </div>
