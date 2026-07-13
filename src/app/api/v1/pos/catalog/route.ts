@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ok, err } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { resolveItemGroups, type GroupWithAttach } from '@/lib/pos/modifier-resolution';
 
 export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, async (req: NextRequest) => {
   const orgId = req.headers.get('x-org-id');
@@ -9,7 +10,7 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
 
   const items = await prisma.item.findMany({
     where: { organizationId: orgId, isActive: true, type: 'PRODUCT' },
-    select: { id: true, sku: true, name: true, barcode: true, sellingPrice: true, drugClass: true, requiresBatchTracking: true },
+    select: { id: true, sku: true, name: true, barcode: true, sellingPrice: true, drugClass: true, requiresBatchTracking: true, categoryId: true },
     orderBy: { name: 'asc' },
   });
 
@@ -22,10 +23,23 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
   const stockByItem = new Map(batches.map((b) => [b.itemId, Number(b._sum.qtyOnHand ?? 0)]));
   const expiryByItem = new Map(batches.map((b) => [b.itemId, b._min.expiryDate ?? null]));
 
+  const groups = await prisma.modifierGroup.findMany({
+    where: { organizationId: orgId, isActive: true },
+    include: { options: true, attachments: { select: { itemId: true, itemCategoryId: true } } },
+  });
+  const groupData: GroupWithAttach[] = groups.map((g) => ({
+    id: g.id, name: g.name, selectionType: g.selectionType, isRequired: g.isRequired,
+    sortOrder: g.sortOrder, isActive: g.isActive,
+    options: g.options.map((o) => ({ id: o.id, name: o.name, priceDelta: Number(o.priceDelta), itemId: o.itemId, sortOrder: o.sortOrder, isActive: o.isActive })),
+    attachedItemIds: g.attachments.filter((a) => a.itemId).map((a) => a.itemId!),
+    attachedCategoryIds: g.attachments.filter((a) => a.itemCategoryId).map((a) => a.itemCategoryId!),
+  }));
+
   return ok(items.map((it) => ({
     ...it,
     sellingPrice: Number(it.sellingPrice),
     qtyAvailable: stockByItem.get(it.id) ?? 0,
     earliestExpiry: expiryByItem.get(it.id)?.toISOString() ?? null,
+    modifierGroups: resolveItemGroups(groupData, { itemId: it.id, categoryId: it.categoryId ?? null }),
   })));
 });
