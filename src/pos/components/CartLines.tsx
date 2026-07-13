@@ -3,6 +3,11 @@ import { Minus, Plus, Trash2 } from 'lucide-react';
 import type { Cart } from '../state/cart';
 import { t } from '../i18n/strings';
 
+/** Format a tax-inclusive price delta with an explicit sign, e.g. `+5.000`. */
+function formatDelta(n: number): string {
+  return `${n < 0 ? '-' : '+'}${Math.abs(n).toLocaleString('id-ID')}`;
+}
+
 /** Format an ISO date as `MM/YY`, or null if unparseable. */
 function expMonthYear(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -25,8 +30,16 @@ export default function CartLines({ cart, onQty, onRemove }: { cart: Cart; onQty
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-gray-800">{l.name}</div>
               {l.modifiers.length > 0 && (
-                <div className="truncate text-xs text-gray-400">{l.modifiers.map((m) => m.optionName).join(', ')}</div>
+                <ul className="mt-0.5 space-y-0.5">
+                  {l.modifiers.map((m) => (
+                    <li key={m.optionId} className="flex justify-between gap-2 text-xs text-gray-400">
+                      <span className="truncate">+ {m.optionName}</span>
+                      {m.priceDelta !== 0 && <span className="shrink-0 tabular-nums">{formatDelta(m.priceDelta)}</span>}
+                    </li>
+                  ))}
+                </ul>
               )}
+              {l.modifierNote && <div className="truncate text-xs italic text-gray-400">{l.modifierNote}</div>}
               {exp && <div className="text-xs text-gray-400">{t('checkout.exp')} {exp}</div>}
             </div>
             <div className="flex items-center gap-1">

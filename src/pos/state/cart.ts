@@ -1,5 +1,26 @@
 import { computeSaleTotals, type SaleLineInput, type SelectedModifier } from '@/lib/pos/pricing';
 
+/** A selectable option within a modifier group (e.g. "Large", "Extra shot"). */
+export interface ModifierOptionView {
+  id: string;
+  name: string;
+  priceDelta: number;      // tax-inclusive, may be 0
+  itemId?: string | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+/** A group of modifier options attached to a catalog item (e.g. "Size", "Add-ons"). */
+export interface ModifierGroupView {
+  id: string;
+  name: string;
+  selectionType: 'SINGLE' | 'MULTI';
+  isRequired: boolean;
+  sortOrder: number;
+  isActive: boolean;
+  options: ModifierOptionView[];
+}
+
 export interface CatalogItem {
   id: string;
   sku: string;
@@ -7,6 +28,7 @@ export interface CatalogItem {
   barcode?: string | null;
   sellingPrice: number;
   earliestExpiry?: string | null;
+  modifierGroups?: ModifierGroupView[];
 }
 
 export interface CartLine {
@@ -17,6 +39,7 @@ export interface CartLine {
   quantity: number;
   discountPct: number;
   modifiers: SelectedModifier[];
+  modifierNote?: string;   // optional free-text note shown under the line (display only)
   earliestExpiry?: string | null;
 }
 

@@ -5,8 +5,9 @@ import { computeSaleTotals } from '@/lib/pos/pricing';
 import { useCatalog, useRegisters, usePostSale, type CatalogRow, type PostSaleResult } from '../hooks/usePos';
 import { useOfflineSync, cacheCatalog, readCachedCatalog } from '../hooks/useOfflinePos';
 import { db } from '../offline/db';
-import { emptyCart, addItem, setQty, removeLine, toSaleLines, cartTotal, type Cart } from '../state/cart';
+import { emptyCart, addItem, addConfiguredItem, setQty, removeLine, toSaleLines, cartTotal, type Cart } from '../state/cart';
 import ScanBox, { type ScanBoxHandle } from '../components/ScanBox';
+import ModifierModal from '../components/ModifierModal';
 import StatusBar from '../components/StatusBar';
 import CategoryChips, { matchesCategory, type CategoryFilter } from '../components/CategoryChips';
 import ProductGrid from '../components/ProductGrid';
@@ -33,6 +34,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
   const [receipt, setReceipt] = useState<{ result: PostSaleResult; lines: Cart } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saleId, setSaleId] = useState(uuid());
+  const [pendingItem, setPendingItem] = useState<CatalogRow | null>(null);
   const scanRef = useRef<ScanBoxHandle>(null);
 
   useEffect(() => {
@@ -62,7 +64,13 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
     return <ReceiptView result={receipt.result} cart={receipt.lines} onNew={() => { setReceipt(null); setCart(emptyCart()); setTerm(''); setSaleId(uuid()); }} />;
   }
 
-  const pick = (item: CatalogRow) => { setCart((c) => addItem(c, item)); setTerm(''); };
+  const pick = (item: CatalogRow) => {
+    setTerm('');
+    // Items with modifier groups open the configuration modal (required groups force a choice);
+    // items without groups take the fast add-to-cart path. Applies to both grid taps and scans.
+    if (item.modifierGroups && item.modifierGroups.length > 0) { setPendingItem(item); return; }
+    setCart((c) => addItem(c, item));
+  };
   const totals = computeSaleTotals(toSaleLines(cart), 11);
   const registerName = (registers.data ?? []).find((r) => r.id === registerId)?.name ?? t('shift.register');
 
@@ -156,6 +164,15 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
       </div>
 
       <CashTenderModal total={totals.totalAmount} isOpen={payOpen} onClose={() => setPayOpen(false)} onConfirm={pay} busy={postSale.isPending} />
+
+      {pendingItem && (
+        <ModifierModal
+          item={pendingItem}
+          groups={pendingItem.modifierGroups ?? []}
+          onCancel={() => setPendingItem(null)}
+          onConfirm={(mods) => { setCart((c) => addConfiguredItem(c, pendingItem, mods)); setPendingItem(null); }}
+        />
+      )}
     </div>
   );
 }
