@@ -1,3 +1,12 @@
+export interface SelectedModifier {
+  groupId: string;
+  groupName: string;
+  optionId: string;
+  optionName: string;
+  priceDelta: number; // tax-inclusive, may be 0
+  itemId?: string | null;
+}
+
 export interface SaleLineInput {
   itemId: string;
   description: string;
@@ -7,6 +16,7 @@ export interface SaleLineInput {
   /** Staff member (Employee id) credited for this line. Optional: the pharmacy
    *  sends none and the server defaults it to the cashier's staff record. */
   performedById?: string | null;
+  modifiers?: SelectedModifier[]; // NEW — selected options for this line
 }
 
 export interface SaleTotals {
