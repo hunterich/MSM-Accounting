@@ -8,6 +8,7 @@ import { toSaleLines } from '../state/cart';
 import { t } from '../i18n/strings';
 
 const fmt = (n: number) => n.toLocaleString('id-ID');
+const fmtDelta = (n: number) => `${n < 0 ? '-' : '+'}${Math.abs(n).toLocaleString('id-ID')}`;
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -43,11 +44,23 @@ export default function ReceiptView({ result, cart, onNew }: { result: PostSaleR
   const cash = result.totalAmount + result.change;
   const dateStr = soldAt.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
 
-  const lines = cart.lines.map((l) => ({ qty: l.quantity, name: l.name, total: l.price * l.quantity * (1 - l.discountPct / 100) }));
+  const lines = cart.lines.map((l) => ({
+    qty: l.quantity,
+    name: l.name,
+    total: l.price * l.quantity * (1 - l.discountPct / 100),
+    modifiers: l.modifiers,
+    note: l.modifierNote,
+  }));
 
   function print() {
     const rows = lines
-      .map((l) => `<div class="row"><span>${l.qty}× ${escapeHtml(l.name)}</span><span>${fmt(l.total)}</span></div>`)
+      .map((l) => {
+        const mods = l.modifiers
+          .map((m) => `<div class="row sub"><span>+ ${escapeHtml(m.optionName)}</span><span>${m.priceDelta !== 0 ? fmtDelta(m.priceDelta) : ''}</span></div>`)
+          .join('');
+        const note = l.note ? `<div class="sub i">${escapeHtml(l.note)}</div>` : '';
+        return `<div class="row"><span>${l.qty}× ${escapeHtml(l.name)}</span><span>${fmt(l.total)}</span></div>${mods}${note}`;
+      })
       .join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Struk</title><style>
       @page { margin: 4mm; }
@@ -55,6 +68,8 @@ export default function ReceiptView({ result, cart, onNew }: { result: PostSaleR
       body { width: 72mm; margin: 0 auto; font-family: 'Courier New', monospace; font-size: 12px; color: #000; }
       .c { text-align: center; } .b { font-weight: bold; } .sm { font-size: 11px; }
       .row { display: flex; justify-content: space-between; gap: 8px; }
+      .sub { padding-left: 10px; font-size: 11px; }
+      .i { font-style: italic; }
       hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
     </style></head><body>
       <div class="c b">${escapeHtml(storeName)}</div>
@@ -82,9 +97,18 @@ export default function ReceiptView({ result, cart, onNew }: { result: PostSaleR
         <div className="text-center text-xs text-gray-500">No: {invoiceNo}{cashier ? ` · ${cashier}` : ''}</div>
         <hr className="my-2" />
         {lines.map((l, i) => (
-          <div key={i} className="flex justify-between">
-            <span>{l.qty}× {l.name}</span>
-            <span className="tabular-nums">{fmt(l.total)}</span>
+          <div key={i}>
+            <div className="flex justify-between">
+              <span>{l.qty}× {l.name}</span>
+              <span className="tabular-nums">{fmt(l.total)}</span>
+            </div>
+            {l.modifiers.map((m) => (
+              <div key={m.optionId} className="flex justify-between pl-3 text-xs text-gray-500">
+                <span>+ {m.optionName}</span>
+                {m.priceDelta !== 0 && <span className="tabular-nums">{fmtDelta(m.priceDelta)}</span>}
+              </div>
+            ))}
+            {l.note && <div className="pl-3 text-xs italic text-gray-500">{l.note}</div>}
           </div>
         ))}
         <hr className="my-2" />

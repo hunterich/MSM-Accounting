@@ -6,6 +6,7 @@ import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { computeSaleTotals, type SaleLineInput } from './pricing';
+import { flattenSaleLines, type MaterializedLine } from './modifier-lines';
 import { pickFefo, type BatchAvailability } from './fefo-picker';
 
 export interface PosTenderInput {
@@ -103,8 +104,16 @@ export async function postPosSale(
   if (shift.registerId !== input.registerId) throw new ApiError('Shift does not belong to this register', 400);
   const warehouseId = input.warehouseId ?? register.warehouseId ?? null;
 
+  // Normalize configured lines: cart line.price = base + Σ priceDelta.
+  // Strip deltas so the base line carries the item base and each option is its own line.
+  const normalized: SaleLineInput[] = input.lines.map((l) => {
+    const delta = (l.modifiers ?? []).reduce((s, m) => s + m.priceDelta, 0);
+    return { ...l, price: round2(l.price - delta) };
+  });
+  const materialized = flattenSaleLines(normalized);
+
   // 3. Totals + cash validation.
-  const totals = computeSaleTotals(input.lines, TAX_RATE);
+  const totals = computeSaleTotals(materialized, TAX_RATE);
   if (totals.totalAmount <= 0) throw new ApiError('Sale total must be greater than zero', 400);
   if (input.tenders.some((t) => t.method !== 'CASH')) throw new ApiError('Only cash tenders are supported', 400);
   const cash = input.tenders.filter((t) => t.method === 'CASH').reduce((s, t) => s + t.amount, 0);
@@ -113,7 +122,8 @@ export async function postPosSale(
 
   // 4. FEFO allocation for batch-tracked lines.
   const allocationsByLine: { itemId: string; allocations: { stockBatchId: string; qty: number }[] }[] = [];
-  for (const line of input.lines) {
+  for (const line of materialized) {
+    if (!line.itemId) continue; // priced-only modifier lines draw no stock
     const item = await tx.item.findFirst({
       where: { id: line.itemId, organizationId: orgId },
       select: { requiresBatchTracking: true },
@@ -167,7 +177,7 @@ export async function postPosSale(
   });
   const defaultPerformerId = cashierEmployee?.id ?? null;
 
-  const explicitPerformerIds = [...new Set(input.lines.map((l) => l.performedById).filter((x): x is string => !!x))];
+  const explicitPerformerIds = [...new Set(materialized.map((l) => l.performedById).filter((x): x is string => !!x))];
   const validPerformerIds = new Set<string>();
   if (explicitPerformerIds.length > 0) {
     const emps = await tx.employee.findMany({
@@ -176,7 +186,7 @@ export async function postPosSale(
     });
     for (const e of emps) validPerformerIds.add(e.id);
   }
-  const performerFor = (l: SaleLineInput): string | null =>
+  const performerForMaterialized = (l: MaterializedLine): string | null =>
     l.performedById && validPerformerIds.has(l.performedById) ? l.performedById : defaultPerformerId;
 
   // 6. Create SalesInvoice (DRAFT) with tax-inclusive totals.
@@ -198,15 +208,18 @@ export async function postPosSale(
       taxAmount: totals.taxAmount,
       totalAmount: totals.totalAmount,
       lines: {
-        create: input.lines.map((l, i) => ({
-          lineNo: i + 1,
-          itemId: l.itemId,
+        create: materialized.map((l) => ({
+          lineNo: l.lineNo,
+          itemId: l.itemId ?? undefined,
           description: l.description,
           quantity: l.quantity,
           price: l.price,
-          discountPct: l.discountPct ?? 0,
-          lineSubtotal: round2(l.quantity * l.price * (1 - (l.discountPct ?? 0) / 100)),
-          performedById: performerFor(l),
+          discountPct: l.discountPct,
+          lineSubtotal: round2(l.quantity * l.price * (1 - l.discountPct / 100)),
+          performedById: performerForMaterialized(l),
+          parentLineNo: l.parentLineNo,
+          isModifier: l.isModifier,
+          modifierNote: l.modifierNote,
         })),
       },
     },

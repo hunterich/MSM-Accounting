@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { emptyCart, addItem, setQty, setDiscount, removeLine, cartTotal, type CatalogItem } from '../cart';
+import { addConfiguredItem, lineKey, requiredGroupsSatisfied } from '../cart';
 
 const paracetamol: CatalogItem = { id: 'i1', sku: 'PCT', name: 'Paracetamol', barcode: '899001', sellingPrice: 5000 };
 const vitc: CatalogItem = { id: 'i2', sku: 'VITC', name: 'Vitamin C', barcode: '899002', sellingPrice: 10000 };
+
+const coffee = { id: 'coffee', sku: 'C', name: 'Coffee', sellingPrice: 20000 };
+const oat = { groupId: 'milk', groupName: 'Milk', optionId: 'oat', optionName: 'Oat', priceDelta: 5000, itemId: 'oatItem' };
 
 describe('cart', () => {
   it('adds an item as a new line with qty 1', () => {
@@ -35,5 +39,25 @@ describe('cart', () => {
     c = addItem(c, vitc);                        // 1x10000 -10%
     c = setDiscount(c, 'i2', 10);
     expect(cartTotal(c)).toBe(19000); // 10000 + 9000
+  });
+
+  it('keeps a configured line separate from a plain line, merges identical configs', () => {
+    let c = addItem(emptyCart(), coffee);
+    c = addConfiguredItem(c, coffee, [oat]);
+    c = addConfiguredItem(c, coffee, [oat]);
+    expect(c.lines).toHaveLength(2);
+    const configured = c.lines.find((l) => l.modifiers.length === 1)!;
+    expect(configured.quantity).toBe(2);
+  });
+
+  it('displayed unit price adds priceDeltas', () => {
+    const c = addConfiguredItem(emptyCart(), coffee, [oat]);
+    expect(c.lines[0].price).toBe(25000);
+  });
+
+  it('requiredGroupsSatisfied is false when a required group has no selection', () => {
+    const groups = [{ id: 'milk', isRequired: true }, { id: 'addons', isRequired: false }];
+    expect(requiredGroupsSatisfied(groups, [oat])).toBe(true);
+    expect(requiredGroupsSatisfied(groups, [])).toBe(false);
   });
 });

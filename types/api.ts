@@ -1077,6 +1077,44 @@ export type CreateUserInput = z.infer<typeof createUserInputSchema>;
 /* POS (retail) schemas                                                */
 /* ------------------------------------------------------------------ */
 
+export const modifierOptionInputSchema = z.object({
+  name: z.string().min(1),
+  priceDelta: z.number().default(0),
+  itemId: z.string().nullish(),
+  sortOrder: z.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
+
+export const modifierGroupInputSchema = z.object({
+  organizationId: z.string(),
+  name: z.string().min(1),
+  selectionType: z.enum(['SINGLE', 'MULTI']).default('SINGLE'),
+  isRequired: z.boolean().default(false),
+  sortOrder: z.number().int().default(0),
+  isActive: z.boolean().default(true),
+  options: z.array(modifierOptionInputSchema).default([]),
+});
+
+export const modifierAttachmentInputSchema = z
+  .object({
+    organizationId: z.string(),
+    groupId: z.string(),
+    itemId: z.string().nullish(),
+    itemCategoryId: z.string().nullish(),
+  })
+  .refine((v) => !!v.itemId !== !!v.itemCategoryId, {
+    message: 'Attach to exactly one of itemId or itemCategoryId',
+  });
+
+export const selectedModifierSchema = z.object({
+  groupId: z.string(),
+  groupName: z.string(),
+  optionId: z.string(),
+  optionName: z.string(),
+  priceDelta: z.number(),
+  itemId: z.string().nullish(),
+});
+
 export const posSaleLineSchema = z.object({
   itemId: z.string().trim().min(1),
   description: z.string().trim().min(1),
@@ -1084,6 +1122,7 @@ export const posSaleLineSchema = z.object({
   price: positiveDecimal,
   discountPct: positiveDecimal.max(100).default(0),
   performedById: z.string().trim().min(1).nullish(),
+  modifiers: z.array(selectedModifierSchema).optional(),
 });
 
 export const posTenderSchema = z.object({
