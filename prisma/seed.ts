@@ -134,6 +134,36 @@ async function main() {
     create: { organizationId: org.id, code: 'REG-1', name: 'Register 1', warehouseId: posWarehouseId, isActive: true },
   });
 
+  // ── POS: starter sales types (Toko Offline / Online) + register default ────
+  const offlineSalesType = await prisma.salesType.upsert({
+    where: { organizationId_name: { organizationId: org.id, name: 'Toko Offline' } },
+    update: {},
+    create: {
+      organizationId: org.id,
+      name: 'Toko Offline',
+      channel: 'OFFLINE',
+      serviceChargePct: 0,
+      taxable: true,
+    },
+  });
+
+  await prisma.salesType.upsert({
+    where: { organizationId_name: { organizationId: org.id, name: 'Online' } },
+    update: {},
+    create: {
+      organizationId: org.id,
+      name: 'Online',
+      channel: 'ONLINE',
+      serviceChargePct: 0,
+      taxable: true,
+    },
+  });
+
+  await prisma.posRegister.update({
+    where: { organizationId_code: { organizationId: org.id, code: 'REG-1' } },
+    data: { defaultSalesTypeId: offlineSalesType.id },
+  });
+
   const cashierRole = await prisma.role.upsert({
     where: {
       organizationId_name: {
