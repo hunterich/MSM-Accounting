@@ -52,6 +52,7 @@ const AdjustmentForm = lazy(() => import('./views/inventory/AdjustmentForm'))
 const StockValuation = lazy(() => import('./views/inventory/StockValuation'))
 const StockCounts = lazy(() => import('./views/inventory/StockCounts'))
 const StockCountForm = lazy(() => import('./views/inventory/StockCountForm'))
+const ModifierSettings = lazy(() => import('./views/pos/ModifierSettings'))
 const DeliveryNotes = lazy(() => import('./views/ar/DeliveryNotes'))
 const Banking = lazy(() => import('./views/banking/Banking'))
 const BankingActionForm = lazy(() => import('./views/banking/BankingActionForm'))
@@ -173,6 +174,9 @@ function App(): JSX.Element {
                     <Route path="inventory/counts/new" element={withPermission(<StockCountForm />, 'inv_adj', 'create')} />
                     <Route path="inventory/counts/edit" element={withPermission(<StockCountForm />, 'inv_adj', 'edit')} />
                     <Route path="inventory/valuation" element={withPermission(<StockValuation />, 'inv_items')} />
+
+                    {/* Point of Sale */}
+                    <Route path="pos/modifiers" element={withPermission(<ModifierSettings />, 'pos_reports')} />
 
                     {/* Banking */}
                     <Route path="banking" element={withPermission(<Banking />, 'banking')} />
