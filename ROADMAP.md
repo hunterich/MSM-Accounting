@@ -364,6 +364,20 @@
 - [ ] BPOM / product registration number field
 - [ ] Batch-level stock report
 
+### A3. POS Front-of-House (Kasir) — Accurate POS Parity
+> Mimics the "Kasir" module group from Accurate POS. Core Outlet POS / register / shift / offline flow is already delivered (`src/pos/`, `PosRegister`/`PosShift`/`PosSale`). These are the remaining cashier-facing features, prioritized. Manufacturing group (Pekerjaan Pesanan / Bahan Baku) is explicitly **out of scope**.
+
+**High priority**
+- [ ] **Tipe Penjualan (Sales Type)** — categorize each sale by channel (offline storefront vs online/e-commerce). A sales type carries: name, sales category (Umum / Online), optional service-charge rule, and tax on/off. At checkout the cashier picks a type; the system applies its price category, auto-calculates any service charge, and tags the `PosSale` so reporting can split online vs offline. Ref: [Accurate — Tipe Penjualan](https://help.accurate.id/product/accurate-pos/pengaturan-utama/kasir/tipe-penjualan/melakukan-transaksi-dengan-tipe-penjualan/)
+- [ ] **Modifier** — per-item add-ons / option groups (esp. for salon services and configurable products) applied in the POS cart, adjusting price and line description. *(brainstorm in progress → spec to follow)*
+
+**Medium priority**
+- [ ] **Promo** — discount-rule engine (item / cart / time-bound promos) applied automatically or by code at checkout
+- [ ] **Biaya (POS service charge)** — expose invoice-level charges as POS-cart-level fees (feeds Tipe Penjualan service charge)
+
+**Low priority**
+- [ ] **Customer Display** — second-screen display mirroring the cart for the customer
+
 ---
 
 ## Phase 5 — Domain-Specific Features
