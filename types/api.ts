@@ -819,6 +819,7 @@ export const integrationInputSchema = z.object({
   importStatusFilter: z.enum(['Selesai', 'All']).default('Selesai'),
   itemMappings: z.record(z.string().trim(), z.string().trim()).default({}),
   mappings: shopMappingsSchema.optional(),
+  salesTypeId: z.string().nullish(),
 });
 
 export const updateIntegrationInputSchema = integrationInputSchema.omit({ organizationId: true }).partial();
@@ -1095,6 +1096,17 @@ export const modifierGroupInputSchema = z.object({
   options: z.array(modifierOptionInputSchema).default([]),
 });
 
+export const salesTypeInputSchema = z.object({
+  organizationId: z.string(),
+  name: z.string().min(1),
+  channel: z.enum(['OFFLINE', 'ONLINE']).default('OFFLINE'),
+  serviceChargePct: z.number().min(0).max(100).default(0),
+  chargeAccountId: z.string().nullish(),
+  taxable: z.boolean().default(true),
+  sortOrder: z.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
+
 export const modifierAttachmentInputSchema = z
   .object({
     organizationId: z.string(),
@@ -1135,6 +1147,7 @@ export const createPosSaleSchema = z.object({
   clientSaleId: z.string().trim().min(1),
   registerId: z.string().trim().min(1),
   shiftId: z.string().trim().min(1),
+  salesTypeId: z.string().nullish(),
   lines: z.array(posSaleLineSchema).min(1, 'At least one line required'),
   tenders: z.array(posTenderSchema).min(1, 'At least one tender required'),
 });
@@ -1162,6 +1175,7 @@ export const createPosRegisterSchema = z.object({
   name: z.string().trim().min(1),
   warehouseId: z.string().trim().optional(),
   cashAccountId: z.string().trim().optional(),
+  defaultSalesTypeId: z.string().nullish(),
 });
 export const settlementImportInputSchema = z.object({
   orders: z.array(z.object({
