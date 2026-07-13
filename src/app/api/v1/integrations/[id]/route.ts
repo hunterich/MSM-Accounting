@@ -18,13 +18,22 @@ const toMappings = (value: unknown): Record<string, string> => {
   }, {});
 };
 
-async function validateConnectionForeignKeys(orgId: string, customerId?: string | null, holdingAccountId?: string | null) {
+async function validateConnectionForeignKeys(
+  orgId: string,
+  customerId?: string | null,
+  holdingAccountId?: string | null,
+  salesTypeId?: string | null,
+) {
   if (customerId) {
     await validateForeignKey(prisma.customer, { id: customerId, organizationId: orgId, status: 'ACTIVE' }, 'Selected customer was not found.');
   }
 
   if (holdingAccountId) {
     await validateForeignKey(prisma.bankAccount, { id: holdingAccountId, organizationId: orgId, isActive: true }, 'Selected settlement account was not found.');
+  }
+
+  if (salesTypeId) {
+    await validateForeignKey(prisma.salesType, { id: salesTypeId, organizationId: orgId }, 'Selected sales type was not found.');
   }
 }
 
@@ -100,7 +109,8 @@ export const PUT = withPermission({ module: 'INTEGRATIONS', action: 'edit' }, as
     await validateConnectionForeignKeys(
       orgId,
       (updateData.customerId as string | null | undefined) ?? existing.customerId,
-      (updateData.holdingAccountId as string | null | undefined) ?? existing.holdingAccountId
+      (updateData.holdingAccountId as string | null | undefined) ?? existing.holdingAccountId,
+      (updateData.salesTypeId as string | null | undefined) ?? existing.salesTypeId
     );
 
     const shopName = String(updateData.shopName ?? existing.shopName).trim();
