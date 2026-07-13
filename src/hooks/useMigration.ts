@@ -17,10 +17,11 @@ export interface StageResult {
 }
 
 export interface ReconcileCheck {
-  name: string;
-  ok: boolean;
-  message?: string;
-  [key: string]: unknown;
+  id: 'tb-balanced' | 'ar-tie' | 'ap-tie' | 'inventory-tie';
+  label: string;
+  expected: number;
+  actual: number;
+  pass: boolean;
 }
 
 export interface ReconcileResult {

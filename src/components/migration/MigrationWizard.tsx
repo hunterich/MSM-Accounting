@@ -3,9 +3,9 @@ import Card from '../UI/Card';
 import Button from '../UI/Button';
 import StartStep, { type StartStepBatch } from './steps/StartStep';
 import EntityStageStep from './steps/EntityStageStep';
+import ReconcileStep from './steps/ReconcileStep';
 import type { MigrationEntity } from '../../utils/migrationFields';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
-// TODO(Task 8): import ReconcileStep and render it in place of the 'reconcile' placeholder.
 // TODO(Task 9): import CommitStep / DoneStep and render them in place of the 'commit'/'done' placeholders.
 
 type Step =
@@ -147,21 +147,12 @@ const MigrationWizard: React.FC = () => {
     }
 
     if (effectiveStep === 'reconcile') {
-      // TODO(Task 8): replace with <ReconcileStep batchId={batch.id} onReconciled={() => go('commit')} onBack={() => goToPrev()} />
       return (
-        <Card title="Reconcile">
-          <div className="flex flex-col gap-4">
-            <div className="text-sm text-neutral-600">Reconcile step — Task 8</div>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={() => goToPrev()}>
-                Back
-              </Button>
-              <Button className="ml-auto" onClick={() => go('commit')}>
-                Continue
-              </Button>
-            </div>
-          </div>
-        </Card>
+        <ReconcileStep
+          batchId={batch.id}
+          onProceed={() => setStep('commit')}
+          onBack={() => go('opening-bills')}
+        />
       );
     }
 
