@@ -6,6 +6,7 @@ import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { computeSaleTotals, type SaleLineInput } from './pricing';
+import { computeServiceCharge } from './sales-type-charge';
 import { flattenSaleLines, type MaterializedLine } from './modifier-lines';
 import { pickFefo, type BatchAvailability } from './fefo-picker';
 
@@ -22,6 +23,7 @@ export interface PosSaleInput {
   cashierId: string;
   warehouseId: string | null;
   customerId?: string;
+  salesTypeId?: string | null;
   lines: SaleLineInput[];
   tenders: PosTenderInput[];
   date: Date;
@@ -98,7 +100,7 @@ export async function postPosSale(
   if (!shift || shift.status !== 'OPEN') throw new ApiError('Shift is not open', 400);
   const register = await tx.posRegister.findFirst({
     where: { id: input.registerId, organizationId: orgId },
-    select: { id: true, warehouseId: true, cashAccountId: true },
+    select: { id: true, warehouseId: true, cashAccountId: true, defaultSalesTypeId: true },
   });
   if (!register) throw new ApiError('Register not found', 404);
   if (shift.registerId !== input.registerId) throw new ApiError('Shift does not belong to this register', 400);
@@ -115,10 +117,46 @@ export async function postPosSale(
   // 3. Totals + cash validation.
   const totals = computeSaleTotals(materialized, TAX_RATE);
   if (totals.totalAmount <= 0) throw new ApiError('Sale total must be greater than zero', 400);
+
+  // 3b. Resolve the sales type (explicit id wins, else the register default) and
+  //     apply its tax flag + optional service charge. The charge is tax-inclusive
+  //     (the customer pays goods + charge); taxAddon is the PPN already embedded
+  //     in it, which invoice-send-posting splits back out into taxAmount.
+  const salesTypeId = input.salesTypeId ?? register.defaultSalesTypeId ?? null;
+  let salesType:
+    | { id: string; taxable: boolean; serviceChargePct: number; chargeAccountId: string | null; name: string }
+    | null = null;
+  if (salesTypeId) {
+    const st = await tx.salesType.findFirst({
+      where: { id: salesTypeId, organizationId: orgId },
+      select: { id: true, taxable: true, serviceChargePct: true, chargeAccountId: true, name: true },
+    });
+    if (st)
+      salesType = {
+        id: st.id,
+        taxable: st.taxable,
+        serviceChargePct: Number(st.serviceChargePct),
+        chargeAccountId: st.chargeAccountId,
+        name: st.name,
+      };
+  }
+  const taxable = salesType ? salesType.taxable : true;
+
+  const { chargeAmt, taxAddon } = salesType
+    ? computeServiceCharge({ goodsTotal: totals.totalAmount, pct: salesType.serviceChargePct, taxable, rate: TAX_RATE })
+    : { chargeAmt: 0, taxAddon: 0 };
+  // No dedicated service-charge income key exists in account-defaults; fall back
+  // to null so a charge without its own account folds into sales revenue (a safe,
+  // balanced GL outcome) rather than mis-booking to an unrelated income account.
+  const chargeAccountId = salesType?.chargeAccountId ?? null;
+
+  const finalTotal = round2(totals.totalAmount + chargeAmt);
+  const finalTax = taxable ? round2(totals.taxAmount + taxAddon) : totals.taxAmount;
+
   if (input.tenders.some((t) => t.method !== 'CASH')) throw new ApiError('Only cash tenders are supported', 400);
   const cash = input.tenders.filter((t) => t.method === 'CASH').reduce((s, t) => s + t.amount, 0);
-  if (cash < totals.totalAmount) throw new ApiError('Insufficient cash tendered', 400);
-  const change = round2(cash - totals.totalAmount);
+  if (cash < finalTotal) throw new ApiError('Insufficient cash tendered', 400);
+  const change = round2(cash - finalTotal);
 
   // 4. FEFO allocation for batch-tracked lines.
   const allocationsByLine: { itemId: string; allocations: { stockBatchId: string; qty: number }[] }[] = [];
@@ -201,12 +239,20 @@ export async function postPosSale(
       customerId,
       issueDate: input.date,
       status: 'DRAFT',
-      taxEnabled: true,
+      taxEnabled: taxable,
       taxInclusive: true,
       taxRate: TAX_RATE,
       subtotal: totals.subtotal,
-      taxAmount: totals.taxAmount,
-      totalAmount: totals.totalAmount,
+      taxAmount: finalTax,
+      totalAmount: finalTotal,
+      salesTypeId: salesType?.id ?? null,
+      charges: chargeAmt > 0 ? { create: [{
+        lineNo: 1,
+        label: `Service Charge (${salesType!.name})`,
+        accountId: chargeAccountId,
+        amount: chargeAmt,
+        taxRate: taxable ? TAX_RATE : 0,
+      }] } : undefined,
       lines: {
         create: materialized.map((l) => ({
           lineNo: l.lineNo,
@@ -253,8 +299,8 @@ export async function postPosSale(
       depositAccountId: cashAccountId,
       arAccountId,
       status: 'COMPLETED',
-      totalAmount: totals.totalAmount,
-      allocations: { create: [{ invoiceId: invoice.id, amountApplied: totals.totalAmount }] },
+      totalAmount: finalTotal,
+      allocations: { create: [{ invoiceId: invoice.id, amountApplied: finalTotal }] },
     },
     select: { id: true },
   });
@@ -288,5 +334,5 @@ export async function postPosSale(
     select: { id: true },
   });
 
-  return { posSaleId: posSale.id, salesInvoiceId: invoice.id, totalAmount: totals.totalAmount, change };
+  return { posSaleId: posSale.id, salesInvoiceId: invoice.id, totalAmount: finalTotal, change };
 }

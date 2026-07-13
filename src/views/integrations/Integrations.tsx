@@ -13,6 +13,7 @@ import {
 } from '../../hooks/useIntegrations';
 import ListPage from '../../components/Layout/ListPage';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { useSalesTypes } from '../../hooks/useSalesTypes';
 import Table, { TableColumn } from '../../components/UI/Table';
 import type { EcommerceConnection, ImportStatusFilter } from '../../types/index';
 import ConnectShopModal from './ConnectShopModal';
@@ -28,6 +29,7 @@ const Integrations = () => {
     const { data: customersData } = useCustomers();
     const customers = customersData?.data ?? [];
     const { data: bankAccounts = [] } = useBankAccounts();
+    const { data: salesTypes = [] } = useSalesTypes();
     const { data: connectionsData, isLoading, error } = useEcommerceConnections();
     const shops: EcommerceConnection[] = connectionsData?.data ?? [];
     const updateConnection = useUpdateEcommerceConnection();
@@ -60,6 +62,16 @@ const Integrations = () => {
             }
         }
         setSettingsShopId(null);
+    };
+
+    const handleSaveSalesType = async (salesTypeId: string): Promise<void> => {
+        if (settingsShopId) {
+            try {
+                await updateConnection.mutateAsync({ id: settingsShopId, salesTypeId: salesTypeId || null });
+            } catch (saveError) {
+                window.alert(saveError instanceof Error ? saveError.message : 'Failed to save default sales type.');
+            }
+        }
     };
 
     const columns = [
@@ -183,6 +195,24 @@ const Integrations = () => {
                                     <span className="text-sm">All statuses</span>
                                 </label>
                             </div>
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="form-label">Default sales type</label>
+                            <span className="integrations-field-hint mb-2 block">
+                                Sales imported from this shop are tagged with this sales type (tipe penjualan).
+                            </span>
+                            <select
+                                className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
+                                value={settingsShop.salesTypeId ?? ''}
+                                disabled={!canEdit || updateConnection.isPending}
+                                onChange={(e) => { void handleSaveSalesType(e.target.value); }}
+                            >
+                                <option value="">— None —</option>
+                                {salesTypes.map((st) => (
+                                    <option key={st.id} value={st.id}>{st.name}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                 )}

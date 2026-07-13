@@ -37,6 +37,7 @@ interface InvoiceFormData {
     attachments:     InvoiceAttachment[];
     currency:        string;
     invoiceType:     string;
+    salesTypeId:     string;
 }
 
 interface InvoiceTaxSettings {
@@ -84,6 +85,7 @@ import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useExtraAction } from '../../hooks/useModulePermissions';
 import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
+import { useSalesTypes } from '../../hooks/useSalesTypes';
 import { useDraftAutosave } from '../../hooks/useDraftAutosave';
 
 class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
@@ -127,6 +129,7 @@ interface InvoiceDraft {
     discount: number;
     notes: string;
     invoiceType: string;
+    salesTypeId: string;
     items: InvoiceLineItem[];
     taxSettings: InvoiceTaxSettings;
 }
@@ -159,6 +162,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const invoices = ((invoicesData?.data || []).filter(Boolean)) as InvoiceLike[];
     const { data: itemsData, isLoading: itemsLoading } = useItems();
     const products = (itemsData?.data || []) as ProductLike[];
+    const { data: salesTypes = [] } = useSalesTypes();
     const createInvoice = useCreateInvoice();
     const updateInvoiceMutation = useUpdateInvoice();
     const deleteInvoice = useDeleteInvoice();
@@ -190,7 +194,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         items: draftSeed?.items ?? [],
         attachments: [],
         currency: 'IDR',
-        invoiceType: draftSeed?.invoiceType ?? 'Sales Invoice'
+        invoiceType: draftSeed?.invoiceType ?? 'Sales Invoice',
+        salesTypeId: draftSeed?.salesTypeId ?? ''
     });
 
     const [taxSettings, setTaxSettings] = useState({
@@ -259,6 +264,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     dueDate: exists.dueDate || '',
                     number: exists.number || '',
                     notes: exists.notes || '',
+                    salesTypeId: (exists as { salesTypeId?: string | null }).salesTypeId || '',
                     items: (exists.items || []) as InvoiceLineItem[],
                 }));
                 setActiveTab('items');
@@ -443,6 +449,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         discount: formData.discount,
         notes: formData.notes,
         invoiceType: formData.invoiceType,
+        salesTypeId: formData.salesTypeId,
         items: formData.items,
         taxSettings,
     }), [formData, taxSettings]);
@@ -546,6 +553,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     id: editingInvoiceId,
                     customerId: formData.customerId,
                     invoiceType: formData.invoiceType || 'Sales Invoice',
+                    salesTypeId: formData.salesTypeId || null,
                     issueDate: new Date(formData.issueDate).toISOString(),
                     dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : null,
                     shippingDate: formData.shippingDate ? new Date(formData.shippingDate).toISOString() : null,
@@ -579,6 +587,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                 const created = await createInvoice.mutateAsync({
                     customerId: formData.customerId,
                     invoiceType: formData.invoiceType || 'Sales Invoice',
+                    ...(formData.salesTypeId && { salesTypeId: formData.salesTypeId }),
                     issueDate: formData.issueDate,
                     ...(formData.dueDate && { dueDate: formData.dueDate }),
                     ...(formData.shippingDate && { shippingDate: formData.shippingDate }),
@@ -770,6 +779,20 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                     onChange={(e) => setFormData(prev => ({ ...prev, invoiceType: e.target.value }))}
                                 >
                                     <option>Sales Invoice</option>
+                                </select>
+                            </div>
+                            {/* Tipe Penjualan (sales type) */}
+                            <div className="col-span-2">
+                                <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Tipe Penjualan</label>
+                                <select
+                                    className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
+                                    value={formData.salesTypeId}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, salesTypeId: e.target.value }))}
+                                >
+                                    <option value="">— None —</option>
+                                    {salesTypes.map((st) => (
+                                        <option key={st.id} value={st.id}>{st.name}</option>
+                                    ))}
                                 </select>
                             </div>
                             {/* Invoice # */}

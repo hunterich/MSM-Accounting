@@ -375,6 +375,7 @@ export interface RawEcommerceConnection {
   holdingAccount?: { id?: string; name?: string } | null;
   status?: string | null;
   importStatusFilter?: string | null;
+  salesTypeId?: string | null;
   itemMappings?: Record<string, string> | null;
   mappings?: ShopMappings | null;
 }
@@ -501,6 +502,7 @@ export interface EcommerceConnection {
   holdingAccountName: string;
   status: ConnectionStatus;
   importStatusFilter: ImportStatusFilter;
+  salesTypeId: string | null;
   itemMappings: Record<string, string>;
   mappings: ShopMappings | null;
 }

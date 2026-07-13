@@ -27,6 +27,7 @@ import {
     X,
     ClipboardCheck,
     SlidersHorizontal,
+    Tags,
     type LucideIcon,
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
@@ -107,6 +108,7 @@ const NAV_GROUPS: NavGroup[] = [
         groupIcon: SlidersHorizontal,
         items: [
             { label: 'Modifier POS', path: '/pos/modifiers', icon: SlidersHorizontal },
+            { label: 'Tipe Penjualan', path: '/pos/sales-types', icon: Tags },
         ],
     },
     {
@@ -123,6 +125,7 @@ const NAV_GROUPS: NavGroup[] = [
         items: [
             { label: 'Reports', path: '/reports', icon: BarChart3 },
             { label: 'Sales Performance', path: '/reports/sales-performance', icon: BarChart3 },
+            { label: 'Sales by Type', path: '/reports/sales-by-type', icon: BarChart3 },
         ],
     },
     {

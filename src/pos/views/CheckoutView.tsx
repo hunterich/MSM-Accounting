@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import Button from '@/src/components/UI/Button';
 import { useAuthStore } from '@/src/stores/useAuthStore';
 import { computeSaleTotals } from '@/lib/pos/pricing';
-import { useCatalog, useRegisters, usePostSale, type CatalogRow, type PostSaleResult } from '../hooks/usePos';
-import { useOfflineSync, cacheCatalog, readCachedCatalog } from '../hooks/useOfflinePos';
+import { computeServiceCharge } from '@/lib/pos/sales-type-charge';
+import { useCatalog, useRegisters, usePostSale, type CatalogRow, type SalesTypeRow, type PostSaleResult } from '../hooks/usePos';
+import { useOfflineSync, cacheCatalog, readCachedCatalog, cacheSalesTypes, readCachedSalesTypes } from '../hooks/useOfflinePos';
 import { db } from '../offline/db';
-import { emptyCart, addItem, addConfiguredItem, setQty, removeLine, toSaleLines, cartTotal, type Cart } from '../state/cart';
+import { emptyCart, addItem, addConfiguredItem, setQty, removeLine, toSaleLines, type Cart } from '../state/cart';
 import ScanBox, { type ScanBoxHandle } from '../components/ScanBox';
 import ModifierModal from '../components/ModifierModal';
 import StatusBar from '../components/StatusBar';
@@ -27,6 +28,8 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
   const registers = useRegisters();
   const postSale = usePostSale();
   const [cachedCatalog, setCachedCatalog] = useState<CatalogRow[]>([]);
+  const [cachedSalesTypes, setCachedSalesTypes] = useState<SalesTypeRow[]>([]);
+  const [salesTypeId, setSalesTypeId] = useState<string | null>(null);
   const [cart, setCart] = useState<Cart>(emptyCart());
   const [term, setTerm] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('ALL');
@@ -47,15 +50,31 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
     return () => window.removeEventListener('keydown', onKey);
   }, [cart.lines.length]);
 
-  // Cache the catalog whenever it loads successfully, so the grid works offline.
+  // Cache the catalog + sales types whenever they load successfully, so the grid
+  // and the sales-type selector work offline.
   useEffect(() => {
-    if (catalog.data) void cacheCatalog(catalog.data);
+    if (catalog.data) { void cacheCatalog(catalog.data.items); void cacheSalesTypes(catalog.data.salesTypes); }
   }, [catalog.data]);
 
-  // On mount, load the cached catalog so we have a fallback when the online query is in error offline.
+  // On mount, load the cached catalog + sales types so we have a fallback when the online query is in error offline.
   useEffect(() => {
     void readCachedCatalog().then(setCachedCatalog);
+    void readCachedSalesTypes().then(setCachedSalesTypes);
   }, []);
+
+  // Default the sales-type selection to this register's default (falling back to the
+  // first available type) once the types + register are loaded — but never override a
+  // choice the cashier has already made this sale.
+  const availableSalesTypes = catalog.data?.salesTypes ?? cachedSalesTypes;
+  useEffect(() => {
+    if (salesTypeId != null) return;
+    if (availableSalesTypes.length === 0) return;
+    const registerDefault = (registers.data ?? []).find((r) => r.id === registerId)?.defaultSalesTypeId ?? null;
+    const preferred = registerDefault && availableSalesTypes.some((s) => s.id === registerDefault)
+      ? registerDefault
+      : availableSalesTypes[0].id;
+    setSalesTypeId(preferred);
+  }, [availableSalesTypes, registers.data, registerId, salesTypeId]);
 
   if (catalog.isError && (catalog.error as { status?: number })?.status === 403) {
     return <div className="flex h-screen items-center justify-center text-red-600">{t('auth.forbidden')}</div>;
@@ -76,7 +95,16 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
 
   // Prefer the live catalog; fall back to the cached rows whenever there's no live data.
   // (React Query pauses — not errors — offline, so don't gate the fallback on isError.)
-  const catalogRows = catalog.data ?? cachedCatalog;
+  const catalogRows = catalog.data?.items ?? cachedCatalog;
+
+  // The selected sales type drives the client-side service-charge preview. The server
+  // recomputes authoritatively on post; this is display-only so the cashier sees the
+  // amount the customer will pay.
+  const selectedSalesType = availableSalesTypes.find((s) => s.id === salesTypeId) ?? null;
+  const serviceCharge = selectedSalesType
+    ? computeServiceCharge({ goodsTotal: totals.totalAmount, pct: selectedSalesType.serviceChargePct, taxable: selectedSalesType.taxable, rate: 11 })
+    : { chargeAmt: 0, taxAddon: 0 };
+  const displayTotal = totals.totalAmount + serviceCharge.chargeAmt;
 
   const items = catalogRows.filter((it) => {
     if (!matchesCategory(category, it.drugClass)) return false;
@@ -99,11 +127,12 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
         clientShiftId: shiftId,
         registerId,
         shiftId: currentServerShiftId,
+        salesTypeId,
         lines: toSaleLines(cart),
         tenders: [{ method: 'CASH', amount: cash }],
       },
     });
-    const total = cartTotal(cart);
+    const total = displayTotal;
     const result: PostSaleResult = { posSaleId: saleId, salesInvoiceId: saleId, totalAmount: total, change: cash - total };
     setPayOpen(false);
     setReceipt({ result, lines: cart });
@@ -114,7 +143,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
     // Offline up-front: skip the network entirely and queue the sale.
     if (!online) { await payOffline(cash); return; }
     try {
-      const result = await postSale.mutateAsync({ clientSaleId: saleId, registerId, shiftId, lines: toSaleLines(cart), tenders: [{ method: 'CASH', amount: cash }] });
+      const result = await postSale.mutateAsync({ clientSaleId: saleId, registerId, shiftId, salesTypeId, lines: toSaleLines(cart), tenders: [{ method: 'CASH', amount: cash }] });
       setPayOpen(false);
       setReceipt({ result, lines: cart });
     } catch (err) {
@@ -151,11 +180,28 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
             <CartLines cart={cart} onQty={(key, q) => setCart((c) => setQty(c, key, q))} onRemove={(key) => setCart((c) => removeLine(c, key))} />
           </div>
           <div className="border-t px-4 py-3">
+            {availableSalesTypes.length > 0 && (
+              <label className="mb-3 block">
+                <span className="mb-1 block text-xs font-medium text-gray-500">{t('checkout.salesType')}</span>
+                <select
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
+                  value={salesTypeId ?? ''}
+                  onChange={(e) => setSalesTypeId(e.target.value || null)}
+                >
+                  {availableSalesTypes.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="mb-1 flex justify-between text-sm text-gray-500"><span>{t('checkout.subtotal')}</span><span className="tabular-nums">{totals.subtotal.toLocaleString('id-ID')}</span></div>
             <div className="mb-2 flex justify-between text-sm text-gray-500"><span>{t('checkout.ppn')}</span><span className="tabular-nums">{totals.taxAmount.toLocaleString('id-ID')}</span></div>
+            {serviceCharge.chargeAmt > 0 && (
+              <div className="mb-2 flex justify-between text-sm text-gray-500"><span>{t('checkout.serviceCharge')}</span><span className="tabular-nums">{serviceCharge.chargeAmt.toLocaleString('id-ID')}</span></div>
+            )}
             <div className="mb-3 flex items-baseline justify-between">
               <span className="font-medium text-gray-800">{t('checkout.total')}</span>
-              <span className="text-2xl font-semibold tabular-nums">Rp {totals.totalAmount.toLocaleString('id-ID')}</span>
+              <span className="text-2xl font-semibold tabular-nums">Rp {displayTotal.toLocaleString('id-ID')}</span>
             </div>
             {error && <p role="alert" className="mb-2 text-sm text-red-600">{error}</p>}
             <Button variant="primary" size="lg" className="w-full" disabled={cart.lines.length === 0} text={`${t('checkout.pay')} · F4`} onClick={() => setPayOpen(true)} />
@@ -163,7 +209,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
         </aside>
       </div>
 
-      <CashTenderModal total={totals.totalAmount} isOpen={payOpen} onClose={() => setPayOpen(false)} onConfirm={pay} busy={postSale.isPending} />
+      <CashTenderModal total={displayTotal} isOpen={payOpen} onClose={() => setPayOpen(false)} onConfirm={pay} busy={postSale.isPending} />
 
       {pendingItem && (
         <ModifierModal

@@ -74,7 +74,8 @@ describe('POS catalog serves resolved modifier groups', () => {
     const res = await getCatalog(req);
     expect(res.status).toBe(200);
     const raw = await res.json();
-    const body = Array.isArray(raw) ? raw : (raw.data ?? []);
+    // The catalog endpoint returns { items, salesTypes }; older shape was a bare array.
+    const body = Array.isArray(raw) ? raw : (raw.items ?? raw.data ?? []);
 
     const latteEntry = body.find((i: { id: string }) => i.id === latte.id);
     expect(latteEntry).toBeDefined();

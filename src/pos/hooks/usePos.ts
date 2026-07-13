@@ -3,8 +3,12 @@ import { api } from '@/src/api/apiClient';
 import type { CatalogItem } from '../state/cart';
 import type { SaleLineInput } from '@/lib/pos/pricing';
 
-export interface PosRegister { id: string; code: string; name: string; warehouseId: string | null }
+export interface PosRegister { id: string; code: string; name: string; warehouseId: string | null; defaultSalesTypeId?: string | null }
 export interface CatalogRow extends CatalogItem { drugClass: string; requiresBatchTracking: boolean; qtyAvailable: number; earliestExpiry: string | null }
+/** An active sales type served to the POS (org-scoped). serviceChargePct is a plain number. */
+export interface SalesTypeRow { id: string; name: string; channel: string; serviceChargePct: number; taxable: boolean }
+/** The POS catalog endpoint returns the product rows plus the org's active sales types. */
+export interface PosCatalogResponse { items: CatalogRow[]; salesTypes: SalesTypeRow[] }
 export interface OpenShiftResult { id: string; status: 'OPEN' }
 export interface CloseShiftResult {
   status: 'CLOSED'; expectedCash: number; cashVariance: number;
@@ -24,7 +28,7 @@ export function useOpenShifts() {
 export function useCatalog(enabled: boolean) {
   return useQuery({
     queryKey: ['pos', 'catalog'],
-    queryFn: () => api.get<CatalogRow[]>('/api/v1/pos/catalog'),
+    queryFn: () => api.get<PosCatalogResponse>('/api/v1/pos/catalog'),
     enabled,
     staleTime: 60_000,
   });
@@ -46,7 +50,7 @@ export function useCloseShift() {
 
 export function usePostSale() {
   return useMutation({
-    mutationFn: (body: { clientSaleId: string; registerId: string; shiftId: string; lines: SaleLineInput[]; tenders: { method: 'CASH'; amount: number }[] }) =>
+    mutationFn: (body: { clientSaleId: string; registerId: string; shiftId: string; salesTypeId?: string | null; lines: SaleLineInput[]; tenders: { method: 'CASH'; amount: number }[] }) =>
       api.post<PostSaleResult>('/api/v1/pos/sales', body),
   });
 }

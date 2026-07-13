@@ -107,6 +107,7 @@ model Organization {
   migrationBatches       MigrationBatch[]
   modifierGroups      ModifierGroup[]
   modifierAttachments ModifierAttachment[]
+  salesTypes          SalesType[]
 }
 
 model User {
@@ -207,6 +208,7 @@ model Account {
   journalLines   JournalLine[]
   vendorDocumentMappings VendorDocumentMapping[]
   migrationBatch MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
+  salesTypeCharges SalesType[] @relation("SalesTypeChargeAccount")
 
   @@unique([organizationId, code])
   @@index([organizationId, parentId])
@@ -528,6 +530,7 @@ model SalesInvoice {
   recurringInvoiceId String?
   notes              String?
   migrationBatchId   String?
+  salesTypeId        String?
   deletedAt          DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
@@ -536,6 +539,7 @@ model SalesInvoice {
   createdBy          User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
   customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   recurringInvoice   RecurringInvoice?  @relation(fields: [recurringInvoiceId], references: [id], onDelete: SetNull)
+  salesType          SalesType?         @relation(fields: [salesTypeId], references: [id], onDelete: SetNull)
   lines              SalesInvoiceLine[]
   charges            SalesInvoiceCharge[]
   attachments        SalesInvoiceAttachment[]
@@ -552,6 +556,7 @@ model SalesInvoice {
   @@index([organizationId, status])
   @@index([customerId, status])
   @@index([migrationBatchId])
+  @@index([salesTypeId])
 }
 
 model SalesInvoiceLine {
@@ -1647,12 +1652,14 @@ model EcommerceConnection {
   itemMappings     Json?
   // Tabbed shop config: paymentMode, vatInclusive, fees{}, shipping{}, others{}, notes
   mappings         Json?
+  salesTypeId      String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
   organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer         Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   holdingAccount   BankAccount?     @relation(fields: [holdingAccountId], references: [id], onDelete: SetNull)
+  salesType        SalesType?       @relation(fields: [salesTypeId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, platform, shopName])
 }
@@ -2475,11 +2482,13 @@ model PosRegister {
   warehouseId    String?
   cashAccountId  String?
   isActive       Boolean  @default(true)
+  defaultSalesTypeId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  defaultSalesType SalesType? @relation(fields: [defaultSalesTypeId], references: [id], onDelete: SetNull)
   shifts       PosShift[]
   sales        PosSale[]
 
@@ -2578,6 +2587,34 @@ model PosSalesTarget {
 
   @@unique([organizationId, employeeId, month])
   @@index([organizationId, month])
+}
+
+enum SalesChannel {
+  OFFLINE
+  ONLINE
+}
+
+model SalesType {
+  id               String       @id @default(cuid())
+  organizationId   String
+  name             String
+  channel          SalesChannel @default(OFFLINE)
+  serviceChargePct Decimal      @default(0) @db.Decimal(5, 2)
+  chargeAccountId  String?
+  taxable          Boolean      @default(true)
+  sortOrder        Int          @default(0)
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chargeAccount Account?              @relation("SalesTypeChargeAccount", fields: [chargeAccountId], references: [id], onDelete: SetNull)
+  invoices      SalesInvoice[]
+  registers     PosRegister[]
+  connections   EcommerceConnection[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 enum ModifierSelectionType {

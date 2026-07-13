@@ -64,7 +64,7 @@ export async function importMarketplaceOrders(
   // Load the connection ONCE up front; it is constant across the batch.
   const conn = await prisma.ecommerceConnection.findFirst({
     where: { id: connectionId, organizationId: orgId },
-    select: { id: true, customerId: true, holdingAccountId: true, mappings: true },
+    select: { id: true, customerId: true, holdingAccountId: true, mappings: true, salesTypeId: true },
   });
   if (!conn) {
     throw new Error(`Ecommerce connection not found: ${connectionId}`);
@@ -186,6 +186,9 @@ export async function importMarketplaceOrders(
             dueDate: issueDate,
             currency: 'IDR',
             status: 'DRAFT',
+            // Stamp the connection's sales type onto imported invoices so
+            // marketplace revenue is attributable by channel in reporting.
+            salesTypeId: conn.salesTypeId ?? null,
             discountPct: totals.discountPct,
             subtotal: totals.subtotal,
             discountAmount: totals.discountAmount,

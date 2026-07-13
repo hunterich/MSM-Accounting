@@ -64,6 +64,7 @@ function normalizeConnection(raw: RawEcommerceConnection): EcommerceConnection {
     holdingAccountName: raw.holdingAccount?.name || '',
     status: STATUS_DOWN[raw.status ?? ''] ?? 'Active',
     importStatusFilter: FILTER_DOWN[raw.importStatusFilter ?? ''] ?? 'Selesai',
+    salesTypeId: raw.salesTypeId ?? null,
     itemMappings: raw.itemMappings && typeof raw.itemMappings === 'object' ? raw.itemMappings : {},
     mappings: raw.mappings && typeof raw.mappings === 'object' ? raw.mappings : null,
   };
@@ -76,6 +77,7 @@ type ConnectionPayload = {
   holdingAccountId?: string;
   status?: ConnectionStatus;
   importStatusFilter?: ImportStatusFilter;
+  salesTypeId?: string | null;
   itemMappings?: Record<string, string>;
   mappings?: ShopMappings | null;
 };
@@ -88,6 +90,7 @@ function serializeConnectionPayload(body: ConnectionPayload) {
     ...(body.holdingAccountId !== undefined && { holdingAccountId: body.holdingAccountId || null }),
     ...(body.status && { status: STATUS_UP[body.status] ?? body.status }),
     ...(body.importStatusFilter && { importStatusFilter: body.importStatusFilter }),
+    ...(body.salesTypeId !== undefined && { salesTypeId: body.salesTypeId || null }),
     ...(body.itemMappings !== undefined && { itemMappings: body.itemMappings }),
     ...(body.mappings !== undefined && { mappings: body.mappings }),
   };
