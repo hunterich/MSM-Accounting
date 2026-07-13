@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import Card from '../UI/Card';
-import Button from '../UI/Button';
 import StartStep, { type StartStepBatch } from './steps/StartStep';
 import EntityStageStep from './steps/EntityStageStep';
 import ReconcileStep from './steps/ReconcileStep';
+import CommitStep from './steps/CommitStep';
+import DoneStep from './steps/DoneStep';
 import type { MigrationEntity } from '../../utils/migrationFields';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
-// TODO(Task 9): import CommitStep / DoneStep and render them in place of the 'commit'/'done' placeholders.
 
 type Step =
   | 'start'
@@ -157,27 +157,25 @@ const MigrationWizard: React.FC = () => {
     }
 
     if (effectiveStep === 'commit') {
-      // TODO(Task 9): replace with <CommitStep batchId={batch.id} onCommitted={() => go('done')} />
       return (
-        <Card title="Commit">
-          <div className="flex flex-col gap-4">
-            <div className="text-sm text-neutral-600">Commit step — Task 9</div>
-            <div className="flex items-center">
-              <Button className="ml-auto" onClick={() => go('done')}>
-                Finish
-              </Button>
-            </div>
-          </div>
-        </Card>
+        <CommitStep
+          batchId={batch.id}
+          cutoverDate={batch.cutoverDate}
+          onCommitted={() => setStep('done')}
+          onBack={() => setStep('reconcile')}
+        />
       );
     }
 
     // effectiveStep === 'done'
-    // TODO(Task 9): replace with <DoneStep batchId={batch.id} />
     return (
-      <Card title="Done">
-        <div className="text-sm text-neutral-600">Done — Task 9</div>
-      </Card>
+      <DoneStep
+        batch={{ id: batch.id, cutoverDate: batch.cutoverDate }}
+        onRolledBack={() => {
+          setBatch(null);
+          setStep('start');
+        }}
+      />
     );
   };
 
