@@ -104,6 +104,8 @@ model Organization {
   posShifts              PosShift[]
   posSales               PosSale[]
   posSalesTargets   PosSalesTarget[]
+  modifierGroups      ModifierGroup[]
+  modifierAttachments ModifierAttachment[]
 }
 
 model User {
@@ -401,6 +403,7 @@ model ItemCategory {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   items          Item[]
   stockCounts    StockCount[]
+  modifierAttachments ModifierAttachment[]
 
   @@unique([organizationId, name])
   @@unique([organizationId, code])
@@ -450,6 +453,8 @@ model Item {
   deliveryNoteLines  DeliveryNoteLine[]
   stockBatches       StockBatch[]
   posBatchAllocations PosSaleBatchAllocation[]
+  modifierOptions     ModifierOption[]
+  modifierAttachments ModifierAttachment[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -542,6 +547,9 @@ model SalesInvoiceLine {
   discountPct   Decimal  @default(0) @db.Decimal(5, 2)
   lineSubtotal  Decimal  @default(0) @db.Decimal(18, 2)
   performedById String?
+  parentLineNo  Int?
+  isModifier    Boolean  @default(false)
+  modifierNote  String?
 
   invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   item           Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
@@ -2506,4 +2514,61 @@ model PosSalesTarget {
 
   @@unique([organizationId, employeeId, month])
   @@index([organizationId, month])
+}
+
+enum ModifierSelectionType {
+  SINGLE
+  MULTI
+}
+
+model ModifierGroup {
+  id             String                @id @default(cuid())
+  organizationId String
+  name           String
+  selectionType  ModifierSelectionType @default(SINGLE)
+  isRequired     Boolean               @default(false)
+  sortOrder      Int                   @default(0)
+  isActive       Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  options      ModifierOption[]
+  attachments  ModifierAttachment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model ModifierOption {
+  id         String  @id @default(cuid())
+  groupId    String
+  name       String
+  priceDelta Decimal @default(0) @db.Decimal(18, 2)
+  itemId     String?
+  sortOrder  Int     @default(0)
+  isActive   Boolean @default(true)
+
+  group ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  item  Item?         @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@index([groupId])
+  @@index([itemId])
+}
+
+model ModifierAttachment {
+  id             String  @id @default(cuid())
+  organizationId String
+  groupId        String
+  itemId         String?
+  itemCategoryId String?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group        ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  item         Item?         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemCategory ItemCategory? @relation(fields: [itemCategoryId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, itemId])
+  @@index([organizationId, itemCategoryId])
+  @@index([groupId])
 }
