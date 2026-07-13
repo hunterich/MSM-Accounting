@@ -373,7 +373,7 @@ export function resolveHeaders(actualHeaders: string[]): HeaderResolution {
  * - Strings like "2026-02-20 14:30" or "20/02/2026 14:30"
  * - Excel serial date numbers
  */
-function parseDateCell(val: unknown): string | null {
+export function parseDateCell(val: unknown): string | null {
     if (!val) return null;
     if (val instanceof Date) return val.toISOString().split('T')[0];
     if (typeof val === 'number') {
@@ -393,7 +393,7 @@ function parseDateCell(val: unknown): string | null {
 }
 
 /** Parse numeric value, handling Indonesian format (1.500.000) */
-function parseNum(val: unknown): number {
+export function parseNum(val: unknown): number {
     if (val == null) return 0;
     if (typeof val === 'number') return val;
     const cleaned = String(val).replace(/\./g, '').replace(',', '.').trim();
