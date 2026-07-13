@@ -29,8 +29,12 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+/** Line shape needed to price a cart. Both `SaleLineInput` (base cart lines)
+ *  and the materialized/flattened invoice lines satisfy it. */
+export type PriceableLine = { quantity: number; price: number; discountPct?: number };
+
 /** Compute tax-inclusive totals for a POS cart. */
-export function computeSaleTotals(lines: SaleLineInput[], taxRatePct: number): SaleTotals {
+export function computeSaleTotals(lines: ReadonlyArray<PriceableLine>, taxRatePct: number): SaleTotals {
   const totalAmount = round2(
     lines.reduce((sum, l) => sum + l.quantity * l.price * (1 - (l.discountPct || 0) / 100), 0),
   );
