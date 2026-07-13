@@ -185,15 +185,23 @@ export async function commitBatch(
       openingBills: 0,
     };
 
-    // Accounts — flat (parent linking is Task 7), stamped, skip existing codes.
+    // Accounts — two-pass so children can link to a parent created in the same
+    // batch. Pass 1: create all staged accounts flat, stamped, skipping codes
+    // that already exist (unchanged dedupe behavior). Pass 2: for rows with a
+    // parentCode, look up the parent's id (created here or pre-existing) and
+    // link it; a parentCode that resolves to nothing is left flat, not thrown.
+    const codeToAccountId = new Map<string, string>();
     for (const row of accountsRows) {
       const existing = await tx.account.findFirst({
         where: { organizationId: orgId, code: row.code },
         select: { id: true },
       });
-      if (existing) continue;
+      if (existing) {
+        codeToAccountId.set(row.code, existing.id);
+        continue;
+      }
       const normalSide = row.type === 'ASSET' || row.type === 'EXPENSE' ? 'DEBIT' : 'CREDIT';
-      await tx.account.create({
+      const created = await tx.account.create({
         data: {
           organizationId: orgId,
           code: row.code,
@@ -205,7 +213,31 @@ export async function commitBatch(
           migrationBatchId: batchId,
         },
       });
+      codeToAccountId.set(row.code, created.id);
       summary.accounts += 1;
+    }
+
+    // Let children link to ANY existing parent account, not just ones staged in
+    // this batch (e.g. a bootstrap-seeded parent, or one committed by an earlier
+    // migration batch). Codes are unique per org; batch-created entries already
+    // in the map take precedence.
+    const allOrgAccounts = await tx.account.findMany({
+      where: { organizationId: orgId },
+      select: { id: true, code: true },
+    });
+    for (const a of allOrgAccounts) {
+      if (!codeToAccountId.has(a.code)) codeToAccountId.set(a.code, a.id);
+    }
+
+    for (const row of accountsRows) {
+      if (!row.parentCode) continue;
+      const childId = codeToAccountId.get(row.code);
+      const parentId = codeToAccountId.get(row.parentCode);
+      if (!childId || !parentId) continue; // unresolved parentCode: leave flat
+      await tx.account.update({
+        where: { id: childId },
+        data: { parentId },
+      });
     }
 
     // Customers — stamped.

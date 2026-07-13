@@ -154,4 +154,41 @@ describe('migration commit', () => {
     expect(stillDraft?.status).toBe('DRAFT');
     await cleanupOrg(org.orgId);
   });
+
+  it('links imported child accounts to their parent by code', async () => {
+    const org = await createTestOrg();
+    const batch = await createBatch(org.orgId, CUTOVER, null);
+    await stageEntity(org.orgId, batch.id, 'accounts', [
+      { code: '1-1000', name: 'Kas & Bank', type: 'ASSET' },
+      { code: '1-1001', name: 'Kas Kecil', type: 'ASSET', parentCode: '1-1000' },
+    ]);
+    await commitBatch(org.orgId, batch.id, null);
+    const child = await prisma.account.findFirst({ where: { organizationId: org.orgId, code: '1-1001' } });
+    const parent = await prisma.account.findFirst({ where: { organizationId: org.orgId, code: '1-1000' } });
+    expect(child!.parentId).toBe(parent!.id);
+    await cleanupOrg(org.orgId);
+  });
+
+  it('links a child to a parent committed in an EARLIER batch (pre-existing account)', async () => {
+    const org = await createTestOrg();
+
+    // Batch A: create the parent account only.
+    const batchA = await createBatch(org.orgId, CUTOVER, null);
+    await stageEntity(org.orgId, batchA.id, 'accounts', [
+      { code: '1-1000', name: 'Kas & Bank', type: 'ASSET' },
+    ]);
+    await commitBatch(org.orgId, batchA.id, null);
+    const parent = await prisma.account.findFirst({ where: { organizationId: org.orgId, code: '1-1000' } });
+
+    // Batch B: stage ONLY the child, pointing at the pre-existing parent code.
+    const batchB = await createBatch(org.orgId, CUTOVER, null);
+    await stageEntity(org.orgId, batchB.id, 'accounts', [
+      { code: '1-1002', name: 'Bank BCA', type: 'ASSET', parentCode: '1-1000' },
+    ]);
+    await commitBatch(org.orgId, batchB.id, null);
+
+    const child = await prisma.account.findFirst({ where: { organizationId: org.orgId, code: '1-1002' } });
+    expect(child!.parentId).toBe(parent!.id);
+    await cleanupOrg(org.orgId);
+  });
 });
