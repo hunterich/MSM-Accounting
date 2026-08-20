@@ -512,28 +512,78 @@ async function main() {
   // 7. Sales Invoices (4 with lines)
   // SalesInvoice: number, totalAmount; Line: quantity, price, lineSubtotal, lineNo
   // ============================================================
+  // Lines drive the header totals. Previously every invoice got the same fixed
+  // pair of lines (1_000_000) regardless of its hardcoded header, so three of
+  // the four disagreed with their own line items — INV-0004 stored 555_000
+  // against 1_000_000 of lines, which reads as a broken invoice in the UI.
+  const INVOICE_TAX_RATE = 0.11;
   const invoiceSeeds = [
-    { number: 'INV-0001', customerId: customers[0].id, status: 'SENT',    issueDate: new Date('2026-01-10'), dueDate: new Date('2026-02-10'), subtotal: 1_000_000, taxAmount: 110_000, totalAmount: 1_110_000 },
-    { number: 'INV-0002', customerId: customers[1].id, status: 'PAID',    issueDate: new Date('2026-01-15'), dueDate: new Date('2026-02-15'), subtotal: 2_000_000, taxAmount: 220_000, totalAmount: 2_220_000 },
-    { number: 'INV-0003', customerId: customers[2].id, status: 'OVERDUE', issueDate: new Date('2025-12-01'), dueDate: new Date('2026-01-01'), subtotal: 3_000_000, taxAmount: 330_000, totalAmount: 3_330_000 },
-    { number: 'INV-0004', customerId: customers[0].id, status: 'DRAFT',   issueDate: new Date('2026-02-01'), dueDate: new Date('2026-03-01'), subtotal: 500_000,   taxAmount: 55_000,  totalAmount: 555_000  },
+    {
+      number: 'INV-0001', customerId: customers[0].id, status: 'SENT',
+      issueDate: new Date('2026-01-10'), dueDate: new Date('2026-02-10'),
+      lines: [
+        { description: 'Widget A x5', quantity: 5, price: 100_000 },
+        { description: 'Service Alpha', quantity: 1, price: 500_000 },
+      ],
+    },
+    {
+      number: 'INV-0002', customerId: customers[1].id, status: 'PAID',
+      issueDate: new Date('2026-01-15'), dueDate: new Date('2026-02-15'),
+      lines: [
+        { description: 'Widget A x10', quantity: 10, price: 100_000 },
+        { description: 'Service Alpha', quantity: 2, price: 500_000 },
+      ],
+    },
+    {
+      number: 'INV-0003', customerId: customers[2].id, status: 'OVERDUE',
+      issueDate: new Date('2025-12-01'), dueDate: new Date('2026-01-01'),
+      lines: [
+        { description: 'Widget A x15', quantity: 15, price: 100_000 },
+        { description: 'Service Alpha', quantity: 3, price: 500_000 },
+      ],
+    },
+    {
+      number: 'INV-0004', customerId: customers[0].id, status: 'DRAFT',
+      issueDate: new Date('2026-02-01'), dueDate: new Date('2026-03-01'),
+      lines: [
+        { description: 'Widget A x5', quantity: 5, price: 100_000 },
+      ],
+    },
   ] as const;
-  for (const inv of invoiceSeeds) {
+  for (const { lines, ...inv } of invoiceSeeds) {
+    const subtotal = lines.reduce((sum, l) => sum + l.quantity * l.price, 0);
+    const taxAmount = Math.round(subtotal * INVOICE_TAX_RATE);
+    const totalAmount = subtotal + taxAmount;
     const existing = await prisma.salesInvoice.findUnique({
       where: { organizationId_number: { organizationId: org.id, number: inv.number } },
       select: { id: true, createdById: true },
     });
     if (!existing) {
       const created = await prisma.salesInvoice.create({
-        data: { organizationId: org.id, createdById: user.id, ...inv, currency: 'IDR' },
+        data: {
+          organizationId: org.id,
+          createdById: user.id,
+          ...inv,
+          subtotal,
+          taxAmount,
+          totalAmount,
+          currency: 'IDR',
+        },
       });
       await prisma.salesInvoiceLine.createMany({
-        data: [
-          { invoiceId: created.id, lineNo: 1, description: 'Widget A x5',  quantity: 5, price: 100_000, lineSubtotal: 500_000 },
-          { invoiceId: created.id, lineNo: 2, description: 'Service Alpha', quantity: 1, price: 500_000, lineSubtotal: 500_000 },
-        ],
+        data: lines.map((l, i) => ({
+          invoiceId: created.id,
+          lineNo: i + 1,
+          description: l.description,
+          quantity: l.quantity,
+          price: l.price,
+          lineSubtotal: l.quantity * l.price,
+        })),
       });
     } else if (!existing.createdById) {
+      // Deliberately does NOT rewrite totals on rows that already exist — this
+      // seed runs against real organizations, and silently restating an
+      // invoice's financials would be far worse than stale demo data.
       await prisma.salesInvoice.update({
         where: { id: existing.id },
         data: { createdById: user.id },
