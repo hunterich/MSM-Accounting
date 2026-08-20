@@ -75,8 +75,11 @@ import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { Printer, Save, Search, Info, Package, Paperclip, FileText, X, AlertTriangle } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
-import FormPage from '../../components/Layout/FormPage';
-import DocumentActionBar from '../../components/UI/DocumentActionBar';
+import DocumentFormLayout from '../../components/documents/DocumentFormLayout';
+import DocumentTotals from '../../components/documents/DocumentTotals';
+import Modal from '../../components/UI/Modal';
+import AuditLogPanel from '../../components/UI/AuditLogPanel';
+import { FormSkeleton } from '../../components/UI/LoadingSkeleton';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 
@@ -149,6 +152,10 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             | undefined,
     );
     const [activeTab, setActiveTab] = useState<'items' | 'info' | 'attachments'>('items');
+    // DocumentActionBar used to own these; DocumentFormLayout exposes callbacks
+    // instead, so the modals live here now.
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
     const [numberingMode, setNumberingMode] = useState<'auto' | 'manual'>('auto');
     const [selectedCustomerTerms, setSelectedCustomerTerms] = useState<number | null>(null);
 
@@ -705,30 +712,70 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         navigate('/ar/invoices');
     };
 
+    // Rail: the money summary, always visible rather than buried under the
+    // Items tab. Discount % stays editable, so it sits above the read-only
+    // DocumentTotals card the other document forms use.
+    const railSubtotal = calculateSubtotal();
+    const railDiscount = calculateDiscountAmount(railSubtotal);
+    const railTax = taxSettings.enabled ? calculateTaxAmount(railSubtotal - railDiscount) : 0;
+    const canDeleteInvoice = Boolean(editingInvoiceId)
+        && invoices.find((inv) => inv.id === editingInvoiceId)?.status === 'Draft';
+
+    const rail = (
+        <>
+            <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4">
+                <label htmlFor="invoice-discount" className="block text-[11px] uppercase tracking-wide text-neutral-500 font-semibold mb-2">
+                    Document discount
+                </label>
+                <div className="flex items-center gap-2">
+                    <input
+                        id="invoice-discount"
+                        type="number"
+                        className="w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0"
+                        value={formData.discount}
+                        onChange={(e) => setFormData({ ...formData, discount: parseFloat(e.target.value) || 0 })}
+                    />
+                    <span className="text-sm text-neutral-600">%</span>
+                </div>
+            </div>
+            <DocumentTotals
+                totals={{
+                    subtotal: railSubtotal,
+                    chargesTotal: 0,
+                    documentDiscount: railDiscount,
+                    taxableBase: railSubtotal - railDiscount,
+                    tax: railTax,
+                    withholding: 0,
+                    grandTotal: calculateTotal(),
+                }}
+                taxRate={taxSettings.enabled ? taxSettings.rate : undefined}
+            />
+        </>
+    );
+
+    if (isPageLoading) {
+        return <FormSkeleton className="mt-4" />;
+    }
+
     return (
       <>
-        <FormPage
-            containerClassName="ar-module invoice-form"
+        <DocumentFormLayout
             title="Sales Invoice"
             onBack={handleBack}
-            isLoading={isPageLoading}
-            sticky
-            actions={(
-                <DocumentActionBar
-                    entityType="SalesInvoice"
-                    entityId={editingInvoiceId ?? undefined}
-                    isSaving={isSaving}
-                    saveLabel="Save & Approve"
-                    onSave={() => { void persistInvoice(false); }}
-                    onSaveDraft={() => { void persistInvoice(true); }}
-                    onPrint={handlePrint}
-                    onDelete={editingInvoiceId && invoices.find(inv => inv.id === editingInvoiceId)?.status === 'Draft'
-                        ? () => { void (async () => { try { await deleteInvoice.mutateAsync(editingInvoiceId); handleBack(); } catch (e) { window.alert(`Failed to delete: ${e instanceof Error ? e.message : 'error'}`); } })(); }
-                        : undefined}
-                    canDelete={Boolean(editingInvoiceId) && invoices.find(inv => inv.id === editingInvoiceId)?.status === 'Draft'}
-                />
-            )}
-        >
+            backLabel="Invoices"
+            saving={isSaving}
+            onHistory={editingInvoiceId ? () => setHistoryOpen(true) : undefined}
+            printOptions={[
+                { label: 'Print / PDF', hint: 'Preview, print, or download', onClick: handlePrint },
+            ]}
+            onSaveDraft={() => { void persistInvoice(true); }}
+            primaryLabel="Save & Approve"
+            onPrimary={() => { void persistInvoice(false); }}
+            moreItems={canDeleteInvoice
+                ? [{ label: 'Delete invoice', danger: true, onClick: () => setConfirmDelete(true) }]
+                : undefined}
+            rail={rail}
+            main={(
             <form onSubmit={(e) => e.preventDefault()}>
                     {/* Header Section: compact single row */}
                     <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-4 border-t-3 border-t-primary-500 mb-4">
@@ -983,54 +1030,6 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                 </table>
                             </div>
 
-                            {/* Footer Section: Totals Aligned to Right */}
-                            <div className="flex justify-end mt-4">
-                                <div className="w-[320px]">
-                                    <div className="bg-neutral-0 border border-neutral-200 rounded-lg shadow-sm flex flex-col h-full p-4">
-                                        {(() => {
-                                            const subtotal = calculateSubtotal();
-                                            const discountAmt = calculateDiscountAmount(subtotal);
-                                            const net = subtotal - discountAmt;
-                                            const taxAmt = calculateTaxAmount(net);
-                                            return (
-                                                <>
-                                                    <div className="flex justify-between items-center mb-2 text-sm text-neutral-600">
-                                                        <span>Subtotal</span>
-                                                        <span>{formatIDR(subtotal)}</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center mb-2 font-semibold text-neutral-800">
-                                                        <span>Discount %</span>
-                                                        <div className="w-[100px]">
-                                                            <input
-                                                                type="number"
-                                                                className="w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0"
-                                                                value={formData.discount}
-                                                                onChange={(e) => setFormData({ ...formData, discount: parseFloat(e.target.value) || 0 })}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex justify-between items-center mb-2 text-sm text-neutral-600">
-                                                        <span>Discount Amount</span>
-                                                        <span>-{formatIDR(discountAmt)}</span>
-                                                    </div>
-                                                    {taxSettings.enabled && (
-                                                        <div className="flex justify-between items-center mb-3 text-sm text-neutral-600">
-                                                            <span>
-                                                                Tax ({taxSettings.rate}%){taxSettings.inclusive ? ' incl.' : ''}
-                                                            </span>
-                                                            <span>{formatIDR(taxAmt)}</span>
-                                                        </div>
-                                                    )}
-                                                    <div className="flex justify-between items-center mt-3 pt-3 border-t border-neutral-200">
-                                                        <span className="font-bold text-neutral-900 text-lg">Total</span>
-                                                        <span className="font-bold text-primary-700 text-xl">{formatIDR(calculateTotal())}</span>
-                                                    </div>
-                                                </>
-                                            );
-                                        })()}
-                                    </div>
-                                </div>
-                            </div>
                         </>
                     )}
 
@@ -1166,7 +1165,33 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     )}
 
                 </form>
-        </FormPage>
+            )}
+        />
+
+        <Modal isOpen={historyOpen} onClose={() => setHistoryOpen(false)} title="History" size="lg">
+            <AuditLogPanel entityType="SalesInvoice" entityId={editingInvoiceId ?? undefined} />
+        </Modal>
+
+        <Modal isOpen={confirmDelete} onClose={() => setConfirmDelete(false)} title="Delete document" size="sm">
+            <p className="text-sm text-neutral-700 mb-5">
+                This document will be deleted. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+                <Button variant="secondary" text="Cancel" onClick={() => setConfirmDelete(false)} />
+                <Button
+                    variant="dangerSolid"
+                    text="Delete"
+                    onClick={() => {
+                        setConfirmDelete(false);
+                        if (!editingInvoiceId) return;
+                        void (async () => {
+                            try { await deleteInvoice.mutateAsync(editingInvoiceId); handleBack(); }
+                            catch (e) { window.alert(`Failed to delete: ${e instanceof Error ? e.message : 'error'}`); }
+                        })();
+                    }}
+                />
+            </div>
+        </Modal>
         <PrintPreviewModal
             isOpen={isPrintOpen}
             onClose={() => setIsPrintOpen(false)}
