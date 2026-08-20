@@ -1,4 +1,5 @@
 import React from 'react';
+import FilterBar from '../../UI/FilterBar';
 import StatusTag from '../../UI/StatusTag';
 import { formatDateID, formatIDR } from '../../../utils/formatters';
 import { Printer, Eye, Pencil, Loader } from 'lucide-react';
@@ -73,38 +74,34 @@ const InvoiceCatalogPanel: React.FC<InvoiceCatalogPanelProps> = ({
 }) => {
     return (
         <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[minmax(220px,1fr)_160px_150px_150px] gap-2 py-2.5 px-3.5 border-b border-neutral-200">
-                <input
-                    type="text"
-                    className="block w-full px-2 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-8 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                    placeholder="Search invoice # or customer..."
-                    value={filters.searchTerm}
-                    onChange={(e) => onSearchChange(e.target.value)}
-                />
-                <select
-                    className="block w-full px-2 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-8 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                    value={filters.status}
-                    onChange={(e) => onFilterChange('status', e.target.value)}
-                >
-                    <option value="">Status: All</option>
-                    <option value="Paid">Paid</option>
-                    <option value="Overdue">Overdue</option>
-                    <option value="Sent">Sent</option>
-                    <option value="Draft">Draft</option>
-                </select>
-                <input
-                    type="date"
-                    className="block w-full px-2 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-8 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                    value={filters.dateFrom}
-                    onChange={(e) => onDateRangeChange('dateFrom', e.target.value)}
-                />
-                <input
-                    type="date"
-                    className="block w-full px-2 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-8 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                    value={filters.dateTo}
-                    onChange={(e) => onDateRangeChange('dateTo', e.target.value)}
-                />
-            </div>
+            <FilterBar
+                onSearch={onSearchChange}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'Paid', label: 'Paid' },
+                        { value: 'Overdue', label: 'Overdue' },
+                        { value: 'Sent', label: 'Sent' },
+                        { value: 'Draft', label: 'Draft' },
+                    ],
+                }]}
+                activeFilters={{ status: filters.status }}
+                onFilterChange={(_key, val) => onFilterChange('status', val)}
+                placeholder="Search invoice # or customer..."
+                extra={
+                    <>
+                        <label className={`acc-chip ${filters.dateFrom ? 'on' : ''}`}>
+                            <span className="acc-chip-label">From:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={filters.dateFrom} onChange={(e) => onDateRangeChange('dateFrom', e.target.value)} aria-label="From date" />
+                        </label>
+                        <label className={`acc-chip ${filters.dateTo ? 'on' : ''}`}>
+                            <span className="acc-chip-label">To:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={filters.dateTo} onChange={(e) => onDateRangeChange('dateTo', e.target.value)} aria-label="To date" />
+                        </label>
+                    </>
+                }
+            />
 
             <div className="max-h-[calc(100vh-300px)] overflow-auto">
                 <table className="w-full border-collapse text-[0.9rem]">

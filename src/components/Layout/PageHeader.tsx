@@ -15,6 +15,11 @@ interface PageHeaderProps {
     sticky?: boolean;
 }
 
+/**
+ * Compact title strip. Accurate Online names the document in its tab rather
+ * than in a hero header, so this stays a single dense line: title, optional
+ * subtitle beside it, actions on the right, one hairline rule underneath.
+ */
 const PageHeader = ({
     title,
     subtitle = '',
@@ -39,22 +44,20 @@ const PageHeader = ({
     };
 
     return (
-        <div className={`flex justify-between items-center mb-6 pb-4 ${sticky ? 'sticky top-0 z-20 bg-neutral-50 pt-2' : ''} ${noBorder ? '' : 'border-b border-neutral-200'} ${className}`}>
-            <div className="flex items-center gap-4">
+        <div className={`acc-page-head ${noBorder ? 'no-rule' : ''} ${sticky ? 'sticky top-0 z-20 bg-neutral-100 pt-1' : ''} ${className}`}>
+            <div className="flex min-w-0 items-baseline gap-3">
                 {(backTo || onBack) && (
                     <button
-                        className="inline-flex items-center gap-[5px] pl-0 bg-transparent text-primary-700 border-none rounded-md h-8 text-sm px-3 cursor-pointer hover:bg-primary-100 transition-all duration-150"
+                        className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm border-none bg-transparent px-1.5 py-0.5 text-[0.75rem] text-primary-800 transition-colors hover:bg-primary-50"
                         onClick={handleBack}
                     >
-                        <ArrowLeft size={16} /> {backLabel}
+                        <ArrowLeft size={13} /> {backLabel}
                     </button>
                 )}
-                <div>
-                    <h1 className="m-0 text-2xl font-semibold text-neutral-900">{title}</h1>
-                    {subtitle ? <div className="mt-1 text-neutral-600 text-[0.9rem]">{subtitle}</div> : null}
-                </div>
+                <h1 className="acc-page-title truncate">{title}</h1>
+                {subtitle ? <div className="acc-page-subtitle truncate">{subtitle}</div> : null}
             </div>
-            {actions ? <div className="flex gap-2 items-center">{actions}</div> : null}
+            {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
         </div>
     );
 };

@@ -13,15 +13,9 @@ const Dashboard = lazy(() => import('./views/Dashboard'))
 const ChartOfAccounts = lazy(() => import('./views/gl/ChartOfAccounts'))
 const JournalEntries = lazy(() => import('./views/gl/JournalEntries'))
 const JournalEntryForm = lazy(() => import('./views/gl/JournalEntryForm'))
-const Invoices = lazy(() => import('./views/ar/Invoices'))
-const InvoiceWorkbench = lazy(() => import('./views/ar/InvoiceWorkbench'))
-const SalesOrderWorkbench = lazy(() => import('./views/ar/SalesOrderWorkbench'))
-const Customers = lazy(() => import('./views/ar/Customers'))
 const CustomerForm = lazy(() => import('./views/ar/CustomerForm'))
 const CustomerCategories = lazy(() => import('./views/ar/CustomerCategories'))
-const Payments = lazy(() => import('./views/ar/Payments'))
 const PaymentForm = lazy(() => import('./views/ar/PaymentForm'))
-const CreditNotes = lazy(() => import('./views/ar/CreditNotes'))
 const CreditNoteForm = lazy(() => import('./views/ar/CreditNoteForm'))
 const SalesReturnForm = lazy(() => import('./views/ar/SalesReturnForm'))
 const RecurringBilling = lazy(() => import('./views/ar/RecurringBilling'))
@@ -29,17 +23,13 @@ const ApprovalInbox = lazy(() => import('./views/ar/ApprovalInbox'))
 const SOForm = lazy(() => import('./components/ar/salesorders/SOFormV2'))
 const InvoiceFormV2 = lazy(() => import('./components/ar/invoices/InvoiceFormV2'))
 
-const Bills = lazy(() => import('./views/ap/Bills'))
 const BillImport = lazy(() => import('./views/ap/BillImport'))
 const PurchaseOrders = lazy(() => import('./views/ap/PurchaseOrders'))
 const POFormV2 = lazy(() => import('./components/ap/forms/POFormV2'))
 const BillFormV2 = lazy(() => import('./components/ap/forms/BillFormV2'))
-const Vendors = lazy(() => import('./views/ap/Vendors'))
 const VendorCategories = lazy(() => import('./views/ap/VendorCategories'))
 const VendorForm = lazy(() => import('./views/ap/VendorForm'))
-const APPayments = lazy(() => import('./views/ap/Payments'))
 const APPaymentForm = lazy(() => import('./views/ap/PaymentForm'))
-const APDebitNotes = lazy(() => import('./views/ap/DebitNotes'))
 const RecurringExpenses = lazy(() => import('./views/ap/RecurringExpenses'))
 const PurchaseReturnForm = lazy(() => import('./views/ap/PurchaseReturnForm'))
 const DebitNoteForm = lazy(() => import('./views/ap/DebitNoteForm'))
@@ -50,12 +40,9 @@ const ItemCategories = lazy(() => import('./views/inventory/ItemCategories'))
 const InventoryAdjustments = lazy(() => import('./views/inventory/InventoryAdjustments'))
 const AdjustmentForm = lazy(() => import('./views/inventory/AdjustmentForm'))
 const StockValuation = lazy(() => import('./views/inventory/StockValuation'))
-const StockCounts = lazy(() => import('./views/inventory/StockCounts'))
 const StockCountForm = lazy(() => import('./views/inventory/StockCountForm'))
 const ModifierSettings = lazy(() => import('./views/pos/ModifierSettings'))
 const SalesTypeSettings = lazy(() => import('./views/pos/SalesTypeSettings'))
-const DeliveryNotes = lazy(() => import('./views/ar/DeliveryNotes'))
-const Banking = lazy(() => import('./views/banking/Banking'))
 const BankingActionForm = lazy(() => import('./views/banking/BankingActionForm'))
 const PaymentReconciliation = lazy(() => import('./views/banking/PaymentReconciliation'))
 const Employees = lazy(() => import('./views/hr/Employees'))
@@ -85,6 +72,14 @@ const PageFallback = (): JSX.Element => (
         <TableSkeleton rowCount={8} />
     </div>
 )
+
+/**
+ * Placeholder element for document-module list paths. The workspace renders
+ * these from the tab registry (see components/workspace/tabRegistry.tsx), not
+ * through <Outlet/> — but the path must still be registered or React Router
+ * matches nothing and the parent Layout route stops rendering.
+ */
+const WorkspaceTabRoute = (): null => null
 
 function App(): JSX.Element {
     const withPermission = (element: JSX.Element, moduleKey: string, action = 'view') => (
@@ -117,23 +112,30 @@ function App(): JSX.Element {
                     <Route path="gl/journals/edit" element={withPermission(<JournalEntryForm />, 'gl_journal', 'edit')} />
 
                     {/* Accounts Receivable */}
+                    <Route path="ar/invoices" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/invoices/workbench" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/sales-orders" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/customers" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/payments" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/delivery-notes" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/credits" element={<WorkspaceTabRoute />} />
+                    <Route path="ap/pos" element={<WorkspaceTabRoute />} />
+                    <Route path="ap/bills" element={<WorkspaceTabRoute />} />
+                    <Route path="ap/payments" element={<WorkspaceTabRoute />} />
+                    <Route path="ap/debits" element={<WorkspaceTabRoute />} />
+                    <Route path="ap/vendors" element={<WorkspaceTabRoute />} />
+                    <Route path="banking" element={<WorkspaceTabRoute />} />
+                    <Route path="inventory/counts" element={<WorkspaceTabRoute />} />
                     <Route path="ar" element={<Navigate to="/ar/sales-orders" replace />} />
-                    <Route path="ar/invoices" element={withPermission(<Invoices />, 'ar_invoices')} />
-                    <Route path="ar/invoices/workbench" element={withPermission(<InvoiceWorkbench />, 'ar_invoices')} />
                     <Route path="ar/invoices/new" element={withPermission(<InvoiceFormV2 mode="create" />, 'ar_invoices', 'create')} />
                     <Route path="ar/invoices/edit" element={withPermission(<InvoiceFormV2 mode="edit" />, 'ar_invoices', 'edit')} />
-                    <Route path="ar/sales-orders" element={withPermission(<SalesOrderWorkbench />, 'ar_sales_orders')} />
                     <Route path="ar/sales-orders/new" element={withPermission(<SOForm mode="create" />, 'ar_sales_orders', 'create')} />
                     <Route path="ar/sales-orders/edit" element={withPermission(<SOForm mode="edit" />, 'ar_sales_orders', 'edit')} />
-                    <Route path="ar/customers" element={withPermission(<Customers />, 'ar_customers')} />
                     <Route path="ar/customers/new" element={withPermission(<CustomerForm />, 'ar_customers', 'create')} />
                     <Route path="ar/customers/edit" element={withPermission(<CustomerForm />, 'ar_customers', 'edit')} />
                     <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customer_categories')} />
-                    <Route path="ar/payments" element={withPermission(<Payments />, 'ar_payments')} />
                     <Route path="ar/payments/new" element={withPermission(<PaymentForm />, 'ar_payments', 'create')} />
                     <Route path="ar/payments/edit" element={withPermission(<PaymentForm />, 'ar_payments', 'edit')} />
-                    <Route path="ar/delivery-notes" element={withPermission(<DeliveryNotes />, 'ar_sales_orders')} />
-                    <Route path="ar/credits" element={withPermission(<CreditNotes />, 'ar_credits')} />
                     <Route path="ar/credits/new" element={withPermission(<CreditNoteForm />, 'ar_credits', 'create')} />
                     <Route path="ar/credits/edit" element={withPermission(<CreditNoteForm />, 'ar_credits', 'edit')} />
                     <Route path="ar/returns/new" element={withPermission(<SalesReturnForm />, 'ar_credits', 'create')} />
@@ -143,23 +145,18 @@ function App(): JSX.Element {
 
                     {/* Accounts Payable */}
                     <Route path="ap" element={<Navigate to="/ap/bills" replace />} />
-                    <Route path="ap/pos" element={withPermission(<PurchaseOrders />, 'ap_pos')} />
                     <Route path="ap/pos/new" element={withPermission(<POFormV2 mode="create" />, 'ap_pos', 'create')} />
                     <Route path="ap/pos/edit" element={withPermission(<POFormV2 mode="edit" />, 'ap_pos', 'edit')} />
                     <Route path="ap/receiving" element={withPermission(<PurchaseOrders receivingMode />, 'ap_pos')} />
-                    <Route path="ap/bills" element={withPermission(<Bills />, 'ap_bills')} />
                     <Route path="ap/bills/import" element={withPermission(<BillImport />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/new" element={withPermission(<BillFormV2 mode="create" />, 'ap_bills', 'create')} />
                     <Route path="ap/bills/edit" element={withPermission(<BillFormV2 mode="edit" />, 'ap_bills', 'edit')} />
-                    <Route path="ap/payments" element={withPermission(<APPayments />, 'ap_payments')} />
                     <Route path="ap/payments/new" element={withPermission(<APPaymentForm />, 'ap_payments', 'create')} />
                     <Route path="ap/payments/edit" element={withPermission(<APPaymentForm />, 'ap_payments', 'edit')} />
-                    <Route path="ap/debits" element={withPermission(<APDebitNotes />, 'ap_debits')} />
                     <Route path="ap/returns/new" element={withPermission(<PurchaseReturnForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/new" element={withPermission(<DebitNoteForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/edit" element={withPermission(<DebitNoteForm />, 'ap_debits', 'edit')} />
                     <Route path="ap/recurring" element={withPermission(<RecurringExpenses />, 'ap_bills')} />
-                    <Route path="ap/vendors" element={withPermission(<Vendors />, 'ap_vendors')} />
                     <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendor_categories')} />
                     <Route path="ap/vendors/new" element={withPermission(<VendorForm />, 'ap_vendors', 'create')} />
                     <Route path="ap/vendors/edit" element={withPermission(<VendorForm />, 'ap_vendors', 'edit')} />
@@ -172,7 +169,6 @@ function App(): JSX.Element {
                     <Route path="inventory/adjustments" element={withPermission(<InventoryAdjustments />, 'inv_adj')} />
                     <Route path="inventory/adjustments/new" element={withPermission(<AdjustmentForm />, 'inv_adj', 'create')} />
                     <Route path="inventory/adjustments/edit" element={withPermission(<AdjustmentForm />, 'inv_adj', 'edit')} />
-                    <Route path="inventory/counts" element={withPermission(<StockCounts />, 'inv_adj')} />
                     <Route path="inventory/counts/new" element={withPermission(<StockCountForm />, 'inv_adj', 'create')} />
                     <Route path="inventory/counts/edit" element={withPermission(<StockCountForm />, 'inv_adj', 'edit')} />
                     <Route path="inventory/valuation" element={withPermission(<StockValuation />, 'inv_items')} />
@@ -183,7 +179,6 @@ function App(): JSX.Element {
                     <Route path="pos/sales-types" element={withPermission(<SalesTypeSettings />, 'pos_reports')} />
 
                     {/* Banking */}
-                    <Route path="banking" element={withPermission(<Banking />, 'banking')} />
                     <Route path="banking/transfer" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/expense" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
                     <Route path="banking/income" element={withPermission(<BankingActionForm />, 'banking', 'create')} />

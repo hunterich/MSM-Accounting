@@ -1,9 +1,11 @@
 // src/components/ap/bills/BillListPane.tsx
-// Workspace-native Bills catalog (flag-off stays views/ap/Bills.tsx).
+// Bills catalog. The only Bills list — the pre-workspace duplicate is gone.
 // Bills have no separate detail — View/Edit open BillFormV2 as a tab.
 import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Download, FileUp } from 'lucide-react';
+import { Download, FileUp } from 'lucide-react';
+import FilterBar from '../../UI/FilterBar';
+import PageHeader from '../../Layout/PageHeader';
 import Card from '../../UI/Card';
 import Table, { TableColumn } from '../../UI/Table';
 import Button from '../../UI/Button';
@@ -89,28 +91,49 @@ const BillListPane = (): React.ReactElement => {
 
     return (
         <div className="container ap-module container-full-width">
-            <div className="flex flex-col gap-1.5 mb-2 relative z-[2]">
-                <div className="flex gap-1.5 flex-nowrap items-center">
-                    {canCreate && <button className="border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer" onClick={openNew}><Plus size={16} />New Bill</button>}
-                    <Button text="Import PDF" size="small" variant="secondary" icon={<FileUp size={16} />} onClick={() => navigate('/ap/bills/import')} disabled={!canCreate} />
-                    <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
-                </div>
-            </div>
+            <PageHeader
+                title="Bills"
+                subtitle="Vendor bills, due dates, and payment status."
+                actions={
+                    <div className="flex gap-2">
+                        <Button text="Import PDF" size="small" variant="secondary" icon={<FileUp size={16} />} onClick={() => navigate('/ap/bills/import')} disabled={!canCreate} />
+                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        {canCreate && <Button text="New Bill" size="small" onClick={openNew} />}
+                    </div>
+                }
+            />
 
-            <div className="grid grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
-                <div className="relative flex items-center">
-                    <Search size={18} className="absolute left-2.5 text-neutral-400" />
-                    <input type="text" className="block w-full pl-[34px] px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" placeholder="Search bill # or vendor..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-                <div className="min-w-0">
-                    <select className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={status} onChange={(e) => setStatus(e.target.value)}>
-                        <option value="">Filter by Status</option><option value="Paid">Paid</option><option value="Unpaid">Unpaid</option><option value="Overdue">Overdue</option><option value="Pending">Pending</option>
-                    </select>
-                </div>
-                <div className="min-w-0"><input type="date" className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={dateRange.from} onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))} /></div>
-                <div className="min-w-0"><input type="date" className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={dateRange.to} onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))} /></div>
-                {(dateRange.from || dateRange.to) && <Button text="Clear" variant="tertiary" size="small" className="justify-self-end" onClick={() => setDateRange({ from: '', to: '' })} />}
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'Paid', label: 'Paid' },
+                        { value: 'Unpaid', label: 'Unpaid' },
+                        { value: 'Overdue', label: 'Overdue' },
+                        { value: 'Pending', label: 'Pending' },
+                    ],
+                }]}
+                activeFilters={{ status }}
+                onFilterChange={(_key, val) => setStatus(val)}
+                placeholder="Search bill # or vendor..."
+                extra={
+                    <>
+                        <label className={`acc-chip ${dateRange.from ? 'on' : ''}`}>
+                            <span className="acc-chip-label">From:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.from} onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))} aria-label="From date" />
+                        </label>
+                        <label className={`acc-chip ${dateRange.to ? 'on' : ''}`}>
+                            <span className="acc-chip-label">To:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.to} onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))} aria-label="To date" />
+                        </label>
+                        {(dateRange.from || dateRange.to) && (
+                            <button type="button" className="acc-tool-btn" onClick={() => setDateRange({ from: '', to: '' })}>Clear</button>
+                        )}
+                    </>
+                }
+            />
 
             <Card padding={false}>
                 <Table columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openForm(row['id'] as string)} showCount countLabel="bills" isLoading={isLoading} loadingLabel="Loading bills..." />

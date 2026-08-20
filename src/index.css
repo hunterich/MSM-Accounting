@@ -377,6 +377,643 @@
     }
 }
 
+/* ── Accurate-style application chrome ──────────────────────────────────────
+   Structure mirrors Accurate Online: a thin brand bar, an MDI tab strip, a
+   narrow icon rail whose flyout is a tiled menu, and full-bleed dense list /
+   form surfaces. Colours all come from the existing MSM theme tokens.        */
+@layer components {
+
+    /* ── Thin top brand bar (Accurate uses ~34px, identity only) ── */
+    .acc-topbar {
+        position: relative;
+        height: 34px;
+        min-height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 8px 0 12px;
+        background: var(--color-neutral-0);
+        border-bottom: 1px solid var(--color-neutral-300);
+        flex-shrink: 0;
+    }
+
+    .acc-topbar-brand {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--color-neutral-900);
+        letter-spacing: -0.01em;
+    }
+
+    .acc-topbar-brand small {
+        font-size: 0.6rem;
+        font-weight: 500;
+        color: var(--color-neutral-500);
+    }
+
+    .acc-topbar-tools {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .acc-topbar-icon {
+        position: relative;
+        width: 28px;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        background: transparent;
+        border-radius: var(--radius-sm);
+        color: var(--color-neutral-600);
+        cursor: pointer;
+        transition: background-color 0.12s ease, color 0.12s ease;
+    }
+
+    .acc-topbar-icon:hover {
+        background: var(--color-primary-50);
+        color: var(--color-primary-800);
+    }
+
+    .acc-topbar-icon:focus-visible {
+        outline: 2px solid var(--color-primary-700);
+        outline-offset: -2px;
+    }
+
+    .acc-topbar-badge {
+        position: absolute;
+        top: 1px;
+        right: 1px;
+        min-width: 13px;
+        height: 13px;
+        padding: 0 3px;
+        border-radius: 9999px;
+        background: var(--color-danger-600);
+        color: #fff;
+        font-size: 0.55rem;
+        font-weight: 700;
+        line-height: 13px;
+        text-align: center;
+    }
+
+    /* Company over user, right aligned: the Accurate identity block. */
+    .acc-topbar-identity {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 8px;
+        padding-left: 10px;
+        border-left: 1px solid var(--color-neutral-200);
+    }
+
+    .acc-topbar-identity-text {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        line-height: 1.15;
+    }
+
+    .acc-topbar-company {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--color-neutral-900);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* CompanySwitcher renders its own type scale; force it to the bar scale. */
+    .acc-topbar-company > *,
+    .acc-topbar-company button,
+    .acc-topbar-company span {
+        font-size: inherit;
+        font-weight: inherit;
+        color: inherit;
+    }
+
+    .acc-topbar-username {
+        font-size: 0.62rem;
+        color: var(--color-neutral-600);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .acc-topbar-avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 9999px;
+        background: var(--color-primary-700);
+        color: #fff;
+        font-size: 0.6rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    /* ── Rail flyout as a tiled module menu: the Accurate signature panel ── */
+    .sidebar-flyout.tiles {
+        width: max-content;
+        padding: 11px;
+        border-radius: 0 6px 6px 0;
+        box-shadow: 8px 0 20px rgba(0, 0, 0, 0.22);
+    }
+
+    .sidebar-flyout-heading {
+        font-size: 1.25rem;
+        font-weight: 500;
+        color: var(--color-neutral-800);
+        padding-bottom: 7px;
+        margin-bottom: 12px;
+        border-bottom: 2px solid var(--color-primary-700);
+    }
+
+    .sidebar-tile-grid {
+        display: grid;
+        grid-template-columns: repeat(var(--tile-cols, 4), 120px);
+        gap: 15px;
+    }
+
+    .sidebar-tile {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        width: 120px;
+        height: 120px;
+        padding: 8px 6px;
+        border-radius: 6px;
+        background: var(--color-neutral-100);
+        color: var(--color-neutral-800);
+        font-size: 0.75rem;
+        font-weight: 500;
+        line-height: 1.25;
+        text-align: center;
+        text-decoration: none;
+        transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .sidebar-tile-icon {
+        color: var(--color-primary-800);
+        transition: color 0.12s ease;
+    }
+
+    .sidebar-tile:hover {
+        background: var(--color-primary-100);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    }
+
+    .sidebar-tile:focus-visible {
+        outline: 2px solid var(--color-primary-800);
+        outline-offset: -2px;
+    }
+
+    .sidebar-tile.active {
+        background: var(--color-primary-700);
+        color: #fff;
+    }
+
+    .sidebar-tile.active .sidebar-tile-icon {
+        color: #fff;
+    }
+
+    .sidebar-tile-label {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    /* ── Full-bleed page surface: Accurate has no centred content column ── */
+    .acc-page {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        min-width: 0;
+    }
+
+    /* Compact title strip. Accurate leans on the tab for the document name, so
+       this stays one thin line rather than a hero header. */
+    .acc-page-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 0 6px;
+        margin-bottom: 8px;
+        border-bottom: 1px solid var(--color-neutral-300);
+    }
+
+    .acc-page-head.no-rule {
+        border-bottom: none;
+        margin-bottom: 4px;
+    }
+
+    .acc-page-title {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--color-neutral-900);
+        line-height: 1.3;
+    }
+
+    .acc-page-subtitle {
+        font-size: 0.7rem;
+        color: var(--color-neutral-600);
+        line-height: 1.3;
+    }
+
+    /* ── List toolbar: filter chips above, actions + search + count below ── */
+    .acc-toolbar {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+
+    .acc-toolbar-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .acc-toolbar-row .spacer {
+        flex: 1 1 auto;
+        min-width: 8px;
+    }
+
+    /* Filter chip: pill dropdown reading "Label: value". */
+    .acc-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 26px;
+        padding: 0 8px;
+        border: 1px solid var(--color-neutral-300);
+        border-radius: var(--radius-sm);
+        background: var(--color-neutral-50);
+        color: var(--color-neutral-800);
+        font-size: 0.72rem;
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: border-color 0.12s ease, background-color 0.12s ease;
+    }
+
+    .acc-chip:hover {
+        border-color: var(--color-primary-500);
+        background: var(--color-neutral-0);
+    }
+
+    .acc-chip:focus-visible {
+        outline: 2px solid var(--color-primary-700);
+        outline-offset: -2px;
+    }
+
+    .acc-chip.on {
+        border-color: var(--color-primary-700);
+        background: var(--color-primary-50);
+        color: var(--color-primary-900);
+    }
+
+    .acc-chip-label {
+        color: var(--color-neutral-600);
+    }
+
+    .acc-chip.on .acc-chip-label {
+        color: var(--color-primary-800);
+    }
+
+    /* Native select styled as a chip, for pages that filter with selects. */
+    select.acc-chip {
+        appearance: none;
+        padding-right: 20px;
+        background-image: linear-gradient(45deg, transparent 50%, var(--color-neutral-600) 50%),
+                          linear-gradient(135deg, var(--color-neutral-600) 50%, transparent 50%);
+        background-position: calc(100% - 12px) 11px, calc(100% - 8px) 11px;
+        background-size: 4px 4px, 4px 4px;
+        background-repeat: no-repeat;
+    }
+
+    /* Small square icon button used for export / print / grid settings. */
+    .acc-tool-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        height: 26px;
+        min-width: 28px;
+        padding: 0 6px;
+        border: 1px solid var(--color-neutral-300);
+        border-radius: var(--radius-sm);
+        background: var(--color-neutral-0);
+        color: var(--color-neutral-700);
+        font-size: 0.72rem;
+        cursor: pointer;
+        transition: border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+    }
+
+    .acc-tool-btn:hover {
+        border-color: var(--color-primary-500);
+        color: var(--color-primary-800);
+        background: var(--color-primary-50);
+    }
+
+    .acc-tool-btn:focus-visible {
+        outline: 2px solid var(--color-primary-700);
+        outline-offset: -2px;
+    }
+
+    /* Search box, matching the Accurate list search field. */
+    .acc-search {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        min-width: 200px;
+    }
+
+    .acc-search input {
+        width: 100%;
+        height: 26px;
+        padding: 0 26px 0 8px;
+        border: 1px solid var(--color-neutral-300);
+        border-radius: var(--radius-sm);
+        background: var(--color-neutral-0);
+        font-size: 0.75rem;
+        color: var(--color-neutral-900);
+    }
+
+    .acc-search input:focus {
+        outline: none;
+        border-color: var(--color-primary-500);
+        box-shadow: 0 0 0 2px var(--color-primary-100);
+    }
+
+    .acc-search svg {
+        position: absolute;
+        right: 7px;
+        color: var(--color-neutral-500);
+        pointer-events: none;
+    }
+
+    /* Record-count box pinned to the far right of the toolbar. */
+    .acc-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        height: 26px;
+        min-width: 56px;
+        padding: 0 8px;
+        border: 1px solid var(--color-neutral-300);
+        border-radius: var(--radius-sm);
+        background: var(--color-neutral-50);
+        color: var(--color-neutral-700);
+        font-size: 0.72rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Dense data grid: steel header, ~28px rows, 12px type ── */
+    .acc-grid {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.75rem;
+        background: var(--color-neutral-0);
+    }
+
+    .acc-grid thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        height: 30px;
+        padding: 0 8px;
+        background: var(--color-primary-900);
+        color: #fff;
+        font-weight: 500;
+        font-size: 0.73rem;
+        text-align: center;
+        white-space: nowrap;
+        border-right: 1px solid rgba(255, 255, 255, 0.14);
+        user-select: none;
+    }
+
+    .acc-grid thead th:last-child {
+        border-right: none;
+    }
+
+    .acc-grid thead th.sortable {
+        cursor: pointer;
+    }
+
+    .acc-grid thead th.sortable:hover {
+        background: var(--color-primary-800);
+    }
+
+    .acc-grid-sort {
+        display: inline-block;
+        margin-right: 4px;
+        font-size: 0.6rem;
+        opacity: 0.65;
+    }
+
+    .acc-grid tbody td {
+        height: 28px;
+        padding: 3px 8px;
+        color: var(--color-neutral-900);
+        border-bottom: 1px solid var(--color-neutral-200);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .acc-grid tbody tr:nth-child(even) {
+        background: var(--color-neutral-50);
+    }
+
+    .acc-grid tbody tr:hover {
+        background: var(--color-primary-50);
+    }
+
+    .acc-grid-wrap {
+        width: 100%;
+        overflow: auto;
+        border: 1px solid var(--color-neutral-300);
+        border-radius: var(--radius-md);
+        background: var(--color-neutral-0);
+    }
+
+    /* ── Form surface: labels left, fields right, compact rows ── */
+    .acc-form-row {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    .acc-form-label {
+        justify-self: end;
+        font-size: 0.75rem;
+        color: var(--color-neutral-800);
+        text-align: right;
+    }
+
+    .acc-form-label .req {
+        color: var(--color-danger-600);
+        margin-left: 2px;
+    }
+
+    /* Totals footer, as it sits under the Accurate line-item grid. */
+    .acc-form-totals {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 8px;
+        border-top: 1px solid var(--color-neutral-300);
+    }
+
+    .acc-form-total-cell {
+        min-width: 190px;
+        padding: 6px 10px;
+        border-left: 1px solid var(--color-neutral-200);
+        font-size: 0.75rem;
+    }
+
+    .acc-form-total-cell .label {
+        color: var(--color-neutral-600);
+    }
+
+    .acc-form-total-cell .value {
+        font-weight: 700;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Right-hand vertical action rail on document forms ── */
+    .acc-action-rail {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 56px;
+        flex-shrink: 0;
+    }
+
+    .acc-action-rail button {
+        height: 44px;
+        width: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--color-primary-200);
+        border-radius: var(--radius-md);
+        background: var(--color-primary-50);
+        color: var(--color-primary-800);
+        cursor: pointer;
+        transition: background-color 0.12s ease, color 0.12s ease;
+    }
+
+    .acc-action-rail button.primary {
+        background: var(--color-primary-700);
+        border-color: var(--color-primary-800);
+        color: #fff;
+    }
+
+    .acc-action-rail button:hover {
+        background: var(--color-primary-200);
+        color: var(--color-primary-900);
+    }
+
+    .acc-action-rail button.primary:hover {
+        background: var(--color-primary-800);
+        color: #fff;
+    }
+}
+
+/* Views wrap themselves in Tailwind's .container, which caps at 1536px and adds
+   side gutters. Inside the work surface we want the Accurate behaviour instead:
+   grids run the full width of the window. Unlayered so it outranks the
+   `container` utility, which sits in @layer utilities. */
+#main-content .container {
+    max-width: none;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Accurate runs a uniformly dense form scale: ~28px controls, ~12px type and
+   labels sitting tight above their field. Forms across the app set their own
+   Tailwind sizing utilities, so this is scoped to the work surface and left
+   unlayered to outrank them rather than editing every form by hand. */
+#main-content input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+#main-content select,
+#main-content textarea {
+    min-height: 28px;
+    height: auto;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+#main-content textarea {
+    min-height: 54px;
+}
+
+#main-content label:not(.acc-chip) {
+    margin-bottom: 2px;
+    font-size: 0.73rem;
+}
+
+/* The filter chips size themselves; keep the dense form scale out of them. */
+#main-content .acc-chip select,
+#main-content .acc-search input {
+    min-height: 0;
+    font-size: 0.72rem;
+}
+
+/* Every list and line-item grid in the work surface reads as one Accurate-style
+   grid: a solid header bar, ~28px rows and 12px type. Tables are hand-rolled
+   with inline utility classes across 40+ views, so the look is applied by
+   element selector here rather than by editing each view. Print templates set
+   their cell styling with inline `style` attributes and so are unaffected. */
+#main-content table thead th {
+    height: 30px;
+    padding: 0 8px;
+    background: var(--color-primary-900);
+    color: #fff;
+    font-weight: 500;
+    font-size: 0.73rem;
+    white-space: nowrap;
+    border-bottom: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+#main-content table thead th:last-child {
+    border-right: none;
+}
+
+#main-content table tbody td {
+    height: 28px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    border-bottom: 1px solid var(--color-neutral-200);
+}
+
+#main-content table tbody tr:nth-child(even) {
+    background: var(--color-neutral-50);
+}
+
+#main-content table tbody tr:hover {
+    background: var(--color-primary-50);
+}
+
 /* ── Module Styles ── */
 @import './styles/tailwind-modules.css';
 

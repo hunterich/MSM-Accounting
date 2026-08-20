@@ -2,7 +2,7 @@
 //
 // Tab UX: the at-cap prompt (replaces the old window.alert), the right-click
 // tab context menu, and reopen-closed. Requires the dev server started with
-// VITE_WORKSPACE_TABS=1 and the backend running. Drives the DEV-only workspace
+// the backend running. Drives the DEV-only workspace
 // store bridge `window.__MSM_WORKSPACE__` exposed by WorkspaceShell.
 //
 // Tests run on /ar/invoices so the active module stays a document module (the

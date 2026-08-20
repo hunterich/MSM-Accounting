@@ -468,44 +468,59 @@
   }
 
   /* Invoice workbench + dense detail */
+  /* Accurate-style MDI tab strip: a short module row sitting on a tinted rail,
+     then a slightly taller document row on the work surface. Both rows are
+     deliberately shallow — the strip is chrome, not content. */
   .workbench-doc-tabs {
-    @apply relative z-[2] mb-2 flex flex-col gap-1.5;
+    @apply relative z-[2] mb-1.5 flex flex-col;
   }
 
   .workbench-doc-tab-row {
-    @apply flex flex-nowrap items-center gap-1.5;
+    @apply flex flex-nowrap items-center gap-px border-b border-neutral-300 bg-neutral-200 px-1;
   }
 
-  .workbench-doc-tab-row.secondary-row .workbench-doc-tab {
-    @apply px-2.5 py-1.5 text-[0.95rem];
+  .workbench-doc-tab-row.secondary-row {
+    @apply gap-1 border-b-0 bg-transparent px-0 pt-1;
   }
 
   .workbench-doc-tab {
-    @apply inline-flex cursor-pointer items-center gap-2 rounded-t-lg border border-neutral-300 bg-neutral-100 px-3 py-2 font-semibold text-neutral-800;
+    @apply inline-flex h-[33px] cursor-pointer items-center gap-2 rounded-t-[5px] border-0 bg-transparent px-2.5 text-[1rem] font-medium text-neutral-700;
+  }
+
+  .workbench-doc-tab:hover {
+    @apply bg-neutral-0/70 text-neutral-900;
   }
 
   .workbench-doc-tab.active {
-    @apply border-b-neutral-0 bg-neutral-0;
+    @apply bg-primary-800 font-semibold text-neutral-0;
   }
 
-  .workbench-doc-tab:not(.active) {
-    @apply font-medium;
+  .workbench-doc-tab-row.secondary-row .workbench-doc-tab {
+    @apply h-[32px] rounded-sm border border-neutral-300 bg-neutral-50 px-3 text-[0.875rem];
   }
 
-  .workbench-doc-tab-catalog {
-    @apply border-[#b9ddff] bg-[#e8f4ff] text-primary-700;
+  .workbench-doc-tab-row.secondary-row .workbench-doc-tab.active {
+    @apply border-primary-700 bg-primary-50 font-semibold text-primary-900;
   }
 
-  .workbench-doc-tab-new {
-    @apply border-primary-700 bg-primary-700 text-neutral-0;
+  .workbench-doc-tab-row.secondary-row .workbench-doc-tab-catalog {
+    @apply border-primary-200 bg-primary-50 px-2 text-primary-800;
+  }
+
+  .workbench-doc-tab-row.secondary-row .workbench-doc-tab-new {
+    @apply border-primary-700 bg-primary-700 font-semibold text-neutral-0;
+  }
+
+  .workbench-doc-tab-row.secondary-row .workbench-doc-tab-new:hover {
+    @apply bg-primary-800 text-neutral-0;
   }
 
   .workbench-doc-tab-close {
-    @apply inline-flex items-center text-neutral-600;
+    @apply inline-flex items-center opacity-60 hover:opacity-100;
   }
 
   .workbench-tab-count {
-    @apply ml-auto pl-2 pr-1 text-[0.82rem] font-semibold text-neutral-600 whitespace-nowrap shrink-0;
+    @apply ml-auto pl-2 pr-1 text-[0.8rem] font-medium text-neutral-600 whitespace-nowrap shrink-0;
   }
 
   /* Record tabs scroll horizontally so a full row never squishes the catalog/new buttons. */

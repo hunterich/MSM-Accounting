@@ -1,7 +1,7 @@
 // src/components/ar/customers/CustomerDetailPane.tsx
 //
 // Workspace-native customer detail (one tab per customer). Renders the same
-// detail layout as the flag-off view (src/views/ar/Customers.tsx); the Edit
+// detail layout the pre-workspace Customers view used; the Edit
 // action opens a doc-form tab.
 import React, { useMemo, useState } from 'react';
 import { User, MapPin, Clock3, History } from 'lucide-react';

@@ -443,7 +443,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
     );
 
     return (
-        <div className="p-4 lg:p-6">
+        <div className="p-0">
             <DocumentFormLayout
                 title={isEdit ? 'Edit Bill' : 'New Bill'}
                 dirty={dirty}

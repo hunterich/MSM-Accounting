@@ -1,8 +1,8 @@
 // src/components/ar/customers/CustomerListPane.tsx
 //
 // Workspace-native customer catalog. Mirrors InvoiceListPane: the table opens a
-// per-customer doc-view tab, "New" opens a doc-form tab. Only rendered when the
-// workspace-tabs flag is on (the flag-off path stays src/views/ar/Customers.tsx).
+// per-customer doc-view tab, "New" opens a doc-form tab. This is the only
+// Customers list — the pre-workspace duplicate is gone.
 import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import { exportToCsv } from '../../../utils/exportCsv';

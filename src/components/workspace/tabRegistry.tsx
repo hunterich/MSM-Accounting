@@ -41,6 +41,36 @@ import PurchaseReturnForm from '../../views/ap/PurchaseReturnForm';
 import ReportsCatalogTab from './ReportsCatalogTab';
 import ReportsReportTab from './ReportsReportTab';
 
+/**
+ * View permission required to render a tab, keyed by `module/entity`. These are
+ * the same module keys the router used to enforce via `withPermission`; the
+ * workspace renders document tabs from this registry rather than through the
+ * router, so the check lives here instead.
+ */
+const TAB_VIEW_PERMISSION: Record<string, string> = {
+    'ar/sales-order': 'ar_sales_orders',
+    'ar/invoice': 'ar_invoices',
+    'ar/customer': 'ar_customers',
+    'ar/payment': 'ar_payments',
+    'ar/credit-note': 'ar_credits',
+    'ar/delivery-note': 'ar_sales_orders',
+    'stock-count/count': 'inv_adj',
+    'banking/transaction': 'banking',
+    'ap/purchase-order': 'ap_pos',
+    'ap/bill': 'ap_bills',
+    'ap/payment': 'ap_payments',
+    'ap/vendor': 'ap_vendors',
+    'ap/debit-note': 'ap_debits',
+};
+
+/** The module key a tab needs 'view' on, or null when the router still gates it. */
+export function tabViewPermission(tab: WorkspaceTab): string | null {
+    const { module, entity } = tab.target;
+    if (module === 'page') return null; // rendered through <Outlet/>, still router-gated
+    if (module === 'reports') return 'reports';
+    return TAB_VIEW_PERMISSION[`${module}/${entity}`] ?? null;
+}
+
 /** Renders the body for a tab. Extended per-entity as modules are wired in. */
 export function renderTab(tab: WorkspaceTab): React.ReactNode {
     const { module, entity, mode, recordId } = tab.target;

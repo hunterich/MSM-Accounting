@@ -1,9 +1,11 @@
 // src/components/ap/vendors/VendorListPane.tsx
-// Workspace-native Vendors catalog (flag-off stays views/ap/Vendors.tsx).
+// Vendors catalog. The only Vendors list — the pre-workspace duplicate is gone.
 // Vendors have no separate detail — View/Edit open VendorForm as a tab.
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Tags, Download } from 'lucide-react';
+import { Tags, Download } from 'lucide-react';
+import FilterBar from '../../UI/FilterBar';
+import PageHeader from '../../Layout/PageHeader';
 import { exportToCsv } from '../../../utils/exportCsv';
 import Button from '../../UI/Button';
 import Card from '../../UI/Card';
@@ -68,31 +70,28 @@ const VendorListPane = (): React.ReactElement => {
 
     return (
         <div className="container ap-module container-full-width">
-            <div className="flex flex-col gap-1.5 mb-2 relative z-[2]">
-                <div className="flex gap-1.5 flex-nowrap items-center">
-                    <button className="border border-neutral-300 bg-neutral-0 text-neutral-700 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer" onClick={() => navigate('/ap/vendor-categories')}><Tags size={16} />Vendor Categories</button>
-                    {canCreate && <button className="border border-primary-700 bg-primary-700 text-neutral-0 py-2 px-3 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer" onClick={openNew}><Plus size={16} />Add Vendor</button>}
-                    <button className="btn btn-secondary flex items-center gap-1" title="Export CSV" onClick={handleExportCsv}><Download size={16} /><span className="hidden sm:inline">Export</span></button>
-                </div>
-            </div>
+            <PageHeader
+                title="Vendors"
+                subtitle="Vendor master data, categories, and balances."
+                actions={
+                    <div className="flex gap-2">
+                        <Button text="Vendor Categories" size="small" variant="tertiary" icon={<Tags size={16} />} onClick={() => navigate('/ap/vendor-categories')} />
+                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        {canCreate && <Button text="Add Vendor" size="small" onClick={openNew} />}
+                    </div>
+                }
+            />
 
-            <div className="grid grid-cols-[minmax(280px,1fr)_220px_220px] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
-                <div className="relative flex items-center">
-                    <Search size={18} className="absolute left-2.5 text-neutral-400 pointer-events-none" />
-                    <input type="text" className="block w-full pl-[34px] px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" placeholder="Search vendor #, name, or category..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-                <div className="min-w-0">
-                    <select className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={filters.category} onChange={(e) => setFilters((p) => ({ ...p, category: e.target.value }))}>
-                        <option value="">Filter by Category</option>
-                        {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                </div>
-                <div className="min-w-0">
-                    <select className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}>
-                        <option value="">Filter by Status</option><option value="Active">Active</option><option value="Inactive">Inactive</option>
-                    </select>
-                </div>
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[
+                    { key: 'category', label: 'Category', options: categoryOptions.map((c) => ({ value: c, label: c })) },
+                    { key: 'status', label: 'Status', options: [{ value: 'Active', label: 'Active' }, { value: 'Inactive', label: 'Inactive' }] },
+                ]}
+                activeFilters={filters as unknown as Record<string, string>}
+                onFilterChange={(key, val) => setFilters((p) => ({ ...p, [key]: val }))}
+                placeholder="Search vendor #, name, or category..."
+            />
 
             <Card padding={false}>
                 <Table columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openView(row['id'] as string)} showCount countLabel="vendors" isLoading={isLoading} loadingLabel="Loading vendors..." />

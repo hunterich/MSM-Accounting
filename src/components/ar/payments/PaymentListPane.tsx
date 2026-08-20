@@ -1,12 +1,13 @@
 // src/components/ar/payments/PaymentListPane.tsx
-// Workspace-native AR payments catalog (flag-off path stays views/ar/Payments.tsx).
+// AR payments catalog. The only such list — the pre-workspace duplicate is gone.
 import React, { useState, useMemo } from 'react';
-import { Search, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
 import Card from '../../UI/Card';
 import Table, { TableColumn } from '../../UI/Table';
 import Button from '../../UI/Button';
 import StatusTag from '../../UI/StatusTag';
 import PageHeader from '../../Layout/PageHeader';
+import FilterBar from '../../UI/FilterBar';
 import PrintPreviewModal from '../../UI/PrintPreviewModal';
 import PaymentReceiptPrintTemplate from '../../print/PaymentReceiptPrintTemplate';
 import { exportToCsv } from '../../../utils/exportCsv';
@@ -93,27 +94,36 @@ const PaymentListPane = (): React.ReactElement => {
                     </div>
                 }
             />
-            <div className="payments-filter-card">
-                <div className="payments-filter-search">
-                    <Search size={18} />
-                    <input type="text" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" placeholder="Search payment # or customer..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-                <div className="payments-filter-field">
-                    <select className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={status} onChange={(e) => setStatus(e.target.value)}>
-                        <option value="">Filter by Status</option>
-                        <option value="Draft">Draft</option>
-                        <option value="Completed">Completed</option>
-                        <option value="Processing">Processing</option>
-                    </select>
-                </div>
-                <div className="payments-filter-field">
-                    <input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={dateRange.from} onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))} />
-                </div>
-                <div className="payments-filter-field">
-                    <input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={dateRange.to} onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))} />
-                </div>
-                {(dateRange.from || dateRange.to) && <Button text="Clear" variant="tertiary" size="small" className="payments-filter-clear" onClick={() => setDateRange({ from: '', to: '' })} />}
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'Draft', label: 'Draft' },
+                        { value: 'Completed', label: 'Completed' },
+                        { value: 'Processing', label: 'Processing' },
+                    ],
+                }]}
+                activeFilters={{ status }}
+                onFilterChange={(_key, val) => setStatus(val)}
+                placeholder="Search payment # or customer..."
+                extra={
+                    <>
+                        <label className={`acc-chip ${dateRange.from ? 'on' : ''}`}>
+                            <span className="acc-chip-label">From:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.from} onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))} aria-label="From date" />
+                        </label>
+                        <label className={`acc-chip ${dateRange.to ? 'on' : ''}`}>
+                            <span className="acc-chip-label">To:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.to} onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))} aria-label="To date" />
+                        </label>
+                        {(dateRange.from || dateRange.to) && (
+                            <button type="button" className="acc-tool-btn" onClick={() => setDateRange({ from: '', to: '' })}>Clear</button>
+                        )}
+                    </>
+                }
+            />
             <Card padding={false}>
                 <Table
                     columns={columns as TableColumn<Record<string, unknown>>[]}

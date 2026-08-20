@@ -477,7 +477,7 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
     );
 
     return (
-        <div className="p-4 lg:p-6">
+        <div className="p-0">
             <DocumentFormLayout
                 title={isEdit ? `Edit Sales Order` : 'New Sales Order'}
                 dirty={dirty}

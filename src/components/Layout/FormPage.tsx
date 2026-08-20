@@ -29,8 +29,8 @@ const FormPage = ({
 }: FormPageProps): React.ReactElement => {
     if (isLoading) {
         return (
-            <div className={`max-w-[1200px] mx-auto ${containerClassName}`}>
-                <div className="flex justify-between items-center mb-6 pb-4 border-b border-neutral-200">
+            <div className={`acc-page ${containerClassName}`}>
+                <div className="flex justify-between items-center acc-page-head">
                     <div className="flex items-center gap-4">
                         {(backTo || onBack) ? <SkeletonBlock className="h-8 w-32 rounded-md" /> : null}
                         <div className="space-y-2">
@@ -51,7 +51,7 @@ const FormPage = ({
     }
 
     return (
-        <div className={`max-w-[1200px] mx-auto ${containerClassName}`}>
+        <div className={`acc-page ${containerClassName}`}>
             <PageHeader
                 title={title}
                 subtitle={subtitle}

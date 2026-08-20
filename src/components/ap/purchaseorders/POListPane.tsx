@@ -1,10 +1,13 @@
 // src/components/ap/purchaseorders/POListPane.tsx
-// Workspace-native Purchase Orders catalog (flag-off stays views/ap/PurchaseOrders.tsx).
+// Purchase Orders catalog. views/ap/PurchaseOrders.tsx still exists but only
+// serves /ap/receiving (Receive goods), which is a page module.
 // POs have no separate detail — View/Edit open POFormV2 as a tab.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
 import Card from '../../UI/Card';
+import FilterBar from '../../UI/FilterBar';
+import PageHeader from '../../Layout/PageHeader';
 import Table, { TableColumn } from '../../UI/Table';
 import Button from '../../UI/Button';
 import StatusTag from '../../UI/StatusTag';
@@ -163,27 +166,49 @@ const POListPane = (): React.ReactElement => {
                 </div>
             )}
 
-            <div className="flex flex-col gap-1.5 mb-2 relative z-[2]">
-                <div className="flex gap-1.5 flex-nowrap items-center">
-                    {canCreate && <button className="border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer" onClick={openNew}><Plus size={16} />New PO</button>}
-                    <button className="btn btn-secondary flex items-center gap-1" title="Export CSV" onClick={handleExportCsv}><Download size={16} /><span className="hidden sm:inline">Export</span></button>
-                </div>
-            </div>
+            <PageHeader
+                title="Purchase orders"
+                subtitle="Vendor orders, receipts, and approval status."
+                actions={
+                    <div className="flex gap-2">
+                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        {canCreate && <Button text="New PO" size="small" onClick={openNew} />}
+                    </div>
+                }
+            />
 
-            <div className="grid grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
-                <div className="relative flex items-center">
-                    <Search size={18} className="absolute left-2.5 text-neutral-400" />
-                    <input type="text" className="block w-full pl-[34px] px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" placeholder="Search PO # or vendor..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-                <div className="min-w-0">
-                    <select className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={status} onChange={(e) => setStatus(e.target.value)}>
-                        <option value="">Filter by Status</option><option value="Draft">Draft</option><option value="Pending Approval">Pending Approval</option><option value="Approved">Approved</option><option value="Billed">Billed</option><option value="Closed">Closed</option>
-                    </select>
-                </div>
-                <div className="min-w-0"><input type="date" className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={dateRange.from} onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))} /></div>
-                <div className="min-w-0"><input type="date" className="block w-full px-3 text-base text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 focus:border-primary-500 focus:outline-0" value={dateRange.to} onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))} /></div>
-                {(dateRange.from || dateRange.to) && <Button text="Clear" variant="tertiary" size="small" className="justify-self-end" onClick={() => setDateRange({ from: '', to: '' })} />}
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'Draft', label: 'Draft' },
+                        { value: 'Pending Approval', label: 'Pending Approval' },
+                        { value: 'Approved', label: 'Approved' },
+                        { value: 'Billed', label: 'Billed' },
+                        { value: 'Closed', label: 'Closed' },
+                    ],
+                }]}
+                activeFilters={{ status }}
+                onFilterChange={(_key, val) => setStatus(val)}
+                placeholder="Search PO # or vendor..."
+                extra={
+                    <>
+                        <label className={`acc-chip ${dateRange.from ? 'on' : ''}`}>
+                            <span className="acc-chip-label">From:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.from} onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))} aria-label="From date" />
+                        </label>
+                        <label className={`acc-chip ${dateRange.to ? 'on' : ''}`}>
+                            <span className="acc-chip-label">To:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.to} onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))} aria-label="To date" />
+                        </label>
+                        {(dateRange.from || dateRange.to) && (
+                            <button type="button" className="acc-tool-btn" onClick={() => setDateRange({ from: '', to: '' })}>Clear</button>
+                        )}
+                    </>
+                }
+            />
 
             <Card padding={false}>
                 <Table columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openForm(row['id'] as string)} showCount countLabel="orders" isLoading={isLoading} loadingLabel="Loading purchase orders..." />

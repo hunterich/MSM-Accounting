@@ -1,12 +1,12 @@
 // src/components/inventory/stockcounts/StockCountListPane.tsx
-// Workspace-native stock-count catalog (flag-off stays views/inventory/StockCounts.tsx).
+// Stock-count catalog. The only such list — the pre-workspace duplicate is gone.
 import React, { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
 import Card from '../../UI/Card';
 import Table, { TableColumn } from '../../UI/Table';
 import Button from '../../UI/Button';
 import StatusTag from '../../UI/StatusTag';
 import PageHeader from '../../Layout/PageHeader';
+import FilterBar from '../../UI/FilterBar';
 import { formatDateID } from '../../../utils/formatters';
 import { useStockCounts, useItemCategories, useWarehouses, type StockCount } from '../../../hooks/useInventory';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
@@ -60,22 +60,23 @@ const StockCountListPane = (): React.ReactElement => {
                 subtitle="Count physical stock and post the variances."
                 actions={canCreate ? <Button text="New count" size="small" onClick={openNew} /> : undefined}
             />
-            <div className="payments-filter-card">
-                <div className="payments-filter-search">
-                    <Search size={18} />
-                    <input type="text" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" placeholder="Search by number…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-                <div className="payments-filter-field">
-                    <select className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                        <option value="">All Statuses</option>
-                        <option value="DRAFT">Draft</option>
-                        <option value="SUBMITTED">Submitted</option>
-                        <option value="POSTED">Posted</option>
-                        <option value="CANCELLED">Cancelled</option>
-                        <option value="VOIDED">Voided</option>
-                    </select>
-                </div>
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'DRAFT', label: 'Draft' },
+                        { value: 'SUBMITTED', label: 'Submitted' },
+                        { value: 'POSTED', label: 'Posted' },
+                        { value: 'CANCELLED', label: 'Cancelled' },
+                        { value: 'VOIDED', label: 'Voided' },
+                    ],
+                }]}
+                activeFilters={{ status: statusFilter }}
+                onFilterChange={(_key, val) => setStatusFilter(val)}
+                placeholder="Search by number..."
+            />
             <Card padding={false}>
                 <Table
                     columns={columns}
