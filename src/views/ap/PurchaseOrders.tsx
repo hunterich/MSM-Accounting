@@ -7,7 +7,9 @@ import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import PurchaseOrderPrintTemplate from '../../components/print/PurchaseOrderPrintTemplate';
-import { Plus, Search, List, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
+import FilterBar from '../../components/UI/FilterBar';
+import PageHeader from '../../components/Layout/PageHeader';
 import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { usePurchaseOrders, AP_KEYS } from '../../hooks/useAP';
@@ -162,6 +164,23 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
         }
     }, [queryClient]);
 
+    const handleExportCsv = () => {
+        const rows = filteredData.map((po) => ({
+            id: po.id,
+            vendorName: po.vendorName || '',
+            date: po.date,
+            amount: po.amount || 0,
+            status: po.status,
+        }));
+        exportToCsv('purchase-orders.csv', rows, [
+            { label: 'Number', key: 'id' },
+            { label: 'Vendor', key: 'vendorName' },
+            { label: 'Date', key: 'date' },
+            { label: 'Amount', key: 'amount' },
+            { label: 'Status', key: 'status' },
+        ]);
+    };
+
     const columns = [
         { key: 'id', label: 'PO #', sortable: true },
         { key: 'vendorName', label: 'Vendor', sortable: true },
@@ -287,117 +306,59 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
                 </div>
             )}
 
-            {receivingMode && (
-                <div className="mb-4">
-                    <h1 className="text-xl font-semibold text-neutral-900">Receive Goods</h1>
-                    <p className="text-sm text-neutral-500 mt-0.5">
-                        Approved purchase orders awaiting receipt. Click <span className="font-medium">Receive</span> to record quantities received and generate a draft bill.
-                    </p>
-                </div>
-            )}
+            <PageHeader
+                title={receivingMode ? 'Receive goods' : 'Purchase orders'}
+                subtitle={receivingMode
+                    ? 'Approved purchase orders awaiting receipt. Receive to record quantities and raise a draft bill.'
+                    : 'Vendor orders, receipts, and approval status.'}
+                actions={
+                    <div className="flex gap-2">
+                        <Button
+                            text="Export CSV"
+                            size="small"
+                            variant="secondary"
+                            icon={<Download size={16} />}
+                            onClick={handleExportCsv}
+                        />
+                        {!receivingMode && (
+                            <Button text="New PO" size="small" disabled={!canCreate} onClick={() => navigate('/ap/pos/new')} />
+                        )}
+                    </div>
+                }
+            />
 
-            <div className="flex flex-col gap-1.5 mb-2 relative z-[2]">
-                <div className="flex gap-1.5 flex-nowrap items-center">
-                    {!receivingMode && (
-                    <button
-                        className="border border-[#b9ddff] bg-[#e8f4ff] text-primary-700 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold cursor-pointer"
-                        onClick={() => {
-                            setSearchTerm('');
-                            setFilters({ status: '' });
-                            setDateRange({ from: '', to: '' });
-                        }}
-                    >
-                        <List size={16} />
-                        Catalog
-                    </button>
-                    )}
-                    {!receivingMode && (
-                    <button
-                        className={`border border-primary-700 bg-primary-700 text-neutral-0 px-3 py-2 rounded-t-lg inline-flex items-center gap-2 font-semibold ${canCreate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
-                        onClick={() => navigate('/ap/pos/new')}
-                        disabled={!canCreate}
-                    >
-                        <Plus size={16} />
-                        New PO
-                    </button>
-                    )}
-                    <button
-                        className="btn btn-secondary flex items-center gap-1"
-                        title="Export CSV"
-                        onClick={() => {
-                            const rows = filteredData.map((po) => ({
-                                id: po.id,
-                                vendorName: po.vendorName || '',
-                                date: po.date,
-                                amount: po.amount || 0,
-                                status: po.status,
-                            }));
-                            exportToCsv('purchase-orders.csv', rows, [
-                                { label: 'Number', key: 'id' },
-                                { label: 'Vendor', key: 'vendorName' },
-                                { label: 'Date', key: 'date' },
-                                { label: 'Amount', key: 'amount' },
-                                { label: 'Status', key: 'status' },
-                            ]);
-                        }}
-                    >
-                        <Download size={16} />
-                        <span className="hidden sm:inline">Export</span>
-                    </button>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-[minmax(280px,1fr)_220px_170px_170px_auto] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
-                <div className="relative flex items-center">
-                    <Search size={18} className="absolute left-2.5 text-neutral-400" />
-                    <input
-                        type="text"
-                        className="block w-full pl-[34px] px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                        placeholder="Search PO # or vendor..."
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                    />
-                </div>
-                <div className="min-w-0">
-                    <select
-                        className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                        value={filters.status}
-                        onChange={(event) => setFilters({ status: event.target.value })}
-                    >
-                        <option value="">Filter by Status</option>
-                        <option value="Draft">Draft</option>
-                        <option value="Pending Approval">Pending Approval</option>
-                        <option value="Approved">Approved</option>
-                        <option value="Billed">Billed</option>
-                        <option value="Closed">Closed</option>
-                    </select>
-                </div>
-                <div className="min-w-0">
-                    <input
-                        type="date"
-                        className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                        value={dateRange.from}
-                        onChange={(event) => setDateRange((prev) => ({ ...prev, from: event.target.value }))}
-                    />
-                </div>
-                <div className="min-w-0">
-                    <input
-                        type="date"
-                        className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                        value={dateRange.to}
-                        onChange={(event) => setDateRange((prev) => ({ ...prev, to: event.target.value }))}
-                    />
-                </div>
-                {(dateRange.from || dateRange.to) && (
-                    <Button
-                        text="Clear"
-                        variant="tertiary"
-                        size="small"
-                        className="justify-self-end"
-                        onClick={() => setDateRange({ from: '', to: '' })}
-                    />
-                )}
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'Draft', label: 'Draft' },
+                        { value: 'Pending Approval', label: 'Pending Approval' },
+                        { value: 'Approved', label: 'Approved' },
+                        { value: 'Billed', label: 'Billed' },
+                        { value: 'Closed', label: 'Closed' },
+                    ],
+                }]}
+                activeFilters={filters as unknown as Record<string, string>}
+                onFilterChange={(_key, val) => setFilters({ status: val })}
+                placeholder="Search PO # or vendor..."
+                extra={
+                    <>
+                        <label className={`acc-chip ${dateRange.from ? 'on' : ''}`}>
+                            <span className="acc-chip-label">From:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.from} onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))} aria-label="From date" />
+                        </label>
+                        <label className={`acc-chip ${dateRange.to ? 'on' : ''}`}>
+                            <span className="acc-chip-label">To:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.to} onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))} aria-label="To date" />
+                        </label>
+                        {(dateRange.from || dateRange.to) && (
+                            <button type="button" className="acc-tool-btn" onClick={() => setDateRange({ from: '', to: '' })}>Clear</button>
+                        )}
+                    </>
+                }
+            />
 
             <Card padding={false}>
                 <Table

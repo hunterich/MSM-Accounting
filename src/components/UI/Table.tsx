@@ -40,7 +40,7 @@ const Table = <T extends Record<string, unknown>>({
     className = '',
     virtualize = 'auto',
     maxHeight = 600,
-    rowHeight = 44,
+    rowHeight = 28,
     showCount = false,
     countLabel = 'records',
     isLoading = false,
@@ -107,13 +107,15 @@ const Table = <T extends Record<string, unknown>>({
             {columns.map((col, index) => (
                 <th
                     key={index}
-                    className={`bg-neutral-100 text-neutral-600 font-medium text-left py-3 px-4 border-b border-neutral-200 whitespace-nowrap ${col.align === 'right' ? '!text-right' : col.align === 'center' ? '!text-center' : ''} ${col.sortable ? 'cursor-pointer' : ''}`}
+                    className={col.sortable ? 'sortable' : ''}
                     onClick={() => (col.sortable ? requestSort(col.key) : null)}
                 >
-                    {col.label}
-                    {col.sortable && sortConfig?.key === col.key && (
-                        <span>{sortConfig.direction === 'ascending' ? ' ▲' : ' ▼'}</span>
+                    {col.sortable && (
+                        <span className="acc-grid-sort">
+                            {sortConfig?.key === col.key ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '⇅'}
+                        </span>
                     )}
+                    {col.label}
                 </th>
             ))}
         </tr>
@@ -126,10 +128,10 @@ const Table = <T extends Record<string, unknown>>({
             ref={measureRef}
             style={style || undefined}
             onClick={() => onRowClick && onRowClick(row)}
-            className={`${onRowClick ? 'cursor-pointer' : ''} hover:bg-neutral-50 ${rowClassName}`}
+            className={`${onRowClick ? 'cursor-pointer' : ''} ${rowClassName}`}
         >
             {columns.map((col, colIndex) => (
-                <td key={colIndex} className={`py-3 px-4 text-neutral-900 border-b border-neutral-200 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''}`}>
+                <td key={colIndex} className={col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''}>
                     {col.render ? col.render(row?.[col.key], row) : (row?.[col.key] as React.ReactNode)}
                 </td>
             ))}
@@ -150,7 +152,7 @@ const Table = <T extends Record<string, unknown>>({
 
     if (sortedData.length === 0) {
         return (
-            <div className={`w-full rounded-lg border border-neutral-200 bg-neutral-0 overflow-hidden ${className}`}>
+            <div className={`acc-grid-wrap ${className}`}>
                 <div className="p-4 text-center text-neutral-600">No data available</div>
                 {showCount ? <RecordCount count={0} label={countLabel} /> : null}
             </div>
@@ -159,9 +161,9 @@ const Table = <T extends Record<string, unknown>>({
 
     if (!shouldVirtualize) {
         return (
-            <div className={`w-full rounded-lg border border-neutral-200 bg-neutral-0 overflow-hidden ${className}`}>
+            <div className={`acc-grid-wrap ${className}`}>
                 <div className="w-full overflow-x-auto">
-                    <table className="w-full border-collapse text-sm bg-neutral-0">
+                    <table className="acc-grid">
                         <thead>
                             {renderHeaderCells()}
                         </thead>
@@ -187,9 +189,9 @@ const Table = <T extends Record<string, unknown>>({
     const virtualRows = rowVirtualizer.getVirtualItems();
 
     return (
-        <div className={`w-full rounded-lg border border-neutral-200 bg-neutral-0 overflow-hidden ${className}`}>
+        <div className={`acc-grid-wrap ${className}`}>
                 <div className="w-full overflow-x-auto">
-                    <table className="w-full border-collapse text-sm bg-neutral-0 table-fixed">
+                    <table className="acc-grid table-fixed">
                         {renderColGroup()}
                         <thead>
                             {renderHeaderCells()}
@@ -217,7 +219,7 @@ const Table = <T extends Record<string, unknown>>({
                                 ref={(node) => {
                                     if (node) rowVirtualizer.measureElement(node);
                                 }}
-                                className="table-virtual-row w-full border-collapse text-sm bg-neutral-0 table-fixed"
+                                className="table-virtual-row acc-grid table-fixed"
                                 style={{
                                     top: 0,
                                     transform: `translateY(${virtualRow.start}px)`,

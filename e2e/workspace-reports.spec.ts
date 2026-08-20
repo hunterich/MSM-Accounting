@@ -3,7 +3,7 @@
 // Reports migrated to per-document workspace tabs: a second row with the
 // catalog button but NO "New" button, and choosing a report opens it as its
 // own `report` sub-tab (the card grid / "Laporan Lainnya" no longer sit under a
-// generated report). Requires the dev server started with VITE_WORKSPACE_TABS=1
+// generated report). Requires the dev server
 // and the backend running (same setup as the other workspace specs).
 import { test, expect } from '@playwright/test';
 

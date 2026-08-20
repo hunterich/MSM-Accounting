@@ -1,12 +1,13 @@
 // src/components/ar/deliverynotes/DeliveryNoteListPane.tsx
-// Workspace-native Delivery Notes catalog (flag-off stays views/ar/DeliveryNotes.tsx).
+// Delivery Notes catalog. The only such list — the pre-workspace duplicate is gone.
 import React, { useMemo, useState } from 'react';
+import FilterBar from '../../UI/FilterBar';
 import Card from '../../UI/Card';
 import Table, { TableColumn } from '../../UI/Table';
 import Button from '../../UI/Button';
 import StatusTag from '../../UI/StatusTag';
 import ListPage from '../../Layout/ListPage';
-import { Plus, Search, Download } from 'lucide-react';
+import { Plus, Download } from 'lucide-react';
 import { exportToCsv } from '../../../utils/exportCsv';
 import { formatDateID } from '../../../utils/formatters';
 import { useDeliveryNotes, type DeliveryNote } from '../../../hooks/useAR';
@@ -72,15 +73,21 @@ const DeliveryNoteListPane = (): React.ReactElement => {
                 </div>
             }
         >
-            <div className="grid grid-cols-[1fr_200px] gap-2.5 items-center bg-neutral-0 border border-neutral-200 rounded-lg p-3 mb-4">
-                <div className="relative flex items-center">
-                    <Search size={16} className="absolute left-2.5 text-neutral-400" />
-                    <input type="text" className="block w-full pl-[34px] px-3 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0" placeholder="Search by number, SO, or customer..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-                <select className="block w-full px-3 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                    <option value="">All Statuses</option><option value="Draft">Draft</option><option value="Delivered">Delivered</option><option value="Cancelled">Cancelled</option>
-                </select>
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'Draft', label: 'Draft' },
+                        { value: 'Delivered', label: 'Delivered' },
+                        { value: 'Cancelled', label: 'Cancelled' },
+                    ],
+                }]}
+                activeFilters={{ status: statusFilter }}
+                onFilterChange={(_key, val) => setStatusFilter(val)}
+                placeholder="Search by number, SO, or customer..."
+            />
 
             <Card padding={false}>
                 <Table columns={columns} data={filtered as unknown as Record<string, unknown>[]} isLoading={isLoading} loadingLabel="Loading delivery notes..." showCount countLabel="delivery notes" />

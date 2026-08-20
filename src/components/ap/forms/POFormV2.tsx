@@ -393,7 +393,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
     );
 
     return (
-        <div className="p-4 lg:p-6">
+        <div className="p-0">
             <DocumentFormLayout
                 title={isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}
                 dirty={dirty}

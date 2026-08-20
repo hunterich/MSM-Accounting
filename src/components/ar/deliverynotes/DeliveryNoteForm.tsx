@@ -1,6 +1,6 @@
 // src/components/ar/deliverynotes/DeliveryNoteForm.tsx
-// Workspace create-form for a delivery note (the flag-off path uses a modal in
-// views/ar/DeliveryNotes.tsx). Opened as a doc-form tab; saving closes the tab.
+// Create-form for a delivery note (the pre-workspace path used a modal in
+// the Delivery Notes list). Opened as a doc-form tab; saving closes the tab.
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import FormPage from '../../Layout/FormPage';

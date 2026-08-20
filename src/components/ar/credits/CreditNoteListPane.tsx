@@ -1,5 +1,5 @@
 // src/components/ar/credits/CreditNoteListPane.tsx
-// Workspace-native Returns & Credits catalog (flag-off stays views/ar/CreditNotes.tsx).
+// Returns & Credits catalog. The only such list — the pre-workspace duplicate is gone.
 // Records open as doc-view tabs keyed by a composite recordId: `credit:ID` | `return:ID`.
 import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';

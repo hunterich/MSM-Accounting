@@ -540,7 +540,7 @@ const InvoiceFormV2: React.FC<InvoiceFormV2Props> = ({ mode = 'create' }) => {
     );
 
     return (
-        <div className="p-4 lg:p-6">
+        <div className="p-0">
             <DocumentFormLayout
                 title={isEdit ? 'Edit Invoice' : 'New Invoice'}
                 dirty={dirty}

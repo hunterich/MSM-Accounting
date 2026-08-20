@@ -1,5 +1,5 @@
 // src/components/banking/BankingListPane.tsx
-// Workspace-native banking catalog (flag-off stays views/banking/Banking.tsx).
+// Banking catalog. The only Banking list — the pre-workspace duplicate is gone.
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search, Download } from 'lucide-react';

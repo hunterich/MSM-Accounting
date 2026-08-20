@@ -18,35 +18,60 @@ interface FilterBarProps {
     activeFilters: Record<string, string>;
     onFilterChange: (key: string, value: string) => void;
     placeholder?: string;
+    /** Extra controls (e.g. a date range) rendered as further chips in the row. */
+    extra?: React.ReactNode;
 }
 
-const FilterBar = ({ onSearch, filters = [], activeFilters, onFilterChange, placeholder = "Search..." }: FilterBarProps): React.ReactElement => {
+/**
+ * Accurate-style filter row: each filter is a compact "Label: value" chip that
+ * highlights once it is narrowed from the default, with the search field
+ * pushed to the right of the row rather than sitting in a panel above it.
+ */
+const FilterBar = ({
+    onSearch,
+    filters = [],
+    activeFilters,
+    onFilterChange,
+    placeholder = 'Type and press Enter',
+    extra = null,
+}: FilterBarProps): React.ReactElement => {
     return (
-        <div className="flex flex-wrap gap-3 items-end bg-neutral-0 border border-neutral-200 p-3 rounded-lg mb-4">
-            <div className="flex-1 min-w-0 w-full sm:w-auto relative flex items-center gap-2 text-neutral-500">
-                <Search size={18} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+        <div className="acc-toolbar-row mb-2">
+            {filters.map((filter) => {
+                const value = activeFilters[filter.key] || '';
+                const selected = filter.options.find((o) => o.value === value);
+                return (
+                    <label key={filter.key} className={`acc-chip ${value ? 'on' : ''}`}>
+                        <span className="acc-chip-label">{filter.label}:</span>
+                        <select
+                            className="cursor-pointer border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none"
+                            value={value}
+                            onChange={(e) => onFilterChange(filter.key, e.target.value)}
+                            aria-label={filter.label}
+                        >
+                            <option value="">All</option>
+                            {filter.options.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                        <span className="sr-only">{selected?.label ?? 'All'}</span>
+                    </label>
+                );
+            })}
+
+            {extra}
+
+            <div className="spacer" />
+
+            <div className="acc-search">
                 <input
                     type="text"
-                    className="block w-full pl-9 px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
                     placeholder={placeholder}
                     onChange={(e) => onSearch(e.target.value)}
+                    aria-label="Search"
                 />
+                <Search size={13} />
             </div>
-
-            {filters.map(filter => (
-                <div key={filter.key} className="w-full sm:w-auto min-w-[160px]">
-                    <select
-                        className="block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                        value={activeFilters[filter.key] || ''}
-                        onChange={(e) => onFilterChange(filter.key, e.target.value)}
-                    >
-                        <option value="">{filter.label}</option>
-                        {filter.options.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                    </select>
-                </div>
-            ))}
         </div>
     );
 };

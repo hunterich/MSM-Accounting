@@ -37,7 +37,7 @@ const DocumentFormLayout = ({
     onSaveDraft, primaryLabel, primaryIcon, onPrimary, primaryOptions, saving,
     main, rail,
 }: DocumentFormLayoutProps): React.ReactElement => (
-    <div className="max-w-[1240px] mx-auto">
+    <div className="w-full min-w-0">
         <DocumentActionBarV2
             title={title}
             dirty={dirty}
@@ -52,9 +52,9 @@ const DocumentFormLayout = ({
             primaryOptions={primaryOptions}
             saving={saving}
         />
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 items-start">
-            <div className="flex flex-col gap-4 min-w-0">{main}</div>
-            <div className="flex flex-col gap-4 lg:sticky lg:top-4">{rail}</div>
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-3 items-start">
+            <div className="flex flex-col gap-3 min-w-0">{main}</div>
+            <div className="flex flex-col gap-3 lg:sticky lg:top-2">{rail}</div>
         </div>
     </div>
 );

@@ -164,6 +164,13 @@ const PARENT_LABEL_FOR: Record<string, string> = {
 
 const COLLAPSED_KEY = 'msm.sidebar.collapsed';
 
+/** Rail flyout tile metrics, measured off Accurate Online's module menu. */
+const TILE_SIZE = 120;
+const TILE_GAP = 15;
+const TILE_COLS = 4;
+const FLYOUT_PAD = 11;
+const FLYOUT_HEADING_H = 45;
+
 /**
  * Maps a sidebar sub-item path to a feature flag in useSettingsStore.features.
  * When the flag is false, the item is hidden regardless of RBAC. Paths NOT in
@@ -205,6 +212,9 @@ const Sidebar = (): React.ReactElement => {
     });
     // Rail flyout: which group's pop-out panel is open (desktop icon rail). Only one at a time.
     const [openGroup, setOpenGroup] = useState<string | null>(null);
+    // Viewport-space top for the open flyout, so a panel opened from a low rail
+    // icon slides up instead of running off the bottom of the window.
+    const [flyoutTop, setFlyoutTop] = useState(0);
     const railRef = useRef<HTMLElement | null>(null);
     // Trigger buttons by group, so we can restore focus to the trigger when its flyout closes.
     const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -212,6 +222,21 @@ const Sidebar = (): React.ReactElement => {
     const closeFlyout = (restoreGroup?: string): void => {
         setOpenGroup(null);
         if (restoreGroup) triggerRefs.current[restoreGroup]?.focus();
+    };
+
+    /**
+     * Open a group's tile panel level with its rail icon, nudged up when the
+     * panel would overflow the viewport. Height is derived from the tile grid
+     * (120px tiles on a 15px gutter) plus the heading and the panel padding.
+     */
+    const toggleFlyout = (group: string, itemCount: number): void => {
+        if (openGroup === group) { setOpenGroup(null); return; }
+        const rect = triggerRefs.current[group]?.getBoundingClientRect();
+        const rows = Math.ceil(itemCount / TILE_COLS);
+        const estimated = FLYOUT_HEADING_H + rows * TILE_SIZE + (rows - 1) * TILE_GAP + FLYOUT_PAD * 2;
+        const top = rect ? Math.max(8, Math.min(rect.top, window.innerHeight - estimated - 8)) : 8;
+        setFlyoutTop(top);
+        setOpenGroup(group);
     };
 
     useEffect(() => {
@@ -316,7 +341,7 @@ const Sidebar = (): React.ReactElement => {
                                     type="button"
                                     ref={el => { triggerRefs.current[g.group] = el; }}
                                     className={`sidebar-icon-btn ${groupActive || isOpen ? 'active' : ''}`}
-                                    onClick={() => setOpenGroup(prev => (prev === g.group ? null : g.group))}
+                                    onClick={() => toggleFlyout(g.group, g.items.length)}
                                     aria-label={g.group}
                                     aria-expanded={isOpen}
                                     aria-haspopup="true"
@@ -329,26 +354,33 @@ const Sidebar = (): React.ReactElement => {
 
                             {isOpen && !single && (
                                 <div
-                                    className="sidebar-flyout"
+                                    className="sidebar-flyout tiles"
+                                    style={{ position: 'fixed', top: flyoutTop, left: 55 }}
                                     aria-label={g.group}
                                     onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeFlyout(g.group); } }}
                                 >
-                                    <div className="sidebar-flyout-title">{g.group}</div>
-                                    {g.items.map(it => {
-                                        const ItemIcon = it.icon;
-                                        const active = isItemActive(it.path);
-                                        return (
-                                            <NavLink
-                                                key={it.path}
-                                                to={it.path}
-                                                end={it.path === '/'}
-                                                className={`sidebar-flyout-item ${active ? 'active' : ''}`}
-                                            >
-                                                <ItemIcon size={16} strokeWidth={1.7} />
-                                                <span>{it.label}</span>
-                                            </NavLink>
-                                        );
-                                    })}
+                                    <div className="sidebar-flyout-heading">{g.group}</div>
+                                    <div
+                                        className="sidebar-tile-grid"
+                                        style={{ '--tile-cols': Math.min(TILE_COLS, g.items.length) } as React.CSSProperties}
+                                    >
+                                        {g.items.map(it => {
+                                            const ItemIcon = it.icon;
+                                            const active = isItemActive(it.path);
+                                            return (
+                                                <NavLink
+                                                    key={it.path}
+                                                    to={it.path}
+                                                    end={it.path === '/'}
+                                                    className={`sidebar-tile ${active ? 'active' : ''}`}
+                                                    title={it.label}
+                                                >
+                                                    <ItemIcon className="sidebar-tile-icon" size={38} strokeWidth={1.4} />
+                                                    <span className="sidebar-tile-label">{it.label}</span>
+                                                </NavLink>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             )}
                         </div>

@@ -1,5 +1,5 @@
 // src/components/ap/debits/APDebitNoteListPane.tsx
-// Workspace-native Returns & Debits catalog (flag-off stays views/ap/DebitNotes.tsx).
+// Returns & Debits catalog. The only such list — the pre-workspace duplicate is gone.
 // Records open as doc-view tabs keyed by a composite recordId: `debit:ID` | `return:ID`.
 import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';

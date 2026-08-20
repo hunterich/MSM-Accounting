@@ -3,7 +3,7 @@
 // The five modules migrated to per-document workspace tabs (Customers, AR
 // Payments, Stock Counts, Returns & Credits, Banking). Each renders a second
 // row (document module) and opens records as their own doc-view tabs. Requires
-// the dev server started with VITE_WORKSPACE_TABS=1 and the backend running.
+// the dev server and the backend running.
 import { test, expect } from '@playwright/test';
 
 type Bridge = { __MSM_WORKSPACE__: any };

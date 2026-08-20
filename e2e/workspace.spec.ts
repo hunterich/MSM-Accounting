@@ -1,7 +1,7 @@
 // e2e/workspace.spec.ts
 //
 // Two-level workspace tabs (row 1 = modules, row 2 = the active document
-// module's records). Requires the dev server started with VITE_WORKSPACE_TABS=1
+// module's records). Requires the dev server
 // and the backend running. `window.__MSM_WORKSPACE__` is a DEV-only bridge to
 // the workspace store, exposed by WorkspaceShell.
 import { test, expect } from '@playwright/test';
