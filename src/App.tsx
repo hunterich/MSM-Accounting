@@ -21,7 +21,6 @@ const SalesReturnForm = lazy(() => import('./views/ar/SalesReturnForm'))
 const RecurringBilling = lazy(() => import('./views/ar/RecurringBilling'))
 const ApprovalInbox = lazy(() => import('./views/ar/ApprovalInbox'))
 const SOForm = lazy(() => import('./components/ar/salesorders/SOFormV2'))
-const InvoiceFormV2 = lazy(() => import('./components/ar/invoices/InvoiceFormV2'))
 
 const BillImport = lazy(() => import('./views/ap/BillImport'))
 const PurchaseOrders = lazy(() => import('./views/ap/PurchaseOrders'))
@@ -113,6 +112,8 @@ function App(): JSX.Element {
 
                     {/* Accounts Receivable */}
                     <Route path="ar/invoices" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/invoices/new" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/invoices/edit" element={<WorkspaceTabRoute />} />
                     <Route path="ar/invoices/workbench" element={<WorkspaceTabRoute />} />
                     <Route path="ar/sales-orders" element={<WorkspaceTabRoute />} />
                     <Route path="ar/customers" element={<WorkspaceTabRoute />} />
@@ -127,8 +128,6 @@ function App(): JSX.Element {
                     <Route path="banking" element={<WorkspaceTabRoute />} />
                     <Route path="inventory/counts" element={<WorkspaceTabRoute />} />
                     <Route path="ar" element={<Navigate to="/ar/sales-orders" replace />} />
-                    <Route path="ar/invoices/new" element={withPermission(<InvoiceFormV2 mode="create" />, 'ar_invoices', 'create')} />
-                    <Route path="ar/invoices/edit" element={withPermission(<InvoiceFormV2 mode="edit" />, 'ar_invoices', 'edit')} />
                     <Route path="ar/sales-orders/new" element={withPermission(<SOForm mode="create" />, 'ar_sales_orders', 'create')} />
                     <Route path="ar/sales-orders/edit" element={withPermission(<SOForm mode="edit" />, 'ar_sales_orders', 'edit')} />
                     <Route path="ar/customers/new" element={withPermission(<CustomerForm />, 'ar_customers', 'create')} />

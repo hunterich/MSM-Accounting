@@ -155,6 +155,10 @@ const DocumentActionBarV2 = ({
                 ) : (
                     <>
                         {onHistory && <button type="button" onClick={onHistory} className={ghost}><History size={14} /> History</button>}
+                        {/* Destructive actions (delete/void) belong here too, not
+                            only on posted documents — a draft is the state where
+                            deleting is usually allowed. */}
+                        {moreItems && moreItems.length > 0 && <MoreMenu items={moreItems} />}
                         <span className="w-px h-6 bg-neutral-200 mx-1" />
                         {onSaveDraft && <button type="button" onClick={onSaveDraft} className="h-[34px] px-3 text-[13px] rounded-md bg-white text-neutral-800 border border-neutral-300 hover:bg-neutral-50">Save draft</button>}
                         <div className="relative inline-flex" ref={primaryRef}>
