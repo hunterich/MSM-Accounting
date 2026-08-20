@@ -2,13 +2,14 @@
 // Banking catalog. The only Banking list — the pre-workspace duplicate is gone.
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Search, Download } from 'lucide-react';
+import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Download } from 'lucide-react';
 import Card from '../UI/Card';
 import Table, { TableColumn } from '../UI/Table';
 import Button from '../UI/Button';
 import StatusTag from '../UI/StatusTag';
 import { SkeletonBlock } from '../UI/LoadingSkeleton';
 import PageHeader from '../Layout/PageHeader';
+import FilterBar from '../UI/FilterBar';
 import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { useBankAccounts, useBankTransactions } from '../../hooks/useBanking';
@@ -131,20 +132,35 @@ const BankingListPane = (): React.ReactElement => {
                 </div>
             )}
 
-            <div className="payments-filter-card">
-                <div className="payments-filter-search">
-                    <Search size={18} />
-                    <input type="text" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" placeholder="Search description or reference..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-                <div className="payments-filter-field">
-                    <select className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                        <option value="">Filter by Status</option><option value="Matched">Matched</option><option value="Unmatched">Unmatched</option>
-                    </select>
-                </div>
-                <div className="payments-filter-field"><input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={dateRange.from} onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))} /></div>
-                <div className="payments-filter-field"><input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0" value={dateRange.to} onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))} /></div>
-                {(dateRange.from || dateRange.to) && <Button text="Clear" variant="tertiary" size="small" className="payments-filter-clear" onClick={() => setDateRange({ from: '', to: '' })} />}
-            </div>
+            <FilterBar
+                onSearch={setSearchTerm}
+                filters={[{
+                    key: 'status',
+                    label: 'Status',
+                    options: [
+                        { value: 'Matched', label: 'Matched' },
+                        { value: 'Unmatched', label: 'Unmatched' },
+                    ],
+                }]}
+                activeFilters={{ status: statusFilter }}
+                onFilterChange={(_key, val) => setStatusFilter(val)}
+                placeholder="Search description or reference..."
+                extra={
+                    <>
+                        <label className={`acc-chip ${dateRange.from ? 'on' : ''}`}>
+                            <span className="acc-chip-label">From:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.from} onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))} aria-label="From date" />
+                        </label>
+                        <label className={`acc-chip ${dateRange.to ? 'on' : ''}`}>
+                            <span className="acc-chip-label">To:</span>
+                            <input type="date" className="border-none bg-transparent p-0 text-[0.72rem] text-inherit outline-none" value={dateRange.to} onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))} aria-label="To date" />
+                        </label>
+                        {(dateRange.from || dateRange.to) && (
+                            <button type="button" className="acc-tool-btn" onClick={() => setDateRange({ from: '', to: '' })}>Clear</button>
+                        )}
+                    </>
+                }
+            />
 
             <Card padding={false}>
                 <Table
