@@ -97,7 +97,10 @@ describe('tenant-isolation policy gate', () => {
       const text = fs.readFileSync(file, 'utf8');
       const count = countOccurrences(text, UNSAFE_PATTERN);
       if (count > 0) {
-        const rel = path.relative(REPO_ROOT, file);
+        // BASELINE keys are POSIX-style, and path.relative yields backslashes
+        // on Windows — without normalising, every file reads as both a new
+        // violation and a stale baseline entry.
+        const rel = path.relative(REPO_ROOT, file).split(path.sep).join('/');
         violations[rel] = count;
       }
     }

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   selectBackupsToPrune,
@@ -63,18 +64,26 @@ describe('aggregateDestinationStatus', () => {
 });
 
 describe('resolvePgToolPath', () => {
+  // resolvePgToolPath joins with the platform separator and appends `.exe` on
+  // Windows, so the expected path is built the same way rather than hardcoded
+  // as POSIX — otherwise these assert nothing on Windows and always fail.
+  const candidate = (dir: string, tool: string) =>
+    path.join(dir, process.platform === 'win32' ? `${tool}.exe` : tool);
+
   it('uses the override directory when the binary exists there', () => {
-    const exists = (p: string) => p === '/custom/bin/pg_dump';
+    const expected = candidate('/custom/bin', 'pg_dump');
+    const exists = (p: string) => p === expected;
     expect(resolvePgToolPath('pg_dump', { override: '/custom/bin', fileExists: exists }))
-      .toBe('/custom/bin/pg_dump');
+      .toBe(expected);
   });
   it('falls back to the bare command name when no override/dir matches (rely on PATH)', () => {
     expect(resolvePgToolPath('pg_restore', { override: null, fileExists: () => false, searchDirs: [] }))
       .toBe('pg_restore');
   });
   it('finds the binary in a provided search dir', () => {
-    const exists = (p: string) => p === '/opt/pg/bin/pg_dump';
+    const expected = candidate('/opt/pg/bin', 'pg_dump');
+    const exists = (p: string) => p === expected;
     expect(resolvePgToolPath('pg_dump', { override: null, fileExists: exists, searchDirs: ['/opt/pg/bin'] }))
-      .toBe('/opt/pg/bin/pg_dump');
+      .toBe(expected);
   });
 });
