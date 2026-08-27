@@ -11,6 +11,17 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+
+// Run the Prisma CLI through node directly instead of `npx`. On Windows `npx`
+// is a .cmd that execFileSync cannot launch without a shell, which made this
+// script — and therefore the whole integration suite — impossible to set up
+// there. Resolving the CLI's own entry point needs no shell on any platform,
+// so the connection URL stays a plain argv entry and is never shell-quoted.
+const require = createRequire(import.meta.url)
+const PRISMA_CLI = require.resolve('prisma/build/index.js')
+const prisma = (args, opts = {}) =>
+  execFileSync(process.execPath, [PRISMA_CLI, ...args], opts)
 
 function loadDatabaseUrl() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL
@@ -31,20 +42,18 @@ const testUrl = testUrlObj.toString()
 // the migration history onto a clean slate — this also upgrades any legacy
 // db-push test DB that has no _prisma_migrations table.
 console.log(`[test-db-setup] recreating database "${testDbName}" (fresh)…`)
-execFileSync(
-  'npx',
-  ['prisma', 'db', 'execute', '--url', baseUrl, '--stdin'],
+prisma(
+  ['db', 'execute', '--url', baseUrl, '--stdin'],
   { input: `DROP DATABASE IF EXISTS "${testDbName}";`, stdio: ['pipe', 'inherit', 'inherit'] },
 )
-execFileSync(
-  'npx',
-  ['prisma', 'db', 'execute', '--url', baseUrl, '--stdin'],
+prisma(
+  ['db', 'execute', '--url', baseUrl, '--stdin'],
   { input: `CREATE DATABASE "${testDbName}";`, stdio: ['pipe', 'inherit', 'inherit'] },
 )
 console.log(`[test-db-setup] created "${testDbName}".`)
 
 console.log('[test-db-setup] applying migrations…')
-execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
+prisma(['migrate', 'deploy'], {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: testUrl },
 })
@@ -55,9 +64,8 @@ execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
 // MUST also be created in prod at merge — see the note on the ApprovalRequest
 // model in prisma/schema.prisma. Idempotent via IF NOT EXISTS.
 console.log('[test-db-setup] applying partial unique index on ApprovalRequest…')
-execFileSync(
-  'npx',
-  ['prisma', 'db', 'execute', '--url', testUrl, '--stdin'],
+prisma(
+  ['db', 'execute', '--url', testUrl, '--stdin'],
   {
     input: `CREATE UNIQUE INDEX IF NOT EXISTS "ApprovalRequest_open_pending_unique"
 ON "ApprovalRequest" ("organizationId", "documentType", "documentId")
