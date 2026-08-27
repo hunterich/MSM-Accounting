@@ -35,6 +35,7 @@ export const MODULE_GROUP_ORDER: string[] = [
   'Accounts Receivable',
   'Accounts Payable',
   'Inventory',
+  'Point of Sale',
   'HR & Payroll',
   'Banking',
   'Integrations',
@@ -69,6 +70,8 @@ export const MODULE_DEFS: ModuleDef[] = [
   { moduleKey: 'INV_CATEGORIES', label: 'Item Categories', group: 'Inventory' },
   { moduleKey: 'INV_ADJ', label: 'Stock Adjustments', group: 'Inventory' },
 
+  { moduleKey: 'POS_RETAIL', label: 'Point of Sale', group: 'Point of Sale' },
+
   { moduleKey: 'HR_EMPLOYEES', label: 'Employees', group: 'HR & Payroll' },
   { moduleKey: 'HR_ATTENDANCE', label: 'Attendance', group: 'HR & Payroll' },
   { moduleKey: 'HR_PAYROLL', label: 'Payroll Run', group: 'HR & Payroll' },
@@ -78,6 +81,7 @@ export const MODULE_DEFS: ModuleDef[] = [
   { moduleKey: 'INTEGRATIONS', label: 'Integrations', group: 'Integrations' },
 
   { moduleKey: 'REPORTS', label: 'Financial Reports', group: 'Reports' },
+  { moduleKey: 'POS_REPORTS', label: 'Sales Performance', group: 'Reports' },
 
   { moduleKey: 'COMPANY', label: 'Company Setup', group: 'Company' },
 

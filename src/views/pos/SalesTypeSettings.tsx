@@ -41,10 +41,7 @@ const emptyForm = (): SalesTypeForm => ({
 });
 
 const SalesTypeSettings = (): React.ReactElement => {
-    // NOTE: 'pos_retail' is not (yet) a key in MODULE_KEYS; the Modifier screen
-    // gates on 'pos_reports', so we mirror that until the RBAC key lands.
-    // TODO: switch to 'pos_retail' when the RBAC key lands
-    const { canCreate, canEdit, canDelete } = useModulePermissions('pos_reports');
+    const { canCreate, canEdit, canDelete } = useModulePermissions('pos_retail');
     const pushToast = useToastStore((s) => s.pushToast);
 
     const { data: salesTypes = [], isLoading } = useSalesTypes();

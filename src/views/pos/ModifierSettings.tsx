@@ -43,7 +43,7 @@ const emptyForm = (): GroupForm => ({
 });
 
 const ModifierSettings = (): React.ReactElement => {
-    const { canCreate, canEdit, canDelete } = useModulePermissions('pos_reports');
+    const { canCreate, canEdit, canDelete } = useModulePermissions('pos_retail');
     const pushToast = useToastStore((s) => s.pushToast);
 
     const { data: groups = [], isLoading } = useModifierGroups();
