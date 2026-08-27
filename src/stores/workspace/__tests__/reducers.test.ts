@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     openTab, closeTab, closeOthers, closeAll, closeToRight,
-    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed, capBlock,
+    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed, capBlock, isPinnedTab,
 } from '../reducers';
 import { makeTabId, TAB_CAP, MODULE_CAP, type WorkspaceState, type TabTarget } from '../types';
 
@@ -205,5 +205,70 @@ describe('isAtCap', () => {
         expect(isAtCap(s)).toBe(false);
         s = openTab(s, tab('sales-order', 'SO-last'));
         expect(isAtCap(s)).toBe(true);
+    });
+});
+
+describe('the dashboard tab is permanent', () => {
+    // Accurate keeps its home tab always open; ours does the same. Hiding the
+    // close button is not enough — the bulk closes have to respect it too, or
+    // "Close all" leaves the workspace with no tabs and an empty shell.
+    const dashboard = () => {
+        const target: TabTarget = { module: 'page', entity: 'route', recordId: 'dashboard', mode: 'view' };
+        return {
+            id: makeTabId(target),
+            kind: 'list' as const,
+            title: 'Dashboard',
+            target,
+            path: '/',
+            status: 'clean' as const,
+        };
+    };
+
+    const withDashboardAnd = (...records: string[]) => {
+        let s = openTab(empty, dashboard());
+        for (const r of records) s = openTab(s, tab('sales-order', r));
+        return s;
+    };
+
+    it('recognises only the dashboard as pinned', () => {
+        expect(isPinnedTab(dashboard())).toBe(true);
+        expect(isPinnedTab(tab('sales-order', 'SO-1'))).toBe(false);
+    });
+
+    it('closeTab refuses to close it', () => {
+        const s = withDashboardAnd('SO-1');
+        const after = closeTab(s, s.tabs[0].id);
+        expect(after.tabs).toHaveLength(2);
+        expect(after.tabs.some(isPinnedTab)).toBe(true);
+    });
+
+    it('closeOthers keeps it alongside the tab being kept', () => {
+        const s = withDashboardAnd('SO-1', 'SO-2');
+        const after = closeOthers(s, s.tabs[2].id);
+        expect(after.tabs.map((t) => t.title).sort()).toEqual(['Dashboard', 'sales-order:SO-2']);
+        expect(after.activeTabId).toBe(s.tabs[2].id);
+    });
+
+    it('closeToRight keeps it even when it sits to the right', () => {
+        // Dashboard opened last, so it is to the right of the anchor.
+        let s = openTab(empty, tab('sales-order', 'SO-1'));
+        s = openTab(s, tab('sales-order', 'SO-2'));
+        s = openTab(s, dashboard());
+        const after = closeToRight(s, s.tabs[0].id);
+        expect(after.tabs.map((t) => t.title)).toEqual(['sales-order:SO-1', 'Dashboard']);
+    });
+
+    it('closeAll leaves it standing and active', () => {
+        const s = withDashboardAnd('SO-1', 'SO-2');
+        const after = closeAll(s);
+        expect(after.tabs).toHaveLength(1);
+        expect(isPinnedTab(after.tabs[0])).toBe(true);
+        expect(after.activeTabId).toBe(after.tabs[0].id);
+    });
+
+    it('closeAll on a workspace without one still empties it', () => {
+        const s = openTab(empty, tab('sales-order', 'SO-1'));
+        expect(closeAll(s).tabs).toHaveLength(0);
+        expect(closeAll(s).activeTabId).toBeNull();
     });
 });

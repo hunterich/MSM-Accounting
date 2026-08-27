@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-    LayoutDashboard,
     BookOpen,
     Receipt,
     Truck,
@@ -48,9 +47,15 @@ interface NavGroup {
 
 const NAV_GROUPS: NavGroup[] = [
     {
-        group: 'Workspace',
-        groupIcon: LayoutDashboard,
-        items: [{ label: 'Dashboard', path: '/', icon: LayoutDashboard }],
+        group: 'Operations',
+        groupIcon: Boxes,
+        items: [
+            { label: 'HR & Payroll',  path: '/hr',         icon: Users },
+            { label: 'Assets',        path: '/assets',     icon: Building2 },
+            { label: 'Users & Roles', path: '/users',      icon: Users },
+            { label: 'Data & Tools',  path: '/tools',      icon: Wrench },
+            { label: 'Settings',      path: '/settings',   icon: Settings },
+        ],
     },
     {
         group: 'Sales',
@@ -126,17 +131,6 @@ const NAV_GROUPS: NavGroup[] = [
             { label: 'Reports', path: '/reports', icon: BarChart3 },
             { label: 'Sales Performance', path: '/reports/sales-performance', icon: BarChart3 },
             { label: 'Sales by Type', path: '/reports/sales-by-type', icon: BarChart3 },
-        ],
-    },
-    {
-        group: 'Operations',
-        groupIcon: Boxes,
-        items: [
-            { label: 'HR & Payroll',  path: '/hr',         icon: Users },
-            { label: 'Assets',        path: '/assets',     icon: Building2 },
-            { label: 'Users & Roles', path: '/users',      icon: Users },
-            { label: 'Data & Tools',  path: '/tools',      icon: Wrench },
-            { label: 'Settings',      path: '/settings',   icon: Settings },
         ],
     },
 ];

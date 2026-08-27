@@ -117,6 +117,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
             closeModule: (moduleKey) => {
                 const state = get();
+                // The dashboard module is pinned — see R.isPinnedTab.
+                if (state.tabs.some((t) => moduleKeyOf(t.target) === moduleKey && R.isPinnedTab(t))) return;
                 const tabs = state.tabs.filter((t) => moduleKeyOf(t.target) !== moduleKey);
                 const moduleActive = { ...state.moduleActive };
                 delete moduleActive[moduleKey];
@@ -145,8 +147,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
             closeAll: () => {
                 const state = get();
-                const closedStack = pushClosed(state.closedStack, state.tabs.filter(isReopenable), CLOSED_STACK_MAX);
-                set({ ...R.closeAll(), moduleActive: {}, closedStack });
+                const next = R.closeAll(state);
+                const closedStack = pushClosed(state.closedStack, removedTabs(state.tabs, next.tabs).filter(isReopenable), CLOSED_STACK_MAX);
+                const moduleActive = next.activeTabId
+                    ? { [moduleKeyOfId(next.tabs, next.activeTabId) ?? '']: next.activeTabId }
+                    : {};
+                set({ ...next, moduleActive, closedStack });
             },
 
             reopenClosed: () => {

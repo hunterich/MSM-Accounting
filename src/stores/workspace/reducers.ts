@@ -27,6 +27,17 @@ export function capBlock(state: WorkspaceState, tab: WorkspaceTab): 'module' | '
     return docsInModule(state, key) >= TAB_CAP ? 'doc' : null;
 }
 
+/**
+ * The dashboard is permanent, the way Accurate keeps its home tab: it carries no
+ * close control and every bulk close leaves it standing. Enforced here rather
+ * than only hiding the button, so "Close others", "Close to the right" and
+ * "Close all" cannot take it either — and so the workspace is never left with
+ * zero tabs and an empty shell.
+ */
+export function isPinnedTab(tab: WorkspaceTab): boolean {
+    return tab.target.module === 'page' && tab.target.recordId === 'dashboard';
+}
+
 export function activateTab(state: WorkspaceState, id: string): WorkspaceState {
     if (!state.tabs.some((t) => t.id === id)) return state;
     return { ...state, activeTabId: id };
@@ -42,6 +53,7 @@ export function openTab(state: WorkspaceState, tab: WorkspaceTab): WorkspaceStat
 export function closeTab(state: WorkspaceState, id: string): WorkspaceState {
     const idx = state.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return state;
+    if (isPinnedTab(state.tabs[idx])) return state;
     const tabs = state.tabs.filter((t) => t.id !== id);
     let activeTabId = state.activeTabId;
     if (state.activeTabId === id) {
@@ -54,17 +66,19 @@ export function closeTab(state: WorkspaceState, id: string): WorkspaceState {
 export function closeOthers(state: WorkspaceState, id: string): WorkspaceState {
     const keep = state.tabs.find((t) => t.id === id);
     if (!keep) return state;
-    return { tabs: [keep], activeTabId: keep.id };
+    const tabs = state.tabs.filter((t) => t.id === id || isPinnedTab(t));
+    return { tabs, activeTabId: keep.id };
 }
 
-export function closeAll(_state?: WorkspaceState): WorkspaceState {
-    return { tabs: [], activeTabId: null };
+export function closeAll(state?: WorkspaceState): WorkspaceState {
+    const tabs = (state?.tabs ?? []).filter(isPinnedTab);
+    return { tabs, activeTabId: tabs.length ? tabs[0].id : null };
 }
 
 export function closeToRight(state: WorkspaceState, id: string): WorkspaceState {
     const idx = state.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return state;
-    const tabs = state.tabs.slice(0, idx + 1);
+    const tabs = state.tabs.filter((t, i) => i <= idx || isPinnedTab(t));
     const activeTabId = tabs.some((t) => t.id === state.activeTabId) ? state.activeTabId : id;
     return { tabs, activeTabId };
 }
