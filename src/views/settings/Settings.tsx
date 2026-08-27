@@ -3,11 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
-import { Save, Briefcase, Building2, User, Bell, Hash, Mail, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
+import { Save, Briefcase, User, Bell, Hash, Mail, ToggleLeft, Lock, ClipboardCheck, Printer } from 'lucide-react';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import EmailTemplates from './EmailTemplates';
-import Companies from './Companies';
-import { useAuthStore } from '../../stores/useAuthStore';
 import { useSettingsStore, DEFAULT_DOCUMENT_NUMBERING } from '../../stores/useSettingsStore';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useAccountDefaults, useOrganizationSettings, useUpdateOrganizationSettings } from '../../hooks/useOrganizationSettings';
@@ -83,8 +81,6 @@ const MENU_GROUPS: MenuGroup[] = [
         label: 'Organization',
         items: [
             { id: 'general', label: 'Company Info', icon: Briefcase },
-            // 'companies' is ADMIN-only — filtered out per-user inside the component.
-            { id: 'companies', label: 'Companies', icon: Building2 },
             { id: 'accounts', label: 'Account Defaults', icon: Briefcase },
             { id: 'numbering', label: 'Document Numbering', icon: Hash },
             { id: 'features', label: 'Features', icon: ToggleLeft },
@@ -120,17 +116,12 @@ const Settings = () => {
     // Active tab is driven by the ?tab= query param so it's deep-linkable and
     // bookmarkable. Defaults to Company Info; unknown ids fall back to it too.
     const [searchParams, setSearchParams] = useSearchParams();
-    // Companies (multi-company management) is an owner capability — only
-    // administrators see the tab, and deep links fall back for everyone else.
-    const roleType = useAuthStore((s) => s.roleType);
-    const isAdmin = roleType === 'ADMIN';
-    const menuGroups = isAdmin
-        ? MENU_GROUPS
-        : MENU_GROUPS
-            .map((group) => ({ ...group, items: group.items.filter((item) => item.id !== 'companies') }))
-            .filter((group) => group.items.length > 0);
+    // Company management lives on the post-login company picker, not in
+    // Settings: Settings is scoped to the company you are already inside, and
+    // creating or switching companies is a level above that.
+    const menuGroups = MENU_GROUPS;
     const rawTab = searchParams.get('tab') || 'general';
-    const activeTab = VALID_TAB_IDS.has(rawTab) && (rawTab !== 'companies' || isAdmin) ? rawTab : 'general';
+    const activeTab = VALID_TAB_IDS.has(rawTab) ? rawTab : 'general';
     const setActiveTab = (id: string) => setSearchParams(id === 'general' ? {} : { tab: id });
     const storeCompanyInfo = useSettingsStore(s => s.companyInfo);
     const storeTaxSettings = useSettingsStore(s => s.taxSettings);
@@ -1000,9 +991,6 @@ const Settings = () => {
                     <EmailTemplates />
                 )}
 
-                {activeTab === 'companies' && (
-                    <Companies />
-                )}
             </div>
         </div>
     );

@@ -3,6 +3,7 @@ import { X, Plus, List, XCircle, ChevronRight, RotateCcw, Copy } from 'lucide-re
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { moduleKeyOf, isDocumentModule, docModuleTitle, DOC_MODULES } from '../../stores/workspace/modules';
+import { isPinnedTab } from '../../stores/workspace/reducers';
 import { TAB_CAP, MODULE_CAP } from '../../stores/workspace/types';
 import TabContextMenu, { type TabMenuItem } from './TabContextMenu';
 
@@ -34,14 +35,14 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
     const activeModuleKey = activeTab ? moduleKeyOf(activeTab.target) : null;
 
     // Row 1: ordered unique modules; a module is dirty if any of its docs is.
-    const modules: { key: string; title: string; dirty: boolean }[] = [];
-    const byKey = new Map<string, { key: string; title: string; dirty: boolean }>();
+    const modules: { key: string; title: string; dirty: boolean; pinned: boolean }[] = [];
+    const byKey = new Map<string, { key: string; title: string; dirty: boolean; pinned: boolean }>();
     for (const t of tabs) {
         const key = moduleKeyOf(t.target);
         const dirty = t.status !== 'clean';
         const existing = byKey.get(key);
         if (existing) { if (dirty) existing.dirty = true; continue; }
-        const m = { key, title: docModuleTitle(key) ?? t.title, dirty };
+        const m = { key, title: docModuleTitle(key) ?? t.title, dirty, pinned: isPinnedTab(t) };
         byKey.set(key, m);
         modules.push(m);
     }
@@ -101,9 +102,12 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                     >
                         {m.dirty && <span className="w-1.5 h-1.5 rounded-full bg-warning-500 mr-1.5 inline-block" />}
                         {m.title}
-                        <span className="workbench-doc-tab-close" onClick={(e) => { e.stopPropagation(); handleCloseModule(m.key, m.dirty); }}>
-                            <X size={14} />
-                        </span>
+                        {/* The dashboard is permanent — no close control at all. */}
+                        {!m.pinned && (
+                            <span className="workbench-doc-tab-close" onClick={(e) => { e.stopPropagation(); handleCloseModule(m.key, m.dirty); }}>
+                                <X size={14} />
+                            </span>
+                        )}
                     </button>
                 ))}
                 <div className="workbench-tab-count">{modules.length}/{MODULE_CAP} module{modules.length === 1 ? '' : 's'}</div>

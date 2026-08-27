@@ -30,11 +30,12 @@ const EMPTY_FORM: NewCompanyForm = {
  * hard-reloads through the ?org= handshake so every org-scoped persisted store
  * hydrates from the chosen company's bucket.
  *
- * The picker is also where a company gets CREATED, because it is the only
- * screen a user with no company can reach: Settings → Companies lives behind
- * an active org, so a first-time account would otherwise dead-end here.
- * Creation bootstraps the standard template server-side (COA, warehouse,
- * roles, open periods) and makes the caller its Admin.
+ * The picker is also the ONLY place a company gets created or switched. That
+ * used to be duplicated in Settings, which was the wrong home for it twice
+ * over: Settings is scoped to the company you are already inside, and it lives
+ * behind an active org, so a first-time account with no company could never
+ * reach it. Creation bootstraps the standard template server-side (COA,
+ * warehouse, roles, open periods) and makes the caller its Admin.
  */
 const CompanyPicker = (): React.ReactElement => {
   const user = useAuthStore((s) => s.user);
