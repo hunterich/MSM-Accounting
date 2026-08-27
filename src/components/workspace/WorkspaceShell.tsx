@@ -6,7 +6,7 @@ import TabContentHost from './TabContentHost';
 import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-import { pageModuleForPath, moduleKeyOf } from '../../stores/workspace/modules';
+import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
     const navigate = useNavigate();
@@ -114,8 +114,13 @@ const WorkspaceShell = (): React.ReactElement => {
             const docKey = params.get('docKey');
             const debitId = params.get('debitId');
             const returnId = params.get('returnId');
+            const fromReturn = params.get('fromReturn');
             if (path.startsWith('/ap/debits/edit') && debitId) {
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `debit:${debitId}`, mode: 'edit' }, title: `Edit ${debitId}`, path: `/ap/debits/edit?debitId=${debitId}` });
+            } else if (path.startsWith('/ap/debits/new') && fromReturn) {
+                // Pending note from a just-saved purchase return. Re-opening is a
+                // no-op on an existing tab, so the seeded draft is never clobbered.
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: pendingNoteRecordId('debit', fromReturn), mode: 'create' }, title: `Debit note · ${fromReturn}`, path: pendingNotePath('debit', fromReturn), initialStatus: 'new' });
             } else if (path.startsWith('/ap/returns/new') && returnId) {
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `return:${returnId}`, mode: 'edit' }, title: `Edit ${returnId}`, path: `/ap/returns/new?returnId=${returnId}` });
             } else if (docKey) {
@@ -188,8 +193,13 @@ const WorkspaceShell = (): React.ReactElement => {
             const docKey = params.get('docKey');
             const creditId = params.get('creditId');
             const returnId = params.get('returnId');
+            const fromReturn = params.get('fromReturn');
             if (path.startsWith('/ar/credits/edit') && creditId) {
                 open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `credit:${creditId}`, mode: 'edit' }, title: `Edit ${creditId}`, path: `/ar/credits/edit?creditId=${creditId}` });
+            } else if (path.startsWith('/ar/credits/new') && fromReturn) {
+                // Pending note from a just-saved sales return. Re-opening is a
+                // no-op on an existing tab, so the seeded draft is never clobbered.
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: pendingNoteRecordId('credit', fromReturn), mode: 'create' }, title: `Credit note · ${fromReturn}`, path: pendingNotePath('credit', fromReturn), initialStatus: 'new' });
             } else if (path.startsWith('/ar/returns/new') && returnId) {
                 open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `return:${returnId}`, mode: 'edit' }, title: `Edit ${returnId}`, path: `/ar/returns/new?returnId=${returnId}` });
             } else if (docKey) {

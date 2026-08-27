@@ -57,6 +57,10 @@ import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesRet
 import { useItems } from '../../hooks/useInventory';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
+import { makeTabId } from '../../stores/workspace/types';
+import { pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
 
 const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -103,6 +107,9 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createSalesReturnMutation = useCreateSalesReturn();
     const updateSalesReturnMutation = useUpdateSalesReturn();
+    const { open } = useWorkspaceNav();
+    const saveDraft = useWorkspaceStore((s) => s.saveDraft);
+    const closeTab = useWorkspaceStore((s) => s.closeTab);
     const resolvedAccountDefaults = useMemo(
         () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
         [chartOfAccounts, accountDefaultsConfig]
@@ -422,6 +429,33 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         if (saveAsDraft) {
             // Drafts park the return without spawning a credit note.
             navigate('/ar/credits');
+            return;
+        }
+
+        // Hand the prefilled credit note over through the new tab's draft. In
+        // the workspace a route carries only a path string, so router `state`
+        // never arrives — and `/ar/credits/new` on its own maps to the catalog,
+        // which used to drop the user on the list with the draft gone.
+        // Auto-numbered returns carry no identity yet — the server assigns the
+        // number on save — so fall back to a per-save key. Two returns saved back
+        // to back must not collide onto one credit note tab and overwrite each
+        // other's draft; an edited return (which has an id) reuses its own tab.
+        const returnKey = String(state.returnId || payload.returnNumber || `draft-${Date.now().toString(36)}`);
+        const noteTitle = payload.returnNumber ? `Credit note · ${payload.returnNumber}` : 'New credit note';
+        if (inWorkspace) {
+            const target = { module: 'ar', entity: 'credit-note', recordId: pendingNoteRecordId('credit', returnKey), mode: 'create' as const };
+            const opened = open({
+                kind: 'doc-form',
+                target,
+                title: noteTitle,
+                path: pendingNotePath('credit', returnKey),
+                initialStatus: 'new',
+            });
+            // Blocked by the tab cap: leave this return open so the cap prompt
+            // has somewhere to return to.
+            if (!opened) return;
+            saveDraft(makeTabId(target), { returnDraft: payload });
+            if (workspaceTabId) closeTab(workspaceTabId);
             return;
         }
 

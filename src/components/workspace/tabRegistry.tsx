@@ -128,6 +128,9 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         if (tab.kind === 'doc-view') return <APDebitNoteDetailPane docKey={recordId ?? ''} workspaceTabId={tab.id} />;
         if (tab.kind === 'doc-form') {
             const rid = recordId ?? '';
+            // Seeded from a just-saved purchase return: no record yet, the
+            // prefill lives in this tab's draft.
+            if (rid.startsWith('new-debit:')) return <DebitNoteForm mode="create" workspaceTabId={tab.id} />;
             if (rid.startsWith('debit:')) return <DebitNoteForm recordId={rid.slice('debit:'.length)} mode="edit" workspaceTabId={tab.id} />;
             const returnId = rid.startsWith('return:') ? rid.slice('return:'.length) : undefined;
             return <PurchaseReturnForm recordId={returnId} mode={returnId ? 'edit' : 'create'} workspaceTabId={tab.id} />;
@@ -172,6 +175,9 @@ export function renderTab(tab: WorkspaceTab): React.ReactNode {
         if (tab.kind === 'doc-view') return <CreditNoteDetailPane docKey={recordId ?? ''} workspaceTabId={tab.id} />;
         if (tab.kind === 'doc-form') {
             const rid = recordId ?? '';
+            // Seeded from a just-saved sales return: no record yet, the prefill
+            // lives in this tab's draft.
+            if (rid.startsWith('new-credit:')) return <CreditNoteForm mode="create" workspaceTabId={tab.id} />;
             if (rid.startsWith('credit:')) return <CreditNoteForm recordId={rid.slice('credit:'.length)} mode="edit" workspaceTabId={tab.id} />;
             const returnId = rid.startsWith('return:') ? rid.slice('return:'.length) : undefined;
             return <SalesReturnForm recordId={returnId} mode={returnId ? 'edit' : 'create'} workspaceTabId={tab.id} />;

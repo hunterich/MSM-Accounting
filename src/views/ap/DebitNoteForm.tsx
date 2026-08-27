@@ -4,6 +4,7 @@ import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
 import type { Account, DebitNote, PurchaseReturn } from '../../types';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 
 interface DebitNoteLine {
     lineKey?:    string;
@@ -114,8 +115,16 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createDebitNote = useCreateDebitNote();
     const updateDebitNoteMutation = useUpdateDebitNote();
+    // A debit note spawned by a just-saved purchase return arrives through the
+    // owning tab's draft: router state does not survive the workspace shell, and
+    // the prefill is a whole payload that cannot ride in the URL.
+    const draftSeed = useWorkspaceStore((s) =>
+        (workspaceTabId ? s.tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
+            | { returnDraft?: PurchaseReturn }
+            | undefined,
+    );
     const state = (inWorkspace
-        ? { mode: modeProp ?? 'edit', debitId: recordId }
+        ? { mode: modeProp ?? 'edit', debitId: recordId, returnDraft: draftSeed?.returnDraft }
         : (location.state || {})) as DebitNoteLocationState;
     const mode = state.mode || 'create';
     const isView = mode === 'view';
@@ -344,6 +353,23 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
         );
     };
 
+    const closeTab = useWorkspaceStore((s) => s.closeTab);
+    const clearDraft = useWorkspaceStore((s) => s.clearDraft);
+
+    /**
+     * Finalize a save. In workspace mode the tab owns navigation — drop the
+     * seeded draft and close the tab, which lands the user back on the module's
+     * catalog. In route mode keep the legacy list redirect.
+     */
+    const finishSave = () => {
+        if (workspaceTabId) {
+            clearDraft(workspaceTabId);
+            closeTab(workspaceTabId);
+            return;
+        }
+        navigate('/ap/debits');
+    };
+
     const handleSaveDebit = async (saveAsDraft = false) => {
         if (!formData.linkedReturnId || formData.lines.length === 0) {
             window.alert('Create debit note from a purchase return draft or open an existing debit note.');
@@ -402,7 +428,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
             window.alert(`Failed to save debit note: ${err instanceof Error ? err.message : 'Unknown error'}`);
             return;
         }
-        navigate('/ap/debits');
+        finishSave();
     };
 
     const isPageLoading =
