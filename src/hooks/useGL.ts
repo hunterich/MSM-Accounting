@@ -92,11 +92,22 @@ function normalizeJE(raw: RawJournalEntry): JournalEntry {
 
 // ─── Chart of Accounts Hooks ──────────────────────────────────────────────────
 
+/**
+ * The whole chart of accounts. Every form that posts to the GL resolves its
+ * account defaults against this list, so it has to be complete: `/api/v1/accounts`
+ * paginates at 20 by default, and a partial list silently drops accounts from
+ * the pickers and makes default resolution fall back to the wrong account.
+ */
+/** Matches the accounts route's maxLimit — a chart of accounts is a bounded
+ *  reference list, not a feed, so every consumer wants all of it. */
+const ACCOUNT_FETCH_LIMIT = 1000;
+
 export function useChartOfAccounts(filters?: Record<string, unknown>) {
+  const query = { limit: ACCOUNT_FETCH_LIMIT, ...filters };
   return useQuery({
     queryKey: filters ? [...GL_KEYS.accounts, filters] : GL_KEYS.accounts,
     queryFn:  () =>
-      api.get<RawAccount[] | { data: RawAccount[] }>('/api/v1/accounts', filters).then((res) => {
+      api.get<RawAccount[] | { data: RawAccount[] }>('/api/v1/accounts', query).then((res) => {
         const rows = Array.isArray(res) ? res : (res?.data ?? []);
         return rows.map(normalizeAccount);
       }),
@@ -111,7 +122,7 @@ export function useChartOfAccounts(filters?: Record<string, unknown>) {
  */
 export function useAccountsByType(types: string | string[], opts: { limit?: number; enabled?: boolean } = {}) {
   const list = Array.isArray(types) ? types : [types];
-  const limit = opts.limit ?? 200;
+  const limit = opts.limit ?? ACCOUNT_FETCH_LIMIT;
   const enabled = opts.enabled ?? true;
 
   return useQuery({
