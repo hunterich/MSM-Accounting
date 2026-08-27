@@ -18,6 +18,29 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
+/**
+ * Signed-in-but-companyless session: identity only, no org and no role. The
+ * client shows the company picker (create-first-company path) on this shape.
+ */
+async function emptySessionResponse(user: { id: string; email: string; fullName: string; mustChangePassword: boolean }) {
+  const token = await signToken({ userId: user.id, email: user.email, memberships: [] });
+  const response = NextResponse.json({
+    user: { id: user.id, email: user.email, fullName: user.fullName },
+    org: null,
+    memberships: [],
+    needsOrgSelection: true,
+    mustChangePassword: user.mustChangePassword === true,
+  });
+  response.cookies.set(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 8,
+    path: '/',
+  });
+  return response;
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!googleClientId) {
@@ -71,8 +94,14 @@ export async function POST(req: NextRequest) {
     }
 
     const memberships = user.memberships; // all active
+
+    // No company yet — same as password login: identity-only session, the
+    // client's company picker offers to create the first company.
     if (memberships.length === 0) {
-      return withCors(NextResponse.json({ error: 'No organization found for user' }, { status: 403 }));
+      if (user.status !== 'ACTIVE') {
+        return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+      }
+      return withCors(await emptySessionResponse(user));
     }
 
     // Keep today's response shape computed from the FIRST membership so

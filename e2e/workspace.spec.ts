@@ -5,6 +5,7 @@
 // and the backend running. `window.__MSM_WORKSPACE__` is a DEV-only bridge to
 // the workspace store, exposed by WorkspaceShell.
 import { test, expect } from '@playwright/test';
+import { passCompanyPicker } from './helpers';
 
 test.beforeEach(async ({ page }) => {
     await page.goto('/login');
@@ -13,6 +14,7 @@ test.beforeEach(async ({ page }) => {
     await page.click('button[type="submit"]');
     // Login redirects to the app root ("/"); just wait until we've left /login.
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30000 });
+    await passCompanyPicker(page);
 });
 
 test.describe('two-level tab bar — modules', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveActiveOrg, type TokenPayload } from '../auth';
+import { resolveActiveOrg, isOrgOptionalPath, type TokenPayload } from '../auth';
 
 const payload: TokenPayload = {
   userId: 'u1',
@@ -48,5 +48,25 @@ describe('resolveActiveOrg', () => {
     expect(resolveActiveOrg(none, 'org-a')).toEqual({
       ok: false, status: 403, error: 'Not a member of this organization', code: 'ORG_MEMBERSHIP',
     });
+  });
+});
+
+describe('isOrgOptionalPath', () => {
+  it('lets company creation through without a tenant context', () => {
+    expect(isOrgOptionalPath('/api/v1/organizations')).toBe(true);
+  });
+
+  it('ignores a trailing slash', () => {
+    expect(isOrgOptionalPath('/api/v1/organizations/')).toBe(true);
+  });
+
+  it('does NOT open tenant-scoped sub-routes under the same prefix', () => {
+    expect(isOrgOptionalPath('/api/v1/organizations/org-a')).toBe(false);
+    expect(isOrgOptionalPath('/api/v1/organizations/org-a/settings')).toBe(false);
+  });
+
+  it('leaves every other route behind the org gate', () => {
+    expect(isOrgOptionalPath('/api/v1/organization/settings')).toBe(false);
+    expect(isOrgOptionalPath('/api/v1/invoices')).toBe(false);
   });
 });

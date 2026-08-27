@@ -5,6 +5,7 @@
 // row (document module) and opens records as their own doc-view tabs. Requires
 // the dev server and the backend running.
 import { test, expect } from '@playwright/test';
+import { passCompanyPicker } from './helpers';
 
 type Bridge = { __MSM_WORKSPACE__: any };
 
@@ -19,6 +20,7 @@ test.beforeEach(async ({ page }) => {
     await page.fill('input[type="password"]', 'admin123');
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30000 });
+    await passCompanyPicker(page);
 });
 
 const docViewEntities = (page: import('@playwright/test').Page) =>

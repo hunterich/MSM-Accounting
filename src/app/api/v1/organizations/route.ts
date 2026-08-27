@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, requireAuth, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok, requireUser, withHandler } from '@/lib/api-utils';
 import { advisoryLockKey } from '@/lib/advisory-lock';
 import { bootstrapOrganization } from '@/lib/organization/bootstrap';
 
@@ -24,15 +24,44 @@ export async function OPTIONS() {
  * Create a new company from the standard template (COA, warehouse, roles,
  * periods) and make the caller its Admin.
  *
- * Deliberately guarded by the coarse `roleType === 'ADMIN'` claim rather than
- * withPermission: company creation is an owner capability ABOVE module RBAC —
- * there is no per-module permission a tenant role could hold for an org that
- * does not exist yet. The middleware stamps x-role-type from the signed
- * membership list, so this header is trusted.
+ * Deliberately guarded by role rather than withPermission: company creation is
+ * an owner capability ABOVE module RBAC — there is no per-module permission a
+ * tenant role could hold for an org that does not exist yet.
+ *
+ * The authority is derived from the caller's memberships across ALL companies,
+ * not from the tab's active org, because both callers who legitimately need
+ * this route may arrive with no resolvable active org (see `isOrgOptionalPath`):
+ *   - a brand-new user with zero companies, bootstrapping their first one;
+ *   - an admin sitting on the post-login company picker, which has not pinned
+ *     a company to the tab yet.
+ * Reading memberships from the DB rather than the `x-role-type` header also
+ * means a role revoked since the token was issued takes effect immediately.
  */
 export const POST = withHandler(async function POST(req: NextRequest) {
-  const { userId } = requireAuth(req);
-  if (req.headers.get('x-role-type') !== 'ADMIN') {
+  const userId = requireUser(req);
+
+  const caller = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      status: true,
+      memberships: {
+        where: { isActive: true },
+        select: { role: { select: { roleType: true } } },
+      },
+    },
+  });
+  // Status is checked on the USER row, not folded into the membership filter:
+  // a deactivated account has to fail here, not fall through the
+  // zero-membership branch below and look like a first-time signup.
+  if (!caller || caller.status !== 'ACTIVE') {
+    return err('Only administrators can create companies', 403);
+  }
+  // Zero companies → this is the caller's first, and there is no admin who
+  // could grant it to them. Otherwise they must already administer one.
+  const allowed =
+    caller.memberships.length === 0 ||
+    caller.memberships.some((m) => m.role.roleType === 'ADMIN');
+  if (!allowed) {
     return err('Only administrators can create companies', 403);
   }
 
