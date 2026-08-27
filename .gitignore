@@ -36,3 +36,7 @@ dist-ssr
 
 # Local database backups
 data/backups/
+
+# Playwright run artifacts
+playwright-report/
+test-results/

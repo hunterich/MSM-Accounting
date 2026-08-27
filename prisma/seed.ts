@@ -32,6 +32,15 @@ async function main() {
     },
     create: {
       id: 'org-demo',
+      // The demo company must be ready to use the moment it is seeded. The
+      // costing method is deliberately NOT defaulted in
+      // lib/organization/bootstrap.ts — a real company has to choose FIFO vs
+      // weighted-average consciously, and the app blocks the workspace until it
+      // does. But that gate makes a freshly seeded database unusable: you log in
+      // and land on Company Setup instead of the app, which is exactly what
+      // stopped the e2e suite from reaching any screen.
+      costingMethod: 'FIFO',
+      costingMethodEffectiveDate: new Date('2026-01-01'),
       legalName: 'PT. Demo Accounting',
       displayName: 'PT. Demo Accounting',
       npwp: '01.234.567.8-901.000',

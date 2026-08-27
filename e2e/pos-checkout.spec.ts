@@ -13,7 +13,7 @@ test.describe('POS cashier checkout', () => {
     await page.click('button[type="submit"]');
 
     // Shift open screen
-    await expect(page.getByText('Buka shift')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Buka shift' })).toBeVisible();
     await page.fill('input[type="number"]', '100000');
     await page.getByRole('button', { name: 'Buka shift' }).click();
 
