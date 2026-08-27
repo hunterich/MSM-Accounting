@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { signToken, verifyToken } from '../auth.js';
+import { signToken, verifyToken } from '../auth';
 
 const VALID_SECRET = 'test-secret-at-least-32-characters-long!!';
 
