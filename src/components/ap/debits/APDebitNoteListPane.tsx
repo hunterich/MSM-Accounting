@@ -59,28 +59,29 @@ const APDebitNoteListPane = (): React.ReactElement => {
         const debit = debitNotes.find((d) => d.id === id); if (!debit) return;
         const lines = ((purchaseReturns.find((r) => r.id === debit.returnId)?.lines) as ReturnLine[] | undefined) || [];
         const subtotal = lineSubtotal(lines); const total = Number(debit.amount || 0);
-        setPrintDoc({ title: 'DEBIT NOTE', partyLabel: 'Vendor', partyName: debit.vendorName, document: { number: debit.id, date: debit.date, status: debit.status, reference: debit.sourceBillId }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total });
+        setPrintDoc({ title: 'DEBIT NOTE', partyLabel: 'Vendor', partyName: debit.vendorName, document: { number: debit.number, date: debit.date, status: debit.status, reference: debit.sourceBillNumber }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total });
         setIsPrintOpen(true);
     };
 
     const filteredDebits = useMemo(() => debitNotes.filter((item) => {
         const kw = searchTerm.toLowerCase();
-        const matchesSearch = item.vendorName.toLowerCase().includes(kw) || item.id.toLowerCase().includes(kw) || item.sourceBillId.toLowerCase().includes(kw) || item.returnId.toLowerCase().includes(kw);
+        const matchesSearch = item.vendorName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw)
+            || item.sourceBillNumber.toLowerCase().includes(kw) || item.returnNumber.toLowerCase().includes(kw);
         return matchesSearch && (settlementType ? item.settlementType === settlementType : true);
     }), [searchTerm, settlementType, debitNotes]);
     const filteredReturns = useMemo(() => purchaseReturns.filter((item) => {
         const kw = searchTerm.toLowerCase();
-        return item.vendorName.toLowerCase().includes(kw) || item.id.toLowerCase().includes(kw) || item.billId.toLowerCase().includes(kw);
+        return item.vendorName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw) || item.billNumber.toLowerCase().includes(kw);
     }), [searchTerm, purchaseReturns]);
 
     const debitColumns = [
-        { key: 'id', label: 'Debit Note #' },
-        { key: 'returnId', label: 'Purchase Return #' },
+        { key: 'number', label: 'Debit Note #' },
+        { key: 'returnNumber', label: 'Purchase Return #' },
         { key: 'date', label: 'Date', render: (val: unknown) => formatDateID(val as string) },
         { key: 'vendorName', label: 'Vendor' },
-        { key: 'sourceBillId', label: 'Source Bill' },
+        { key: 'sourceBillNumber', label: 'Source Bill' },
         { key: 'amount', label: 'Amount', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
-        { key: 'settlementType', label: 'Settlement', render: (val: unknown, row: Record<string, unknown>) => `${val as string}${row['settlementRef'] ? ` • ${row['settlementRef'] as string}` : ''}` },
+        { key: 'settlementType', label: 'Settlement', render: (val: unknown, row: Record<string, unknown>) => `${val as string}${row['sourceBillNumber'] ? ` • ${row['sourceBillNumber'] as string}` : ''}` },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Applied' ? 'Success' : 'Info'} label={val as string} /> },
         { key: 'actions', label: '', render: (_: unknown, row: Record<string, unknown>) => (
             <div className="row-actions-end">
@@ -92,10 +93,10 @@ const APDebitNoteListPane = (): React.ReactElement => {
         ) },
     ];
     const returnColumns = [
-        { key: 'id', label: 'Purchase Return #' },
+        { key: 'number', label: 'Purchase Return #' },
         { key: 'returnDate', label: 'Date', render: (val: unknown) => formatDateID(val as string) },
         { key: 'vendorName', label: 'Vendor' },
-        { key: 'billId', label: 'Source Bill' },
+        { key: 'billNumber', label: 'Source Bill' },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Approved' ? 'Success' : 'Warning'} label={val as string} /> },
         { key: 'actions', label: '', render: (_: unknown, row: Record<string, unknown>) => (
             <div className="row-actions-end">
@@ -106,10 +107,10 @@ const APDebitNoteListPane = (): React.ReactElement => {
     ];
 
     const handleExportCsv = () => {
-        const rows = filteredDebits.map((dn) => ({ id: dn.id, date: dn.date, vendorName: dn.vendorName, sourceBillId: dn.sourceBillId, amount: dn.amount, status: dn.status }));
+        const rows = filteredDebits.map((dn) => ({ number: dn.number, date: dn.date, vendorName: dn.vendorName, sourceBillNumber: dn.sourceBillNumber, amount: dn.amount, status: dn.status }));
         exportToCsv('debit-notes.csv', rows, [
-            { label: 'Number', key: 'id' }, { label: 'Date', key: 'date' }, { label: 'Vendor', key: 'vendorName' },
-            { label: 'Source Bill', key: 'sourceBillId' }, { label: 'Amount', key: 'amount' }, { label: 'Status', key: 'status' },
+            { label: 'Number', key: 'number' }, { label: 'Date', key: 'date' }, { label: 'Vendor', key: 'vendorName' },
+            { label: 'Source Bill', key: 'sourceBillNumber' }, { label: 'Amount', key: 'amount' }, { label: 'Status', key: 'status' },
         ]);
     };
 

@@ -30,7 +30,7 @@ const PAYMENT_METHOD_UP: Record<string, string> = {
     'Bank Transfer': 'BANK_TRANSFER', Check: 'CHECK', Cheque: 'CHECK',
     'Credit Card': 'CREDIT_CARD', Cash: 'CASH', COD: 'OTHER', 'E-Wallet': 'OTHER',
 };
-const mapPaymentMethodUp = (m?: string) => (m ? (PAYMENT_METHOD_UP[m] ?? (/^[A-Z_]+$/.test(m) ? m : 'OTHER')) : undefined);
+export const mapPaymentMethodUp = (m?: string) => (m ? (PAYMENT_METHOD_UP[m] ?? (/^[A-Z_]+$/.test(m) ? m : 'OTHER')) : undefined);
 const PAYMENT_STATUS_DOWN: Record<string, PaymentStatus> = { DRAFT: 'Draft', PROCESSING: 'Processing', COMPLETED: 'Completed', VOID: 'Void' };
 const PAYMENT_STATUS_UP:   Record<string, string>        = { Draft: 'DRAFT', Processing: 'PROCESSING', Completed: 'COMPLETED', Void: 'VOID' };
 

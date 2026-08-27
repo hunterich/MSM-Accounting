@@ -59,28 +59,29 @@ const CreditNoteListPane = (): React.ReactElement => {
         const credit = creditNotes.find((c) => c.id === id); if (!credit) return;
         const lines = ((salesReturns.find((r) => r.id === credit.returnId)?.lines) as ReturnLine[] | undefined) || [];
         const subtotal = lineSubtotal(lines); const total = Number(credit.amount || 0);
-        setPrintDoc({ title: 'CREDIT NOTE', partyLabel: 'Customer', partyName: credit.customerName, document: { number: credit.id, date: credit.date, status: credit.status, reference: credit.sourceInvoiceId }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total });
+        setPrintDoc({ title: 'CREDIT NOTE', partyLabel: 'Customer', partyName: credit.customerName, document: { number: credit.number, date: credit.date, status: credit.status, reference: credit.sourceInvoiceNumber }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total });
         setIsPrintOpen(true);
     };
 
     const filteredCredits = useMemo(() => creditNotes.filter((item) => {
         const kw = searchTerm.toLowerCase();
-        const matchesSearch = item.customerName.toLowerCase().includes(kw) || item.id.toLowerCase().includes(kw) || item.sourceInvoiceId.toLowerCase().includes(kw) || item.returnId.toLowerCase().includes(kw);
+        const matchesSearch = item.customerName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw)
+            || item.sourceInvoiceNumber.toLowerCase().includes(kw) || item.returnNumber.toLowerCase().includes(kw);
         return matchesSearch && (settlementType ? item.settlementType === settlementType : true);
     }), [searchTerm, settlementType, creditNotes]);
     const filteredReturns = useMemo(() => salesReturns.filter((item) => {
         const kw = searchTerm.toLowerCase();
-        return item.customerName.toLowerCase().includes(kw) || item.id.toLowerCase().includes(kw) || item.invoiceId.toLowerCase().includes(kw);
+        return item.customerName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw) || item.invoiceNumber.toLowerCase().includes(kw);
     }), [searchTerm, salesReturns]);
 
     const creditColumns = [
-        { key: 'id', label: 'Credit Note #' },
-        { key: 'returnId', label: 'Sales Return #' },
+        { key: 'number', label: 'Credit Note #' },
+        { key: 'returnNumber', label: 'Sales Return #' },
         { key: 'date', label: 'Date', sortable: true, render: (val: unknown) => formatDateID(val as string) },
         { key: 'customerName', label: 'Customer', sortable: true },
-        { key: 'sourceInvoiceId', label: 'Source Invoice' },
+        { key: 'sourceInvoiceNumber', label: 'Source Invoice' },
         { key: 'amount', label: 'Amount', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
-        { key: 'settlementType', label: 'Settlement', render: (val: unknown, row: Record<string, unknown>) => `${val as string}${row['settlementRef'] ? ` • ${row['settlementRef'] as string}` : ''}` },
+        { key: 'settlementType', label: 'Settlement', render: (val: unknown, row: Record<string, unknown>) => `${val as string}${row['sourceInvoiceNumber'] ? ` • ${row['sourceInvoiceNumber'] as string}` : ''}` },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Applied' ? 'Success' : 'Info'} label={val as string} /> },
         { key: 'actions', label: '', render: (_: unknown, row: Record<string, unknown>) => (
             <div className="row-actions-end">
@@ -92,10 +93,10 @@ const CreditNoteListPane = (): React.ReactElement => {
         ) },
     ];
     const returnColumns = [
-        { key: 'id', label: 'Sales Return #' },
+        { key: 'number', label: 'Sales Return #' },
         { key: 'returnDate', label: 'Date', sortable: true, render: (val: unknown) => formatDateID(val as string) },
         { key: 'customerName', label: 'Customer', sortable: true },
-        { key: 'invoiceId', label: 'Source Invoice' },
+        { key: 'invoiceNumber', label: 'Source Invoice' },
         { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={(val as string) === 'Approved' ? 'Success' : 'Warning'} label={val as string} /> },
         { key: 'actions', label: '', render: (_: unknown, row: Record<string, unknown>) => (
             <div className="row-actions-end">
@@ -106,10 +107,10 @@ const CreditNoteListPane = (): React.ReactElement => {
     ];
 
     const handleExportCsv = () => {
-        const rows = filteredCredits.map((cn) => ({ id: cn.id, date: cn.date, customerName: cn.customerName, sourceInvoiceId: cn.sourceInvoiceId, amount: cn.amount, status: cn.status }));
+        const rows = filteredCredits.map((cn) => ({ number: cn.number, date: cn.date, customerName: cn.customerName, sourceInvoiceNumber: cn.sourceInvoiceNumber, amount: cn.amount, status: cn.status }));
         exportToCsv('credit-notes.csv', rows, [
-            { label: 'Number', key: 'id' }, { label: 'Date', key: 'date' }, { label: 'Customer', key: 'customerName' },
-            { label: 'Source Invoice', key: 'sourceInvoiceId' }, { label: 'Amount', key: 'amount' }, { label: 'Status', key: 'status' },
+            { label: 'Number', key: 'number' }, { label: 'Date', key: 'date' }, { label: 'Customer', key: 'customerName' },
+            { label: 'Source Invoice', key: 'sourceInvoiceNumber' }, { label: 'Amount', key: 'amount' }, { label: 'Status', key: 'status' },
         ]);
     };
 
