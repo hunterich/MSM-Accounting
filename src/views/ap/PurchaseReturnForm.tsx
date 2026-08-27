@@ -349,7 +349,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         );
     };
 
-    const handleSaveReturn = (saveAsDraft = false) => {
+    const handleSaveReturn = async (saveAsDraft = false) => {
         if (!returnData.vendorId) {
             window.alert('Select a vendor before saving purchase return.');
             return;
@@ -375,8 +375,14 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         }
 
         const returnNumber = returnNumberingMode === 'manual' ? returnData.returnNumber : undefined;
+        // `Bill.id` is the bill NUMBER on the client (see normalizeBill); the DB
+        // primary key lives on `_id`. The API foreign-keys the return — and the
+        // debit note's sourceBillId — to Bill, so send the real key or every save
+        // fails with "Bill not found in organization".
+        const billDbId = bills.find((item) => item.id === returnData.billId)?._id || returnData.billId;
         const payload = {
             ...returnData,
+            billId: billDbId,
             ...(returnNumber && { returnNumber }),
             lines: selectedLines
         };
@@ -387,10 +393,18 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             ...payload,
             status: saveAsDraft ? 'Draft' : 'Pending Debit Note',
         };
-        if (state.returnId) {
-            updatePurchaseReturnMutation.mutate({ id: state.returnId, ...returnRecord } as any);
-        } else {
-            createPurchaseReturnMutation.mutate(returnRecord as any);
+        // Await the write rather than firing and forgetting: the debit note has to
+        // link to the SAVED return, and only the response carries the id and the
+        // server-assigned number. It also means a failed save is reported instead
+        // of silently swallowed while we navigate away.
+        let saved: { id?: string; number?: string } | null = null;
+        try {
+            saved = (state.returnId
+                ? await updatePurchaseReturnMutation.mutateAsync({ id: state.returnId, ...returnRecord } as any)
+                : await createPurchaseReturnMutation.mutateAsync(returnRecord as any)) as { id?: string; number?: string } | null;
+        } catch (err) {
+            window.alert(`Failed to save purchase return: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            return;
         }
 
         if (saveAsDraft) {
@@ -398,6 +412,12 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             navigate('/ap/debits');
             return;
         }
+
+        const savedId = saved?.id || state.returnId || '';
+        const savedNumber = saved?.number || payload.returnNumber || '';
+        // Seed with the canonical PurchaseReturn field names so the debit note can
+        // read `id`/`number` straight off the draft.
+        const returnSeed = { ...payload, id: savedId, number: savedNumber };
 
         // Hand the prefilled debit note over through the new tab's draft. In the
         // workspace a route carries only a path string, so router `state` never
@@ -407,8 +427,8 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         // number on save — so fall back to a per-save key. Two returns saved back
         // to back must not collide onto one debit note tab and overwrite each
         // other's draft; an edited return (which has an id) reuses its own tab.
-        const returnKey = String(state.returnId || payload.returnNumber || `draft-${Date.now().toString(36)}`);
-        const noteTitle = payload.returnNumber ? `Debit note · ${payload.returnNumber}` : 'New debit note';
+        const returnKey = String(savedId || savedNumber || `draft-${Date.now().toString(36)}`);
+        const noteTitle = savedNumber ? `Debit note · ${savedNumber}` : 'New debit note';
         if (inWorkspace) {
             const target = { module: 'ap', entity: 'debit-note', recordId: pendingNoteRecordId('debit', returnKey), mode: 'create' as const };
             const opened = open({
@@ -421,7 +441,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             // Blocked by the tab cap: leave this return open so the cap prompt
             // has somewhere to return to.
             if (!opened) return;
-            saveDraft(makeTabId(target), { returnDraft: payload });
+            saveDraft(makeTabId(target), { returnDraft: returnSeed });
             if (workspaceTabId) closeTab(workspaceTabId);
             return;
         }
@@ -430,7 +450,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             state: {
                 mode: 'create',
                 source: 'purchase-return',
-                returnDraft: payload
+                returnDraft: returnSeed
             }
         });
     };
@@ -451,11 +471,11 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             actions={
                 <>
                     <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
-                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => handleSaveReturn(true)} />}
+                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveReturn(true); }} />}
                     <Button
                         text={isView ? 'Close' : 'Save & Create Debit Note'}
                         variant="primary"
-                        onClick={isView ? () => navigate('/ap/debits') : () => handleSaveReturn(false)}
+                        onClick={isView ? () => navigate('/ap/debits') : () => { void handleSaveReturn(false); }}
                     />
                 </>
             }

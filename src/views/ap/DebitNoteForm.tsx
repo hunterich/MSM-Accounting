@@ -15,9 +15,15 @@ interface DebitNoteLine {
 }
 
 interface DebitNoteFormData {
+    /** DB id of a saved note — the key updates are addressed to. */
+    debitId:             string;
+    /** Server-assigned document number, for display. */
     debitNumber:         string;
     debitDate:           string;
+    /** The purchase return's id — this is what the API links the note to. */
     linkedReturnId:      string;
+    /** The purchase return's human number, for display only. */
+    linkedReturnNumber:  string;
     vendorId:            string;
     vendorName:          string;
     sourceBillId:        string;
@@ -135,9 +141,11 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
 
     const [numberingMode, setNumberingMode] = useState('auto');
     const [formData, setFormData] = useState<DebitNoteFormData>({
+        debitId: '',
         debitNumber: '',
         debitDate: new Date().toISOString().split('T')[0],
         linkedReturnId: '',
+        linkedReturnNumber: '',
         vendorId: '',
         vendorName: '',
         sourceBillId: '',
@@ -186,12 +194,15 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     useEffect(() => {
         if (state.returnDraft) {
             const draft = state.returnDraft;
-            const sourceBill = bills.find((item) => item.id === draft.billId);
+            // The seed carries the bill's DB key; `Bill.id` on the client is the
+            // bill number, so match on either.
+            const sourceBill = bills.find((item) => item.id === draft.billId || item._id === draft.billId);
             setNumberingMode('auto');
             setFormData((prev) => ({
                 ...prev,
                 debitDate: draft.returnDate || prev.debitDate,
-                linkedReturnId: draft.number || draft.id,
+                linkedReturnId: draft.id || '',
+                linkedReturnNumber: draft.number || '',
                 vendorId: draft.vendorId,
                 vendorName: sourceBill?.vendor || '',
                 sourceBillId: draft.billId,
@@ -215,9 +226,11 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
             setNumberingMode('manual');
             setFormData((prev) => ({
                 ...prev,
-                debitNumber: found.id,
+                debitId: found.id,
+                debitNumber: found.number,
                 debitDate: found.date,
                 linkedReturnId: found.returnId,
+                linkedReturnNumber: found.returnNumber || linkedReturn?.number || '',
                 vendorId: found.vendorId,
                 vendorName: found.vendorName,
                 sourceBillId: found.sourceBillId,
@@ -413,8 +426,8 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
         };
 
         try {
-            if (mode === 'edit' && formData.debitNumber) {
-                await updateDebitNoteMutation.mutateAsync({ id: formData.debitNumber, ...notePayload });
+            if (mode === 'edit' && formData.debitId) {
+                await updateDebitNoteMutation.mutateAsync({ id: formData.debitId, ...notePayload });
             } else {
                 // POST always creates a DRAFT (the API ignores client status);
                 // applying is a separate DRAFT -> APPLIED transition that
@@ -479,7 +492,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                     </div>
                     <div className="col-span-3">
                         <label className="form-label">Linked Purchase Return</label>
-                        <Input className="mb-0" value={formData.linkedReturnId} disabled />
+                        <Input className="mb-0" value={formData.linkedReturnNumber || formData.linkedReturnId} disabled />
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Vendor</label>

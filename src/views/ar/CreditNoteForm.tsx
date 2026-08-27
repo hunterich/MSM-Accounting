@@ -14,9 +14,16 @@ interface CreditNoteLine {
 }
 
 interface CreditNoteFormData {
+    /** DB id of a saved note — the key updates are addressed to. */
+    creditId:            string;
+    /** Server-assigned document number, for display. */
     creditNumber:        string;
     creditDate:          string;
+    /** The sales return's id — this is what the API links the note to. */
     linkedReturnId:      string;
+    /** The sales return's human number, for display only. */
+    linkedReturnNumber:  string;
+    customerId:          string;
     customerName:        string;
     sourceInvoiceId:     string;
     settlementType:      string;
@@ -108,9 +115,12 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
 
     const [numberingMode, setNumberingMode] = useState('auto');
     const [formData, setFormData] = useState<CreditNoteFormData>({
+        creditId: '',
         creditNumber: '',
         creditDate: new Date().toISOString().split('T')[0],
         linkedReturnId: '',
+        linkedReturnNumber: '',
+        customerId: '',
         customerName: '',
         sourceInvoiceId: '',
         settlementType: 'Apply to Invoice',
@@ -137,7 +147,9 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
             setFormData((prev) => ({
                 ...prev,
                 creditDate: draft.returnDate || prev.creditDate,
-                linkedReturnId: draft.returnNumber,
+                linkedReturnId: draft.id || '',
+                linkedReturnNumber: draft.number || '',
+                customerId: draft.customerId || customerInvoice?.customerId || '',
                 customerName: customerInvoice?.customerName || '',
                 sourceInvoiceId: draft.invoiceId,
                 arAccountId: draft.arAccountId || prev.arAccountId || resolvedAccountDefaults.arControl,
@@ -160,9 +172,12 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
             setNumberingMode('manual');
             setFormData((prev) => ({
                 ...prev,
-                creditNumber: found.id,
+                creditId: found.id,
+                creditNumber: found.number,
                 creditDate: found.date,
                 linkedReturnId: found.returnId,
+                linkedReturnNumber: found.returnNumber || linkedReturn?.number || '',
+                customerId: found.customerId,
                 customerName: found.customerName,
                 sourceInvoiceId: found.sourceInvoiceId,
                 settlementType: found.settlementType,
@@ -406,6 +421,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
             ...(creditNumber && { id: creditNumber }),
             date: formData.creditDate,
             returnId: formData.linkedReturnId,
+            customerId: formData.customerId,
             customerName: formData.customerName,
             sourceInvoiceId: formData.sourceInvoiceId,
             settlementType: formData.settlementType,
@@ -423,8 +439,8 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
         };
 
         try {
-            if (mode === 'edit' && formData.creditNumber) {
-                await updateCreditNoteMutation.mutateAsync({ id: formData.creditNumber, ...notePayload } as any);
+            if (mode === 'edit' && formData.creditId) {
+                await updateCreditNoteMutation.mutateAsync({ id: formData.creditId, ...notePayload } as any);
             } else {
                 // POST always creates a DRAFT (the API ignores client status);
                 // applying is a separate DRAFT -> APPLIED transition that
@@ -487,7 +503,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                     </div>
                     <div className="col-span-3">
                         <label className="form-label">Linked Sales Return</label>
-                        <Input className="mb-0" value={formData.linkedReturnId} disabled />
+                        <Input className="mb-0" value={formData.linkedReturnNumber || formData.linkedReturnId} disabled />
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Customer</label>
