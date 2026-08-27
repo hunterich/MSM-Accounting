@@ -120,7 +120,7 @@
 
 ### 1.8 Operational Controls & API Hardening
 - [x] Pagination on high-risk list endpoints (accounts, items, customers, vendors, employees)
-- [x] Accounting period CRUD + close/lock action
+- [x] Accounting period CRUD + close/lock action — monthly close/reopen with a real audit stamp; see 2.4 for the close checklist and the enforcement path (`assertPeriodOpen`)
 - [x] Department and Position CRUD
 - [x] Warehouse CRUD
 - [x] Soft delete for master data
@@ -199,7 +199,7 @@
 - [x] Credit limit enforcement using outstanding AR balance + new document amount
 - [x] Approval workflow for invoices / purchase orders — `ApprovalInbox.tsx`; submit/approve/reject routes for invoices + POs; `ApprovalRequest` model; `PENDING_APPROVAL` status on invoice/PO
 - [x] Payment reconciliation against bank transactions — `/api/v1/reconciliation/payments` auto-match + manual match; `PaymentReconciliation.tsx`
-- [x] Accounting period close checklist and reopen flow — `/api/v1/accounting-periods/[id]/close-checklist` health check + `/close` blocks on unposted journals
+- [x] Accounting period close checklist and reopen flow — `/close-checklist` health check drives the confirm modal; `/close` blocks on unposted journals (counted by entry DATE — `periodId` is only set when a client passes it, so the old periodId count closed straight over unposted work) and stamps `closedAt`/`closedById`; `/reopen` lifts the lock and clears the stamp, with the previous closer kept on the audit row; `/generate` backfills a fiscal year's twelve months for companies predating the bootstrap. UI in Company Setup → Accounting Periods
 - [x] **CPA Audit Controls**: Document immutability (block edit/delete on non-DRAFT), COGS timing fix (post on SENT), BillStatus APPROVED enum, payment allocation validation
 - [x] **Edit-after-post (Accurate-style)** — relaxes the blanket non-DRAFT immutability above into a period-bounded edit: an authorized user can edit a posted OPEN/SENT bill or invoice **while its accounting period is open**; the route reverses the journal (`lib/repost.ts`) and re-posts in one transaction so the GL stays in sync (bounded by `assertPeriodOpen` = the monthly-close window). Blocked when payments / returns / credit-debit notes reference the doc (→ void to change). Reuses the module `edit` permission; `AuditLog` records `{ reposted, before, after }` (who changed what). Covers non-inventory docs **and inventory bills** (reverse deletes the cost lots — throwing if the stock was already consumed — and the re-post re-books them; GL + ledger + lots reconcile). PR #62.
 - [ ] **Edit-after-post: inventory invoices** — needs per-sale lot-draw tracking so an undo is exact. Today `restoreConsumedLayers` contra-appends stock and leaves the original SALES outbound ledger rows, so a *later void* of an edited invoice would over-restore stock; inventory invoices therefore stay void-first.

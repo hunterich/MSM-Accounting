@@ -4,6 +4,7 @@ import {
   ROLE_TEMPLATES,
   STANDARD_CHILD_ACCOUNTS,
   STANDARD_ROOT_ACCOUNTS,
+  buildFiscalYearPeriods,
 } from '../lib/organization/bootstrap';
 
 const prisma = new PrismaClient();
@@ -62,6 +63,21 @@ async function main() {
       financeEmail: 'finance@demo.com',
       fiscalYearStart: new Date('2026-01-01'),
     },
+  });
+
+  // Monthly accounting periods. The seed builds the demo org by hand rather
+  // than through bootstrapOrganization, so it had been skipping these entirely
+  // — leaving month-end close with nothing to operate on in dev and in e2e.
+  // Same definition the bootstrap uses, so the two can never drift.
+  await prisma.accountingPeriod.createMany({
+    data: buildFiscalYearPeriods(new Date('2026-01-01')).map((p) => ({
+      organizationId: org.id,
+      name: p.name,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      status: 'OPEN' as const,
+    })),
+    skipDuplicates: true,
   });
 
   const role = await prisma.role.upsert({

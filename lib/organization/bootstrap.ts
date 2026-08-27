@@ -203,8 +203,15 @@ function normalizeFiscalStart(fiscalYearStart: Date | null | undefined): Date {
   return new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1));
 }
 
-/** Twelve month-long periods (name `YYYY-MM`) starting at the fiscal start. */
-function buildFiscalYearPeriods(fiscalStart: Date): Array<{ name: string; startDate: Date; endDate: Date }> {
+/**
+ * Twelve month-long periods (name `YYYY-MM`) starting at the fiscal start.
+ *
+ * Exported because company bootstrap is not the only way an org can need them:
+ * organizations created before this bootstrap existed have none at all, and
+ * `POST /accounting-periods/generate` backfills them from the same definition
+ * so a period built here and one built there can never drift.
+ */
+export function buildFiscalYearPeriods(fiscalStart: Date): Array<{ name: string; startDate: Date; endDate: Date }> {
   const year = fiscalStart.getUTCFullYear();
   const month = fiscalStart.getUTCMonth();
   return Array.from({ length: 12 }, (_, i) => {

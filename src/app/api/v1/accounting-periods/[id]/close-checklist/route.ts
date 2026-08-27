@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { countUnpostedInPeriod } from '@/lib/period-close';
 
 export const runtime = 'nodejs';
 
@@ -24,9 +25,9 @@ export const GET = withHandler(async function GET(
 
   const [unpostedJournals, unreconciledBank, pendingApprovals, overdueInvoices] =
     await Promise.all([
-      prisma.journalEntry.count({
-        where: { organizationId: orgId, periodId: id, status: 'DRAFT' },
-      }),
+      // By DATE, not periodId — see lib/period-close.ts for why the periodId
+      // column cannot be trusted for membership.
+      countUnpostedInPeriod(prisma, orgId, period.startDate, period.endDate),
       prisma.bankTransaction.count({
         where: {
           organizationId: orgId,
