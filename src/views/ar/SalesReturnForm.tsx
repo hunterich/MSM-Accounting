@@ -70,7 +70,12 @@ const buildReturnNo = (dateStr: string, seq = 1) => {
 };
 
 const normalizeLine = (line: SalesReturnLineInput): SalesReturnLine => ({
-    itemId: String(line.id || line.itemId || ''),
+    // `itemId` must be the PRODUCT id, or nothing. It used to fall back to
+    // `line.id` — the invoice LINE's id — so every save was rejected with
+    // "Item not found in organization". Invoice lines are free-text unless a
+    // product is linked, and the API takes a nullish itemId, so leave it empty
+    // rather than inventing a foreign key that matches no Item.
+    itemId: String(line.itemId || ''),
     itemName: String(line.itemName || line.name || ''),
     qtySold: Number(line.qty || line.qtySold || 0),
     qtyReturn: Number(line.qtyReturn || 0),
@@ -119,7 +124,10 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         const map: Record<string, SalesReturnLineInput[]> = {};
         invoices.forEach(inv => {
             if (inv.lines?.length) map[inv.id] = inv.lines.map(l => ({
-                id: String(l.id || l.itemId || ''),
+                // `id` keys the row in the UI; `itemId` is the product FK and
+                // stays empty when the invoice line has no product linked.
+                id: String(l.id || ''),
+                itemId: String(l.itemId || ''),
                 itemName: String(l.description || l.itemName || ''),
                 qty: Number(l.quantity || 0),
                 unit: String(l.unit || 'PCS'),
@@ -381,7 +389,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         });
     };
 
-    const handleSaveReturn = (saveAsDraft = false) => {
+    const handleSaveReturn = async (saveAsDraft = false) => {
         if (!returnData.customerId) {
             window.alert('Select a customer before saving sales return.');
             return;
@@ -420,10 +428,18 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             ...payload,
             status: saveAsDraft ? 'Draft' : 'Pending Credit Note',
         };
-        if (state.returnId) {
-            updateSalesReturnMutation.mutate({ id: state.returnId, ...returnRecord } as any);
-        } else {
-            createSalesReturnMutation.mutate(returnRecord as any);
+        // Await the write rather than firing and forgetting: the credit note has
+        // to link to the SAVED return, and only the response carries the id and
+        // the server-assigned number. It also means a failed save is reported
+        // instead of silently swallowed while we navigate away.
+        let saved: { id?: string; number?: string } | null = null;
+        try {
+            saved = (state.returnId
+                ? await updateSalesReturnMutation.mutateAsync({ id: state.returnId, ...returnRecord } as any)
+                : await createSalesReturnMutation.mutateAsync(returnRecord as any)) as { id?: string; number?: string } | null;
+        } catch (err) {
+            window.alert(`Failed to save sales return: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            return;
         }
 
         if (saveAsDraft) {
@@ -432,16 +448,20 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             return;
         }
 
+        const savedId = saved?.id || state.returnId || '';
+        const savedNumber = saved?.number || payload.returnNumber || '';
+        // Seed with the canonical SalesReturn field names so the credit note can
+        // read `id`/`number` straight off the draft.
+        const returnSeed = { ...payload, id: savedId, number: savedNumber };
+
         // Hand the prefilled credit note over through the new tab's draft. In
         // the workspace a route carries only a path string, so router `state`
         // never arrives — and `/ar/credits/new` on its own maps to the catalog,
         // which used to drop the user on the list with the draft gone.
-        // Auto-numbered returns carry no identity yet — the server assigns the
-        // number on save — so fall back to a per-save key. Two returns saved back
-        // to back must not collide onto one credit note tab and overwrite each
-        // other's draft; an edited return (which has an id) reuses its own tab.
-        const returnKey = String(state.returnId || payload.returnNumber || `draft-${Date.now().toString(36)}`);
-        const noteTitle = payload.returnNumber ? `Credit note · ${payload.returnNumber}` : 'New credit note';
+        // Key the tab on the saved return, so two returns never collide onto one
+        // credit note tab and overwrite each other's draft.
+        const returnKey = String(savedId || savedNumber || `draft-${Date.now().toString(36)}`);
+        const noteTitle = savedNumber ? `Credit note · ${savedNumber}` : 'New credit note';
         if (inWorkspace) {
             const target = { module: 'ar', entity: 'credit-note', recordId: pendingNoteRecordId('credit', returnKey), mode: 'create' as const };
             const opened = open({
@@ -454,7 +474,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             // Blocked by the tab cap: leave this return open so the cap prompt
             // has somewhere to return to.
             if (!opened) return;
-            saveDraft(makeTabId(target), { returnDraft: payload });
+            saveDraft(makeTabId(target), { returnDraft: returnSeed });
             if (workspaceTabId) closeTab(workspaceTabId);
             return;
         }
@@ -463,7 +483,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             state: {
                 mode: 'create',
                 source: 'sales-return',
-                returnDraft: payload
+                returnDraft: returnSeed
             }
         });
     };
@@ -511,8 +531,8 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             actions={(
                 <>
                     <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
-                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => handleSaveReturn(true)} />}
-                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => handleSaveReturn(false)} />
+                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveReturn(true); }} />}
+                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveReturn(false); }} />
                 </>
             )}
         >

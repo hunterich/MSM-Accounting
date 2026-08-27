@@ -3,6 +3,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import { mapPaymentMethodUp } from './useAR';
 import type {
   SalesReturn,    RawSalesReturn,
   PurchaseReturn, RawPurchaseReturn,
@@ -33,12 +34,19 @@ export const CATEGORY_KEYS = {
 
 // ─── Status Maps ──────────────────────────────────────────────────────────────
 
+// Both directions must mirror prisma's ReturnStatus enum. These used to collapse
+// the two pending states onto a `PENDING_NOTE` value that no longer exists in the
+// schema, so every "Save & Create Credit/Debit Note" was rejected with an invalid
+// enum error — silently, because the mutation was fired and forgotten.
 const RETURN_STATUS_DOWN: Record<string, ReturnStatus> = {
-  DRAFT: 'Draft', APPROVED: 'Approved', PENDING_NOTE: 'Pending Credit Note', VOID: 'Void',
+  DRAFT: 'Draft', APPROVED: 'Approved',
+  PENDING_CREDIT_NOTE: 'Pending Credit Note', PENDING_DEBIT_NOTE: 'Pending Debit Note',
+  PENDING_APPROVAL: 'Pending Approval', APPLIED: 'Applied', VOID: 'Void',
 };
 const RETURN_STATUS_UP: Record<string, string> = {
   Draft: 'DRAFT', Approved: 'APPROVED',
-  'Pending Credit Note': 'PENDING_NOTE', 'Pending Debit Note': 'PENDING_NOTE', Void: 'VOID',
+  'Pending Credit Note': 'PENDING_CREDIT_NOTE', 'Pending Debit Note': 'PENDING_DEBIT_NOTE',
+  'Pending Approval': 'PENDING_APPROVAL', Applied: 'APPLIED', Void: 'VOID',
 };
 
 const CN_STATUS_DOWN: Record<string, CreditNoteStatus> = { DRAFT: 'Draft', APPLIED: 'Applied', VOID: 'Void' };
@@ -297,6 +305,72 @@ export function useVoidPurchaseReturn() {
   });
 }
 
+// ─── Write-side mappers ───────────────────────────────────────────────────────
+// `normalizeCreditNote` / `normalizeDebitNote` above translate API -> client on
+// read. These are their inverses, and the two halves must stay in step: the API
+// names three fields differently (salesReturnId / purchaseReturnId, and
+// refundBankAccountId), keys the note to `customerId` / `vendorId` rather than
+// the display name, and takes SCREAMING_CASE enums. Spreading the form's own
+// shape straight onto the request — which is what these mutations used to do —
+// fails validation on "Customer is required" and silently drops the link back
+// to the source return.
+
+/** Drop keys the caller never set: PUT bodies are partial, and sending an
+ *  explicit `undefined` would blank a column the caller never touched. */
+function definedOnly<T extends Record<string, unknown>>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/** Foreign keys are `.nullish()` server-side, but an empty string still reaches
+ *  Prisma as a non-null id that matches nothing. Send nothing instead. */
+const fk = (v?: string) => (v ? v : undefined);
+
+function creditNoteToApi(body: Partial<CreditNote>) {
+  return definedOnly({
+    customerId:          fk(body.customerId),
+    salesReturnId:       fk(body.salesReturnId ?? body.returnId),
+    sourceInvoiceId:     fk(body.sourceInvoiceId),
+    date:                body.date,
+    settlementType:      body.settlementType === undefined
+      ? undefined
+      : (body.settlementType === 'Refund' ? 'REFUND' : 'APPLY_TO_INVOICE'),
+    settlementRef:       body.settlementRef,
+    refundBankAccountId: fk(body.refundBankId),
+    refundMethod:        mapPaymentMethodUp(body.refundMethod),
+    arAccountId:         fk(body.arAccountId),
+    returnAccountId:     fk(body.returnAccountId),
+    taxAccountId:        fk(body.taxAccountId),
+    settlementAccountId: fk(body.settlementAccountId),
+    applyTax:            body.applyTax,
+    amount:              body.amount,
+    taxAmount:           body.taxAmount,
+    note:                body.note,
+  });
+}
+
+function debitNoteToApi(body: Partial<DebitNote>) {
+  return definedOnly({
+    vendorId:            fk(body.vendorId),
+    purchaseReturnId:    fk(body.purchaseReturnId ?? body.returnId),
+    sourceBillId:        fk(body.sourceBillId),
+    date:                body.date,
+    settlementType:      body.settlementType === undefined
+      ? undefined
+      : (body.settlementType === 'Refund from Vendor' ? 'REFUND_FROM_VENDOR' : 'APPLY_TO_BILL'),
+    settlementRef:       body.settlementRef,
+    refundBankAccountId: fk(body.refundBankId),
+    refundMethod:        mapPaymentMethodUp(body.refundMethod),
+    apAccountId:         fk(body.apAccountId),
+    returnAccountId:     fk(body.returnAccountId),
+    taxAccountId:        fk(body.taxAccountId),
+    settlementAccountId: fk(body.settlementAccountId),
+    applyTax:            body.applyTax,
+    amount:              body.amount,
+    taxAmount:           body.taxAmount,
+    note:                body.note,
+  });
+}
+
 // ─── Credit Notes ─────────────────────────────────────────────────────────────
 
 export function useCreditNotes(filters: Record<string, unknown> = {}) {
@@ -321,7 +395,7 @@ export function useCreateCreditNote() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Partial<CreditNote>) => api.post('/api/v1/credit-notes', {
-      ...body,
+      ...creditNoteToApi(body),
       status:         CN_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
       settlementType: body.settlementType === 'Refund' ? 'REFUND' : 'APPLY_TO_INVOICE',
     }),
@@ -334,9 +408,8 @@ export function useUpdateCreditNote() {
   return useMutation({
     mutationFn: ({ id, ...body }: Partial<CreditNote> & { id: string }) =>
       api.put(`/api/v1/credit-notes/${id}`, {
-        ...body,
+        ...creditNoteToApi(body),
         ...(body.status         && { status:         CN_STATUS_UP[body.status] ?? body.status }),
-        ...(body.settlementType && { settlementType: body.settlementType === 'Refund' ? 'REFUND' : 'APPLY_TO_INVOICE' }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['creditNotes'] }),
   });
@@ -382,7 +455,7 @@ export function useCreateDebitNote() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Partial<DebitNote>) => api.post('/api/v1/debit-notes', {
-      ...body,
+      ...debitNoteToApi(body),
       status:         DN_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
       settlementType: body.settlementType === 'Refund from Vendor' ? 'REFUND_FROM_VENDOR' : 'APPLY_TO_BILL',
     }),
@@ -395,9 +468,8 @@ export function useUpdateDebitNote() {
   return useMutation({
     mutationFn: ({ id, ...body }: Partial<DebitNote> & { id: string }) =>
       api.put(`/api/v1/debit-notes/${id}`, {
-        ...body,
+        ...debitNoteToApi(body),
         ...(body.status         && { status:         DN_STATUS_UP[body.status] ?? body.status }),
-        ...(body.settlementType && { settlementType: body.settlementType === 'Refund from Vendor' ? 'REFUND_FROM_VENDOR' : 'APPLY_TO_BILL' }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['debitNotes'] }),
   });

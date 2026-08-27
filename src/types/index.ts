@@ -1169,7 +1169,9 @@ export interface Employee {
 
 // ── Returns ───────────────────────────────────────────────────────────────────
 
-export type ReturnStatus    = 'Draft' | 'Approved' | 'Pending Credit Note' | 'Void';
+// Mirrors prisma's ReturnStatus enum. Sales returns use 'Pending Credit Note',
+// purchase returns 'Pending Debit Note'; the rest are shared.
+export type ReturnStatus    = 'Draft' | 'Approved' | 'Pending Credit Note' | 'Pending Debit Note' | 'Applied' | 'Pending Approval' | 'Void';
 export type CreditNoteStatus = 'Draft' | 'Applied' | 'Void';
 export type DebitNoteStatus  = 'Draft' | 'Applied' | 'Void';
 
