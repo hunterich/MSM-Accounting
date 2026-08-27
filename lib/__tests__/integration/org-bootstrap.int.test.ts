@@ -295,9 +295,24 @@ describe('POST /api/v1/organizations', () => {
     expect(await prisma.organization.count({ where: { legalName: uniqueName } })).toBe(1);
   });
 
-  it('non-ADMIN roleType → 403 and no organization row is created', async () => {
+  it('non-ADMIN member → 403 and no organization row is created', async () => {
+    // The caller must be a genuine non-admin IN THE DATABASE. This test used to
+    // seed an org via bootstrapOrganization — which makes the creator its Admin —
+    // and then claim FINANCE through the `x-role-type` header. The route no
+    // longer trusts that header (it reads memberships, so a revoked role takes
+    // effect immediately), so the fixture was asserting nothing: the user really
+    // was an admin. Give them a membership on someone else's company under a
+    // non-ADMIN role instead, which is what the assertion has always meant.
+    const owner = await createCreatorUser();
+    const callerOrgId = await seedCallerOrg(owner.id);
     const user = await createCreatorUser();
-    const callerOrgId = await seedCallerOrg(user.id);
+    const nonAdminRole = await prisma.role.findFirstOrThrow({
+      where: { organizationId: callerOrgId, roleType: { not: 'ADMIN' } },
+      select: { id: true },
+    });
+    await prisma.userOrganization.create({
+      data: { userId: user.id, organizationId: callerOrgId, roleId: nonAdminRole.id, isActive: true },
+    });
     const uniqueName = `PT Ditolak ${randomUUID()}`;
 
     const res = await createOrganization(

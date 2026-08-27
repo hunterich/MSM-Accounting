@@ -22,6 +22,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "db:backfill-accounts": "tsx scripts/backfill-standard-accounts.ts",
     "db:indexes": "node --env-file-if-exists=.env scripts/apply-db-indexes.mjs",
     "db:migration": "node --env-file-if-exists=.env scripts/new-migration.mjs",
     "test": "vitest run",
