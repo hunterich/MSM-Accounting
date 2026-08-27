@@ -6,7 +6,7 @@ import {
   aggregateDestinationStatus,
 } from '../backup/retention';
 import type { DestinationResult } from '../backup/types';
-import { resolvePgToolPath } from '../backup/pg-tools';
+import { buildPgDumpArgs, buildPgRestoreArgs, resolvePgToolPath } from '../backup/pg-tools';
 
 describe('selectBackupsToPrune', () => {
   const file = (name: string, iso: string) => ({ fileName: name, createdAt: new Date(iso) });
@@ -85,5 +85,30 @@ describe('resolvePgToolPath', () => {
     const exists = (p: string) => p === expected;
     expect(resolvePgToolPath('pg_dump', { override: null, fileExists: exists, searchDirs: ['/opt/pg/bin'] }))
       .toBe(expected);
+  });
+});
+
+describe('pg tool command args', () => {
+  const url = 'postgresql://msm:secret@localhost:5432/msm_accounting?schema=public';
+
+  it('passes a database name to pg_dump without exposing credentials in process args', () => {
+    expect(buildPgDumpArgs(url, '/tmp/backup.dump')).toEqual([
+      '--dbname',
+      'msm_accounting',
+      '--format=custom',
+      '--file',
+      '/tmp/backup.dump',
+    ]);
+  });
+
+  it('passes a database name to pg_restore so the custom archive is applied to the database', () => {
+    expect(buildPgRestoreArgs(url, '/tmp/backup.dump')).toEqual([
+      '--clean',
+      '--if-exists',
+      '--no-owner',
+      '--dbname',
+      'msm_accounting',
+      '/tmp/backup.dump',
+    ]);
   });
 });
