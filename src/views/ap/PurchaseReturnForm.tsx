@@ -44,6 +44,10 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn } from '../../hooks/useReturns';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
+import { makeTabId } from '../../stores/workspace/types';
+import { pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
 
 const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -88,6 +92,9 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createPurchaseReturnMutation = useCreatePurchaseReturn();
     const updatePurchaseReturnMutation = useUpdatePurchaseReturn();
+    const { open } = useWorkspaceNav();
+    const saveDraft = useWorkspaceStore((s) => s.saveDraft);
+    const closeTab = useWorkspaceStore((s) => s.closeTab);
     const resolvedAccountDefaults = useMemo(
         () => resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig),
         [chartOfAccounts, accountDefaultsConfig]
@@ -389,6 +396,33 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         if (saveAsDraft) {
             // Drafts park the return without spawning a debit note.
             navigate('/ap/debits');
+            return;
+        }
+
+        // Hand the prefilled debit note over through the new tab's draft. In the
+        // workspace a route carries only a path string, so router `state` never
+        // arrives — and `/ap/debits/new` on its own maps to the catalog, which
+        // used to drop the user on the list with the draft gone.
+        // Auto-numbered returns carry no identity yet — the server assigns the
+        // number on save — so fall back to a per-save key. Two returns saved back
+        // to back must not collide onto one debit note tab and overwrite each
+        // other's draft; an edited return (which has an id) reuses its own tab.
+        const returnKey = String(state.returnId || payload.returnNumber || `draft-${Date.now().toString(36)}`);
+        const noteTitle = payload.returnNumber ? `Debit note · ${payload.returnNumber}` : 'New debit note';
+        if (inWorkspace) {
+            const target = { module: 'ap', entity: 'debit-note', recordId: pendingNoteRecordId('debit', returnKey), mode: 'create' as const };
+            const opened = open({
+                kind: 'doc-form',
+                target,
+                title: noteTitle,
+                path: pendingNotePath('debit', returnKey),
+                initialStatus: 'new',
+            });
+            // Blocked by the tab cap: leave this return open so the cap prompt
+            // has somewhere to return to.
+            if (!opened) return;
+            saveDraft(makeTabId(target), { returnDraft: payload });
+            if (workspaceTabId) closeTab(workspaceTabId);
             return;
         }
 

@@ -6,7 +6,7 @@ import TabContentHost from './TabContentHost';
 import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-import { pageModuleForPath, moduleKeyOf } from '../../stores/workspace/modules';
+import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
     const navigate = useNavigate();
@@ -114,8 +114,13 @@ const WorkspaceShell = (): React.ReactElement => {
             const docKey = params.get('docKey');
             const debitId = params.get('debitId');
             const returnId = params.get('returnId');
+            const fromReturn = params.get('fromReturn');
             if (path.startsWith('/ap/debits/edit') && debitId) {
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `debit:${debitId}`, mode: 'edit' }, title: `Edit ${debitId}`, path: `/ap/debits/edit?debitId=${debitId}` });
+            } else if (path.startsWith('/ap/debits/new') && fromReturn) {
+                // Pending note from a just-saved purchase return. Re-opening is a
+                // no-op on an existing tab, so the seeded draft is never clobbered.
+                open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: pendingNoteRecordId('debit', fromReturn), mode: 'create' }, title: `Debit note · ${fromReturn}`, path: pendingNotePath('debit', fromReturn), initialStatus: 'new' });
             } else if (path.startsWith('/ap/returns/new') && returnId) {
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `return:${returnId}`, mode: 'edit' }, title: `Edit ${returnId}`, path: `/ap/returns/new?returnId=${returnId}` });
             } else if (docKey) {
@@ -188,8 +193,13 @@ const WorkspaceShell = (): React.ReactElement => {
             const docKey = params.get('docKey');
             const creditId = params.get('creditId');
             const returnId = params.get('returnId');
+            const fromReturn = params.get('fromReturn');
             if (path.startsWith('/ar/credits/edit') && creditId) {
                 open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `credit:${creditId}`, mode: 'edit' }, title: `Edit ${creditId}`, path: `/ar/credits/edit?creditId=${creditId}` });
+            } else if (path.startsWith('/ar/credits/new') && fromReturn) {
+                // Pending note from a just-saved sales return. Re-opening is a
+                // no-op on an existing tab, so the seeded draft is never clobbered.
+                open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: pendingNoteRecordId('credit', fromReturn), mode: 'create' }, title: `Credit note · ${fromReturn}`, path: pendingNotePath('credit', fromReturn), initialStatus: 'new' });
             } else if (path.startsWith('/ar/returns/new') && returnId) {
                 open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `return:${returnId}`, mode: 'edit' }, title: `Edit ${returnId}`, path: `/ar/returns/new?returnId=${returnId}` });
             } else if (docKey) {
@@ -231,11 +241,26 @@ const WorkspaceShell = (): React.ReactElement => {
         setPageModuleTab(pm.key, pm.title, path + location.search);
     }, [location.pathname, location.search, open, setPageModuleTab]);
 
+    // Keep the URL on the active tab's path — tab clicks only change the store,
+    // so something has to push the URL after them.
+    //
+    // Read the store fresh instead of the rendered `activePath`: the effect above
+    // has already written the incoming location into its tab by the time we run,
+    // but `activePath` still holds the pre-navigation value. Comparing the stale
+    // value made this fire a redundant `replace` on every navigation, and a
+    // `replace` re-creates the history entry WITHOUT the router `state` the
+    // caller passed — which is why `navigate(path, { state })` arrived empty at
+    // every page-module view. `activePath` stays in the deps as the re-run
+    // trigger only. Deliberate redirects still work: when the effect above maps
+    // a route onto a different tab path (e.g. /ap/debits/new → the list), the
+    // fresh value differs from the location and we navigate as intended.
     useEffect(() => {
-        if (activePath && activePath !== window.location.pathname + window.location.search) {
-            navigate(activePath, { replace: true });
+        const s = useWorkspaceStore.getState();
+        const current = s.tabs.find((t) => t.id === s.activeTabId)?.path;
+        if (current && current !== window.location.pathname + window.location.search) {
+            navigate(current, { replace: true });
         }
-    }, [activePath, navigate]);
+    }, [activePath, activeTabId, navigate]);
 
     return (
         <div className="flex flex-col h-full">

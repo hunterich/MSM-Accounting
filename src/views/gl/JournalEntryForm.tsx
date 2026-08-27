@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { journalEntryHeaderSchema, zodToFormErrors } from '../../utils/formSchemas';
 import { CheckCircle, Plus, Save, Trash2, AlertCircle } from 'lucide-react';
 import FormPage from '../../components/Layout/FormPage';
@@ -74,7 +74,7 @@ const fcBase = "block w-full px-3 text-base leading-normal text-neutral-900 bg-n
 
 const JournalEntryForm = () => {
     const navigate = useNavigate();
-    const location = useLocation();
+    const [searchParams] = useSearchParams();
 
     // ── API hooks
     const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
@@ -87,9 +87,14 @@ const JournalEntryForm = () => {
     const createJE = useCreateJournalEntry();
     const updateJE = useUpdateJournalEntry();
 
-    // Edit/view mode: entryId passed via location.state
-    const entryId = location.state?.id || null;
+    // Edit/view mode: the entry id rides in the query string. Router `state`
+    // does not survive the workspace shell, which replays each tab from a
+    // stored path string, so ?id= is the only channel that reaches us.
+    const entryId = searchParams.get('id') || undefined;
     const isEditMode = Boolean(entryId);
+    // Posted entries open read-only — the API rejects editing anything but a
+    // DRAFT, so offering Save/Post here would only produce a 400.
+    const isViewMode = isEditMode && searchParams.get('mode') === 'view';
     const { data: existingEntry, isLoading: entryLoading } = useJournalEntry(entryId);
 
     const [header, setHeader] = useState<JournalHeaderState>({
@@ -221,21 +226,25 @@ const JournalEntryForm = () => {
     return (
         <FormPage
             containerClassName=""
-            title="New Journal Entry"
+            title={isViewMode ? `Journal Entry ${header.entryNo}`.trim() : isEditMode ? 'Edit Journal Entry' : 'New Journal Entry'}
             backTo="/gl/journals"
             backLabel="Back to Journal Entries"
             isLoading={isPageLoading}
             actions={
                 <>
-                    <Button text="Cancel"     variant="secondary" onClick={() => navigate('/gl/journals')} />
-                    <Button text="Save Draft" variant="secondary" icon={<Save size={16} />} onClick={handleSaveDraft} disabled={isSaving} />
-                    <Button
-                        text="Post Entry"
-                        variant="primary"
-                        icon={<CheckCircle size={16} />}
-                        onClick={handlePost}
-                        disabled={!totals.balanced || isSaving}
-                    />
+                    <Button text={isViewMode ? 'Close' : 'Cancel'} variant="secondary" onClick={() => navigate('/gl/journals')} />
+                    {!isViewMode && (
+                        <>
+                            <Button text="Save Draft" variant="secondary" icon={<Save size={16} />} onClick={handleSaveDraft} disabled={isSaving} />
+                            <Button
+                                text="Post Entry"
+                                variant="primary"
+                                icon={<CheckCircle size={16} />}
+                                onClick={handlePost}
+                                disabled={!totals.balanced || isSaving}
+                            />
+                        </>
+                    )}
                 </>
             }
         >
@@ -265,10 +274,10 @@ const JournalEntryForm = () => {
                         />
                     </div>
                     <div className="col-span-3">
-                        <Input label="Date *" name="date" type="date" value={header.date} onChange={handleHeaderChange} error={errors.date} />
+                        <Input label="Date *" name="date" type="date" value={header.date} onChange={handleHeaderChange} error={errors.date} disabled={isViewMode} />
                     </div>
                     <div className="col-span-3">
-                        <SelectField label="Accounting Period *" name="period" value={header.period} onChange={handleHeaderChange} error={errors.period}>
+                        <SelectField label="Accounting Period *" name="period" value={header.period} onChange={handleHeaderChange} error={errors.period} disabled={isViewMode}>
                             <option value="">— Select Period —</option>
                             {PERIODS.map((p) => (
                                 <option key={p.value} value={p.value} disabled={p.closed}>
@@ -278,7 +287,7 @@ const JournalEntryForm = () => {
                         </SelectField>
                     </div>
                     <div className="col-span-3">
-                        <SelectField label="Entry Type" name="source" value={header.source} onChange={handleHeaderChange}>
+                        <SelectField label="Entry Type" name="source" value={header.source} onChange={handleHeaderChange} disabled={isViewMode}>
                             <option value="Manual">Manual Entry</option>
                             <option value="Adjustment">Adjustment</option>
                             <option value="Accrual">Accrual</option>
@@ -290,7 +299,7 @@ const JournalEntryForm = () => {
                         </SelectField>
                     </div>
                     <div className="col-span-12">
-                        <Input label="Memo / Narration *" name="memo" value={header.memo} onChange={handleHeaderChange} placeholder="Describe the purpose of this entry (appears on GL reports)" error={errors.memo} />
+                        <Input label="Memo / Narration *" name="memo" value={header.memo} onChange={handleHeaderChange} placeholder="Describe the purpose of this entry (appears on GL reports)" error={errors.memo} disabled={isViewMode} />
                     </div>
                 </div>
             </div>
@@ -325,6 +334,7 @@ const JournalEntryForm = () => {
                                     <select
                                         className={fcBase}
                                         value={line.accountId}
+                                        disabled={isViewMode}
                                         onChange={(e) => handleLineChange(line.id, 'accountId', e.target.value)}
                                     >
                                         {postableAccounts.map((a) => (
@@ -340,6 +350,7 @@ const JournalEntryForm = () => {
                                         className={fcBase}
                                         value={line.description}
                                         placeholder="Line memo"
+                                        disabled={isViewMode}
                                         onChange={(e) => handleLineChange(line.id, 'description', e.target.value)}
                                     />
                                 </div>
@@ -351,7 +362,7 @@ const JournalEntryForm = () => {
                                         min="0"
                                         value={line.debit}
                                         placeholder="—"
-                                        disabled={hasCredit}
+                                        disabled={isViewMode || hasCredit}
                                         onChange={(e) => handleLineChange(line.id, 'debit', e.target.value)}
                                         onBlur={(e) => handleLineBlur(line.id, 'debit', e.target.value)}
                                     />
@@ -364,7 +375,7 @@ const JournalEntryForm = () => {
                                         min="0"
                                         value={line.credit}
                                         placeholder="—"
-                                        disabled={hasDebit}
+                                        disabled={isViewMode || hasDebit}
                                         onChange={(e) => handleLineChange(line.id, 'credit', e.target.value)}
                                         onBlur={(e) => handleLineBlur(line.id, 'credit', e.target.value)}
                                     />
@@ -375,7 +386,7 @@ const JournalEntryForm = () => {
                                         type="button"
                                         className="text-neutral-400 bg-none border-none cursor-pointer hover:text-danger-500 disabled:opacity-40 disabled:cursor-not-allowed"
                                         onClick={() => removeLine(line.id)}
-                                        disabled={lines.length <= 2}
+                                        disabled={isViewMode || lines.length <= 2}
                                         title="Remove line"
                                     >
                                         <Trash2 size={14} />
@@ -388,7 +399,7 @@ const JournalEntryForm = () => {
 
                 <div className="flex justify-between items-center mt-4">
                     <div className="flex items-center gap-3">
-                        <Button text="Add Line" variant="secondary" size="small" icon={<Plus size={14} />} onClick={addLine} />
+                        {!isViewMode && <Button text="Add Line" variant="secondary" size="small" icon={<Plus size={14} />} onClick={addLine} />}
                         <span className="text-sm text-neutral-500">{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
                     </div>
 

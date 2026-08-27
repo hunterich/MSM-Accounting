@@ -65,6 +65,21 @@ export const DOC_MODULES: Record<string, {
     'ap/debit-note': { module: 'ap', entity: 'debit-note', title: 'Returns & debits', newLabel: 'New purchase return', listPath: '/ap/debits', newPath: '/ap/returns/new' },
 };
 
+/**
+ * A credit/debit note spawned by a just-saved return has no record id yet, and
+ * its prefill is a whole document payload that cannot ride in a URL. The tab
+ * carries the payload in its `draft`; these build the matching tab recordId and
+ * deep-link path so the URL still names which return the note came from.
+ */
+export function pendingNoteRecordId(kind: 'credit' | 'debit', returnKey: string): string {
+    return `new-${kind}:${returnKey}`;
+}
+
+export function pendingNotePath(kind: 'credit' | 'debit', returnKey: string): string {
+    const base = kind === 'credit' ? '/ar/credits/new' : '/ap/debits/new';
+    return `${base}?fromReturn=${encodeURIComponent(returnKey)}`;
+}
+
 // Map a non-AR route to its page module (one top tab per area; navigating
 // within the area updates that tab's path). Longest-prefix match.
 const PAGE_MODULES: Array<[string, { key: string; title: string }]> = [

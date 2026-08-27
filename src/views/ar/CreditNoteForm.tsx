@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import StatusTag from '../../components/UI/StatusTag';
@@ -87,8 +88,16 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const createCreditNote = useCreateCreditNote();
     const updateCreditNoteMutation = useUpdateCreditNote();
+    // A credit note spawned by a just-saved sales return arrives through the
+    // owning tab's draft: router state does not survive the workspace shell, and
+    // the prefill is a whole payload that cannot ride in the URL.
+    const draftSeed = useWorkspaceStore((s) =>
+        (workspaceTabId ? s.tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
+            | { returnDraft?: any }
+            | undefined,
+    );
     const state = (inWorkspace
-        ? { mode: modeProp ?? 'edit', creditId: recordId }
+        ? { mode: modeProp ?? 'edit', creditId: recordId, returnDraft: draftSeed?.returnDraft }
         : (location.state || {})) as { mode?: string; returnDraft?: any; creditId?: string };
     const mode = state.mode || 'create'; // create | view | edit
     const isView = mode === 'view';
@@ -348,6 +357,23 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
         );
     };
 
+    const closeTab = useWorkspaceStore((s) => s.closeTab);
+    const clearDraft = useWorkspaceStore((s) => s.clearDraft);
+
+    /**
+     * Finalize a save. In workspace mode the tab owns navigation — drop the
+     * seeded draft and close the tab, which lands the user back on the module's
+     * catalog. In route mode keep the legacy list redirect.
+     */
+    const finishSave = () => {
+        if (workspaceTabId) {
+            clearDraft(workspaceTabId);
+            closeTab(workspaceTabId);
+            return;
+        }
+        navigate('/ar/credits');
+    };
+
     const handleSaveCredit = async (saveAsDraft = false) => {
         if (!formData.linkedReturnId || formData.lines.length === 0) {
             window.alert('Create credit note from a sales return draft or open an existing credit note.');
@@ -412,7 +438,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
             window.alert(`Failed to save credit note: ${err instanceof Error ? err.message : 'Unknown error'}`);
             return;
         }
-        navigate('/ar/credits');
+        finishSave();
     };
 
     return (
