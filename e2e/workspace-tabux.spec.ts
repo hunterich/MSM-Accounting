@@ -9,6 +9,7 @@
 // second tab row is visible). Store *setup* happens inside a single
 // page.evaluate() so the shell's route reconcile can't desync a multi-step setup.
 import { test, expect } from '@playwright/test';
+import { passCompanyPicker } from './helpers';
 
 type Bridge = { __MSM_WORKSPACE__: any };
 
@@ -18,6 +19,7 @@ test.beforeEach(async ({ page }) => {
     await page.fill('input[type="password"]', 'admin123');
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30000 });
+    await passCompanyPicker(page);
     await page.goto('/ar/invoices');
     await page.waitForFunction(() => Boolean((window as unknown as Bridge).__MSM_WORKSPACE__));
     await expect(page.locator('.workbench-doc-tab-new')).toBeVisible();

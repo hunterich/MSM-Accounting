@@ -310,11 +310,12 @@
 - [ ] Project templates for repeatable work
 
 ### 4.3 Multi-Company Support
-- [ ] Separate Chart of Accounts per company
-- [ ] Company selector in UI
+- [x] Separate Chart of Accounts per company — every org bootstraps its own from the standard template (`lib/organization/bootstrap.ts`)
+- [x] Company selector in UI — post-login company picker (`src/views/CompanyPicker.tsx`) plus the header switcher; each tab pins to one company via the `?org=` handshake, so two tabs can run two companies at once
+- [x] Self-service company creation — "New company" on the picker and in Settings → Companies; a signed-in user with no company yet can bootstrap their first one
 - [ ] Inter-company transactions
 - [ ] Consolidated financial statements (Balance Sheet, P&L)
-- [ ] Company-specific user permissions
+- [x] Company-specific user permissions — roles and permission matrices are per-membership, so the same login can hold different rights in each company
 
 ### 4.4 Workflow / Approval Engine
 - [ ] Configurable approval chains per document type
@@ -518,7 +519,7 @@
 | Asset Management | Yes (Register + Categories + Depreciation SL/DB/DDB + Disposal + GL) | Yes | Low |
 | Manufacturing / BOM | Separate project (MSM Manufacturing) | Yes | N/A |
 | Project Management | No | Yes | Medium |
-| Multi-Company | No | Yes | Medium |
+| Multi-Company | Partial (per-company COA/roles/data, post-login company picker, self-service company creation; no inter-company transactions or consolidated statements) | Yes | Medium |
 | Workflow Engine | No | Yes | Medium |
 | REST API | Partial (internal Next.js API routes live for core modules; no public API key/docs yet) | Yes | Medium |
 | Multi-User Auth | Yes (JWT + httpOnly session + API middleware + RBAC route enforcement + document-level perms + audit log) | Yes | Low |

@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { hasModulePermission } from '../../stores/useAuthStore';
 import { useHydrateCompanyInfoFromOrg } from '../../hooks/useOrganizationSettings';
 import { getActiveOrgId } from '../../lib/activeOrg';
+import { shouldShowCompanyPicker } from '../../lib/companyPicker';
 import ForcedPasswordChange from './ForcedPasswordChange';
 import CompanyPicker from '../../views/CompanyPicker';
 
@@ -16,17 +17,19 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps): React
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const permissions = useAuthStore((s) => s.permissions);
-  const memberships = useAuthStore((s) => s.memberships);
   const needsOrgSelection = useAuthStore((s) => s.needsOrgSelection);
   const needsInventoryValuationSetup = useAuthStore((s) => s.needsInventoryValuationSetup);
   const mustChangePassword = useAuthStore((s) => s.mustChangePassword);
   const checkSession = useAuthStore((s) => s.checkSession);
 
-  // Multi-company: no org resolved for this tab yet → show the picker instead
-  // of the app. Single-membership users never hit this (the me-route defaults
-  // to their sole org, so needsOrgSelection stays false).
-  const needsPicker =
-    !!user && (needsOrgSelection || (!getActiveOrgId() && memberships.length > 1));
+  // No company pinned to this tab yet → show the picker instead of the app.
+  // This is the Accurate-style flow: every fresh sign-in passes through the
+  // company list, single-company users included (their list is one row).
+  const needsPicker = shouldShowCompanyPicker({
+    isAuthenticated: !!user,
+    needsOrgSelection,
+    activeOrgId: getActiveOrgId(),
+  });
 
   // Hydrate companyInfo from the org record once authenticated (DB is source
   // of truth). Skipped during the picker phase — no active org to fetch yet.
@@ -38,7 +41,10 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps): React
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-neutral-50 text-neutral-700">
+      <div
+        data-testid="session-loading"
+        className="flex items-center justify-center h-screen bg-neutral-50 text-neutral-700"
+      >
         Loading...
       </div>
     );

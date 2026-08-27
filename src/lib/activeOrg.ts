@@ -9,11 +9,20 @@
 const SESSION_KEY = 'msm-active-org';
 const LAST_KEY = 'msm-last-org';
 
+// Document-lifetime fallback for browsers where sessionStorage throws (Safari
+// private mode, "block all cookies"). Without it the picker gate — which reads
+// getActiveOrgId() — would still be true after the ?org= reload and bounce the
+// user straight back to the picker, forever. Set by the same bootstrap that
+// consumes ?org=, so the new document is pinned either way; it simply does not
+// survive a manual reload, which degrades to re-picking rather than a loop.
+let inMemoryOrgId: string | null = null;
+
 export function getActiveOrgId(): string | null {
-  try { return sessionStorage.getItem(SESSION_KEY); } catch { return null; }
+  try { return sessionStorage.getItem(SESSION_KEY) ?? inMemoryOrgId; } catch { return inMemoryOrgId; }
 }
 
 export function setActiveOrgId(orgId: string): void {
+  inMemoryOrgId = orgId;
   try {
     sessionStorage.setItem(SESSION_KEY, orgId);
     localStorage.setItem(LAST_KEY, orgId);
@@ -21,6 +30,7 @@ export function setActiveOrgId(orgId: string): void {
 }
 
 export function clearActiveOrg(): void {
+  inMemoryOrgId = null;
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* noop */ }
 }
 

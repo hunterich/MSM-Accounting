@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### ✨ Added
+- **Company picker is now the first screen after sign-in** (Accurate-style database list) — previously it only appeared for accounts belonging to more than one company, so a single-company user was dropped straight into the workspace and never chose anything. The gate is now the tab's own company pin: a fresh sign-in always picks (single-company accounts see a one-row list), while reloads and in-app navigation go straight through. `shouldShowCompanyPicker` in `src/lib/companyPicker.ts` is the single definition, shared by `ProtectedRoute` and the picker
+- **A company can be created from the picker** — the "New company" form bootstraps the standard template (Indonesian COA, main warehouse, default roles, open periods) and drops you straight into the new company. Creation previously lived only in Settings → Companies, which sits behind an active company
+
+### 🚑 Fixed
+- **A user with no company could not get anywhere** — `POST /auth/login` refused them outright ("No organization found for user"), and even past that, `POST /api/v1/organizations` sat behind the middleware's active-org gate, so the first company could never be created through the app. Login now issues an identity-only session (empty membership list, `needsOrgSelection: true`) for an ACTIVE account, and company creation is exempt from the org gate via `isOrgOptionalPath`. Tenant-scoped routes still fail closed on that session — `resolveActiveOrg` rejects an empty membership list, and the middleware strips any client-supplied `x-org-id`/`x-role-type` rather than passing them through
+- **Company creation authority no longer depends on the tab's active company** — the route reads the caller's memberships from the database (ADMIN of any company, or no company yet, plus an ACTIVE account) instead of trusting the `x-role-type` header, which is absent for exactly the two callers who need this route: a first-time user, and an admin sitting on the picker. A role revoked since the token was issued now takes effect immediately
+- **The company pin survived in memory when `sessionStorage` throws** (Safari private mode, blocked site data) — without it the widened picker gate would have bounced such a browser back to the picker after every selection, forever
+- **The new-company form's labels were not associated with their inputs** — the shared `Input` only wires `htmlFor` when given an `id`
+
 ### 🎨 Changed (UI consistency)
 - **Banking rebuilt on the standard workbench anatomy** — full-width `PageHeader` (single Export CSV action), `DocumentTabBar` with a **New Transaction ▾** dropdown (Transfer / Expense / Income), and an in-page dense detail view (Summary / Audit tabs) matching Payments/Invoices; account cards remain as account filters with a dashed "+ Add Account" ghost card; standalone filter card gains a date-range filter and the table a record count
 - **Bank statement import & line matching moved to the Reconciliation page** — rendered with the shared `Table`; manual matching is now a `SearchableSelect` over unmatched transactions (same-amount suggestions first) instead of a free-text transaction-ID input

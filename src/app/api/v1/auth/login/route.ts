@@ -16,6 +16,29 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
+/**
+ * Signed-in-but-companyless session: identity only, no org and no role. The
+ * client shows the company picker (create-first-company path) on this shape.
+ */
+async function emptySessionResponse(user: { id: string; email: string; fullName: string; mustChangePassword: boolean }) {
+  const token = await signToken({ userId: user.id, email: user.email, memberships: [] });
+  const response = NextResponse.json({
+    user: { id: user.id, email: user.email, fullName: user.fullName },
+    org: null,
+    memberships: [],
+    needsOrgSelection: true,
+    mustChangePassword: user.mustChangePassword === true,
+  });
+  response.cookies.set(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 8,
+    path: '/',
+  });
+  return response;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -55,8 +78,16 @@ export async function POST(req: NextRequest) {
     }
 
     const memberships = user.memberships; // all active
+
+    // No company yet: sign the user in with an empty membership list and hand
+    // them to the company picker, which offers to create their first one.
+    // `resolveActiveOrg` still fails closed on that token, so every
+    // tenant-scoped route stays shut until a company exists and is selected.
     if (memberships.length === 0) {
-      return withCors(NextResponse.json({ error: 'No organization found for user' }, { status: 403 }));
+      if (user.status !== 'ACTIVE') {
+        return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+      }
+      return withCors(await emptySessionResponse(user));
     }
 
     // Keep today's response shape computed from the FIRST membership so

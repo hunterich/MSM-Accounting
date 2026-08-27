@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, resolveActiveOrg, COOKIE_NAME } from '../lib/auth';
+import { verifyToken, resolveActiveOrg, isOrgOptionalPath, COOKIE_NAME } from '../lib/auth';
 import { CORS_HEADERS } from '../lib/cors';
 
 const withCors = (response: NextResponse) => {
@@ -31,7 +31,7 @@ export async function middleware(req: NextRequest) {
   }
 
   const resolution = resolveActiveOrg(payload, req.headers.get('x-active-org'));
-  if (!resolution.ok) {
+  if (!resolution.ok && !isOrgOptionalPath(pathname)) {
     return withCors(NextResponse.json(
       { error: resolution.error, code: resolution.code },
       { status: resolution.status },
@@ -40,8 +40,16 @@ export async function middleware(req: NextRequest) {
 
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set('x-user-id', payload.userId);   // always overwrite — never trust client values
-  requestHeaders.set('x-org-id', resolution.orgId);
-  requestHeaders.set('x-role-type', resolution.roleType);
+  if (resolution.ok) {
+    requestHeaders.set('x-org-id', resolution.orgId);
+    requestHeaders.set('x-role-type', resolution.roleType);
+  } else {
+    // Org-optional path with no resolvable org: the tenant headers must be
+    // ABSENT, not client-controlled. Deleting them is what makes requireAuth /
+    // requireOrg fail closed if such a route ever touches tenant data.
+    requestHeaders.delete('x-org-id');
+    requestHeaders.delete('x-role-type');
+  }
 
   return withCors(NextResponse.next({ request: { headers: requestHeaders } }));
 }

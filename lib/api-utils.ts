@@ -208,6 +208,21 @@ export function requireOrg(req: NextRequest): string {
 }
 
 /**
+ * Extract the caller's user id WITHOUT requiring a tenant context.
+ *
+ * Only for the org-optional routes (see `isOrgOptionalPath` in lib/auth.ts):
+ * a user with no company yet has no `x-org-id` to present, so `requireAuth`
+ * would 401 them out of ever creating their first one. Every tenant-scoped
+ * route must keep using `requireAuth`/`requireOrg`.
+ * Throws ApiError(401) if the header is missing.
+ */
+export function requireUser(req: NextRequest): string {
+  const userId = req.headers.get('x-user-id');
+  if (!userId) throw new ApiError('Unauthenticated', 401);
+  return userId;
+}
+
+/**
  * Extract and validate both orgId and userId from request headers.
  * Throws ApiError(401) if either is missing.
  */

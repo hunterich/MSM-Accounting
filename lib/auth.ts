@@ -34,6 +34,28 @@ export function resolveActiveOrg(payload: TokenPayload, requestedOrgId: string |
   return { ok: true, orgId: match.orgId, roleType: match.roleType };
 }
 
+/**
+ * Routes that need authentication but NOT a tenant context.
+ *
+ * `resolveActiveOrg` fails closed for a caller with no company (or with
+ * several and no pinned tab), which is exactly the caller who needs to reach
+ * company creation. These paths are let through with `x-user-id` only; the
+ * handler is responsible for its own authorization (see
+ * `src/app/api/v1/organizations/route.ts`). Everything else keeps the strict
+ * org gate.
+ *
+ * Matching is exact on the path, ignoring a trailing slash and any query
+ * string — a prefix match would also open `/api/v1/organizations/<id>/...`
+ * sub-routes that are genuinely tenant-scoped.
+ */
+const ORG_OPTIONAL_PATHS = new Set(['/api/v1/organizations']);
+
+/** Pure, edge-safe: may this path be served without an active org? */
+export function isOrgOptionalPath(pathname: string): boolean {
+  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  return ORG_OPTIONAL_PATHS.has(normalized);
+}
+
 function getSecret(): Uint8Array {
   const raw = process.env.JWT_SECRET;
   if (!raw) {

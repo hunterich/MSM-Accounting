@@ -6,6 +6,7 @@
 // generated report). Requires the dev server
 // and the backend running (same setup as the other workspace specs).
 import { test, expect } from '@playwright/test';
+import { passCompanyPicker } from './helpers';
 
 type Bridge = { __MSM_WORKSPACE__: { tabs: Array<{ kind: string; target: { module: string; entity: string } }> } };
 
@@ -22,6 +23,7 @@ test.beforeEach(async ({ page }) => {
     await page.fill('input[type="password"]', 'admin123');
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30000 });
+    await passCompanyPicker(page);
 });
 
 test('Reports is a document module with a catalog row but no New button', async ({ page }) => {
