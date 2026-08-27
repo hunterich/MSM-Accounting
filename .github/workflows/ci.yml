@@ -67,3 +67,114 @@ jobs:
         env:
           SKIP_ENV_VALIDATION: true
           RESEND_API_KEY: re_test_dummy_for_ci
+
+  integration:
+    name: Integration tests (real database)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: msm_accounting
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      # The base database. `test:int:setup` derives `<db>_test` from this and
+      # rebuilds it from the migration history, so DATABASE_URL must NOT already
+      # point at the copy it is about to drop.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/msm_accounting?schema=public
+      JWT_SECRET: test-secret-key-for-ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # backup.int.test.ts shells out to pg_dump; its major version has to match
+      # the postgres:16 service or pg_dump refuses to run against it.
+      - name: Install PostgreSQL 16 client tools
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+
+      - name: Build the test database
+        run: npm run test:int:setup
+
+      - name: Run integration tests
+        run: npm run test:int
+
+  e2e:
+    name: End-to-end tests (real UI + API)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: msm_accounting
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      # `test:e2e:setup` derives `<db>_e2e`; playwright.config.ts derives the
+      # same URL for the backend it starts.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/msm_accounting?schema=public
+      JWT_SECRET: test-secret-key-for-ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the e2e database
+        run: npm run test:e2e:setup
+
+      # Playwright starts the backend and web server itself (see
+      # playwright.config.ts); CI needs no separate server step.
+      - name: Run end-to-end tests
+        run: npm run test:e2e
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
