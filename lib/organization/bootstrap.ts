@@ -78,6 +78,32 @@ export const STANDARD_CHILD_ACCOUNTS: readonly StandardChildAccount[] = [
   { code: '4-1000', name: 'Sales Revenue',         type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '5-1000', name: 'Cost of Goods Sold',    type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-1100', name: 'Salaries Expense',      type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
+
+  // Note the AR/AP asymmetry, which is deliberate: a sales return charges the
+  // P&L (the credit note posts DR arReturn / CR A/R), whereas a purchase return
+  // only *clears* — stock removal posts DR apReturn / CR Inventory and the debit
+  // note posts DR A/P / CR apReturn, netting to zero. So arReturn is an expense
+  // and apReturn is an asset clearing account, sibling to GR/IR on the AP side.
+  //
+  // Accounts every trading company eventually posts to. Without them the
+  // account-default resolver (lib/account-defaults.ts) finds no candidate for
+  // these roles and falls back to its last resort — "first account of an
+  // allowed type" — which silently posted purchase returns and input tax to
+  // Cash and Bank. Each name below is chosen to match that resolver's existing
+  // keywords, so the binding needs no configuration; a company that wants a
+  // different account can still override it in Settings.
+  { code: '1-1400', name: 'Prepaid Tax (PPN Masukan)',        type: 'ASSET',     normalSide: 'DEBIT',  parentCode: '1-0000' },
+  { code: '1-1500', name: 'Purchase Returns Clearing',        type: 'ASSET',     normalSide: 'DEBIT',  parentCode: '1-0000' },
+  { code: '2-1200', name: 'Goods Received Not Invoiced (GR/IR)', type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
+  { code: '2-1300', name: 'Withholding Tax Payable (PPh)',    type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
+  { code: '4-1200', name: 'Sales Discount',                   type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
+  { code: '4-9100', name: 'Late Fee Income',                  type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
+  { code: '4-9200', name: 'Purchase Discount Income',         type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
+  { code: '5-1900', name: 'Inventory Variance',               type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
+  { code: '5-2000', name: 'Sales Returns',                    type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
+  { code: '5-3000', name: 'Sales Discount Expense',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
+  { code: '5-4000', name: 'Vendor Penalty Expense',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
+  { code: '5-9000', name: 'Rounding Difference',              type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
 ] as const;
 
 /* ------------------------------------------------------------------ */
