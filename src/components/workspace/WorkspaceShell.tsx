@@ -231,11 +231,26 @@ const WorkspaceShell = (): React.ReactElement => {
         setPageModuleTab(pm.key, pm.title, path + location.search);
     }, [location.pathname, location.search, open, setPageModuleTab]);
 
+    // Keep the URL on the active tab's path — tab clicks only change the store,
+    // so something has to push the URL after them.
+    //
+    // Read the store fresh instead of the rendered `activePath`: the effect above
+    // has already written the incoming location into its tab by the time we run,
+    // but `activePath` still holds the pre-navigation value. Comparing the stale
+    // value made this fire a redundant `replace` on every navigation, and a
+    // `replace` re-creates the history entry WITHOUT the router `state` the
+    // caller passed — which is why `navigate(path, { state })` arrived empty at
+    // every page-module view. `activePath` stays in the deps as the re-run
+    // trigger only. Deliberate redirects still work: when the effect above maps
+    // a route onto a different tab path (e.g. /ap/debits/new → the list), the
+    // fresh value differs from the location and we navigate as intended.
     useEffect(() => {
-        if (activePath && activePath !== window.location.pathname + window.location.search) {
-            navigate(activePath, { replace: true });
+        const s = useWorkspaceStore.getState();
+        const current = s.tabs.find((t) => t.id === s.activeTabId)?.path;
+        if (current && current !== window.location.pathname + window.location.search) {
+            navigate(current, { replace: true });
         }
-    }, [activePath, navigate]);
+    }, [activePath, activeTabId, navigate]);
 
     return (
         <div className="flex flex-col h-full">

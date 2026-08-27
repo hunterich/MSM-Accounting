@@ -49,9 +49,11 @@ const JournalEntries = () => {
                     disabled={row.status === 'Draft' && !canEdit}
                     onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        navigate('/gl/journals/edit', {
-                            state: { mode: row.status === 'Draft' ? 'edit' : 'view', entryNo: row.entryNo, id: row.id }
-                        });
+                        // Id and mode go in the query string, not router state:
+                        // the workspace shell persists a tab as a path string,
+                        // so `navigate(..., { state })` never reaches the form.
+                        const mode = row.status === 'Draft' ? 'edit' : 'view';
+                        navigate(`/gl/journals/edit?id=${encodeURIComponent(row.id)}&mode=${mode}`);
                     }}
                 />
             )
