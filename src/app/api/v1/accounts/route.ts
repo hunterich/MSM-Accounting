@@ -39,7 +39,11 @@ export async function OPTIONS() {
 export const GET = withHandler(async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
-  const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
+  // maxLimit is 1000, not 100: the chart of accounts is a bounded reference list
+  // that every posting form needs in full, and a silently truncated list makes
+  // account-default resolution pick the wrong account. The page default stays 20
+  // for callers that really are paging.
+  const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 1000 });
   const type = searchParams.get('type');
   const search = searchParams.get('search');
   const where: any = { organizationId: orgId };
