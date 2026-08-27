@@ -1,17 +1,20 @@
 import { test, expect } from '@playwright/test'
+import { login } from './helpers'
 
 test.describe('Dashboard', () => {
   test.beforeEach(async ({ page }) => {
-    // Login first
-    await page.goto('/login')
-    await page.fill('input[type="email"]', 'admin@demo.com')
-    await page.fill('input[type="password"]', 'admin123')
-    await page.click('button[type="submit"]')
-    await page.waitForURL(/dashboard/)
+    await login(page)
   })
 
-  test('dashboard loads with widgets', async ({ page }) => {
-    await expect(page.locator('.dashboard-widget, [data-widget]').first()).toBeVisible({ timeout: 10000 })
+  test('dashboard renders its widgets from real data', async ({ page }) => {
+    // The old assertion looked for `.dashboard-widget` / `[data-widget]`, class
+    // names that exist nowhere in the app. Assert the widgets that actually
+    // render, and that seeded data reached them — this covers the dashboard
+    // aggregation queries, not just that the route mounted.
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('heading', { name: 'Cash on Hand' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Recent Invoices' })).toBeVisible()
+    await expect(page.getByText('INV-0001').first()).toBeVisible()
   })
 
   test('navigation sidebar is visible', async ({ page }) => {
