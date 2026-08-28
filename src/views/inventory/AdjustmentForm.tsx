@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { adjustmentSchema, zodToFormErrors } from '../../utils/formSchemas';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import FormPage from '../../components/Layout/FormPage';
 import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
@@ -254,6 +255,11 @@ const AdjustmentForm = () => {
             }
         >
             <form onSubmit={handleSubmit} className="grid grid-cols-12 gap-5">
+                {!isViewMode && (
+                    <div className="col-span-12">
+                        <ClosedPeriodBanner date={formData.date} />
+                    </div>
+                )}
                 <div className="col-span-12">
                     <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-5">
                         <div className="text-base font-semibold text-neutral-800 mb-4 pb-3 border-b border-neutral-100">Adjustment Details</div>

@@ -29,6 +29,7 @@ type PaymentMode = 'create' | 'view' | 'edit';
 type PaymentTab = 'details' | 'invoices';
 type PaymentAccountField = 'depositAccountId' | 'arAccountId' | 'discountAccountId' | 'penaltyAccountId';
 import StatusTag from '../../components/UI/StatusTag';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import { Check, FileText, User, Calendar, CreditCard, Hash } from 'lucide-react';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
@@ -489,6 +490,8 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
                     {formatIDR(paymentData.totalAmount)}
                 </div>
             </div>
+
+            {mode !== 'view' && <ClosedPeriodBanner date={paymentData.date} className="mb-4" />}
 
             <div className="invoice-tabs module-tabs module-tabs-spaced">
                 <button type="button" className={`invoice-tab ${paymentTab === 'details' ? 'active' : ''}`} onClick={() => setPaymentTab('details')}>

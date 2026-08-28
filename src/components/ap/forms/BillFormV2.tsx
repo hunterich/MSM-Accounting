@@ -13,6 +13,7 @@ import { computeTotals } from '../../documents/computeTotals';
 import type { DocLine } from '../../documents/types';
 
 import SearchableSelect from '../../UI/SearchableSelect';
+import ClosedPeriodBanner from '../../UI/ClosedPeriodBanner';
 import { formatIDR } from '../../../utils/formatters';
 import {
     useVendors,
@@ -353,6 +354,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
 
     const main = (
         <>
+            <ClosedPeriodBanner date={issueDate} />
             {isPosted && (
                 <div className="bg-warning-50 border border-warning-200 rounded-lg px-4 py-2.5 text-[12px] text-warning-800">
                     This bill is already posted. Saving your changes will <strong>reverse and re-post</strong> its journal entry (only while the period is open). Bills with payments or returns, or those raised from a purchase order, must be voided to change.

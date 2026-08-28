@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import { useBankAccounts, useBankTransactions, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
 import { bankingActionSchema, zodToFormErrors } from '../../utils/formSchemas';
 
@@ -272,6 +273,9 @@ const BankingActionForm = ({ action: actionProp, sourceTransactionId, workspaceT
                 </>
             }
         >
+            {/* 'account' creates a bank account — it posts nothing, so it has no date. */}
+            {action !== 'account' && <ClosedPeriodBanner date={formData.date} className="mb-4" />}
+
             <div className="invoice-panel panel-primary-top">
 
                 {errors._api && (

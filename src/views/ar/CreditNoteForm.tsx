@@ -51,6 +51,7 @@ import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 const buildCreditNo = (dateStr: string, seq = 1) => {
@@ -479,6 +480,8 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total || formData.amount)}</div>
             </div>
+
+            {!isView && <ClosedPeriodBanner date={formData.creditDate} className="mb-4" />}
 
             <div className="invoice-panel no-top-margin">
                 <div className="grid-12 form-grid-tight">

@@ -54,6 +54,7 @@ interface PostingPreviewLine {
 
 type AccountFieldKey = 'cashAccountId' | 'apAccountId' | 'discountAccountId' | 'penaltyAccountId';
 import StatusTag from '../../components/UI/StatusTag';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import { Calendar, CreditCard, FileText, Hash } from 'lucide-react';
 import { useVendors, useBills, useAPPayments, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
@@ -517,6 +518,8 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
                 </div>
                 <div className="module-status-total">{formatIDR(paymentData.totalAmount)}</div>
             </div>
+
+            {mode !== 'view' && <ClosedPeriodBanner date={paymentData.date} className="mb-4" />}
 
             <div className="invoice-tabs module-tabs module-tabs-spaced">
                 <button className={`invoice-tab ${paymentTab === 'details' ? 'active' : ''}`} onClick={() => setPaymentTab('details')}>Payment Details</button>

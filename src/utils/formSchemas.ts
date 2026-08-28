@@ -136,9 +136,11 @@ export const jeLineSchema = z.object({
     credit:      z.string(),
 });
 
+// No `period` field: the API resolves the accounting period from the entry
+// date and ignores anything sent alongside it, so the form has nothing to
+// collect here and nothing to validate.
 export const journalEntryHeaderSchema = z.object({
     date:    z.string().min(1, 'Date is required.'),
-    period:  z.string().min(1, 'Period is required.'),
     memo:    z.string().min(1, 'Memo / narration is required.'),
     entryNo: z.string().optional(),
     source:  z.string().optional(),
