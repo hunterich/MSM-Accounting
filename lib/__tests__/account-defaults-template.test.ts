@@ -51,6 +51,7 @@ const EXPECTED: Record<AccountDefaultKey, string> = {
   grIrClearing:         '2-1200',
   pphPayable:           '2-1300',
   openingBalanceEquity: '3-9000',
+  retainedEarnings:     '3-1000',
   salesRevenue:         '4-1000',
   salesDiscount:        '4-1200',
   arPenalty:            '4-9100',

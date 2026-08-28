@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### ✨ Added — Fiscal-year close
+- **Close and reopen a fiscal year** from Company Setup → Fiscal Year Close. Closing posts one journal entry (`source: CLOSING`, dated the last day of the year) that debits every revenue account by its credit balance, credits every expense account by its debit balance, and books the difference to Retained Earnings — so the next year starts from a clean P&L. Requires every month of the year to be closed first, which is what makes the balances final
+- **Balances are the year's movements, not all-time**, so a second year closes on its own activity instead of sweeping up every year already closed. Covered by a test that closes two consecutive years
+- **`retainedEarnings` account default** — resolves to `3-1000 Retained Earnings` on the standard chart, distinct from `openingBalanceEquity` (`3-9000`), and overridable in Settings → Account Defaults
+- **New `FiscalYearClose` model** recording the year, its closing entry, and who closed it. Deliberately not an `AccountingPeriod` row: periods are monthly and the table forbids overlapping ranges, so a year-spanning period would collide with all twelve of its own months. `closingEntryId @unique` is the idempotency token — two concurrent closes race to insert and the loser gets a 409
+- **Reopening deletes the closing entry** rather than reversing it, inside one transaction; the `FiscalYearClose` row cascades from the entry, so the lock and the entry cannot drift apart. The year's monthly periods stay closed — reopen those separately. The audit row keeps the deleted entry number and the previous closer
+- **`POST /api/v1/fiscal-year/close`**, **`/reopen`**, and **`GET /close-preview`** — the preview drives the confirm modal *and* is re-checked by the close route, so the button can never offer a close the API refuses
+
 ### ✨ Added — Month-end close
 - **Close and reopen a monthly accounting period** from Company Setup → Accounting Periods. Closing is what makes `assertPeriodOpen` start refusing any post, edit, or void dated inside the period; reopening lifts it again. Both are gated on SETTINGS/edit and take the same `FOR UPDATE` row lock the guard's `FOR SHARE` conflicts with, so a post can never slip through a half-closed period
 - **A real close audit trail** — `AccountingPeriod.closedAt` / `closedById` (nullable, plus a `closedBy` relation), stamped on close and cleared on reopen, and shown in the period table. The reopen audit-log row carries `previouslyClosedById` so the trail survives the stamp being cleared

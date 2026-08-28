@@ -152,6 +152,18 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredCodes: ['51'],
     keywords: ['hpp', 'harga pokok penjualan', 'cost of goods sold'],
   },
+  retainedEarnings: {
+    label: 'Retained Earnings',
+    description: 'Equity account the fiscal-year close rolls revenue and expenses into.',
+    allowedTypes: ['Equity'],
+    preferredIds: ['COA-3100'],
+    // 3-1000 only. Deliberately NOT falling back to 3-9000 the way
+    // openingBalanceEquity falls back to 3-1000: if a chart has just one equity
+    // account the two roles do land on it together, but the fallback should not
+    // steer them there on a chart that separates them.
+    preferredCodes: ['3-1000', '31'],
+    keywords: ['retained earnings', 'laba ditahan', 'saldo laba'],
+  },
   openingBalanceEquity: {
     label: 'Opening Balance Equity',
     description: 'Equity offset for opening inventory and other onboarding balances.',

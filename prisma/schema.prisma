@@ -52,6 +52,7 @@ model Organization {
   roles                  Role[]
   accounts               Account[]
   periods                AccountingPeriod[]
+  fiscalYearCloses       FiscalYearClose[]
   journalEntries         JournalEntry[]
   customerCategories     CustomerCategory[]
   vendorCategories       VendorCategory[]
@@ -131,6 +132,7 @@ model User {
   employeeProfile   Employee?
   migrationBatches  MigrationBatch[]
   closedPeriods     AccountingPeriod[] @relation("PeriodClosedBy")
+  closedFiscalYears FiscalYearClose[]  @relation("FiscalYearClosedBy")
 }
 
 model UserOrganization {
@@ -240,6 +242,31 @@ model AccountingPeriod {
   @@index([organizationId, startDate, endDate])
 }
 
+/// One fiscal year that has been closed, and the journal entry that closed it.
+///
+/// Deliberately NOT an AccountingPeriod row: periods are monthly and the table
+/// forbids overlapping ranges, so a year-spanning period would collide with
+/// all twelve of its own months. The year is derived from
+/// `Organization.fiscalYearStart` instead, and this table records the event.
+model FiscalYearClose {
+  id             String   @id @default(cuid())
+  organizationId String
+  startDate      DateTime
+  endDate        DateTime
+  /// Idempotency token, same pattern as CreditNote.journalEntryId: two
+  /// concurrent closes race to insert and the loser gets P2002 → 409.
+  closingEntryId String   @unique
+  closedAt       DateTime @default(now())
+  closedById     String?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  closingEntry   JournalEntry @relation("FiscalYearClosingEntry", fields: [closingEntryId], references: [id], onDelete: Cascade)
+  closedBy       User?        @relation("FiscalYearClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, startDate])
+  @@index([organizationId, endDate])
+}
+
 model JournalEntry {
   id             String        @id @default(cuid())
   organizationId String
@@ -268,6 +295,7 @@ model JournalEntry {
   debitNote       DebitNote?       @relation("DebitNoteJournal")
   bankTransaction BankTransaction? @relation("BankTxnJournal")
   arPaymentSettlement ARPayment? @relation("ARPaymentSettlement")
+  fiscalYearClose     FiscalYearClose? @relation("FiscalYearClosingEntry")
   migrationBatch  MigrationBatch? @relation(fields: [migrationBatchId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, entryNo])
