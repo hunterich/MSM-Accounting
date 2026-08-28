@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### ✨ Added — Closed-period warning on transaction forms
+- **Transaction forms now say a date is in a closed period while it is being chosen**, instead of only after the save attempt. `ClosedPeriodBanner` is wired into the journal entry, invoice, bill, AR/AP payment, credit note, debit note, sales return, purchase return, banking (transfer / payment / receive) and inventory adjustment forms — every form whose date reaches `assertPeriodOpen`
+- **`src/lib/periodLock.ts`** mirrors the server guard exactly (`startDate <= date <= endDate`, blocked on `CLOSED` **or** `isLocked`, a date outside every period is open). It warns, it does not block: the submit button stays enabled because the server is the real gate and a stale cached period list must never be able to stop a legitimate post. Backed by the same `['accounting-periods']` query Company Setup uses, so one fetch serves every open form and a close performed elsewhere shows up as soon as it invalidates
+
+### 🚑 Fixed
+- **The journal entry form's "Accounting Period" dropdown was fabricated** — a hardcoded four-month list (`2026-01` … `2026-04`) with January marked closed, validated against, and then dropped: `buildJEPayload` never sent it, so the choice reached nothing and the API resolved the period from the entry date regardless. A company whose fiscal year sat outside those four months had no selectable period at all, while a genuinely closed month was offered as open. The field is now a read-only display of the period the date actually resolves to, with its real status, and `journalEntryHeaderSchema` no longer requires a `period` the form does not collect
+
 ### ✨ Added — Fiscal-year close
 - **Close and reopen a fiscal year** from Company Setup → Fiscal Year Close. Closing posts one journal entry (`source: CLOSING`, dated the last day of the year) that debits every revenue account by its credit balance, credits every expense account by its debit balance, and books the difference to Retained Earnings — so the next year starts from a clean P&L. Requires every month of the year to be closed first, which is what makes the balances final
 - **Balances are the year's movements, not all-time**, so a second year closes on its own activity instead of sweeping up every year already closed. Covered by a test that closes two consecutive years

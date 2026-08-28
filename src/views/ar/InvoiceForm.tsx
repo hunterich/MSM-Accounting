@@ -81,6 +81,7 @@ import Modal from '../../components/UI/Modal';
 import AuditLogPanel from '../../components/UI/AuditLogPanel';
 import { FormSkeleton } from '../../components/UI/LoadingSkeleton';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -777,6 +778,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             rail={rail}
             main={(
             <form onSubmit={(e) => e.preventDefault()}>
+                    <ClosedPeriodBanner date={formData.issueDate} className="mt-4" />
+
                     {/* Header Section: compact single row */}
                     <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-4 border-t-3 border-t-primary-500 mb-4">
                         <div className="grid grid-cols-12 gap-3">

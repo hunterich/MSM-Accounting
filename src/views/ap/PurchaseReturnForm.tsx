@@ -38,6 +38,7 @@ import StatusTag from '../../components/UI/StatusTag';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { useVendors, useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
@@ -487,6 +488,8 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total)}</div>
             </div>
+
+            {!isView && <ClosedPeriodBanner date={returnData.returnDate} className="mb-4" />}
 
             <div className="invoice-panel panel-primary-top no-top-margin">
                 <div className="grid-12 form-grid-tight">
