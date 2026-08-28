@@ -173,9 +173,8 @@ function App(): JSX.Element {
                     <Route path="inventory/valuation" element={withPermission(<StockValuation />, 'inv_items')} />
 
                     {/* Point of Sale */}
-                    <Route path="pos/modifiers" element={withPermission(<ModifierSettings />, 'pos_reports')} />
-                    {/* TODO: switch to 'pos_retail' when the RBAC key lands */}
-                    <Route path="pos/sales-types" element={withPermission(<SalesTypeSettings />, 'pos_reports')} />
+                    <Route path="pos/modifiers" element={withPermission(<ModifierSettings />, 'pos_retail')} />
+                    <Route path="pos/sales-types" element={withPermission(<SalesTypeSettings />, 'pos_retail')} />
 
                     {/* Banking */}
                     <Route path="banking/transfer" element={withPermission(<BankingActionForm />, 'banking', 'create')} />
