@@ -73,6 +73,7 @@ type AccountRole =
   | 'apControl'
   | 'grIrClearing'
   | 'openingBalanceEquity'
+  | 'retainedEarnings'
   | 'salesRevenue'
   | 'cogsExpense'
   | 'inventoryAdjustment';
@@ -91,6 +92,7 @@ const CHART_OF_ACCOUNTS: Array<{
   { role: 'apControl', code: '2100', name: 'Accounts Payable', type: 'LIABILITY', normalSide: 'CREDIT' },
   { role: 'grIrClearing', code: '2150', name: 'GR/IR Clearing', type: 'LIABILITY', normalSide: 'CREDIT' },
   { role: 'openingBalanceEquity', code: '3900', name: 'Opening Balance Equity', type: 'EQUITY', normalSide: 'CREDIT' },
+  { role: 'retainedEarnings', code: '3100', name: 'Retained Earnings', type: 'EQUITY', normalSide: 'CREDIT' },
   { role: 'salesRevenue', code: '4100', name: 'Sales Revenue', type: 'REVENUE', normalSide: 'CREDIT' },
   { role: 'cogsExpense', code: '5100', name: 'Cost of Goods Sold', type: 'EXPENSE', normalSide: 'DEBIT' },
   { role: 'inventoryAdjustment', code: '5190', name: 'Inventory Variance', type: 'EXPENSE', normalSide: 'DEBIT' },
@@ -111,6 +113,8 @@ function uniqueSuffix(): string {
 export async function createTestOrg(opts?: {
   costingMethod?: 'FIFO' | 'WEIGHTED_AVERAGE';
   allowNegativeStock?: boolean;
+  /** Needed by anything that derives a fiscal year (year-end close). */
+  fiscalYearStart?: Date;
 }): Promise<TestOrg> {
   const tag = uniqueSuffix();
   const org = await prisma.organization.create({
@@ -120,6 +124,7 @@ export async function createTestOrg(opts?: {
       costingMethod: opts?.costingMethod ?? 'FIFO',
       allowNegativeStock: opts?.allowNegativeStock ?? false,
       taxEnabled: true,
+      ...(opts?.fiscalYearStart ? { fiscalYearStart: opts.fiscalYearStart } : {}),
     },
     select: { id: true },
   });

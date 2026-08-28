@@ -13,6 +13,7 @@ import { useOrganizationSettings, useUpdateOrganizationSettings, useUpdateCostin
 import { useRecalculateCosting, type RecalculateCostingResult } from '../../hooks/useInventory';
 import { formatIDR } from '../../utils/formatters';
 import AccountingPeriodsCard from '../../components/company/AccountingPeriodsCard';
+import FiscalYearCloseCard from '../../components/company/FiscalYearCloseCard';
 
 const DEFAULT_FISCAL_YEAR_START = '2026-01-01';
 
@@ -491,7 +492,12 @@ const CompanySetup = () => {
             </div>
 
             {!onboardingMode || !orgSettings?.needsInventoryValuationSetup ? (
-                <AccountingPeriodsCard canManage={canManagePeriods} />
+                <>
+                    <AccountingPeriodsCard canManage={canManagePeriods} />
+                    <div className="mt-spacing-4">
+                        <FiscalYearCloseCard canManage={canManagePeriods} />
+                    </div>
+                </>
             ) : null}
 
             {/* Recalculation Result Modal */}
