@@ -12,16 +12,9 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useOrganizationSettings, useUpdateOrganizationSettings, useUpdateCostingMethod } from '../../hooks/useOrganizationSettings';
 import { useRecalculateCosting, type RecalculateCostingResult } from '../../hooks/useInventory';
 import { formatIDR } from '../../utils/formatters';
-import Table, { TableColumn } from '../../components/UI/Table';
+import AccountingPeriodsCard from '../../components/company/AccountingPeriodsCard';
 
 const DEFAULT_FISCAL_YEAR_START = '2026-01-01';
-
-interface AccountingPeriod extends Record<string, unknown> {
-    name: string;
-    start: string;
-    end: string;
-    status: string;
-}
 
 interface CompanyFormState {
     legalName: string;
@@ -49,30 +42,6 @@ interface FormErrors {
     logoUrl?: string | null;
 }
 
-const buildPeriods = (fiscalYearStart: string): AccountingPeriod[] => {
-    const start = new Date(fiscalYearStart);
-    if (Number.isNaN(start.getTime())) return [];
-    const today = new Date();
-    const periods: AccountingPeriod[] = [];
-
-    for (let i = 0; i < 12; i += 1) {
-        const periodStart = new Date(start.getFullYear(), start.getMonth() + i, 1);
-        const periodEnd = new Date(start.getFullYear(), start.getMonth() + i + 1, 0);
-        const periodName = `${periodStart.getFullYear()}-${String(periodStart.getMonth() + 1).padStart(2, '0')}`;
-        const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-        const status = periodEnd < currentMonthStart ? 'Closed' : 'Open';
-
-        periods.push({
-            name: periodName,
-            start: periodStart.toISOString().slice(0, 10),
-            end: periodEnd.toISOString().slice(0, 10),
-            status,
-        });
-    }
-
-    return periods;
-};
-
 const CompanySetup = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -81,6 +50,9 @@ const CompanySetup = () => {
     const companyInfo = useSettingsStore((s) => s.companyInfo);
     const setCompanyInfo = useSettingsStore((s) => s.setCompanyInfo);
     const updateOrganizationContext = useAuthStore((s) => s.updateOrganizationContext);
+    // Same gate the close/reopen routes enforce server-side (SETTINGS/edit);
+    // without it the buttons would offer an action the API refuses.
+    const canManagePeriods = useAuthStore((s) => s.hasPermission('settings', 'edit'));
     const { data: orgSettings, isLoading, error } = useOrganizationSettings();
     const updateOrganizationSettings = useUpdateOrganizationSettings();
 
@@ -99,7 +71,6 @@ const CompanySetup = () => {
     });
     const [errors, setErrors] = useState<FormErrors>({});
     const [lastSavedAt, setLastSavedAt] = useState('');
-    const [periods, setPeriods] = useState<AccountingPeriod[]>(() => buildPeriods(DEFAULT_FISCAL_YEAR_START));
     const [didHydrate, setDidHydrate] = useState(false);
 
     // Costing method change flow
@@ -126,16 +97,8 @@ const CompanySetup = () => {
             fiscalYearStart,
             costingMethod: (orgSettings.costingMethod as string) || '',
         }));
-        setPeriods(buildPeriods(fiscalYearStart));
         setDidHydrate(true);
     }, [didHydrate, orgSettings]);
-
-    const periodColumns: TableColumn<AccountingPeriod>[] = [
-        { key: 'name', label: 'Period' },
-        { key: 'start', label: 'Start Date', render: (val) => formatDateID(val as string) },
-        { key: 'end', label: 'End Date', render: (val) => formatDateID(val as string) },
-        { key: 'status', label: 'Status', render: (val) => <StatusTag status={val as string} /> },
-    ];
 
     const handleChange = (key: keyof CompanyFormState, value: string): void => {
         setCompany((prev) => ({ ...prev, [key]: value }));
@@ -201,14 +164,6 @@ const CompanySetup = () => {
         } catch (saveError) {
             window.alert(saveError instanceof Error ? saveError.message : 'Failed to save company settings');
         }
-    };
-
-    const handleRegeneratePeriods = (): void => {
-        if (!company.fiscalYearStart) {
-            setErrors((prev) => ({ ...prev, fiscalYearStart: 'Fiscal year start is required before generating periods.' }));
-            return;
-        }
-        setPeriods(buildPeriods(company.fiscalYearStart));
     };
 
     return (
@@ -529,19 +484,14 @@ const CompanySetup = () => {
                             />
                         </div>
                         <div className="text-muted-sm">
-                            Periods will be generated monthly. Closed periods are locked to prevent changes.
-                        </div>
-                        <div className="mt-spacing-4">
-                            <Button text="Regenerate Periods" variant="secondary" size="small" onClick={handleRegeneratePeriods} />
+                            Monthly periods are created with the company. Close one below to lock its entries.
                         </div>
                     </Card>
                 </div>
             </div>
 
             {!onboardingMode || !orgSettings?.needsInventoryValuationSetup ? (
-                <Card title="Accounting Periods" padding={false}>
-                    <Table<AccountingPeriod> columns={periodColumns} data={periods} />
-                </Card>
+                <AccountingPeriodsCard canManage={canManagePeriods} />
             ) : null}
 
             {/* Recalculation Result Modal */}

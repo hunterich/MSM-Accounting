@@ -130,6 +130,7 @@ model User {
   approvalRequestsRev ApprovalRequest[] @relation("ApprovalRevBy")
   employeeProfile   Employee?
   migrationBatches  MigrationBatch[]
+  closedPeriods     AccountingPeriod[] @relation("PeriodClosedBy")
 }
 
 model UserOrganization {
@@ -224,10 +225,15 @@ model AccountingPeriod {
   endDate        DateTime
   status         PeriodStatus @default(OPEN)
   isLocked       Boolean      @default(false)
+  // Who signed the period off, and when. Nullable because an OPEN period has
+  // never been closed, and a reopened one has its stamp cleared.
+  closedAt       DateTime?
+  closedById     String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  closedBy       User?        @relation("PeriodClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
   journalEntries JournalEntry[]
 
   @@unique([organizationId, name])

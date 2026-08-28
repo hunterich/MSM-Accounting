@@ -68,6 +68,9 @@ export const GET = withHandler(async function GET(req: NextRequest) {
       skip: (page - 1) * limit,
       take: limit,
       orderBy: { startDate: 'desc' },
+      // The close stamp is what the period screen shows instead of guessing
+      // "closed" from the calendar, so it travels with the list.
+      include: { closedBy: { select: { id: true, fullName: true } } },
     }),
     prisma.accountingPeriod.count({ where }),
   ]);
