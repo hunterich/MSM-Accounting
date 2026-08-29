@@ -1,6 +1,5 @@
 import React from 'react';
 import { formatIDR } from '../../../utils/formatters';
-import { useInvoiceStore } from '../../../stores/useInvoiceStore';
 
 interface RawLineItem {
     id?: string;
@@ -35,9 +34,10 @@ interface InvoiceItemsTabProps {
 }
 
 const InvoiceItemsTab: React.FC<InvoiceItemsTabProps> = ({ invoice }) => {
-    const invoiceItemTemplates = useInvoiceStore((state) => state.invoiceItemTemplates);
-    const templateLines = invoiceItemTemplates[invoice.id] || [];
-    const lines = (invoice.items && invoice.items.length > 0) ? invoice.items : templateLines as RawLineItem[];
+    // `items` is normalized from the invoice's own API lines. The fallback here
+    // used to be a local fixture keyed by invoice id, which no real invoice's id
+    // ever matched — it could only ever have shown another company's lines.
+    const lines = invoice.items ?? [];
 
     const normalizeLine = (line: RawLineItem): NormalizedLine => ({
         id: line.id || `${line.description || line.itemName || 'line'}`,

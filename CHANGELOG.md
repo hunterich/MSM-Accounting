@@ -7,6 +7,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### 🚑 Fixed — screens that showed fixtures instead of the database
+- **Sales orders never appeared in their own list.** `SOFormV2` saved to `/api/v1/sales-orders`, while the list and detail panes read a browser-local zustand store seeded with three fixtures ("Acme Corp", "Globex Inc"). Saving an order looked like it worked and then the order was nowhere. Both panes now read the API through `src/lib/salesOrderView.ts`, which maps the API's field names onto the ones the panes already render and derives the order total the same way `computeTotals` does — pinned by a test, so the list and the form can't show different numbers for the same order
+- **Every printed bill and purchase order came out with an empty line table.** Both print previews pulled line items from a local fixture keyed by document id, and no real bill or PO id ever matched one of those keys. Both list endpoints have included their lines all along, so the printout is now the real document
+- **Opening a saved employee showed an empty form.** The employee list links by the real record id; `EmployeeForm` looked that id up in a fixture store whose ids (`EMP-0001`) nothing in the database ever matched, so View and Edit both opened blank — and saving from that state would have written the blanks back. The form now loads through `useEmployee`, and `normalizeEmployee` carries the ten fields it was dropping (KTP, date of birth, employment type, bank details, NPWP, both BPJS numbers)
+- **Department and position pickers were a hardcoded list of five and four strings**, with an "add" that persisted only in that browser. New `useDepartments` / `usePositions` hooks read the real tables; the API already creates either by name when an employee is saved with a new one
+- **The employee form invented an employee number** (`EMP-nnnn`, computed from the fixtures) that the create route discarded — it assigns `employeeNo` itself
+- **The sales-order list's date-range filters did nothing.** The panel has always offered From and To; nothing read them
+
+### 🧹 Removed (dead code)
+- **`src/data/mockData.js` and five zustand stores deleted (~1,700 lines)** — `useInvoiceStore`, `useBillStore`, `useSalesOrderStore`, `usePurchaseOrderStore`, `useHRStore`, the last of the pre-database client state layer. `src/data/` is now empty. The `module-reachability` gate added in the earlier cleanup caught the final orphan on its own
+
+### 🧪 Testing
+- **The e2e suite can be run twice without re-seeding.** `returns-to-ledger.spec.ts` asserted on whole-table counts ("the database starts with no credit notes") but created an applied credit note it could not remove — an applied note is deliberately immutable, and void reverses it with a second entry rather than deleting it. Its assertions now name what *this run* created. Two further assertions were unscoped in the same way: `choose()` matched `.cursor-pointer` across the whole page, so on a second run it grabbed a hidden catalog row carrying the same customer name instead of the dropdown option, and the total was matched anywhere on the page rather than in the form. The safety property the count guarded is structural anyway — `playwright.config.ts` forces the `_e2e` suffix onto whatever `DATABASE_URL` it is given
+
+
 ### ✨ Added — Closed-period warning on transaction forms
 - **Transaction forms now say a date is in a closed period while it is being chosen**, instead of only after the save attempt. `ClosedPeriodBanner` is wired into the journal entry, invoice, bill, AR/AP payment, credit note, debit note, sales return, purchase return, banking (transfer / payment / receive) and inventory adjustment forms — every form whose date reaches `assertPeriodOpen`
 - **`src/lib/periodLock.ts`** mirrors the server guard exactly (`startDate <= date <= endDate`, blocked on `CLOSED` **or** `isLocked`, a date outside every period is open). It warns, it does not block: the submit button stays enabled because the server is the real gate and a stale cached period list must never be able to stop a legitimate post. Backed by the same `['accounting-periods']` query Company Setup uses, so one fetch serves every open form and a close performed elsewhere shows up as soon as it invalidates

@@ -16,7 +16,6 @@ import PurchaseOrderPrintTemplate from '../../print/PurchaseOrderPrintTemplate';
 import { exportToCsv } from '../../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../../utils/formatters';
 import { usePurchaseOrders, AP_KEYS } from '../../../hooks/useAP';
-import { usePurchaseOrderStore } from '../../../stores/usePurchaseOrderStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useModulePermissions } from '../../../hooks/useModulePermissions';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
@@ -30,7 +29,6 @@ const POListPane = (): React.ReactElement => {
     const { open } = useWorkspaceNav();
     const { data: posResult, isLoading } = usePurchaseOrders();
     const purchaseOrders = useMemo(() => posResult?.data ?? [], [posResult?.data]);
-    const poItemTemplates = usePurchaseOrderStore((s) => s.poItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
 
@@ -61,7 +59,11 @@ const POListPane = (): React.ReactElement => {
     }), [purchaseOrders, searchTerm, status, dateRange]);
 
     const activePrintPo = purchaseOrders.find((po) => po.id === printPoId) || null;
-    const activePrintLines = activePrintPo ? (poItemTemplates[activePrintPo.id] || []) : [];
+    // The purchase orders list already includes its lines, so the printout is
+    // the real document. This used to read a local fixture keyed by PO id,
+    // which no real PO's id ever matched — every printed PO came out with an
+    // empty line table.
+    const activePrintLines = activePrintPo?.lines ?? [];
 
     const handleSubmitApproval = useCallback(async (row: Record<string, unknown>) => {
         try { await api.post(`/api/v1/purchase-orders/${row['_id'] as string}/submit-approval`); setToast('Submitted for approval'); queryClient.invalidateQueries({ queryKey: AP_KEYS.pos }); }

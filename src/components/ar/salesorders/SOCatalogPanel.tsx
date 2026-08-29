@@ -118,7 +118,7 @@ const SOCatalogPanel: React.FC<SOCatalogPanelProps> = ({
                                     className={row.id === selectedId ? 'bg-primary-50' : ''}
                                     onClick={() => onSelectSalesOrder(row.id)}
                                 >
-                                    <td className="py-[9px] px-2.5 border-b border-neutral-200">{row.id}</td>
+                                    <td className="py-[9px] px-2.5 border-b border-neutral-200">{String(row.no ?? row.id)}</td>
                                     <td className="py-[9px] px-2.5 border-b border-neutral-200">{formatDateID(row.date)}</td>
                                     <td className="py-[9px] px-2.5 border-b border-neutral-200">{row.customerName}</td>
                                     <td className="py-[9px] px-2.5 border-b border-neutral-200"><StatusTag status={tag.status} label={tag.label} /></td>

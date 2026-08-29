@@ -13,7 +13,6 @@ import PageHeader from '../../components/Layout/PageHeader';
 import { exportToCsv } from '../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import { usePurchaseOrders, AP_KEYS } from '../../hooks/useAP';
-import { usePurchaseOrderStore } from '../../stores/usePurchaseOrderStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { api } from '../../api/apiClient';
@@ -43,8 +42,6 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
     const { canCreate, canEdit } = useModulePermissions('ap_pos');
     const { data: posResult, isLoading } = usePurchaseOrders();
     const purchaseOrders = posResult?.data ?? [];
-    // poItemTemplates stays in local store (for print until API supports line fetch)
-    const poItemTemplates = usePurchaseOrderStore((s) => s.poItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
 
@@ -94,7 +91,11 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
         || purchaseOrders.find((po) => po.id === printPoId)
         || null;
     const activeVendorName = activePrintPo?.vendorName || '-';
-    const activePrintLines = activePrintPo ? (poItemTemplates[activePrintPo.id] || []) : [];
+    // The purchase orders list already includes its lines, so the printout is
+    // the real document. This used to read a local fixture keyed by PO id,
+    // which no real PO's id ever matched — every printed PO came out with an
+    // empty line table.
+    const activePrintLines = activePrintPo?.lines ?? [];
 
     const queuePrintPo = useCallback((poId: string) => {
         setPrintPoId(poId);

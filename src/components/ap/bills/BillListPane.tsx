@@ -15,7 +15,6 @@ import BillPrintTemplate from '../../print/BillPrintTemplate';
 import { exportToCsv } from '../../../utils/exportCsv';
 import { formatDateID, formatIDR } from '../../../utils/formatters';
 import { useBills, useUpdateBill, useVoidBill, useUnreceiveBill } from '../../../hooks/useAP';
-import { useBillStore } from '../../../stores/useBillStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useModulePermissions } from '../../../hooks/useModulePermissions';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
@@ -29,7 +28,6 @@ const BillListPane = (): React.ReactElement => {
     const voidBill = useVoidBill();
     const unreceiveBill = useUnreceiveBill();
     const bills = useMemo(() => billsResult?.data ?? [], [billsResult?.data]);
-    const billItemTemplates = useBillStore((s) => s.billItemTemplates);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
 
@@ -58,7 +56,11 @@ const BillListPane = (): React.ReactElement => {
     }), [bills, searchTerm, status, dateRange]);
 
     const activePrintBill = bills.find((b) => b.id === printBillId) || null;
-    const activePrintLines = activePrintBill ? (billItemTemplates[activePrintBill.id] || []) : [];
+    // The bills list already includes its lines, so the printout is the real
+    // document. This used to read a local fixture keyed by bill id, which no
+    // real bill's id ever matched — every printed bill came out with an empty
+    // line table.
+    const activePrintLines = activePrintBill?.lines ?? [];
     const queuePrint = useCallback((id: string) => { setPrintBillId(id); setIsPreviewOpen(true); }, []);
 
     const columns = [

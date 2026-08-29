@@ -1129,6 +1129,7 @@ export interface StockAdjustment {
 // ── HR ────────────────────────────────────────────────────────────────────────
 
 export type EmployeeStatus = 'Active' | 'Inactive' | 'On Leave';
+export type EmploymentType = 'Full-time' | 'Contract';
 
 export interface RawEmployee {
   id: string;
@@ -1141,6 +1142,15 @@ export interface RawEmployee {
   position?: { name?: string; id?: string } | string | null;
   positionId?: string | null;
   status?: string | null;
+  type?: string | null;
+  ktp?: string | null;
+  dob?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  npwp?: string | null;
+  bpjsKesehatan?: string | null;
+  bpjsKetenagakerjaan?: string | null;
   basicSalary?: number | string | null;
   joinDate?: string | null;
   address?: string | null;
@@ -1160,6 +1170,17 @@ export interface Employee {
   position: string;
   positionId: string;
   status: EmployeeStatus;
+  /** 'Full-time' | 'Contract' — the API's FULL_TIME / CONTRACT, as the form spells it. */
+  type: EmploymentType;
+  ktp: string;
+  /** YYYY-MM-DD, sliced from the API's DateTime for a date input. */
+  dob: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  npwp: string;
+  bpjsKesehatan: string;
+  bpjsKetenagakerjaan: string;
   basicSalary: number;
   joinDate: string;
   address: string;
