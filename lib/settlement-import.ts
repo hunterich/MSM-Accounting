@@ -31,6 +31,7 @@ import { postJournalEntry, JournalLineInput, BALANCE_TOLERANCE } from '@/lib/jou
 import { KEY_TO_SLOT, SettlementFeeKey } from '@/src/utils/settlementMapping';
 import { loadBankPostingContext } from '@/lib/bank-transaction-posting';
 import { resolveBankLinkedAssetAccountId } from '@/lib/account-defaults';
+import { assertPeriodOpen } from './period-guard';
 
 /**
  * Charge keys whose magnitude flows INTO the wallet (revenue / subsidy), so they
@@ -159,9 +160,11 @@ export async function importSettlement(
           }
 
           // 6. Post and stamp the receipt as settled.
+          const settledOn = new Date();
+          await assertPeriodOpen(tx, orgId, settledOn);
           const je = await postJournalEntry(tx, {
             organizationId: orgId,
-            date: new Date(),
+            date: settledOn,
             memo: `Settlement: ${invoice.number}`,
             source: 'SYSTEM',
             lines,

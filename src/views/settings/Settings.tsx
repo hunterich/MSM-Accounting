@@ -12,6 +12,10 @@ import { useAccountDefaults, useOrganizationSettings, useUpdateOrganizationSetti
 import { ACCOUNT_DEFAULT_SPECS, DEFAULT_ACCOUNT_DEFAULTS } from '../../../lib/account-defaults';
 import type { AccountDefaultKey } from '../../../lib/account-defaults';
 import type { LucideIcon } from 'lucide-react';
+import {
+    DEFAULT_TRANSACTION_DATE_POLICY,
+    type TransactionDatePolicy,
+} from '../../../lib/transaction-date-policy';
 
 interface NotificationSettings {
     financeEmail: string;
@@ -112,6 +116,14 @@ const MENU_GROUPS: MenuGroup[] = [
 const ALL_MENU_ITEMS: MenuItem[] = MENU_GROUPS.flatMap((g) => g.items);
 const VALID_TAB_IDS = new Set(ALL_MENU_ITEMS.map((i) => i.id));
 
+
+/** Empty box = no limit that way; anything not a whole day count is ignored. */
+const toDayLimit = (raw: string): number | null => {
+    if (raw.trim() === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+};
+
 const Settings = () => {
     // Active tab is driven by the ?tab= query param so it's deep-linkable and
     // bookmarkable. Defaults to Company Info; unknown ids fall back to it too.
@@ -154,6 +166,7 @@ const Settings = () => {
         enforceLimit: storeCustomerCreditSettings.enforceLimit,
     });
     const [salesPolicy, setSalesPolicy] = useState(storeSalesPolicy);
+    const [datePolicy, setDatePolicy] = useState<TransactionDatePolicy>(DEFAULT_TRANSACTION_DATE_POLICY);
     const [features, setFeatures] = useState(storeFeatures);
     const [approvalRequirements, setApprovalRequirements] = useState(storeApprovalRequirements);
     const [requireDistinctApproverForAdmins, setRequireDistinctApproverForAdmins] = useState(false);
@@ -210,6 +223,7 @@ const Settings = () => {
         enforceLimit: s.enforceCreditLimit,
       });
       setSalesPolicy(s.salesPolicy);
+      setDatePolicy(s.transactionDatePolicy);
       setFeatures((prev) => ({ ...prev, ...s.features }));
       setNumberingForm((prev) => ({ ...prev, ...s.documentNumbering }));
       setNotificationSettings({
@@ -295,9 +309,12 @@ const Settings = () => {
 
         if (sectionId === 'restrictions') {
             try {
-                await updateOrgSettings.mutateAsync({ salesPolicy } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
+                await updateOrgSettings.mutateAsync({
+                    salesPolicy,
+                    transactionDatePolicy: datePolicy,
+                } as Parameters<typeof updateOrgSettings.mutateAsync>[0]);
             } catch (e) {
-                window.alert(`Failed to save sales policies: ${e instanceof Error ? e.message : 'Unknown error'}`);
+                window.alert(`Failed to save restrictions: ${e instanceof Error ? e.message : 'Unknown error'}`);
                 return;
             }
             updateSalesPolicy(salesPolicy);
@@ -642,6 +659,71 @@ const Settings = () => {
                                 />
                                 <span className="settings-label-strong">Require Sales Order before creating Invoice</span>
                             </label>
+                        </div>
+
+                        <h3 className="settings-section-title mt-6">Transaction Date (Pembatasan Tanggal Transaksi)</h3>
+                        <p className="settings-muted">
+                            How far a document may be dated from today. This is separate from the monthly
+                            period lock: closing a month freezes it for good, while this catches a date
+                            that is simply implausible — a mistyped year, a document backdated past the
+                            point anyone would still be correcting. Whoever holds Settings edit rights can
+                            post outside it, since they can change it here anyway.
+                        </p>
+                        <div className="mb-4">
+                            <label className="form-label settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={datePolicy.enabled}
+                                    onChange={(e) => setDatePolicy({ ...datePolicy, enabled: e.target.checked })}
+                                    className="settings-checkbox-input"
+                                />
+                                <span className="settings-label-strong">Restrict transaction dates</span>
+                            </label>
+                        </div>
+                        <div className="grid grid-cols-12 gap-4">
+                            <div className="col-span-4">
+                                {/* Label via the Input's own `id`/`htmlFor` pair, so the field is
+                                    properly labelled rather than merely sitting under some text. */}
+                                <Input
+                                    id="txn-date-days-before"
+                                    label="Days before today"
+                                    type="number"
+                                    value={datePolicy.daysBefore === null ? '' : String(datePolicy.daysBefore)}
+                                    onChange={(e) => setDatePolicy({ ...datePolicy, daysBefore: toDayLimit(e.target.value) })}
+                                    disabled={!datePolicy.enabled}
+                                    placeholder="No limit"
+                                />
+                            </div>
+                            <div className="col-span-4">
+                                <Input
+                                    id="txn-date-days-after"
+                                    label="Days after today"
+                                    type="number"
+                                    value={datePolicy.daysAfter === null ? '' : String(datePolicy.daysAfter)}
+                                    onChange={(e) => setDatePolicy({ ...datePolicy, daysAfter: toDayLimit(e.target.value) })}
+                                    disabled={!datePolicy.enabled}
+                                    placeholder="No limit"
+                                />
+                            </div>
+                            <div className="col-span-4">
+                                <label htmlFor="txn-date-mode" className="block mb-2 text-sm font-medium text-neutral-700">
+                                    When a date is outside
+                                </label>
+                                <select
+                                    id="txn-date-mode"
+                                    className="w-full h-10 px-3 rounded-md border text-sm border-neutral-300 bg-neutral-0 focus:outline-none focus:ring-2 focus:ring-primary-100 disabled:bg-neutral-100"
+                                    value={datePolicy.mode}
+                                    onChange={(e) => setDatePolicy({ ...datePolicy, mode: e.target.value as TransactionDatePolicy['mode'] })}
+                                    disabled={!datePolicy.enabled}
+                                >
+                                    <option value="WARN">Warn, but allow saving</option>
+                                    <option value="BLOCK">Block the save</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="settings-help-text mt-2 mb-4">
+                            Leave a box empty for no limit on that side. Both bounds are inclusive — with
+                            30 days before, a document dated exactly 30 days ago is still allowed.
                         </div>
 
                         <div className="settings-save-wrap">

@@ -45,6 +45,9 @@ function makeTx(note: AnyRecord, kind: 'creditNote' | 'debitNote') {
     // assertPeriodOpen() FOR SHARE-locks the posting period via a raw query;
     // an empty result = no period defined = open.
     $queryRaw: vi.fn().mockResolvedValue([]),
+    // assertPeriodOpen also reads the org's transaction-date window; null is
+    // "never configured", so it restricts nothing.
+    organization: { findUnique: vi.fn().mockResolvedValue({ transactionDatePolicy: null }) },
   } as AnyRecord;
 }
 

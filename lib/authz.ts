@@ -64,6 +64,30 @@ export async function requirePermission(
   }
 }
 
+/**
+ * May this caller post outside the transaction-date window?
+ *
+ * Mapped onto SETTINGS/edit rather than a permission of its own, because that
+ * is the right which edits the window: anyone holding it can widen the policy
+ * to anything, so a separate flag would restrain nobody while adding a second
+ * place to look. It is also the right that closes a period — the same person,
+ * by design.
+ *
+ * Never throws. A caller without the right simply gets the window, which is
+ * the safe answer for every automated path (no request, no override).
+ */
+export async function canOverrideTransactionDate(
+  req: NextRequest,
+  db: Db = prisma,
+): Promise<boolean> {
+  try {
+    await requirePermission(req, 'SETTINGS', 'edit', db);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type PermissionDescriptor = { module: ModuleKey; action: Action };
 
 /**

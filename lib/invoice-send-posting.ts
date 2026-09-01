@@ -6,6 +6,7 @@ import { calculateAndPostCOGS } from './inventory-costing';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { toNumber, asMoney } from './money';
 import { postJournalEntry } from './journal-posting';
+import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
 /**
  * Posts the GL + COGS for an invoice transitioning to SENT.
@@ -17,7 +18,7 @@ export async function postInvoiceSend(
   tx: Prisma.TransactionClient,
   orgId: string,
   invoiceId: string,
-  opts: { allowNegativeStock?: boolean } = {},
+  opts: { allowNegativeStock?: boolean } & TransactionDateGuardOptions = {},
 ): Promise<void> {
   const invoice = await tx.salesInvoice.findUnique({
     where: { id: invoiceId },
@@ -41,7 +42,7 @@ export async function postInvoiceSend(
   const invoiceNumber = invoice.number;
 
   // Refuse to post into a closed/locked accounting period.
-  await assertPeriodOpen(tx, orgId, new Date(invoice.issueDate));
+  await assertPeriodOpen(tx, orgId, new Date(invoice.issueDate), opts);
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },

@@ -21,6 +21,9 @@ const putUpdates: Record<string, unknown>[] = [];
 
 const txStub = () => ({
   $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 99 }]),
+  // assertPeriodOpen also reads the org's transaction-date window; null is
+  // "never configured", so it restricts nothing.
+  organization: { findUnique: vi.fn().mockResolvedValue({ transactionDatePolicy: null }) },
   // POSTED edits now resolve the period by date (assertPeriodOpen); null = no
   // period defined for the date, which is allowed.
   accountingPeriod: { findFirst: vi.fn(async () => null) },

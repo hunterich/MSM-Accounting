@@ -7,6 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### ✨ Added — Transaction-date restriction (Accurate "Pembatasan Tanggal Transaksi")
+- **A window around today that documents must be dated within**, configured in Settings → Restrictions: N days before, N days after, either side optional. Separate from the monthly period lock — closing a month freezes it for good, while this catches a date that is merely implausible, like a mistyped year
+- **Warn or block, per organization.** WARN shows the form banner and lets the save through; BLOCK refuses server-side with a 422, the same shape the period lock returns. Tightening this on a working team is not a flag-flip, so both exist
+- **Enforced inside `assertPeriodOpen`**, which the policy gate below proves every journal-writing path reaches — so the window covers every posting path by construction rather than by hand. The period lock is reported first when a date breaks both rules: reopening a month is a different action from widening a window
+- **Whoever holds SETTINGS/edit can post outside it** (`canOverrideTransactionDate`). Mapped onto that existing right rather than a new permission because it is the right that edits the window — someone who can widen it to anything is not restrained by it, and a separate flag would only add a second place to look. Automated paths (depreciation, recurring bills, payroll, settlement import, POS, marketplace) have no actor and stay held to the window; they post dated today
+- **`src/lib/transaction-date-policy.ts`** is the single definition. The Settings screen, the API and the guard all read a stored policy through the same `parseTransactionDatePolicy`, and the API stores the parsed shape — so a policy cannot be saved in a state the guard would read differently
+
+### 🚑 Fixed — four posting paths ignored the period lock
+- **Opening stock on item create/update, the CSV opening-balance journal, the migration cutover journal, and marketplace settlement posting** all wrote POSTED journal entries without calling `assertPeriodOpen`. A closed month did not stop any of them. The migration cutover was the worst of the four: it is dated the cutover, which can be any past date, so it was the write most likely to land in a month already signed off
+- The guard on opening stock sits **after** the `postGl` early return, so the migration path still imports its cost layers into a closed month — it writes no journal there, and there is nothing to guard
+
+### ✨ Added — period-guard policy gate
+- **`src/app/api/v1/__tests__/period-guard-policy.test.ts`** — a file that writes a journal entry must call `assertPeriodOpen`, or every non-test file that imports it must. The second clause lets a shared helper like `bill-posting.ts` stay clean while its five callers each guard, and fails the moment a sixth is added that does not; a file nothing imports (every route) has to guard itself, so coverage is never vacuous. Three documented exemptions: the shared writer `journal-posting.ts` (its callers guard, and it cannot guard unconditionally because the year-end close posts *into* the period it closes), `fiscal-year-close.ts` itself, and `pos/batch-stock-in.ts` (reachable only from the integration suite)
+- It found the four gaps above. Like the dead-module gate, it is a ratchet rather than a proof — it matches text, so it cannot tell that a guard is on the right date, only that a posting path never mentions one
+
+
 ### 🚑 Fixed — screens that showed fixtures instead of the database
 - **Sales orders never appeared in their own list.** `SOFormV2` saved to `/api/v1/sales-orders`, while the list and detail panes read a browser-local zustand store seeded with three fixtures ("Acme Corp", "Globex Inc"). Saving an order looked like it worked and then the order was nowhere. Both panes now read the API through `src/lib/salesOrderView.ts`, which maps the API's field names onto the ones the panes already render and derives the order total the same way `computeTotals` does — pinned by a test, so the list and the form can't show different numbers for the same order
 - **Every printed bill and purchase order came out with an empty line table.** Both print previews pulled line items from a local fixture keyed by document id, and no real bill or PO id ever matched one of those keys. Both list endpoints have included their lines all along, so the printout is now the real document

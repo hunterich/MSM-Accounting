@@ -39,6 +39,9 @@ model Organization {
   emailFromDomain        String?
   accountDefaults                  Json?
   approvalRequirements             Json?
+  // Accurate-style "Pembatasan Tanggal Transaksi": how far before/after today a
+  // document may be dated. Null = never configured, which reads as disabled.
+  transactionDatePolicy            Json?
   requireDistinctApproverForAdmins Boolean @default(false)
   printSettings                    Json?
   defaultPaymentTerms              Int      @default(0)

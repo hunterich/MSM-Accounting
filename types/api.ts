@@ -390,6 +390,14 @@ export const updateOrganizationSettingsInputSchema = z.object({
     blockSellBelowCost: z.boolean().optional(),
     requireSalesOrder: z.boolean().optional(),
   }).optional(),
+  // Pembatasan Tanggal Transaksi. `null` on a bound means no limit that way;
+  // the server re-normalizes anyway, so this only has to reject nonsense.
+  transactionDatePolicy: z.object({
+    enabled: z.boolean().optional(),
+    mode: z.enum(['WARN', 'BLOCK']).optional(),
+    daysBefore: z.number().int().min(0).max(3650).nullable().optional(),
+    daysAfter: z.number().int().min(0).max(3650).nullable().optional(),
+  }).optional(),
   documentNumbering: z.record(
     z.string(),
     z.object({

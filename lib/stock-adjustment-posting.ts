@@ -5,6 +5,7 @@ import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { addCostLayer, relieveCostLayers } from './inventory-costing';
 import { assertPeriodOpen } from './period-guard';
+import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
 type Tx = Prisma.TransactionClient;
 
@@ -46,6 +47,7 @@ export async function postStockAdjustmentToLedger(
   tx: Tx,
   orgId: string,
   args: StockAdjustmentPostingArgs,
+  opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
   const lines = args.lines ?? [];
   if (lines.length === 0) return;
@@ -54,7 +56,7 @@ export async function postStockAdjustmentToLedger(
   // single guard covers every forward stock-adjustment posting path: direct
   // create-as-APPROVED, the approval finalizer, and stock-count posting (which
   // routes through here). The void path guards separately.
-  await assertPeriodOpen(tx, orgId, args.date);
+  await assertPeriodOpen(tx, orgId, args.date, opts);
 
   let netValue = 0;
   for (const l of lines) {
@@ -127,7 +129,12 @@ export async function postStockAdjustmentToLedger(
  * future caller that invoked this while status is still PENDING_APPROVAL
  * (before the finalizer flips it to APPROVED) would double-post.
  */
-export async function postStockAdjustmentIfNeeded(tx: Tx, orgId: string, adjustmentId: string): Promise<void> {
+export async function postStockAdjustmentIfNeeded(
+  tx: Tx,
+  orgId: string,
+  adjustmentId: string,
+  opts: TransactionDateGuardOptions = {},
+): Promise<void> {
   const adj = await tx.stockAdjustment.findFirst({
     where: { id: adjustmentId, organizationId: orgId },
     include: { lines: true },
@@ -145,5 +152,5 @@ export async function postStockAdjustmentIfNeeded(tx: Tx, orgId: string, adjustm
       qtyDiff: l.qtyDiff,
       unitCost: l.unitCost,
     })),
-  });
+  }, opts);
 }

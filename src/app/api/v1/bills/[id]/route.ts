@@ -9,7 +9,7 @@ import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { reverseBillPosting } from '@/lib/repost';
 import { routeForApproval } from '@/lib/approval/engine';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
 function isFakturDuplicate(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
@@ -44,6 +44,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const userId = req.headers.get('x-user-id');
   if (!orgId || !userId) {
     return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -96,8 +100,8 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
           throw new ApiError('Cannot edit a bill with returns or debit notes against it — reverse those first.', 422);
         }
         const newDate = header.issueDate ? new Date(header.issueDate) : new Date(existing.issueDate);
-        await assertPeriodOpen(tx, orgId, new Date(existing.issueDate)); // the period it's posted in
-        await assertPeriodOpen(tx, orgId, newDate);                       // the period it re-posts into
+        await assertPeriodOpen(tx, orgId, new Date(existing.issueDate), dateOverride); // the period it's posted in
+        await assertPeriodOpen(tx, orgId, newDate, dateOverride);                       // the period it re-posts into
         postedEditBefore = await tx.bill.findFirst({ where: { id, organizationId: orgId }, include: { lines: true, charges: true } });
         await reverseBillPosting(
           tx, orgId,
@@ -198,7 +202,7 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
           if (finalized) {
             // Refuse to post into a closed/locked accounting period (mirrors the
             // create-as-OPEN path in bills/route.ts).
-            await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date());
+            await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date(), dateOverride);
             // Apply the PO receipt on this DRAFT -> OPEN finalize, exactly once.
             // For a direct-bill-from-PO created as DRAFT the receivedQty increment
             // was deferred to finalize and lands here. For a goods-receipt bill

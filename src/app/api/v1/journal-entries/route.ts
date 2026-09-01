@@ -7,7 +7,7 @@ import {
   createJournalEntryResponseSchema,
 } from '@/types/api';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import {
   ok,
@@ -131,6 +131,10 @@ export const GET = withHandler(async (req: NextRequest) => {
 export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, async (request: NextRequest) => {
   const { orgId, userId } = requireAuth(request);
 
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(request) };
+
   const rawPayload = await request.json();
   if (rawPayload?.organizationId && rawPayload.organizationId !== orgId) {
     throw new ApiError('organizationId does not match current session', 403);
@@ -193,7 +197,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
     // the entry DATE (not just an optional periodId) and refuse a closed/locked
     // one — mirroring the automatic posting paths (invoices/bills/payments).
     if (payload.status === 'POSTED') {
-      await assertPeriodOpen(tx, payload.organizationId, entryDate);
+      await assertPeriodOpen(tx, payload.organizationId, entryDate, dateOverride);
     }
 
     const { lines, totalDebit, totalCredit } = normalizeLines(payload);

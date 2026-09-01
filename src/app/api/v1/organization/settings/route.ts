@@ -12,6 +12,10 @@ import {
 } from '@/lib/account-defaults';
 import { normalizeApprovalRequirements } from '@/lib/approval/config';
 import {
+  parseTransactionDatePolicy,
+  DEFAULT_TRANSACTION_DATE_POLICY,
+} from '@/lib/transaction-date-policy';
+import {
   normalizeFeatures,
   normalizeDocumentNumbering,
   normalizeSalesPolicy,
@@ -43,6 +47,7 @@ type OrganizationSettingsRecord = {
   features: unknown;
   documentNumbering: unknown;
   salesPolicy: unknown;
+  transactionDatePolicy: unknown;
 };
 
 const DEFAULT_PRINT_SETTINGS = {
@@ -122,6 +127,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     features: normalizeFeatures(organization.features),
     documentNumbering: normalizeDocumentNumbering(organization.documentNumbering),
     salesPolicy: normalizeSalesPolicy(organization.salesPolicy),
+    transactionDatePolicy: parseTransactionDatePolicy(organization.transactionDatePolicy),
     needsInventoryValuationSetup: !organization.costingMethod,
   });
 });
@@ -252,6 +258,17 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
   if (parsed.data.features !== undefined) {
     updateData.features = normalizeFeatures(parsed.data.features);
   }
+  if (parsed.data.transactionDatePolicy !== undefined) {
+    // Store the parsed shape, not the raw input: `parseTransactionDatePolicy`
+    // is the same function the guard reads through, so what is saved is exactly
+    // what will be enforced — a policy cannot be stored in a state the guard
+    // would interpret differently.
+    updateData.transactionDatePolicy = parseTransactionDatePolicy({
+      ...DEFAULT_TRANSACTION_DATE_POLICY,
+      ...parsed.data.transactionDatePolicy,
+    });
+  }
+
   if (parsed.data.salesPolicy !== undefined) {
     updateData.salesPolicy = normalizeSalesPolicy(parsed.data.salesPolicy);
   }
