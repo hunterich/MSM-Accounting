@@ -4,7 +4,8 @@ import { Plus } from 'lucide-react';
 import SOCatalogPanel from './SOCatalogPanel';
 import PageHeader from '../../Layout/PageHeader';
 import Button from '../../UI/Button';
-import { useSalesOrderStore } from '../../../stores/useSalesOrderStore';
+import { useSalesOrders } from '../../../hooks/useAR';
+import { toSalesOrderView } from '../../../lib/salesOrderView';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions } from '../../../hooks/useModulePermissions';
 
@@ -13,9 +14,14 @@ interface SOFilters { searchTerm: string; status: string; dateFrom: string; date
 const SalesOrderListPane = (): React.ReactElement => {
     const { canCreate, canEdit } = useModulePermissions('ar_sales_orders');
     const { open } = useWorkspaceNav();
-    // Read from the same store the form writes to, so seeded + just-saved
-    // orders both appear here and can be opened as tabs.
-    const salesOrders = useSalesOrderStore((s) => s.salesOrders);
+    // The sales orders API — the same source `SOFormV2` saves to. This pane used
+    // to read a browser-local store seeded with three fixtures, so a saved order
+    // never showed up in its own list.
+    const { data: result } = useSalesOrders({ limit: 200 });
+    const salesOrders = useMemo(
+        () => (result?.data ?? []).map(toSalesOrderView),
+        [result?.data],
+    );
 
     const [filters, setFilters] = useState<SOFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
 
@@ -29,16 +35,22 @@ const SalesOrderListPane = (): React.ReactElement => {
 
     const filteredData = useMemo(() => salesOrders.filter((item) => {
         const keyword = filters.searchTerm.toLowerCase();
-        const matchesSearch = (item.customerName || '').toLowerCase().includes(keyword) || item.id.toLowerCase().includes(keyword);
+        const matchesSearch = item.customerName.toLowerCase().includes(keyword) || item.no.toLowerCase().includes(keyword);
         const matchesStatus = filters.status ? item.status === filters.status : true;
-        return matchesSearch && matchesStatus;
+        // The panel has always offered these two inputs; nothing read them.
+        const matchesFrom = filters.dateFrom ? item.date >= filters.dateFrom : true;
+        const matchesTo = filters.dateTo ? item.date <= filters.dateTo : true;
+        return matchesSearch && matchesStatus && matchesFrom && matchesTo;
     }), [filters, salesOrders]);
+
+    // Tabs are titled by the document number; `soId` is the cuid every lookup keys off.
+    const labelFor = (soId: string) => salesOrders.find((so) => so.id === soId)?.no ?? soId;
 
     const openView = (soId: string) => {
         open({
             kind: 'doc-view',
             target: { module: 'ar', entity: 'sales-order', recordId: soId, mode: 'view' },
-            title: soId,
+            title: labelFor(soId),
             path: `/ar/sales-orders?soId=${soId}`,
         });
     };
@@ -47,7 +59,7 @@ const SalesOrderListPane = (): React.ReactElement => {
         open({
             kind: 'doc-form',
             target: { module: 'ar', entity: 'sales-order', recordId: soId, mode: 'edit' },
-            title: `Edit ${soId}`,
+            title: `Edit ${labelFor(soId)}`,
             path: `/ar/sales-orders/edit?soId=${soId}`,
         });
     };

@@ -95,7 +95,7 @@ const SODetailTabs: React.FC<SODetailTabsProps> = ({ salesOrder, lineItems = [],
         <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden">
             <div className="flex items-center justify-between py-2.5 px-3.5 border-b border-neutral-200">
                 <div className="flex items-center gap-2.5">
-                    <h2 className="m-0 text-xl font-semibold">{salesOrder.id}</h2>
+                    <h2 className="m-0 text-xl font-semibold">{String(salesOrder.no ?? salesOrder.id)}</h2>
                     <StatusTag status={tag.status} label={tag.label} />
                 </div>
                 <div className="flex gap-2">

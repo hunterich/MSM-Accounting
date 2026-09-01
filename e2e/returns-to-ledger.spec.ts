@@ -34,10 +34,38 @@ async function apiJson(request: APIRequestContext, path: string) {
   return body.data ?? body
 }
 
-/** Open a SearchableSelect by its placeholder and choose an option. */
+/**
+ * Ids present before the run, so the assertions can name what this run created.
+ * Every caller asks for `limit=100`, the API maximum: repeated local runs pile up
+ * rows, and a day's documents all share one date, so page 1 is not stable.
+ */
+async function idsOf(request: APIRequestContext, path: string): Promise<Set<string>> {
+  const rows: Array<{ id: string }> = await apiJson(request, path)
+  return new Set(rows.map((r) => r.id))
+}
+
+/** The single row this run added. Fails loudly if the run added none, or several. */
+function theNewOne<T extends { id: string }>(rows: T[], before: Set<string>, what: string): T {
+  const created = rows.filter((r) => !before.has(r.id))
+  expect(created, `expected exactly one new ${what} from this run`).toHaveLength(1)
+  return created[0]
+}
+
+/**
+ * Open a SearchableSelect by its placeholder and choose an option.
+ *
+ * The option click is scoped to the dropdown panel, which is the control's next
+ * sibling. That matters more than it looks: `.cursor-pointer` also matches every
+ * row of the catalog behind the form, and once this spec has run once those rows
+ * contain the very customer name the next run tries to pick — so an unscoped
+ * `.first()` grabbed a hidden table row and waited for it to become visible
+ * until the test timed out.
+ */
 async function choose(page: Page, placeholder: string, option: string | RegExp) {
-  await page.locator('.cursor-pointer', { hasText: placeholder }).first().click()
-  await page.locator('.cursor-pointer', { hasText: option }).first().click()
+  const control = page.locator('div.cursor-pointer', { hasText: placeholder }).first()
+  await control.click()
+  const panel = control.locator('xpath=following-sibling::div[1]')
+  await panel.locator('div.cursor-pointer', { hasText: option }).first().click()
 }
 
 test.describe('sales return → credit note → ledger', () => {
@@ -46,11 +74,15 @@ test.describe('sales return → credit note → ledger', () => {
   }) => {
     await login(page)
 
-    // The disposable database starts empty of returns. Asserting this up front
-    // is also the guard that the suite is pointed at `<db>_e2e` and not at a
-    // development database that already holds documents.
-    const before = await apiJson(page.request, '/api/v1/credit-notes')
-    expect(before, 'e2e database should start with no credit notes').toHaveLength(0)
+    // Every assertion below is about what THIS run created, not what the whole
+    // database holds. An applied credit note is deliberately immutable — void
+    // reverses it with a second entry rather than removing it — so the spec
+    // cannot put the database back, and asserting on totals made a second run
+    // fail on the leftovers of the first. (The suite cannot reach a development
+    // database anyway: `playwright.config.ts` forces the `_e2e` suffix onto
+    // whatever DATABASE_URL it is given.)
+    const notesBefore = await idsOf(page.request, '/api/v1/credit-notes?limit=100')
+    const returnsBefore = await idsOf(page.request, '/api/v1/sales-returns?limit=100')
 
     await page.goto('/ar/credits')
     await page.locator('.workbench-doc-tab-new').click()
@@ -61,7 +93,10 @@ test.describe('sales return → credit note → ledger', () => {
     // Return 2 of the 5 units on the invoice line (Rp 100.000 each).
     const qtyReturn = page.locator('main input[type="number"]').nth(1)
     await qtyReturn.fill('2')
-    await expect(page.getByText('Rp 222.000,00').first()).toBeVisible()
+    // Assert on the form's own total, not the first Rp 222.000,00 anywhere on
+    // the page: the same figure also appears in the sticky status bar, and
+    // whichever of the two `.first()` picks may be scrolled out of view.
+    await expect(page.locator('.panel-summary-total .value')).toHaveText('Rp 222.000,00')
 
     await page.getByRole('button', { name: 'Save & Create Credit Note' }).click()
 
@@ -72,10 +107,13 @@ test.describe('sales return → credit note → ledger', () => {
 
     // The return really was persisted, with a server-assigned number — the step
     // that silently failed for every auto-numbered return.
-    const returns = await apiJson(page.request, '/api/v1/sales-returns')
-    expect(returns).toHaveLength(1)
-    expect(returns[0].number).toMatch(/^SRN-/)
-    expect(returns[0].status).toBe('PENDING_CREDIT_NOTE')
+    const salesReturn = theNewOne(
+      await apiJson(page.request, '/api/v1/sales-returns?limit=100'),
+      returnsBefore,
+      'sales return',
+    )
+    expect(salesReturn.number).toMatch(/^SRN-/)
+    expect(salesReturn.status).toBe('PENDING_CREDIT_NOTE')
 
     // Apply it against the source invoice.
     const settlement = page
@@ -94,12 +132,14 @@ test.describe('sales return → credit note → ledger', () => {
 
     // What the API actually stored: linked to the return, the customer and the
     // source invoice — the three fields the client used to get wrong.
-    const notes = await apiJson(page.request, '/api/v1/credit-notes')
-    expect(notes).toHaveLength(1)
-    const note = notes[0]
+    const note = theNewOne(
+      await apiJson(page.request, '/api/v1/credit-notes?limit=100'),
+      notesBefore,
+      'credit note',
+    )
     expect(note.number).toMatch(/^CRN-/)
     expect(note.status).toBe('APPLIED')
-    expect(note.salesReturnId, 'note must link back to its sales return').toBe(returns[0].id)
+    expect(note.salesReturnId, 'note must link back to its sales return').toBe(salesReturn.id)
     expect(note.customerId, 'customerId is required by the API').toBeTruthy()
     expect(note.sourceInvoiceId).toBeTruthy()
     expect(money(note.amount)).toBe(222_000)
@@ -107,7 +147,7 @@ test.describe('sales return → credit note → ledger', () => {
 
     // And what reached the ledger: balanced, posted, and on a returns account
     // rather than whichever account happened to sort first.
-    const entries = await apiJson(page.request, '/api/v1/journal-entries')
+    const entries = await apiJson(page.request, '/api/v1/journal-entries?limit=100')
     const entry = entries.find((e: { memo?: string }) => e.memo?.includes(note.number))
     expect(entry, `no journal entry for ${note.number}`).toBeTruthy()
     expect(entry.status).toBe('POSTED')

@@ -435,7 +435,7 @@
 | Backup & restore functionality | [x] In-app Backup & Restore (PR #45) — automatic twice-daily `pg_dump --format=custom`, manual "Back up now", synced-folder cloud/external destinations, guarded admin-only restore (safety backup + type-RESTORE), backup history, `node-cron` scheduler via `instrumentation.ts`, `SYSTEM_BACKUP` RBAC | High |
 | API route hardening | [x] `withHandler()` + `requireOrg()`/`requireAuth()` across all routes; `@ts-nocheck` removed; duplicate utility functions consolidated; FNV-1a advisory lock hashing; body size limits | **Critical** |
 | Duplicate file cleanup | [x] Removed `apiClient.js` (kept `.ts`), `useAuthStore.js` (kept `.ts`) | Medium |
-| Frontend TypeScript migration | [x] Complete — 96 files converted (all views, components, utils, hooks, tests); only `mockData.js` and `vite.config.js` intentionally kept as JS | Medium |
+| Frontend TypeScript migration | [x] Complete — 96 files converted (all views, components, utils, hooks, tests). `mockData.js` has since been deleted along with the five stores that read it, so `vite.config.js` is the only JS left | Medium |
 
 ---
 

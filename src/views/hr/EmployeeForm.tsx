@@ -1,12 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { employeeSchema, zodToFormErrors } from '../../utils/formSchemas';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { formatIDR } from '../../utils/formatters';
-import { useHRStore } from '../../stores/useHRStore';
-import { useCreateEmployee, useUpdateEmployee } from '../../hooks/useHR';
+import { useCreateEmployee, useUpdateEmployee, useEmployee, useDepartments, usePositions } from '../../hooks/useHR';
 
 interface EmployeeLineItem {
     id: string;
@@ -123,24 +122,29 @@ const EmployeeForm = () => {
     const isEditMode = mode === 'edit';
     const isCreateMode = mode === 'create';
 
-    const employees = useHRStore((state) => state.employees);
-    const departments = useHRStore((state) => state.departments);
-    const positions = useHRStore((state) => state.positions);
-    const addDepartment = useHRStore((state) => state.addDepartment);
-    const addPosition = useHRStore((state) => state.addPosition);
+    // The employee being edited, from the API — the same source the employee
+    // list links from. This used to look the id up in a browser-local store of
+    // fixtures whose ids no saved employee ever matched, so View and Edit both
+    // opened an empty form.
+    const { data: selectedEmployee = null, isLoading: employeeLoading } = useEmployee(
+        isCreateMode ? undefined : employeeId || undefined,
+    );
+    const { data: departments = [] } = useDepartments();
+    const { data: positions = [] } = usePositions();
 
     const createEmployee = useCreateEmployee();
     const updateEmployee = useUpdateEmployee();
 
     const isSaving = createEmployee.isPending || updateEmployee.isPending;
 
-    const selectedEmployee = useMemo(
-        () => employees.find((employee) => employee.id === employeeId) || null,
-        [employeeId, employees]
-    );
-
-    const [formData, setFormData] = useState<EmployeeFormData>(() => buildEmployeeState(selectedEmployee));
+    const [formData, setFormData] = useState<EmployeeFormData>(() => buildEmployeeState(null));
     const [errors, setErrors] = useState<EmployeeErrors>({});
+
+    // The record arrives after the first render, so seed the form when it lands.
+    useEffect(() => {
+        if (!selectedEmployee) return;
+        setFormData(buildEmployeeState(selectedEmployee));
+    }, [selectedEmployee]);
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const name = event.target.name as keyof EmployeeFormData;
@@ -181,23 +185,16 @@ const EmployeeForm = () => {
         }));
     };
 
-    const nextEmployeeId = () => {
-        const lastSeq = employees.reduce((max, employee) => {
-            const match = /^EMP-(\d+)$/i.exec(employee.id || '');
-            if (!match) return max;
-            return Math.max(max, Number(match[1]));
-        }, 0);
-
-        return `EMP-${String(lastSeq + 1).padStart(4, '0')}`;
-    };
-
     const handleSave = async () => {
         const result = employeeSchema.safeParse(formData);
         if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
 
         const normalized = {
             ...formData,
-            id: isCreateMode ? nextEmployeeId() : formData.id,
+            // The API assigns employeeNo itself (nextNumber). This used to send a
+            // client-invented "EMP-nnnn" derived from the fixture store, which
+            // the create route discarded.
+            id: formData.id,
             name: formData.name.trim(),
             department: formData.department.trim(),
             position: formData.position.trim(),
@@ -217,9 +214,6 @@ const EmployeeForm = () => {
                     amount: toNumber(item.amount)
                 }))
         };
-
-        await addDepartment(normalized.department);
-        await addPosition(normalized.position);
 
         try {
             if (isCreateMode) {
@@ -255,6 +249,7 @@ const EmployeeForm = () => {
             title={pageTitle}
             backTo="/hr/employees"
             backLabel="Back to Employees"
+            isLoading={employeeLoading}
             actions={
                 isViewMode ? (
                     <Button text="Close" variant="primary" onClick={() => navigate('/hr/employees')} />
@@ -373,7 +368,7 @@ const EmployeeForm = () => {
                         />
                         <datalist id="department-options">
                             {departments.map((department) => (
-                                <option key={department} value={department} />
+                                <option key={department.id} value={department.name} />
                             ))}
                         </datalist>
                         {errors.department ? <div className="w-full mt-1 text-xs text-danger-500">{errors.department}</div> : null}
@@ -391,7 +386,7 @@ const EmployeeForm = () => {
                         />
                         <datalist id="position-options">
                             {positions.map((position) => (
-                                <option key={position} value={position} />
+                                <option key={position.id} value={position.name} />
                             ))}
                         </datalist>
                         {errors.position ? <div className="w-full mt-1 text-xs text-danger-500">{errors.position}</div> : null}

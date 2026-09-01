@@ -1,10 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
-import type { ListResponse, Employee, RawEmployee, EmployeeStatus } from '../types';
+import type { ListResponse, Employee, RawEmployee, EmployeeStatus, EmploymentType } from '../types';
 
 export const HR_KEYS = {
     employees: ['hrEmployees'] as const,
     employee:  (id: string) => ['hrEmployees', id] as const,
+    departments: ['hrDepartments'] as const,
+    positions: ['hrPositions'] as const,
     attendance: ['hrAttendance'] as const,
     leaveTypes: ['hrLeaveTypes'] as const,
     leaveRequests: ['hrLeaveRequests'] as const,
@@ -20,6 +22,11 @@ const EMP_STATUS_DOWN: Record<string, EmployeeStatus> = {
 };
 const EMP_STATUS_UP: Record<string, string> = {
     Active: 'ACTIVE', Inactive: 'INACTIVE', 'On Leave': 'ON_LEAVE',
+};
+// Going up is the create/update route's job — it uppercases and swaps the
+// hyphen itself — so only the down map is needed here.
+const EMP_TYPE_DOWN: Record<string, EmploymentType> = {
+    FULL_TIME: 'Full-time', CONTRACT: 'Contract',
 };
 
 // ── Normalizer ────────────────────────────────────────────────────────────────
@@ -55,6 +62,18 @@ function normalizeEmployee(raw: RawEmployee): Employee {
         position:     (typeof pos  === 'object' && pos  !== null ? pos.name  : pos)  || '',
         positionId:   raw.positionId   || (typeof pos  === 'object' && pos  !== null ? pos.id   : '') || '',
         status:       EMP_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as EmployeeStatus),
+        // The employee form edits all of these. They were dropped here, so
+        // opening a saved employee showed an empty form and saving it back
+        // would have blanked the record.
+        type:         EMP_TYPE_DOWN[raw.type ?? ''] ?? (raw.type as EmploymentType) ?? 'Full-time',
+        ktp:          raw.ktp || '',
+        dob:          raw.dob ? String(raw.dob).slice(0, 10) : '',
+        bankName:     raw.bankName || '',
+        accountNumber: raw.accountNumber || '',
+        accountHolder: raw.accountHolder || '',
+        npwp:         raw.npwp || '',
+        bpjsKesehatan: raw.bpjsKesehatan || '',
+        bpjsKetenagakerjaan: raw.bpjsKetenagakerjaan || '',
         basicSalary:  Number(raw.basicSalary ?? 0),
         joinDate:     raw.joinDate ? String(raw.joinDate).slice(0, 10) : '',
         address:      raw.address || '',
@@ -118,6 +137,41 @@ export function useDeleteEmployee() {
     return useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/employees/${id}`),
         onSuccess: () => qc.invalidateQueries({ queryKey: HR_KEYS.employees }),
+    });
+}
+
+// ── Departments & Positions ──────────────────────────────────────────────────
+
+/**
+ * The employee form's two pickers. These used to be hardcoded string arrays in
+ * a browser-local store, with an "add" that persisted only in that browser —
+ * while the API has had real Department and Position tables all along, and
+ * creates either by name when an employee is saved with a new one.
+ */
+interface NamedRecord { id: string; name: string }
+
+const normalizeNamed = (raw: { id?: string | null; name?: string | null }): NamedRecord => ({
+    id: raw.id || '',
+    name: raw.name || '',
+});
+
+export function useDepartments() {
+    return useQuery({
+        queryKey: HR_KEYS.departments,
+        queryFn: () => api
+            .get<ListResponse<{ id: string; name: string }>>('/api/v1/departments', { limit: 100 })
+            .then((res) => (res.data ?? []).map(normalizeNamed)),
+        staleTime: 60_000,
+    });
+}
+
+export function usePositions() {
+    return useQuery({
+        queryKey: HR_KEYS.positions,
+        queryFn: () => api
+            .get<ListResponse<{ id: string; name: string }>>('/api/v1/positions', { limit: 100 })
+            .then((res) => (res.data ?? []).map(normalizeNamed)),
+        staleTime: 60_000,
     });
 }
 
