@@ -18,6 +18,7 @@ import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defau
 import { toNumber } from './money';
 import { ApiError } from './api-utils';
 import { assertPeriodOpen } from './period-guard';
+import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
 type Tx = Prisma.TransactionClient;
 
@@ -33,6 +34,7 @@ function isJournalEntryIdUniqueViolation(error: unknown): boolean {
 export async function postDebitNoteOnApply(
   tx: Tx,
   debitNoteId: string,
+  opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
   const dn = await tx.debitNote.findUnique({
     where: { id: debitNoteId },
@@ -56,7 +58,7 @@ export async function postDebitNoteOnApply(
   if (dn.journalEntryId) return;
 
   // Refuse to post into a closed/locked accounting period.
-  await assertPeriodOpen(tx, dn.organizationId, dn.date);
+  await assertPeriodOpen(tx, dn.organizationId, dn.date, opts);
 
   const amount = toNumber(dn.amount);
   if (amount <= 0) {

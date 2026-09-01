@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
+import { assertPeriodOpen } from '@/lib/period-guard';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -286,29 +287,37 @@ export const POST = withPermission(
       }
 
       if (journalLines.length > 0) {
-        // Generate next journal number
-        const maxResult = await prisma.$queryRaw<Array<{ max_seq: number | null }>>`
-          SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-(\\d+)$') AS INTEGER)) AS max_seq
-          FROM "JournalEntry"
-          WHERE "organizationId" = ${orgId}
-            AND "entryNo" LIKE 'JE-%'
-        `;
-        const nextSeq = Number(maxResult[0]?.max_seq ?? 0) + 1;
-        const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+        const postedOn = new Date();
+        // In a transaction so the period guard's row lock means something: a
+        // concurrent period close waits for this write, and a closed period
+        // refuses it. This is a POSTED entry like any other.
+        await prisma.$transaction(async (tx) => {
+          await assertPeriodOpen(tx, orgId, postedOn);
 
-        await prisma.journalEntry.create({
-          data: {
-            organizationId: orgId,
-            entryNo,
-            date: new Date(),
-            memo: 'Opening Balance Journal (imported)',
-            source: 'OPENING',
-            status: 'POSTED',
-            totalDebit,
-            totalCredit,
-            postedAt: new Date(),
-            lines: { create: journalLines },
-          },
+          // Generate next journal number
+          const maxResult = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
+            SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-(\\d+)$') AS INTEGER)) AS max_seq
+            FROM "JournalEntry"
+            WHERE "organizationId" = ${orgId}
+              AND "entryNo" LIKE 'JE-%'
+          `;
+          const nextSeq = Number(maxResult[0]?.max_seq ?? 0) + 1;
+          const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+
+          await tx.journalEntry.create({
+            data: {
+              organizationId: orgId,
+              entryNo,
+              date: postedOn,
+              memo: 'Opening Balance Journal (imported)',
+              source: 'OPENING',
+              status: 'POSTED',
+              totalDebit,
+              totalCredit,
+              postedAt: postedOn,
+              lines: { create: journalLines },
+            },
+          });
         });
         created = 1;
       }

@@ -12,13 +12,19 @@ import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { assertPeriodOpen } from './period-guard';
 import { toNumber } from './money';
+import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
 type Tx = Prisma.TransactionClient;
 
 const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'VOID', 'PENDING_APPROVAL']);
 
 /** Post DR Bank / CR AR for an AR receipt, once. */
-export async function postArPaymentIfNeeded(tx: Tx, orgId: string, paymentId: string): Promise<void> {
+export async function postArPaymentIfNeeded(
+  tx: Tx,
+  orgId: string,
+  paymentId: string,
+  opts: TransactionDateGuardOptions = {},
+): Promise<void> {
   const payment = await tx.aRPayment.findFirst({
     where: { id: paymentId, organizationId: orgId },
   });
@@ -27,7 +33,7 @@ export async function postArPaymentIfNeeded(tx: Tx, orgId: string, paymentId: st
   const amount = toNumber(payment.totalAmount);
   if (amount <= 0) return;
 
-  await assertPeriodOpen(tx, orgId, new Date(payment.date));
+  await assertPeriodOpen(tx, orgId, new Date(payment.date), opts);
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
@@ -70,7 +76,12 @@ export async function postArPaymentIfNeeded(tx: Tx, orgId: string, paymentId: st
 }
 
 /** Post DR AP / CR Bank for an AP disbursement, once. */
-export async function postApPaymentIfNeeded(tx: Tx, orgId: string, paymentId: string): Promise<void> {
+export async function postApPaymentIfNeeded(
+  tx: Tx,
+  orgId: string,
+  paymentId: string,
+  opts: TransactionDateGuardOptions = {},
+): Promise<void> {
   const payment = await tx.aPPayment.findFirst({
     where: { id: paymentId, organizationId: orgId },
   });
@@ -79,7 +90,7 @@ export async function postApPaymentIfNeeded(tx: Tx, orgId: string, paymentId: st
   const amount = toNumber(payment.totalAmount);
   if (amount <= 0) return;
 
-  await assertPeriodOpen(tx, orgId, new Date(payment.date));
+  await assertPeriodOpen(tx, orgId, new Date(payment.date), opts);
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },

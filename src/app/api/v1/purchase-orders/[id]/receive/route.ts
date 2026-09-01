@@ -8,7 +8,7 @@ import { ApiError, ok, err, requireOrg, nextNumber, withHandler } from '@/lib/ap
 import { asMoney } from '@/lib/money';
 import { postGoodsReceiptToLedger } from '@/lib/goods-receipt-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -32,6 +32,10 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
 ) {
   const { id } = await params;
   const orgId = requireOrg(req);
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const body = await req.json();
   const { lines, notes } = body as {
     lines: { purchaseOrderLineId: string; qtyReceived: number }[];
@@ -65,7 +69,7 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${receiveLockId})`;
 
     // Refuse to receive into a closed/locked accounting period.
-    await assertPeriodOpen(tx, orgId, receiptDate);
+    await assertPeriodOpen(tx, orgId, receiptDate, dateOverride);
 
     // Allocate the bill number INSIDE the transaction with `tx` so its advisory
     // lock stays held until the insert commits (calling it on the base `prisma`

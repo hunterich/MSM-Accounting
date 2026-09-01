@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, logAudit, nextNumber, ok, requireOrg } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { assetDisposalInputSchema } from '@/types/api';
 import { calculateDisposalGainLoss } from '@/lib/depreciation';
 import { toNumber, asMoney } from '@/lib/money';
@@ -33,6 +33,10 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
   { params }: { params: Promise<{ id: string }> },
 ) {
   const orgId = requireOrg(req);
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const { id } = await params;
   const body = await req.json();
   const parsed = assetDisposalInputSchema.safeParse(body);
@@ -51,7 +55,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
     }
 
     // Refuse to post the disposal gain/loss into a closed/locked period.
-    await assertPeriodOpen(tx, orgId, new Date(parsed.data.disposalDate));
+    await assertPeriodOpen(tx, orgId, new Date(parsed.data.disposalDate), dateOverride);
 
     // Atomically claim DISPOSED before building/posting the disposal JE. The
     // guarded updateMany takes a row lock; a concurrent dispose blocks here,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { updateCreditNoteInputSchema } from '@/types/api';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
@@ -55,6 +55,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const userId = req.headers.get('x-user-id');
   if (!orgId || !userId) {
     return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -133,7 +137,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
             data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
           });
         }
-        await postCreditNoteOnApply(tx, id);
+        await postCreditNoteOnApply(tx, id, dateOverride);
       }
 
       return updated;

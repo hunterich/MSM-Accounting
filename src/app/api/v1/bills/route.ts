@@ -13,7 +13,7 @@ import { postBillToLedger } from '@/lib/bill-posting';
 import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -69,6 +69,10 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
@@ -162,7 +166,8 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
           tx,
           orgId,
           createdBill.issueDate ? new Date(createdBill.issueDate) : new Date(),
-        );
+      dateOverride,
+    );
         await postBillToLedger(tx, orgId, createdBill as any);
       }
     }

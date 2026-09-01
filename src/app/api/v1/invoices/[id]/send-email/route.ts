@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, ok, requireOrg, withHandler } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { sendInvoiceEmail } from '@/lib/email';
 import { routeForApproval } from '@/lib/approval/engine';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
@@ -19,6 +19,10 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'edit' }, as
 ) {
   const { id } = await params;
   const orgId = requireOrg(req);
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);
 
@@ -78,7 +82,7 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'edit' }, as
           data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
         });
       } else {
-        await postInvoiceSend(tx, orgId, id);
+        await postInvoiceSend(tx, orgId, id, dateOverride);
         await tx.salesInvoice.update({
           where: { id },
           data: { status: 'SENT', updatedAt: new Date() },

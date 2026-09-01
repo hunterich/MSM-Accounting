@@ -1,3 +1,4 @@
+import type { TransactionDatePolicy } from '../../lib/transaction-date-policy';
 // ── Generic API response shapes ───────────────────────────────────────────────
 
 /** Paginated list returned by listResponse() endpoints. */
@@ -327,6 +328,7 @@ export interface RawOrganizationSettings {
   features?: Record<string, boolean> | null;
   documentNumbering?: Record<string, { prefix?: string; resetPeriod?: string; seqLength?: number }> | null;
   salesPolicy?: { blockSellBelowCost?: boolean; requireSalesOrder?: boolean } | null;
+  transactionDatePolicy?: unknown;
 }
 
 export type ShopPaymentMode = 'direct' | 'settlement_import';
@@ -488,6 +490,7 @@ export interface OrganizationSettings {
   features: Record<string, boolean>;
   documentNumbering: Record<string, { prefix: string; resetPeriod: string; seqLength: number }>;
   salesPolicy: { blockSellBelowCost: boolean; requireSalesOrder: boolean };
+  transactionDatePolicy: TransactionDatePolicy;
 }
 
 export interface EcommerceConnection {

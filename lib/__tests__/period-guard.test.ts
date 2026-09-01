@@ -7,9 +7,12 @@ import { assertPeriodOpen } from '../period-guard';
 
 // assertPeriodOpen now resolves + FOR SHARE-locks the period row via a raw
 // query (so a concurrent close serializes), so the tx stub returns rows.
-function makeTx(period: unknown) {
+function makeTx(period: unknown, transactionDatePolicy: unknown = null) {
   return {
     $queryRaw: vi.fn().mockResolvedValue(period ? [period] : []),
+    // The guard also reads the org's transaction-date window; null is "never
+    // configured", which every case below except the last one wants.
+    organization: { findUnique: vi.fn().mockResolvedValue({ transactionDatePolicy }) },
   } as never;
 }
 

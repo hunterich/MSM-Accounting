@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { reverseInvoicePosting } from '@/lib/repost';
@@ -50,6 +50,10 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
   const { id } = await params;
   try {
     const orgId = req.headers.get('x-org-id');
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
     const userId = req.headers.get('x-user-id');
     if (!orgId || !userId) {
       return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -184,7 +188,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       // (its prior entries were reversed above). v1 edit-after-post is restricted
       // to non-inventory invoices, so no COGS re-consumption happens here.
       if (isPostedEdit) {
-        await postInvoiceSend(tx, existing.organizationId, existing.id);
+        await postInvoiceSend(tx, existing.organizationId, existing.id, dateOverride);
       }
 
       // Post AR + COGS journals when the invoice transitions DRAFT → SENT,
@@ -211,7 +215,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
           });
         } else {
           // Not required / already approved: keep SENT and post the GL.
-          await postInvoiceSend(tx, existing.organizationId, existing.id);
+          await postInvoiceSend(tx, existing.organizationId, existing.id, dateOverride);
         }
       }
 

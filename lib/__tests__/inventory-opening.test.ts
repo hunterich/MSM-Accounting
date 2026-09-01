@@ -26,6 +26,12 @@ type AnyRecord = Record<string, unknown>;
 function makeTx(item: AnyRecord | null, existingOpening: AnyRecord | null = null) {
   return {
     $executeRaw: vi.fn().mockResolvedValue(undefined),
+    // Opening stock now goes through assertPeriodOpen, which FOR SHARE-locks
+    // the posting period: an empty result = no period defined = open.
+    $queryRaw: vi.fn().mockResolvedValue([]),
+    // The guard also reads the org's transaction-date window; null is "never
+    // configured", so it restricts nothing.
+    organization: { findUnique: vi.fn().mockResolvedValue({ transactionDatePolicy: null }) },
     item: { findUnique: vi.fn().mockResolvedValue(item) },
     inventoryLedgerEntry: {
       findFirst: vi.fn().mockResolvedValue(existingOpening),

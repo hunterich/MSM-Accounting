@@ -7,6 +7,7 @@ import { withPermission } from '@/lib/authz';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
+import { canOverrideTransactionDate } from '@/lib/authz';
 
 const ZERO = new Prisma.Decimal(0);
 const TOLERANCE = new Prisma.Decimal('0.005');
@@ -44,6 +45,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const body = await req.json();
   // Only allow editing DRAFT entries — scope check to org
   const existing = await prisma.journalEntry.findFirst({
@@ -118,7 +123,7 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
       }
     }
     if (payload.status === 'POSTED') {
-      await assertPeriodOpen(tx, orgId, newDate);
+      await assertPeriodOpen(tx, orgId, newDate, dateOverride);
     }
 
     await tx.journalEntry.update({

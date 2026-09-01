@@ -25,6 +25,7 @@ import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { asMoney } from '@/lib/money';
 import { getBatch } from './batch-service';
 import { reconcileMigration, type ReconcileResult, type ReconcileInput } from './reconcile';
+import { assertPeriodOpen } from '@/lib/period-guard';
 import {
   AccountRow,
   CustomerRow,
@@ -383,6 +384,10 @@ export async function commitBatch(
         `;
         const nextSeq = Number(maxResult[0]?.max_seq ?? 0) + 1;
         const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+
+        // The cutover can be any past date, so this is the one opening-balance
+        // write most likely to land in a month that has since been closed.
+        await assertPeriodOpen(tx, orgId, cutoverDate);
 
         await tx.journalEntry.create({
           data: {

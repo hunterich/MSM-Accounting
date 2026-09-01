@@ -18,6 +18,7 @@ const DEFAULT_APPROVAL_REQUIREMENTS: ApprovalRequirementsMap = {
   hr_payroll: false,
 };
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { parseTransactionDatePolicy } from '../../lib/transaction-date-policy';
 
 export const ORG_SETTINGS_KEY = ['organizationSettings'] as const;
 
@@ -71,6 +72,9 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
     features: normalizeFeatures(raw.features),
     documentNumbering: normalizeDocumentNumbering(raw.documentNumbering),
     salesPolicy: normalizeSalesPolicy(raw.salesPolicy),
+    // The same parser the server guard reads through, so the screen and the
+    // enforcement can never disagree about what is configured.
+    transactionDatePolicy: parseTransactionDatePolicy(raw.transactionDatePolicy),
   };
 }
 

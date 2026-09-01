@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, requireOrg, logAudit, ApiError } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
@@ -16,6 +16,10 @@ export async function OPTIONS() {
 
 export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const body = await req.json();
 
   const { newMethod, effectiveDate } = body;
@@ -165,7 +169,7 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async
     let journalEntryId: string | null = null;
     if (valueChange !== 0) {
       // Back-dated audit posting must respect a closed/locked period.
-      await assertPeriodOpen(tx, orgId, effectiveDateObj);
+      await assertPeriodOpen(tx, orgId, effectiveDateObj, dateOverride);
 
       // Resolve REAL accounts the same way the other posting libs do — never
       // post to a literal/fake id (JournalLine.account is a Restrict FK, so a

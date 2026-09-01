@@ -22,12 +22,14 @@ import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defau
 import { addCostLayer, getWeightedAverageCost } from './inventory-costing';
 import { toNumber, asMoney } from './money';
 import { assertPeriodOpen } from './period-guard';
+import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
 type Tx = Prisma.TransactionClient;
 
 export async function postSalesReturnOnApproval(
   tx: Tx,
   salesReturnId: string,
+  opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
   const sr = await tx.salesReturn.findUnique({
     where: { id: salesReturnId },
@@ -36,7 +38,7 @@ export async function postSalesReturnOnApproval(
   if (!sr || sr.journalEntryId) return;
 
   // Refuse to post inventory/GL into a closed/locked accounting period.
-  await assertPeriodOpen(tx, sr.organizationId, sr.returnDate);
+  await assertPeriodOpen(tx, sr.organizationId, sr.returnDate, opts);
 
   const itemIds = sr.lines
     .map((l) => l.itemId)

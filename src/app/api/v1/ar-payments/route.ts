@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler, ApiError, nextNumber } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { arPaymentInputSchema } from '@/types/api';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -40,6 +40,10 @@ export const GET = withHandler(async function GET(req: NextRequest) {
 
 export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, async function POST(req: NextRequest) {
   const orgId = requireOrg(req);
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const userId = req.headers.get('x-user-id');
   if (!userId) return err('Unauthenticated', 401);
   const body = await req.json();
@@ -132,7 +136,7 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
         });
         (created as any).status = 'PENDING_APPROVAL';
       } else {
-        await postArPaymentIfNeeded(tx, orgId, created.id);
+        await postArPaymentIfNeeded(tx, orgId, created.id, dateOverride);
       }
     }
 

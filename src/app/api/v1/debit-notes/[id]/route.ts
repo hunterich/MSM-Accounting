@@ -6,7 +6,7 @@ import { asMoney, toNumber } from '@/lib/money';
 import { updateDebitNoteInputSchema } from '@/types/api';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
-import { withPermission } from '@/lib/authz';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -47,6 +47,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
+
+  // SETTINGS/edit doubles as the right to post outside the transaction-date
+  // window: it is the right that edits the window, so it cannot be withheld here.
+  const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
   const userId = req.headers.get('x-user-id');
   if (!orgId || !userId) {
     return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -125,7 +129,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
             data: { status: 'PENDING_APPROVAL', updatedAt: new Date() },
           });
         }
-        await postDebitNoteOnApply(tx, id);
+        await postDebitNoteOnApply(tx, id, dateOverride);
       }
 
       return updated;

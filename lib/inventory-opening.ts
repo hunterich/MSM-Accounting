@@ -21,6 +21,7 @@ import { addCostLayer } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { ApiError } from './errors';
+import { assertPeriodOpen } from './period-guard';
 import { toNumber, asMoney } from './money';
 
 type Tx = Prisma.TransactionClient;
@@ -94,6 +95,11 @@ export async function postOpeningStockIfNeeded(
   // when GL posting is enabled (migration passes postGl:false: lots only).
   const value = asMoney(qty * unitCost);
   if (value <= 0 || !postGl) return;
+
+  // A POSTED entry on `date`, so it obeys the period lock like every other
+  // posting. Placed after the postGl early-return: the migration path writes
+  // the perpetual lot without a journal, and there is nothing to guard there.
+  await assertPeriodOpen(tx, orgId, date);
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
