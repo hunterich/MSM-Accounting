@@ -142,8 +142,12 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
   clearMustChangePassword: () => set({ mustChangePassword: false }),
 
+  // Mirror the server (lib/authz.ts `requirePermission`): an ADMIN role is
+  // never gated by the permission matrix, so a module the matrix does not
+  // list — or a row the seed forgot — cannot lock the administrator out of a
+  // screen the API would happily serve.
   hasPermission: (moduleKey, action = 'view') =>
-    hasModulePermission(get().permissions, moduleKey, action),
+    get().roleType === 'ADMIN' || hasModulePermission(get().permissions, moduleKey, action),
 
   updateOrganizationContext: (nextOrg, needsInventoryValuationSetup = false) =>
     set((state) => ({

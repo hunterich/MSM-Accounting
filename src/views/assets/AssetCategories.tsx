@@ -36,7 +36,7 @@ const emptyForm: CategoryForm = {
 };
 
 const AssetCategories = () => {
-  const { canCreate, canEdit, canDelete } = useModulePermissions('assets');
+  const { canCreate, canEdit, canDelete } = useModulePermissions('gl_journal');
   const { data: categories = [], isLoading } = useAssetCategories();
   const createMutation = useCreateAssetCategory();
   const updateMutation = useUpdateAssetCategory();

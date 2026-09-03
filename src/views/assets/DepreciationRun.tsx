@@ -12,7 +12,7 @@ import { formatIDR } from '../../utils/formatters';
 const currentDate = new Date();
 
 const DepreciationRun = () => {
-  const { canCreate } = useModulePermissions('assets');
+  const { canCreate } = useModulePermissions('gl_journal');
   const [month, setMonth] = useState(currentDate.getMonth() + 1);
   const [year, setYear] = useState(currentDate.getFullYear());
   const [showConfirm, setShowConfirm] = useState(false);

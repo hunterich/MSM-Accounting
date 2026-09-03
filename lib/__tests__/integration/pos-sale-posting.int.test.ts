@@ -67,7 +67,8 @@ describe('postPosSale', () => {
     const report = await assertTrialBalanced(org.orgId, 'pos sale');
     expect(report.summary.endingDebit).toBeCloseTo(report.summary.endingCredit, TOLERANCE);
     const invoice = await prisma.salesInvoice.findUnique({ where: { id: result.salesInvoiceId }, select: { status: true } });
-    expect(invoice?.status).toBe('SENT');
+    // A POS sale is settled by its own cash receipt, so it lands as PAID.
+    expect(invoice?.status).toBe('PAID');
     const early = await prisma.stockBatch.findFirst({ where: { organizationId: org.orgId, itemId, batchNumber: 'PCT-EARLY' }, select: { qtyOnHand: true } });
     const late = await prisma.stockBatch.findFirst({ where: { organizationId: org.orgId, itemId, batchNumber: 'PCT-LATE' }, select: { qtyOnHand: true } });
     expect(Number(early?.qtyOnHand)).toBe(0);

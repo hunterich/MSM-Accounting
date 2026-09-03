@@ -9,6 +9,7 @@ import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { postArPaymentIfNeeded, postApPaymentIfNeeded } from '@/lib/payment-posting';
+import { syncArPaymentSettlement, syncApPaymentSettlement } from '@/lib/settlement-status';
 import { postStockAdjustmentIfNeeded } from '@/lib/stock-adjustment-posting';
 import { ApiError } from '@/lib/errors';
 
@@ -63,10 +64,13 @@ export const FINALIZERS: Partial<Record<ApprovalDocumentType, Finalizer>> = {
     // Set the live status FIRST — postArPaymentIfNeeded skips while PENDING_APPROVAL.
     await tx.aRPayment.update({ where: { id: documentId }, data: { status: 'COMPLETED', updatedAt: new Date() } });
     await postArPaymentIfNeeded(tx, orgId, documentId);
+    // Now COMPLETED, its allocations settle the invoices they point at.
+    await syncArPaymentSettlement(tx, orgId, documentId);
   },
   AP_PAYMENT: async (tx, orgId, documentId) => {
     await tx.aPPayment.update({ where: { id: documentId }, data: { status: 'COMPLETED', updatedAt: new Date() } });
     await postApPaymentIfNeeded(tx, orgId, documentId);
+    await syncApPaymentSettlement(tx, orgId, documentId);
   },
   STOCK_ADJUSTMENT: async (tx, orgId, documentId) => {
     // Post while still PENDING_APPROVAL (wrapper skips only when APPROVED), then mark APPROVED.

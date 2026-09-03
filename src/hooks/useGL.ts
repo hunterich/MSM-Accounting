@@ -66,13 +66,30 @@ function normalizeAccount(raw: RawAccount): Account {
 const STATUS_DOWN: Record<string, JEStatus> = { DRAFT: 'Draft', POSTED: 'Posted' };
 const STATUS_UP:   Record<string, string>   = { Draft: 'DRAFT', Posted: 'POSTED' };
 
+/**
+ * Entry type ("source"): the form's <select> uses Title case ('Manual',
+ * 'Adjustment', …) while the API's `createJournalEntryInputSchema` accepts the
+ * UPPER_SNAKE enum only ('MANUAL', 'ADJUSTMENT', …). Map in both directions so
+ * the form round-trips an existing entry and the API accepts what the form
+ * sends — a 'Manual' source used to fail every save with a bare 400.
+ */
+export const toApiJESource = (source: string | null | undefined): string => {
+  const trimmed = String(source ?? '').trim();
+  return (trimmed || 'Manual').toUpperCase();
+};
+export const fromApiJESource = (source: string | null | undefined): string => {
+  const trimmed = String(source ?? '').trim();
+  if (!trimmed) return 'Manual';
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+};
+
 function normalizeJE(raw: RawJournalEntry): JournalEntry {
   return {
     id:          raw.id,
     entryNo:     raw.entryNo    || '',
     date:        raw.date ? String(raw.date).slice(0, 10) : '',
     memo:        raw.memo       || '',
-    source:      raw.source     || 'Manual',
+    source:      fromApiJESource(raw.source),
     status:      STATUS_DOWN[raw.status ?? ''] ?? (raw.status as JEStatus) ?? 'Draft',
     totalDebit:  Number(raw.totalDebit  ?? 0),
     totalCredit: Number(raw.totalCredit ?? 0),
@@ -197,20 +214,30 @@ export function useJournalEntry(id: string | undefined) {
   });
 }
 
-function buildJEPayload(header: JEFormHeader, lines: JEFormLine[], status: JEStatus) {
+/**
+ * Shape the form state into the POST/PUT body. Exported for the unit test that
+ * checks the result against the server's own zod schema — the two drifted
+ * apart once (Title-case source, `description: null`) and the form could not
+ * save at all.
+ */
+export function buildJEPayload(header: JEFormHeader, lines: JEFormLine[], status: JEStatus) {
   return {
     date:   header.date,
     memo:   header.memo,
-    source: header.source,
+    source: toApiJESource(header.source),
     status: STATUS_UP[status] ?? 'DRAFT',
     lines: lines
       .filter((l) => Number(l.debit) > 0 || Number(l.credit) > 0)
-      .map((l) => ({
-        accountId:   l.accountId,
-        description: l.description || null,
-        debit:       Number(l.debit)  || 0,
-        credit:      Number(l.credit) || 0,
-      })),
+      .map((l) => {
+        // The schema's `description` is an optional string: null is rejected.
+        const description = String(l.description ?? '').trim();
+        return {
+          accountId:   l.accountId,
+          ...(description ? { description } : {}),
+          debit:       Number(l.debit)  || 0,
+          credit:      Number(l.credit) || 0,
+        };
+      }),
   };
 }
 

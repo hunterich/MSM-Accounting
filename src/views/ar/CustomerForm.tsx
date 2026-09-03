@@ -1,11 +1,12 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { customerSchema, zodToFormErrors } from '../../utils/formSchemas';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useCustomers, useCreateCustomer, useUpdateCustomer } from '../../hooks/useAR';
+import { useCustomers, useCreateCustomer, useUpdateCustomer, useNextCustomerCode } from '../../hooks/useAR';
+import { DEFAULT_CUSTOMER_CODE_PREFIX } from '../../../lib/customer-code';
 import { useCustomerCategories } from '../../hooks/useReturns';
 
 interface CustomerFormData {
@@ -135,25 +136,29 @@ const CustomerForm = ({ recordId, mode: modeProp, workspaceTabId }: CustomerForm
         }
     }, [formData.category, formData.useCategoryDefaults, isCreateMode, categories, formData.id]);
 
-    // Initialize default category if none selected
+    // Pre-select the first category once, on a fresh form. Only once: the
+    // category is optional, and re-applying the default would undo an explicit
+    // "No category" choice.
+    const categoryDefaulted = useRef(false);
     useEffect(() => {
-        if (isCreateMode && !formData.category && categories.length > 0) {
+        if (isCreateMode && !categoryDefaulted.current && !formData.category && categories.length > 0) {
+            categoryDefaulted.current = true;
             setFormData(prev => ({ ...prev, category: categories[0].name }));
         }
     }, [isCreateMode, categories, formData.category]);
 
-    // Auto-generate sequential ID per category prefix (e.g. RET-0001, RET-0002)
-    const nextCustomerId = useMemo(() => {
-        if (!isCreateMode || !formData.category) return '';
+    // Sequential ID per category prefix (e.g. RET-0001, RET-0002), asked of the
+    // server so it counts every customer, not just the page this form loaded —
+    // the local version collided ("Duplicate record") past twenty customers.
+    // The API requires a code, so a customer without a category (or whose
+    // category has no prefix) still gets one, under the default prefix.
+    const codePrefix = useMemo(() => {
+        if (!isCreateMode) return null;
         const cat = categories.find(c => c.name === formData.category);
-        if (!cat?.prefix) return '';
-        const re = new RegExp(`^${cat.prefix}-(\\d+)$`);
-        const maxSeq = customers.reduce((max: number, c: any) => {
-            const m = String(c.id || c.code || '').match(re);
-            return m ? Math.max(max, parseInt(m[1], 10)) : max;
-        }, 0);
-        return `${cat.prefix}-${String(maxSeq + 1).padStart(4, '0')}`;
-    }, [isCreateMode, formData.category, categories, customers]);
+        return cat?.prefix || DEFAULT_CUSTOMER_CODE_PREFIX;
+    }, [isCreateMode, formData.category, categories]);
+    const { data: nextCode } = useNextCustomerCode(codePrefix);
+    const nextCustomerId = nextCode && nextCode.prefix === codePrefix ? nextCode.code : '';
 
     useEffect(() => {
         if (!nextCustomerId) return;
@@ -252,7 +257,7 @@ const CustomerForm = ({ recordId, mode: modeProp, workspaceTabId }: CustomerForm
                     </div>
                     <div className="col-span-3">
                         <div className="mb-4">
-                            <label className="block mb-2 text-sm font-medium text-neutral-700">Category *</label>
+                            <label className="block mb-2 text-sm font-medium text-neutral-700">Category</label>
                             <select
                                 className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 bg-clip-padding border ${errors.category ? 'border-danger-500' : 'border-neutral-300'} rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]`}
                                 name="category"
@@ -260,6 +265,7 @@ const CustomerForm = ({ recordId, mode: modeProp, workspaceTabId }: CustomerForm
                                 onChange={handleChange}
                                 disabled={isViewMode}
                             >
+                                <option value="">No category</option>
                                 {categories.map((cat) => (
                                     <option key={cat.id} value={cat.name}>{cat.name}</option>
                                 ))}

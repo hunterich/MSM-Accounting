@@ -8,6 +8,7 @@ import { err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, val
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { arPaymentInputSchema } from '@/types/api';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
+import { syncArPaymentSettlement } from '@/lib/settlement-status';
 import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
@@ -139,6 +140,8 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
         await postArPaymentIfNeeded(tx, orgId, created.id, dateOverride);
       }
     }
+    // Roll the allocations up into the settled documents' status (PAID).
+    await syncArPaymentSettlement(tx, orgId, created.id);
 
     return created;
   });

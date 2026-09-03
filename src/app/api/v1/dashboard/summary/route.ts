@@ -5,6 +5,7 @@ import {
   dashboardSummaryResponseSchema,
 } from '@/types/api';
 import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
+import { ledgerCashOnHand } from '@/lib/cash-accounts';
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined) return 0;
@@ -44,22 +45,16 @@ export const GET = withHandler(async function GET(request: NextRequest) {
     }
 
     const [
-      cashAggregate,
+      cashOnHand,
       invoiceTotalsByCustomer,
       paymentTotalsByCustomer,
       paidByInvoice,
       invoicesForAging,
       customers,
     ] = await Promise.all([
-      prisma.bankAccount.aggregate({
-        where: {
-          organizationId,
-          isActive: true,
-        },
-        _sum: {
-          currentBalance: true,
-        },
-      }),
+      // From the ledger, not the Banking register's cached balance: receipts
+      // and payments post to the bank GL account and never touch the cache.
+      ledgerCashOnHand(prisma, organizationId),
       prisma.salesInvoice.groupBy({
         by: ['customerId'],
         where: {
@@ -209,7 +204,7 @@ export const GET = withHandler(async function GET(request: NextRequest) {
 
     const responsePayload = dashboardSummaryResponseSchema.parse({
       organizationId,
-      cashOnHand: asMoney(toNumber(cashAggregate._sum.currentBalance)),
+      cashOnHand,
       invoiceReceivable,
       overdueInvoiceCount,
       overdueAmount,

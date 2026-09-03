@@ -33,7 +33,10 @@ export const zodToFormErrors = (error: z.ZodError): Record<string, string> => {
 
 export const vendorSchema = z.object({
     name:               z.string().min(1, 'Vendor name is required.'),
-    category:           z.string().min(1, 'Category is required.'),
+    // Optional on the API (`categoryId` nullable). The form state carries
+    // `categoryId`, not `category`; requiring the latter failed every vendor
+    // save silently, and a company with no categories yet has none to pick.
+    categoryId:         z.string().optional(),
     defaultApAccountId: z.string().min(1, 'Default A/P account is required.'),
     code:               z.string().optional(),
     email:              z.string().optional(),
@@ -48,7 +51,8 @@ export type VendorFormData = z.infer<typeof vendorSchema>;
 
 export const customerSchema = z.object({
     name:                z.string().min(1, 'Customer name is required.'),
-    category:            z.string().min(1, 'Category is required.'),
+    // Optional on the API (`category` nullable) — see vendorSchema.
+    category:            z.string().optional(),
     id:                  z.string().optional(),
     code:                z.string().optional(),
     email:               z.string().optional(),

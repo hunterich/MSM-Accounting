@@ -58,7 +58,7 @@ const AssetForm = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
-  const { canCreate, canEdit } = useModulePermissions('assets');
+  const { canCreate, canEdit } = useModulePermissions('gl_journal');
 
   const { data: categories = [] } = useAssetCategories();
   const { data: existingAsset } = useAsset(id);

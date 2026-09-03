@@ -18,6 +18,10 @@ import { NextRequest } from 'next/server';
 import { prisma, cleanupOrg, disconnect } from './harness';
 import {
   ALL_MODULE_KEYS,
+  DEFAULT_CASH_ACCOUNT,
+  DEFAULT_CATEGORY_CODE,
+  DEFAULT_CATEGORY_NAME,
+  DEFAULT_CUSTOMER_PREFIX,
   ROLE_TEMPLATES,
   STANDARD_CHILD_ACCOUNTS,
   STANDARD_ROOT_ACCOUNTS,
@@ -83,6 +87,24 @@ async function assertBootstrapComplete(orgId: string, creatorUserId: string): Pr
   const warehouses = await prisma.warehouse.findMany({ where: { organizationId: orgId } });
   expect(warehouses).toHaveLength(1);
   expect(warehouses[0]).toMatchObject({ code: 'WH-MAIN', name: 'Gudang Utama' });
+
+  // Master-data defaults: one category per master and a cash register, so
+  // the first customer/vendor/item/receipt can be entered from the UI.
+  const [customerCategories, vendorCategories, itemCategories, bankAccounts] = await Promise.all([
+    prisma.customerCategory.findMany({ where: { organizationId: orgId } }),
+    prisma.vendorCategory.findMany({ where: { organizationId: orgId } }),
+    prisma.itemCategory.findMany({ where: { organizationId: orgId } }),
+    prisma.bankAccount.findMany({ where: { organizationId: orgId } }),
+  ]);
+  expect(customerCategories).toHaveLength(1);
+  expect(customerCategories[0]).toMatchObject({ name: DEFAULT_CATEGORY_NAME, prefix: DEFAULT_CUSTOMER_PREFIX });
+  expect(vendorCategories).toHaveLength(1);
+  expect(vendorCategories[0]).toMatchObject({ name: DEFAULT_CATEGORY_NAME, code: DEFAULT_CATEGORY_CODE, isActive: true });
+  expect(itemCategories).toHaveLength(1);
+  expect(itemCategories[0]).toMatchObject({ name: DEFAULT_CATEGORY_NAME, code: DEFAULT_CATEGORY_CODE, isActive: true });
+  expect(bankAccounts).toHaveLength(1);
+  expect(bankAccounts[0]).toMatchObject({ ...DEFAULT_CASH_ACCOUNT, isActive: true });
+  expect(Number(bankAccounts[0].currentBalance)).toBe(0);
 
   // Twelve OPEN periods named YYYY-MM.
   const periods = await prisma.accountingPeriod.findMany({

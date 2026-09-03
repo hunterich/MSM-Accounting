@@ -4,6 +4,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateApPaymentInputSchema } from '@/types/api';
 import { postApPaymentIfNeeded } from '@/lib/payment-posting';
+import { syncApPaymentSettlement } from '@/lib/settlement-status';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
@@ -62,6 +63,12 @@ export const PUT = withPermission({ module: 'AP_PAYMENTS', action: 'edit' }, asy
         where: { id, organizationId: orgId },
         data: { ...data, ...(data.date && { date: new Date(data.date) }), updatedAt: new Date() },
       });
+      // Bills this payment used to settle must be re-derived too, so one that
+      // loses its allocation falls back out of PAID.
+      const previousAllocations = await tx.aPPaymentAllocation.findMany({
+        where: { paymentId: id },
+        select: { billId: true },
+      });
       if (allocations) {
         await tx.aPPaymentAllocation.deleteMany({ where: { paymentId: id } });
         if (allocations.length > 0) {
@@ -101,6 +108,8 @@ export const PUT = withPermission({ module: 'AP_PAYMENTS', action: 'edit' }, asy
       } else {
         await postApPaymentIfNeeded(tx, orgId, id, dateOverride);
       }
+
+      await syncApPaymentSettlement(tx, orgId, id, previousAllocations.map((a) => a.billId));
 
       return tx.aPPayment.findFirst({
         where: { id, organizationId: orgId },

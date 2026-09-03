@@ -5,6 +5,7 @@ import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { updateArPaymentInputSchema } from '@/types/api';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
+import { syncArPaymentSettlement } from '@/lib/settlement-status';
 import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
@@ -62,6 +63,12 @@ export const PUT = withPermission({ module: 'AR_PAYMENTS', action: 'edit' }, asy
         where: { id, organizationId: orgId },
         data: { ...data, ...(data.date && { date: new Date(data.date) }), updatedAt: new Date() },
       });
+      // Invoices this payment used to settle must be re-derived too, so one
+      // that loses its allocation falls back out of PAID.
+      const previousAllocations = await tx.aRPaymentAllocation.findMany({
+        where: { paymentId: id },
+        select: { invoiceId: true },
+      });
       if (allocations) {
         await tx.aRPaymentAllocation.deleteMany({ where: { paymentId: id } });
         if (allocations.length > 0) {
@@ -101,6 +108,8 @@ export const PUT = withPermission({ module: 'AR_PAYMENTS', action: 'edit' }, asy
       } else {
         await postArPaymentIfNeeded(tx, orgId, id, dateOverride);
       }
+
+      await syncArPaymentSettlement(tx, orgId, id, previousAllocations.map((a) => a.invoiceId));
 
       return tx.aRPayment.findFirst({
         where: { id, organizationId: orgId },

@@ -147,6 +147,19 @@ export function useCustomers(filters: Record<string, unknown> = {}) {
     });
 }
 
+/**
+ * The next free customer code for a prefix, computed server-side over the
+ * whole organisation. `null` prefix = no query (edit/view mode).
+ */
+export function useNextCustomerCode(prefix: string | null) {
+    return useQuery({
+        queryKey: [...AR_KEYS.customers, 'next-code', prefix],
+        queryFn: () => api.get<{ prefix: string; code: string }>('/api/v1/customers/next-code', { prefix }),
+        enabled: !!prefix,
+        staleTime: 0,
+    });
+}
+
 export function useCreateCustomer() {
     const qc = useQueryClient();
     return useMutation({

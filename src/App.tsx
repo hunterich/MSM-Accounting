@@ -132,7 +132,7 @@ function App(): JSX.Element {
                     <Route path="ar/sales-orders/edit" element={withPermission(<SOForm mode="edit" />, 'ar_sales_orders', 'edit')} />
                     <Route path="ar/customers/new" element={withPermission(<CustomerForm />, 'ar_customers', 'create')} />
                     <Route path="ar/customers/edit" element={withPermission(<CustomerForm />, 'ar_customers', 'edit')} />
-                    <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customer_categories')} />
+                    <Route path="ar/categories" element={withPermission(<CustomerCategories />, 'ar_customers')} />
                     <Route path="ar/payments/new" element={withPermission(<PaymentForm />, 'ar_payments', 'create')} />
                     <Route path="ar/payments/edit" element={withPermission(<PaymentForm />, 'ar_payments', 'edit')} />
                     <Route path="ar/credits/new" element={withPermission(<CreditNoteForm />, 'ar_credits', 'create')} />
@@ -156,7 +156,7 @@ function App(): JSX.Element {
                     <Route path="ap/debits/new" element={withPermission(<DebitNoteForm />, 'ap_debits', 'create')} />
                     <Route path="ap/debits/edit" element={withPermission(<DebitNoteForm />, 'ap_debits', 'edit')} />
                     <Route path="ap/recurring" element={withPermission(<RecurringExpenses />, 'ap_bills')} />
-                    <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendor_categories')} />
+                    <Route path="ap/vendor-categories" element={withPermission(<VendorCategories />, 'ap_vendors')} />
                     <Route path="ap/vendors/new" element={withPermission(<VendorForm />, 'ap_vendors', 'create')} />
                     <Route path="ap/vendors/edit" element={withPermission(<VendorForm />, 'ap_vendors', 'edit')} />
 
@@ -195,12 +195,12 @@ function App(): JSX.Element {
                     <Route path="hr/leave" element={withPermission(<LeaveManagement />, 'hr_attendance')} />
 
                     {/* Assets */}
-                    <Route path="assets" element={withPermission(<AssetRegister />, 'assets')} />
-                    <Route path="assets/categories" element={withPermission(<AssetCategories />, 'assets')} />
-                    <Route path="assets/new" element={withPermission(<AssetForm />, 'assets', 'create')} />
-                    <Route path="assets/:id" element={withPermission(<AssetDetail />, 'assets')} />
-                    <Route path="assets/:id/edit" element={withPermission(<AssetForm />, 'assets', 'edit')} />
-                    <Route path="assets/depreciation" element={withPermission(<DepreciationRun />, 'assets')} />
+                    <Route path="assets" element={withPermission(<AssetRegister />, 'gl_journal')} />
+                    <Route path="assets/categories" element={withPermission(<AssetCategories />, 'gl_journal')} />
+                    <Route path="assets/new" element={withPermission(<AssetForm />, 'gl_journal', 'create')} />
+                    <Route path="assets/:id" element={withPermission(<AssetDetail />, 'gl_journal')} />
+                    <Route path="assets/:id/edit" element={withPermission(<AssetForm />, 'gl_journal', 'edit')} />
+                    <Route path="assets/depreciation" element={withPermission(<DepreciationRun />, 'gl_journal')} />
 
                     <Route path="integrations" element={withPermission(<Integrations />, 'integrations')} />
                     <Route path="reports" element={withPermission(<Reports />, 'reports')} />

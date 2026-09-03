@@ -37,6 +37,8 @@ export const ALL_MODULE_KEYS: ModuleKey[] = [
   ModuleKey.COMPANY,
   ModuleKey.SETTINGS,
   ModuleKey.SYSTEM_BACKUP,
+  ModuleKey.POS_RETAIL,
+  ModuleKey.POS_REPORTS,
 ];
 
 /* ------------------------------------------------------------------ */
@@ -107,6 +109,18 @@ export const STANDARD_CHILD_ACCOUNTS: readonly StandardChildAccount[] = [
 ] as const;
 
 /* ------------------------------------------------------------------ */
+/* Master-data defaults                                                 */
+/* -------------------------------------------------------------------- */
+
+/** One "General" category per master (customer / vendor / item). */
+export const DEFAULT_CATEGORY_NAME = 'Umum';
+export const DEFAULT_CATEGORY_CODE = 'GEN';
+/** Customer codes generated from this category read CST-0001, CST-0002, … */
+export const DEFAULT_CUSTOMER_PREFIX = 'CST';
+/** A petty-cash register so the Banking module is not empty on day one. */
+export const DEFAULT_CASH_ACCOUNT = { code: 'CASH', name: 'Kas' } as const;
+
+/* -------------------------------------------------------------------- */
 /* Role templates (exactly what prisma/seed.ts produces today)         */
 /* ------------------------------------------------------------------ */
 
@@ -292,6 +306,23 @@ export async function bootstrapOrganization(
 
   await tx.warehouse.create({
     data: { organizationId: org.id, code: 'WH-MAIN', name: 'Gudang Utama' },
+  });
+
+  // Master-data defaults so the first customer, vendor, item and receipt can
+  // be entered straight away. The customer/vendor/item forms offer a category
+  // picker whose only options are the org's categories — with none, a new
+  // company could not create a customer through the UI at all.
+  await tx.customerCategory.create({
+    data: { organizationId: org.id, name: DEFAULT_CATEGORY_NAME, prefix: DEFAULT_CUSTOMER_PREFIX },
+  });
+  await tx.vendorCategory.create({
+    data: { organizationId: org.id, name: DEFAULT_CATEGORY_NAME, code: DEFAULT_CATEGORY_CODE },
+  });
+  await tx.itemCategory.create({
+    data: { organizationId: org.id, name: DEFAULT_CATEGORY_NAME, code: DEFAULT_CATEGORY_CODE },
+  });
+  await tx.bankAccount.create({
+    data: { organizationId: org.id, code: DEFAULT_CASH_ACCOUNT.code, name: DEFAULT_CASH_ACCOUNT.name },
   });
 
   let adminRoleId: string | null = null;
