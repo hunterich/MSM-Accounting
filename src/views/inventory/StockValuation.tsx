@@ -4,7 +4,7 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import ListPage from '../../components/Layout/ListPage';
 import { Download } from 'lucide-react';
-import { formatIDR } from '../../utils/formatters';
+import { formatIDR, formatNumber } from '../../utils/formatters';
 import { useStockValuation, useWarehouses, StockValuationRow } from '../../hooks/useInventory';
 import { useItemCategories } from '../../hooks/useInventory';
 import { exportToExcel } from '../../utils/exportExcel';
@@ -60,7 +60,7 @@ const StockValuation: React.FC = () => {
         { key: 'category', label: 'Category', sortable: true },
         {
             key: 'qtyOnHand', label: 'Qty on Hand', align: 'right',
-            render: (val) => Number(val).toLocaleString(),
+            render: (val) => formatNumber(Number(val)),
         },
         {
             key: 'avgUnitCost', label: 'Avg Unit Cost', align: 'right',

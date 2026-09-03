@@ -513,7 +513,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
         >
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{paymentData.paymentNumber || 'Otomatis'}</div>
+                    <div className="module-status-number">{paymentData.paymentNumber || 'Auto'}</div>
                     <StatusTag status={mode === 'view' ? 'Completed' : 'Draft'} label={mode === 'view' ? 'Completed' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(paymentData.totalAmount)}</div>
@@ -551,7 +551,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
                                 <Input className="mb-0" value={paymentData.paymentNumber} onChange={(event) => setPaymentData((prev) => ({ ...prev, paymentNumber: event.target.value }))} disabled={mode === 'view' || paymentNumberingMode === 'auto'} placeholder={paymentNoPreview} />
                             </div>
                             {paymentNumberingMode === 'auto' ? (
-                                <div className="numbering-preview">Nomor ditetapkan server saat disimpan</div>
+                                <div className="numbering-preview">Number assigned when saved</div>
                             ) : null}
                         </div>
 

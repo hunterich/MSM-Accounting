@@ -6,6 +6,19 @@ import {
   STANDARD_ROOT_ACCOUNTS,
   buildFiscalYearPeriods,
 } from '../lib/organization/bootstrap';
+import { postOpeningStockIfNeeded } from '../lib/inventory-opening';
+import { postBankOpeningBalance, postBankTransactionIfNeeded } from '../lib/bank-transaction-posting';
+import { postBillToLedger } from '../lib/bill-posting';
+import { postInvoiceSend } from '../lib/invoice-send-posting';
+import { postApPaymentIfNeeded, postArPaymentIfNeeded } from '../lib/payment-posting';
+import { postStockAdjustmentIfNeeded } from '../lib/stock-adjustment-posting';
+import { syncApPaymentSettlement, syncArPaymentSettlement } from '../lib/settlement-status';
+
+// Every document below is posted to the ledger through the same helpers the
+// API uses, but ONLY when this run created it (each block checks first). The
+// seed is idempotent and runs against real organizations, so a re-run must
+// never post, restate or duplicate anything that already exists.
+const OPENING_DATE = new Date('2026-01-01');
 
 const prisma = new PrismaClient();
 
@@ -393,6 +406,9 @@ async function main() {
   // ============================================================
   // 2. Bank Accounts (unique on organizationId + name)
   // ============================================================
+  const existingBankNames = new Set(
+    (await prisma.bankAccount.findMany({ where: { organizationId: org.id }, select: { name: true } })).map((b) => b.name),
+  );
   const bankAccounts = await Promise.all([
     prisma.bankAccount.upsert({
       where: { organizationId_name: { organizationId: org.id, name: 'Bank BCA IDR' } },
@@ -421,6 +437,12 @@ async function main() {
       },
     }),
   ]);
+  // Dr Bank / Cr Opening Balance Equity for the balances above, so the GL
+  // carries the same cash the Banking register shows.
+  for (const bank of bankAccounts) {
+    if (existingBankNames.has(bank.name)) continue;
+    await prisma.$transaction((tx) => postBankOpeningBalance(tx, org.id, bank.id, bank.openingBalance, OPENING_DATE));
+  }
 
   // ============================================================
   // 3. Customers (unique on organizationId + code)
@@ -525,12 +547,21 @@ async function main() {
   ] as const;
   const items: any[] = [];
   for (const i of itemData) {
+    const existingItem = await prisma.item.findUnique({
+      where: { organizationId_sku: { organizationId: org.id, sku: i.sku } },
+      select: { id: true },
+    });
     const item = await prisma.item.upsert({
       where: { organizationId_sku: { organizationId: org.id, sku: i.sku } },
       update: {},
       create: { organizationId: org.id, ...i, isActive: true },
     });
     items.push(item);
+    // Opening stock as real cost layers (Dr Inventory / Cr Opening Balance
+    // Equity), otherwise "Widget A: 100 on hand" sells as "Only 0 available".
+    if (!existingItem && i.openingStock > 0) {
+      await prisma.$transaction((tx) => postOpeningStockIfNeeded(tx, org.id, item.id, OPENING_DATE));
+    }
   }
 
   // ============================================================
@@ -605,6 +636,11 @@ async function main() {
           lineSubtotal: l.quantity * l.price,
         })),
       });
+      // An issued invoice has hit the ledger (Dr A/R / Cr Revenue / Cr PPN);
+      // only DRAFT stays unposted. Lines carry no item, so no COGS.
+      if (inv.status !== 'DRAFT') {
+        await prisma.$transaction((tx) => postInvoiceSend(tx, org.id, created.id));
+      }
     } else if (!existing.createdById) {
       // Deliberately does NOT rewrite totals on rows that already exist — this
       // seed runs against real organizations, and silently restating an
@@ -636,6 +672,34 @@ async function main() {
           { billId: created.id, lineNo: 1, description: 'Supplies purchase', quantity: 1, price: b.subtotal, lineTotal: b.subtotal },
         ],
       });
+      // OPEN and PAID bills are approved documents: Dr Expense / Cr A/P.
+      // PENDING is still awaiting approval and stays off the ledger.
+      if (b.status === 'OPEN' || b.status === 'PAID') {
+        const postable = await prisma.bill.findUniqueOrThrow({ where: { id: created.id }, include: { lines: true, charges: true } });
+        await prisma.$transaction((tx) => postBillToLedger(tx, org.id, postable));
+      }
+      // The PAID bill is paid by a real, posted AP payment (Dr A/P / Cr Bank),
+      // so the status is earned rather than asserted.
+      if (b.status === 'PAID') {
+        const payment = await prisma.aPPayment.create({
+          data: {
+            organizationId: org.id,
+            number: 'APP-0001',
+            vendorId: b.vendorId,
+            date: new Date('2026-01-30'),
+            method: 'BANK_TRANSFER',
+            reference: 'PAY-002',
+            status: 'COMPLETED',
+            totalAmount: b.totalAmount,
+            allocations: { create: [{ billId: created.id, amountApplied: b.totalAmount }] },
+          },
+          select: { id: true },
+        });
+        await prisma.$transaction(async (tx) => {
+          await postApPaymentIfNeeded(tx, org.id, payment.id);
+          await syncApPaymentSettlement(tx, org.id, payment.id);
+        });
+      }
     }
   }
 
@@ -665,15 +729,34 @@ async function main() {
   // 10. AR Payments (2)
   // ARPayment: number, date, totalAmount
   // ============================================================
+  // ARP-0001 half-settles INV-0001 (Acme, stays SENT); ARP-0002 settles
+  // INV-0002 in full (Globex, PAID). Each is allocated and posted
+  // (Dr Bank / Cr A/R), so the aging report and the statuses agree.
   const arpSeeds = [
-    { number: 'ARP-0001', customerId: customers[0].id, status: 'COMPLETED', date: new Date('2026-01-20'), totalAmount: 2_220_000, method: 'BANK_TRANSFER', reference: 'TRF-001' },
-    { number: 'ARP-0002', customerId: customers[1].id, status: 'COMPLETED', date: new Date('2026-01-25'), totalAmount: 1_110_000, method: 'BANK_TRANSFER', reference: 'TRF-002' },
+    { number: 'ARP-0001', customerId: customers[0].id, invoiceNumber: 'INV-0001', status: 'COMPLETED', date: new Date('2026-01-20'), totalAmount: 555_000,   method: 'BANK_TRANSFER', reference: 'TRF-001' },
+    { number: 'ARP-0002', customerId: customers[1].id, invoiceNumber: 'INV-0002', status: 'COMPLETED', date: new Date('2026-01-25'), totalAmount: 2_220_000, method: 'BANK_TRANSFER', reference: 'TRF-002' },
   ] as const;
-  for (const p of arpSeeds) {
-    await prisma.aRPayment.upsert({
+  for (const { invoiceNumber, ...p } of arpSeeds) {
+    const existingPayment = await prisma.aRPayment.findUnique({
       where: { organizationId_number: { organizationId: org.id, number: p.number } },
-      update: {},
-      create: { organizationId: org.id, ...p },
+      select: { id: true },
+    });
+    if (existingPayment) continue;
+    const invoice = await prisma.salesInvoice.findUnique({
+      where: { organizationId_number: { organizationId: org.id, number: invoiceNumber } },
+      select: { id: true },
+    });
+    const payment = await prisma.aRPayment.create({
+      data: {
+        organizationId: org.id,
+        ...p,
+        allocations: invoice ? { create: [{ invoiceId: invoice.id, amountApplied: p.totalAmount }] } : undefined,
+      },
+      select: { id: true },
+    });
+    await prisma.$transaction(async (tx) => {
+      await postArPaymentIfNeeded(tx, org.id, payment.id);
+      await syncArPaymentSettlement(tx, org.id, payment.id);
     });
   }
 
@@ -709,24 +792,29 @@ async function main() {
   }
 
   // ============================================================
-  // 12. Bank Transactions (5)
+  // 12. Bank Transactions (2)
   // BankTransaction: date, type (BankTxnType: INCOME|EXPENSE|TRANSFER), description required
   // ============================================================
+  // The Banking register's own movements — money that is NOT an invoice or
+  // bill settlement (those post through their payments above). Each is
+  // posted (Dr Bank / Cr Income, Dr Expense / Cr Bank) and the cached bank
+  // balance moves with it, as the bank-transaction routes do.
   const btSeeds = [
-    { bankAccountId: bankAccounts[0].id, type: 'INCOME',   amount: 2_220_000, description: 'Payment from Acme Corp',    reference: 'TRF-001', date: new Date('2026-01-20') },
-    { bankAccountId: bankAccounts[0].id, type: 'INCOME',   amount: 1_110_000, description: 'Payment from Globex Inc',   reference: 'TRF-002', date: new Date('2026-01-25') },
-    { bankAccountId: bankAccounts[0].id, type: 'EXPENSE',  amount: 800_000,   description: 'Payment to Supplier Alpha', reference: 'PAY-001', date: new Date('2026-01-28') },
-    { bankAccountId: bankAccounts[1].id, type: 'INCOME',   amount: 5_000_000, description: 'Capital injection',          reference: 'CAP-001', date: new Date('2026-01-05') },
-    { bankAccountId: bankAccounts[1].id, type: 'EXPENSE',  amount: 1_500_000, description: 'Payment to Supplier Beta',  reference: 'PAY-002', date: new Date('2026-01-30') },
+    { bankAccountId: bankAccounts[1].id, type: 'INCOME',   amount: 5_000_000, description: 'Capital injection',     reference: 'CAP-001', date: new Date('2026-01-05') },
+    { bankAccountId: bankAccounts[0].id, type: 'EXPENSE',  amount: 800_000,   description: 'Office rent - January', reference: 'RENT-001', date: new Date('2026-01-28') },
   ] as const;
   for (const bt of btSeeds) {
     const existing = await prisma.bankTransaction.findFirst({
       where: { organizationId: org.id, reference: bt.reference },
     });
     if (!existing) {
-      await prisma.bankTransaction.create({
+      const created = await prisma.bankTransaction.create({
         data: { organizationId: org.id, ...bt },
       });
+      const posted = await prisma.$transaction((tx) => postBankTransactionIfNeeded(tx, org.id, created.id));
+      for (const move of posted.moves) {
+        await prisma.bankAccount.update({ where: { id: move.bankAccountId }, data: { currentBalance: { increment: move.delta } } });
+      }
     }
   }
 
@@ -741,6 +829,9 @@ async function main() {
       where: { organizationId: org.id, reason: 'Initial audit count' },
     });
     if (!existingAdj) {
+      // Created awaiting approval, posted (5 units written off: Dr Inventory
+      // Variance / Cr Inventory), then approved — the order the approval
+      // finalizer uses, so the lots and the ledger carry the write-off.
       const adj = await prisma.stockAdjustment.create({
         data: {
           organizationId: org.id,
@@ -749,7 +840,7 @@ async function main() {
           type: 'QUANTITY',
           reason: 'Initial audit count',
           notes: 'Found 5 damaged units',
-          status: 'APPROVED',
+          status: 'PENDING_APPROVAL',
         },
       });
       await prisma.stockAdjustmentLine.create({
@@ -763,6 +854,10 @@ async function main() {
           unitCost: widgetA.costPrice,
           totalValue: Number(widgetA.costPrice) * 5,
         },
+      });
+      await prisma.$transaction(async (tx) => {
+        await postStockAdjustmentIfNeeded(tx, org.id, adj.id);
+        await tx.stockAdjustment.update({ where: { id: adj.id }, data: { status: 'APPROVED' } });
       });
     }
   }

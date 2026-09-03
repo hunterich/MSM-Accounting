@@ -74,7 +74,7 @@ import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { Printer, Save, Search, Info, Package, Paperclip, FileText, X, AlertTriangle } from 'lucide-react';
-import { formatDateID, formatIDR } from '../../utils/formatters';
+import { formatDateID, formatIDR, formatNumber } from '../../utils/formatters';
 import DocumentFormLayout from '../../components/documents/DocumentFormLayout';
 import DocumentTotals from '../../components/documents/DocumentTotals';
 import Modal from '../../components/UI/Modal';
@@ -806,9 +806,9 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                     <option>Sales Invoice</option>
                                 </select>
                             </div>
-                            {/* Tipe Penjualan (sales type) */}
+                            {/* Sales type */}
                             <div className="col-span-2">
-                                <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Tipe Penjualan</label>
+                                <label className="block mb-1.5 text-sm font-semibold text-neutral-700">Sales Type</label>
                                 <select
                                     className="block w-full px-3 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
                                     value={formData.salesTypeId}
@@ -891,7 +891,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                                         >
                                                             <div>
                                                                 <div className="font-semibold text-[0.95rem]">{p.name}</div>
-                                                                <div className="text-xs text-neutral-500">{p.code} • Stock: {(p.currentStock ?? p.stock ?? 0).toLocaleString()}</div>
+                                                                <div className="text-xs text-neutral-500">{p.code} • Stock: {formatNumber((p.currentStock ?? p.stock ?? 0))}</div>
                                                             </div>
                                                             <div className="font-bold text-success-600">
                                                                 {formatIDR(p.price)}

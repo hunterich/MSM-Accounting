@@ -113,7 +113,7 @@ const NAV_GROUPS: NavGroup[] = [
         groupIcon: SlidersHorizontal,
         items: [
             { label: 'Modifier POS', path: '/pos/modifiers', icon: SlidersHorizontal },
-            { label: 'Tipe Penjualan', path: '/pos/sales-types', icon: Tags },
+            { label: 'Sales Types', path: '/pos/sales-types', icon: Tags },
         ],
     },
     {

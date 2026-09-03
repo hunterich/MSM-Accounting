@@ -14,7 +14,7 @@ import type { DocLine } from '../../documents/types';
 
 import SearchableSelect from '../../UI/SearchableSelect';
 import ClosedPeriodBanner from '../../UI/ClosedPeriodBanner';
-import { formatIDR } from '../../../utils/formatters';
+import { formatIDR, formatNumber } from '../../../utils/formatters';
 import {
     useVendors,
     useBills,
@@ -336,7 +336,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
                             className="px-3 py-2 flex justify-between items-center cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
                             <div className="min-w-0">
                                 <div className="text-[13px] font-medium text-neutral-900 truncate">{firstStr(p.name, p.description)}</div>
-                                <div className="text-[11px] text-neutral-500">{firstStr(p.code, p.sku)} · Stock {num(p.currentStock ?? p.stock).toLocaleString()}</div>
+                                <div className="text-[11px] text-neutral-500">{firstStr(p.code, p.sku)} · Stock {formatNumber(num(p.currentStock ?? p.stock))}</div>
                             </div>
                             <div className="text-[13px] font-semibold text-success-600 tabular-nums">{formatIDR(num(p.costPrice ?? p.price))}</div>
                         </div>

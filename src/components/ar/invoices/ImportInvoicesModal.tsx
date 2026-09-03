@@ -22,7 +22,7 @@ import {
     type UniqueProduct,
     type HeaderResolution,
 } from '../../../utils/shopeeImport';
-import { formatIDR } from '../../../utils/formatters';
+import { formatIDR, formatNumber } from '../../../utils/formatters';
 import type { EcommerceConnection } from '../../../types';
 
 // ── Wizard step discriminated union ──────────────────────────────────────────
@@ -529,9 +529,9 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             {/* Stats */}
             <div className="grid grid-cols-4 gap-3">
                 {[
-                    { label: 'Total Rows', value: parseResult!.stats.totalRows.toLocaleString() },
-                    { label: 'Orders', value: parseResult!.stats.totalOrders.toLocaleString() },
-                    { label: 'Skipped', value: parseResult!.stats.skippedRows.toLocaleString() },
+                    { label: 'Total Rows', value: formatNumber(parseResult!.stats.totalRows) },
+                    { label: 'Orders', value: formatNumber(parseResult!.stats.totalOrders) },
+                    { label: 'Skipped', value: formatNumber(parseResult!.stats.skippedRows) },
                     { label: 'Total Amount', value: formatIDR(parseResult!.stats.totalAmount) },
                 ].map((s) => (
                     <div key={s.label} className="bg-neutral-50 rounded-md p-3 text-center">
@@ -722,9 +722,9 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 <h4 className="text-sm font-semibold mb-3">Import Summary</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="text-neutral-500">Orders to send:</div>
-                    <div className="font-medium">{parseResult?.parsedOrders.length.toLocaleString() ?? 0}</div>
+                    <div className="font-medium">{formatNumber(parseResult?.parsedOrders.length) ?? 0}</div>
                     <div className="text-neutral-500">Products matched:</div>
-                    <div className="font-medium">{mappedCount.toLocaleString()}</div>
+                    <div className="font-medium">{formatNumber(mappedCount)}</div>
                     <div className="text-neutral-500">Total amount:</div>
                     <div className="font-semibold">{formatIDR(parseResult?.stats.totalAmount ?? 0)}</div>
                 </div>
@@ -770,17 +770,17 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     <div className="grid grid-cols-3 gap-4 w-full">
                         <div className="bg-green-50 border border-green-200 rounded-md p-3 text-center">
                             <div className="text-xs text-green-700">Created</div>
-                            <div className="text-lg font-semibold text-green-800">{importResult.created.toLocaleString()}</div>
+                            <div className="text-lg font-semibold text-green-800">{formatNumber(importResult.created)}</div>
                         </div>
                         <div className="bg-neutral-50 border border-neutral-200 rounded-md p-3 text-center">
                             <div className="text-xs text-neutral-500">Skipped</div>
-                            <div className="text-lg font-semibold text-neutral-700">{importResult.skipped.toLocaleString()}</div>
+                            <div className="text-lg font-semibold text-neutral-700">{formatNumber(importResult.skipped)}</div>
                             <div className="text-[10px] text-neutral-400">already imported</div>
                         </div>
                         <div className={`rounded-md p-3 text-center border ${importResult.failed.length > 0 ? 'bg-red-50 border-red-200' : 'bg-neutral-50 border-neutral-200'}`}>
                             <div className={`text-xs ${importResult.failed.length > 0 ? 'text-red-700' : 'text-neutral-500'}`}>Failed</div>
                             <div className={`text-lg font-semibold ${importResult.failed.length > 0 ? 'text-red-800' : 'text-neutral-700'}`}>
-                                {importResult.failed.length.toLocaleString()}
+                                {formatNumber(importResult.failed.length)}
                             </div>
                         </div>
                     </div>
@@ -883,7 +883,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                             <Button text="Close" variant="primary" onClick={handleClose} />
                         ) : step === 'configure' ? (
                             <Button
-                                text={`Import ${parseResult?.parsedOrders.length.toLocaleString() || 0} Orders`}
+                                text={`Import ${formatNumber(parseResult?.parsedOrders.length) || 0} Orders`}
                                 variant="primary"
                                 onClick={() => void handleImport()}
                             />

@@ -139,7 +139,7 @@ const UsersAndRoles = (): React.ReactElement => {
 
   /* ---- Server data ---- */
   const { data: roles = [], isLoading: rolesLoading } = useRoles();
-  const { data: loginAccountsData } = useLoginAccounts();
+  const { data: loginAccountsData, isLoading: loginAccountsLoading } = useLoginAccounts();
   // Memoize the source array — `?? []` produces a fresh reference every render,
   // which would defeat the downstream `activeAdminCount` useMemo (and is this
   // repo's known inline-`= []`-into-useMemo footgun; harmless here with no
@@ -582,7 +582,7 @@ const UsersAndRoles = (): React.ReactElement => {
 
         {/* Users */}
         <Card
-          title="Users Directory (Daftar Pengguna)"
+          title="Users Directory"
           actions={
             <div className="flex items-center gap-2">
               <Button
@@ -720,7 +720,14 @@ const UsersAndRoles = (): React.ReactElement => {
                     </tr>
                   );
                 })}
-                {loginAccounts.length === 0 && (
+                {loginAccountsLoading && loginAccounts.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-4 text-sm text-neutral-500 text-center">
+                      Loading users…
+                    </td>
+                  </tr>
+                )}
+                {!loginAccountsLoading && loginAccounts.length === 0 && (
                   <tr>
                     <td colSpan={5} className="p-4 text-sm text-neutral-500 text-center">
                       No users found.
@@ -734,7 +741,7 @@ const UsersAndRoles = (): React.ReactElement => {
 
         {/* Roles */}
         <Card
-          title="Access Roles & Permissions (Akses Grup)"
+          title="Access Roles & Permissions"
           actions={
             <Button
               text="Create Role"

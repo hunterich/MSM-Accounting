@@ -11,6 +11,7 @@ import {
   type FolderDestination, type BackupRecord,
 } from '../../hooks/useBackup';
 
+import { formatDateTimeID } from '../../utils/formatters';
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
@@ -106,7 +107,7 @@ export default function BackupPanel() {
           <tbody>
             {(history?.data ?? []).map((r) => (
               <tr key={r.id} className="border-t border-neutral-200">
-                <td className="py-2">{new Date(r.createdAt).toLocaleString()}</td>
+                <td className="py-2">{formatDateTimeID(new Date(r.createdAt))}</td>
                 <td>{r.type === 'AUTO' ? 'Auto' : r.type === 'MANUAL' ? 'Manual' : 'Safety'}</td>
                 <td>{formatBytes(r.sizeBytes)}</td>
                 <td>
@@ -138,7 +139,7 @@ export default function BackupPanel() {
       <Modal isOpen={!!restoreTarget} onClose={() => setRestoreTarget(null)} title="Restore this backup?" size="md">
         <p className="text-sm mb-3">
           This <strong>replaces all current data</strong> with the backup from{' '}
-          {restoreTarget && new Date(restoreTarget.createdAt).toLocaleString()}. A safety backup is taken first.
+          {restoreTarget && formatDateTimeID(new Date(restoreTarget.createdAt))}. A safety backup is taken first.
           Make sure all other staff are logged out.
         </p>
         <p className="text-xs opacity-70 mb-3">Note: after restoring, the backup history shown here resets to the restored point — your backup files on disk are unaffected.</p>

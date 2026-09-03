@@ -483,7 +483,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         >
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{returnData.returnNumber || 'Otomatis'}</div>
+                    <div className="module-status-number">{returnData.returnNumber || 'Auto'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Approved' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total)}</div>

@@ -7,6 +7,13 @@ import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import FormPage from '../../components/Layout/FormPage';
 import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
+import type { Account } from '../../types/index';
+
+// A fresh `[]` default on every render made `expenseTargetAccounts` a new
+// array each time, which re-fired the effect that resets the form, which
+// re-rendered… ("Maximum update depth exceeded" on /inventory/adjustments/edit
+// with no id). One shared constant keeps the memo stable while accounts load.
+const NO_ACCOUNTS: Account[] = [];
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 interface AdjustmentLineDraft {
@@ -112,7 +119,8 @@ const AdjustmentForm = () => {
     const adjustments = adjustmentsData?.data ?? [];
     const { data: itemsData, isLoading: itemsLoading } = useItems();
     const products = itemsData?.data ?? [];
-    const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
+    const { data: loadedAccounts, isLoading: accountsLoading } = useChartOfAccounts();
+    const allAccounts = loadedAccounts ?? NO_ACCOUNTS;
 
     const isSaving = createAdjustment.isPending || updateAdjustmentMutation.isPending;
     const isPageLoading = adjustmentsLoading || itemsLoading || accountsLoading;

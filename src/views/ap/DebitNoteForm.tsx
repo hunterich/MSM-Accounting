@@ -468,7 +468,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
         >
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{formData.debitNumber || 'Otomatis'}</div>
+                    <div className="module-status-number">{formData.debitNumber || 'Auto'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Posted' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total || formData.amount)}</div>
@@ -487,7 +487,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                             </select>
                             <Input className="mb-0" value={formData.debitNumber} onChange={(event) => setFormData((prev) => ({ ...prev, debitNumber: event.target.value }))} disabled={isView || numberingMode === 'auto'} placeholder={debitNoPreview} />
                         </div>
-                        {numberingMode === 'auto' ? <div className="numbering-preview">Nomor ditetapkan server saat disimpan</div> : null}
+                        {numberingMode === 'auto' ? <div className="numbering-preview">Number assigned when saved</div> : null}
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Debit Date</label>

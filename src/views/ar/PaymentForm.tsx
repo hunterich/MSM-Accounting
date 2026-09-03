@@ -483,7 +483,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
 
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{paymentData.paymentNumber || 'Otomatis'}</div>
+                    <div className="module-status-number">{paymentData.paymentNumber || 'Auto'}</div>
                     <StatusTag status={mode === 'view' ? 'Completed' : 'Draft'} label={mode === 'view' ? 'Completed' : 'Draft'} />
                 </div>
                 <div className="module-status-total">
@@ -537,7 +537,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
                             </div>
                             {paymentNumberingMode === 'auto' && (
                                 <div className="numbering-preview">
-                                    Nomor ditetapkan server saat disimpan
+                                    Number assigned when saved
                                 </div>
                             )}
                         </div>

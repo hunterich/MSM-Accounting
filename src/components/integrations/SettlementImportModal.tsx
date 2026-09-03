@@ -7,7 +7,7 @@ import { useImportSettlement, type SettlementImportResult } from '../../hooks/us
 import { parseShopeeSettlement, type SettlementParseResult } from '../../utils/shopeeSettlement';
 import { parseTikTokSettlement } from '../../utils/tiktokSettlement';
 import { isShopeeSettlement, isTikTokSettlement } from '../../utils/marketplaceFormat';
-import { formatIDR } from '../../utils/formatters';
+import { formatIDR, formatNumber } from '../../utils/formatters';
 
 type WizardStep = 'upload' | 'preview' | 'importing' | 'done';
 
@@ -136,7 +136,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
             <div className="grid grid-cols-2 gap-3">
                 <div className="bg-neutral-50 rounded-md p-3 text-center">
                     <div className="text-xs text-neutral-500">Orders</div>
-                    <div className="text-sm font-semibold mt-1">{(parsed?.orders.length ?? 0).toLocaleString()}</div>
+                    <div className="text-sm font-semibold mt-1">{formatNumber((parsed?.orders.length ?? 0))}</div>
                 </div>
                 <div className="bg-neutral-50 rounded-md p-3 text-center">
                     <div className="text-xs text-neutral-500">Total Net Released</div>
@@ -185,20 +185,20 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                     <div className="grid grid-cols-4 gap-3 w-full">
                         <div className="bg-green-50 border border-green-200 rounded-md p-3 text-center">
                             <div className="text-xs text-green-700">Posted</div>
-                            <div className="text-lg font-semibold text-green-800">{result.posted.toLocaleString()}</div>
+                            <div className="text-lg font-semibold text-green-800">{formatNumber(result.posted)}</div>
                         </div>
                         <div className="bg-neutral-50 border border-neutral-200 rounded-md p-3 text-center">
                             <div className="text-xs text-neutral-500">Already Settled</div>
-                            <div className="text-lg font-semibold text-neutral-700">{result.alreadySettled.toLocaleString()}</div>
+                            <div className="text-lg font-semibold text-neutral-700">{formatNumber(result.alreadySettled)}</div>
                         </div>
                         <div className="bg-neutral-50 border border-neutral-200 rounded-md p-3 text-center">
                             <div className="text-xs text-neutral-500">Skipped</div>
-                            <div className="text-lg font-semibold text-neutral-700">{result.skipped.length.toLocaleString()}</div>
+                            <div className="text-lg font-semibold text-neutral-700">{formatNumber(result.skipped.length)}</div>
                         </div>
                         <div className={`rounded-md p-3 text-center border ${result.failed.length > 0 ? 'bg-red-50 border-red-200' : 'bg-neutral-50 border-neutral-200'}`}>
                             <div className={`text-xs ${result.failed.length > 0 ? 'text-red-700' : 'text-neutral-500'}`}>Failed</div>
                             <div className={`text-lg font-semibold ${result.failed.length > 0 ? 'text-red-800' : 'text-neutral-700'}`}>
-                                {result.failed.length.toLocaleString()}
+                                {formatNumber(result.failed.length)}
                             </div>
                         </div>
                     </div>
@@ -289,7 +289,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-neutral-200">
                     {step === 'preview' && (
                         <Button
-                            text={`Confirm & Post ${(parsed?.orders.length ?? 0).toLocaleString()} Orders`}
+                            text={`Confirm & Post ${formatNumber((parsed?.orders.length ?? 0))} Orders`}
                             variant="primary"
                             onClick={() => void handleImport()}
                         />

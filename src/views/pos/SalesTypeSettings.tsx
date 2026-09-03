@@ -165,11 +165,11 @@ const SalesTypeSettings = (): React.ReactElement => {
     return (
         <ListPage
             containerClassName="pos-module"
-            title="Tipe Penjualan"
+            title="Sales Types"
             subtitle="Kelola tipe penjualan (mis. dine-in, ojek online) beserta biaya layanan dan akun pendapatannya."
             actions={
                 <Button
-                    text="Tipe Penjualan Baru"
+                    text="New Sales Type"
                     variant="primary"
                     icon={<Plus size={16} />}
                     disabled={!canCreate}
@@ -191,7 +191,7 @@ const SalesTypeSettings = (): React.ReactElement => {
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                title={editing ? 'Ubah Tipe Penjualan' : 'Tipe Penjualan Baru'}
+                title={editing ? 'Edit Sales Type' : 'New Sales Type'}
                 size="lg"
             >
                 <form onSubmit={handleSave}>

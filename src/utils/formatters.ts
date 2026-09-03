@@ -20,6 +20,14 @@ export const formatDateID = (dateStr: string | null | undefined): string => {
     }).format(date);
 };
 
+/** Date + time in the app's locale (id-ID), e.g. "03/09/2026, 10.15". */
+export const formatDateTimeID = (value: string | Date | null | undefined): string => {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('id-ID', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+};
+
 export const formatNumber = (num: number | string | null | undefined): string => {
     const value = Number(num || 0);
     return new Intl.NumberFormat('id-ID').format(value);

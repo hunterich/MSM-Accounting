@@ -475,7 +475,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
 
             <div className="module-status-strip">
                 <div className="module-status-meta">
-                    <div className="module-status-number">{formData.creditNumber || 'Otomatis'}</div>
+                    <div className="module-status-number">{formData.creditNumber || 'Auto'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Posted' : 'Draft'} />
                 </div>
                 <div className="module-status-total">{formatIDR(totals.total || formData.amount)}</div>
@@ -496,7 +496,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                         </div>
                         {numberingMode === 'auto' && (
                             <div className="numbering-preview">
-                                Nomor ditetapkan server saat disimpan
+                                Number assigned when saved
                             </div>
                         )}
                     </div>

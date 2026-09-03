@@ -3437,7 +3437,7 @@ const Reports: React.FC<ReportsProps> = ({
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
                   <input
                     type="text"
-                    placeholder="Cari laporan..."
+                    placeholder="Search reports..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-9 pl-9 pr-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 w-[220px]"
