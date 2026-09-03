@@ -80,6 +80,72 @@ export function pendingNotePath(kind: 'credit' | 'debit', returnKey: string): st
     return `${base}?fromReturn=${encodeURIComponent(returnKey)}`;
 }
 
+/**
+ * Routes that must not become workspace tabs: the Forbidden page (a tab
+ * literally titled "403" used to appear) and the bare area paths the router
+ * immediately redirects (`/ar` → `/ar/sales-orders` left an "Ar" tab behind).
+ * The shell skips these, and the content host renders them straight from the
+ * router instead of through a tab.
+ */
+const TABLESS_PATHS = new Set(['/403', '/ar', '/ap', '/inventory', '/hr', '/ar/subscriptions']);
+
+export function isTablessPath(path: string): boolean {
+    return TABLESS_PATHS.has(path.replace(/\/+$/, '') || '/');
+}
+
+/** Banking's "new" forms are one tab per action (recordId `new:<action>`). */
+const BANKING_NEW_FORMS: Record<string, { action: 'expense' | 'income' | 'transfer' | 'account'; title: string }> = {
+    '/banking/payment': { action: 'expense', title: 'New payment' },
+    '/banking/expense': { action: 'expense', title: 'New payment' },
+    '/banking/receive': { action: 'income', title: 'New receipt' },
+    '/banking/income': { action: 'income', title: 'New receipt' },
+    '/banking/transfer': { action: 'transfer', title: 'New transfer' },
+    '/banking/account': { action: 'account', title: 'Add account' },
+};
+
+export interface NewDocumentTabSpec {
+    kind: 'doc-form';
+    target: TabTarget;
+    title: string;
+    path: string;
+}
+
+/**
+ * The tab a "new document" URL stands for — `/ar/invoices/new`,
+ * `/banking/payment`, … — or null when the URL is not one of those.
+ *
+ * The "New" buttons open these tabs directly and then sync the URL, so the
+ * shell's route→tab mapping used to ignore the paths on purpose. A pasted or
+ * bookmarked link, or a new browser tab, then landed on "No open tabs". The
+ * shell uses this to open (or focus) the same tab the button would.
+ *
+ * Any query parameter other than `mode` names an existing record
+ * (`?billId=`, `?returnId=`, `?fromReturn=`); those stay with the per-module
+ * mapping, so this returns null for them.
+ */
+export function newDocumentTabForPath(path: string, params: URLSearchParams): NewDocumentTabSpec | null {
+    for (const key of params.keys()) {
+        if (key !== 'mode') return null;
+    }
+    const banking = BANKING_NEW_FORMS[path];
+    if (banking) {
+        return {
+            kind: 'doc-form',
+            target: { module: 'banking', entity: 'transaction', recordId: `new:${banking.action}`, mode: 'create' },
+            title: banking.title,
+            path,
+        };
+    }
+    const doc = Object.values(DOC_MODULES).find((m) => m.newPath && m.newPath.split('?')[0] === path);
+    if (!doc || !doc.newPath) return null;
+    return {
+        kind: 'doc-form',
+        target: { module: doc.module, entity: doc.entity, recordId: null, mode: 'create' },
+        title: doc.newLabel ?? 'New',
+        path: doc.newPath,
+    };
+}
+
 // Map a non-AR route to its page module (one top tab per area; navigating
 // within the area updates that tab's path). Longest-prefix match.
 const PAGE_MODULES: Array<[string, { key: string; title: string }]> = [

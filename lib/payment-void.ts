@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
+import { syncApPaymentSettlement, syncArPaymentSettlement } from './settlement-status';
 
 type Tx = Prisma.TransactionClient;
 
@@ -15,7 +16,11 @@ interface PaymentRow {
 interface VoidConfig {
   label: string;
   find: (tx: Tx, orgId: string, id: string) => Promise<PaymentRow | null>;
+  /** Ids of the documents (invoices / bills) the payment's allocations settle. */
+  settledDocumentIds: (tx: Tx, id: string) => Promise<string[]>;
   deleteAllocations: (tx: Tx, id: string) => Promise<unknown>;
+  /** Re-derive PAID / reopened on those documents once the allocations are gone. */
+  syncSettlement: (tx: Tx, orgId: string, id: string, documentIds: string[]) => Promise<void>;
   /**
    * Atomically claim VOID: `updateMany` guarded by `status != 'VOID'`, returning
    * the affected count. The WHERE clause takes a row lock, so a concurrent void
@@ -70,14 +75,21 @@ async function voidPayment(
     date: opts.date,
     memo: `Void ${cfg.label}: ${payment.number}`,
   });
+  // Capture what the payment settled before its allocations disappear, so the
+  // invoices/bills it had marked PAID fall back to open.
+  const settledDocumentIds = await cfg.settledDocumentIds(tx, paymentId);
   await cfg.deleteAllocations(tx, paymentId);
+  await cfg.syncSettlement(tx, orgId, paymentId, settledDocumentIds);
 }
 
 const AP_CONFIG: VoidConfig = {
   label: 'AP payment',
   find: (tx, orgId, id) =>
     tx.aPPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true } }),
+  settledDocumentIds: (tx, id) =>
+    tx.aPPaymentAllocation.findMany({ where: { paymentId: id }, select: { billId: true } }).then((rows) => rows.map((r) => r.billId)),
   deleteAllocations: (tx, id) => tx.aPPaymentAllocation.deleteMany({ where: { paymentId: id } }),
+  syncSettlement: (tx, orgId, id, billIds) => syncApPaymentSettlement(tx, orgId, id, billIds),
   claimVoid: (tx, orgId, id) =>
     tx.aPPayment.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
 };
@@ -86,7 +98,10 @@ const AR_CONFIG: VoidConfig = {
   label: 'AR receipt',
   find: (tx, orgId, id) =>
     tx.aRPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true } }),
+  settledDocumentIds: (tx, id) =>
+    tx.aRPaymentAllocation.findMany({ where: { paymentId: id }, select: { invoiceId: true } }).then((rows) => rows.map((r) => r.invoiceId)),
   deleteAllocations: (tx, id) => tx.aRPaymentAllocation.deleteMany({ where: { paymentId: id } }),
+  syncSettlement: (tx, orgId, id, invoiceIds) => syncArPaymentSettlement(tx, orgId, id, invoiceIds),
   claimVoid: (tx, orgId, id) =>
     tx.aRPayment.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
 };

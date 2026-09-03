@@ -29,7 +29,7 @@ const METHOD_LABELS: Record<string, string> = {
 const AssetDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { canEdit } = useModulePermissions('assets');
+  const { canEdit } = useModulePermissions('gl_journal');
   const { data: asset, isLoading } = useAsset(id);
   const activateMutation = useActivateAsset();
   const disposeMutation = useDisposeAsset();

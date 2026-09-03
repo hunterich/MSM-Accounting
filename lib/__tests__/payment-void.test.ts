@@ -20,7 +20,7 @@ function makeApTx(payment: any, claimCount = 1) {
       findFirst: vi.fn(async () => payment),
       updateMany: vi.fn(async () => ({ count: claimCount })),
     },
-    aPPaymentAllocation: { deleteMany: vi.fn(async () => ({ count: 1 })) },
+    aPPaymentAllocation: { findMany: vi.fn(async () => []), deleteMany: vi.fn(async () => ({ count: 1 })) },
   };
 }
 function makeArTx(payment: any, claimCount = 1) {
@@ -29,7 +29,7 @@ function makeArTx(payment: any, claimCount = 1) {
       findFirst: vi.fn(async () => payment),
       updateMany: vi.fn(async () => ({ count: claimCount })),
     },
-    aRPaymentAllocation: { deleteMany: vi.fn(async () => ({ count: 1 })) },
+    aRPaymentAllocation: { findMany: vi.fn(async () => []), deleteMany: vi.fn(async () => ({ count: 1 })) },
   };
 }
 

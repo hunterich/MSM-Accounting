@@ -40,8 +40,8 @@ import {
  * Module-key mapping: the matrix is built from `MODULE_DEFS` (one row per
  * Prisma `enum ModuleKey` member — the API is the source of truth). Permission
  * rows round-trip as `{ moduleKey, canView, canCreate, canEdit, canDelete,
- * canApprove }`. Client-only keys with no ModuleKey (ar_customer_categories,
- * ap_vendor_categories, assets) are omitted. See moduleKeyMap.ts.
+ * canApprove }`. Customer/vendor categories and fixed assets ride on the
+ * AR_CUSTOMERS / AP_VENDORS / GL_JOURNAL rows. See moduleKeyMap.ts.
  * ========================================================================== */
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;

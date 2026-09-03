@@ -146,7 +146,9 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
   });
 
   if (!parsedPayload.success) {
-    return err('Invalid journal entry payload', 400);
+    // Name the first offending field the way the PUT route does; a bare
+    // "invalid payload" gives the form nothing to show the user.
+    return err(parsedPayload.error.issues[0]?.message || 'Invalid journal entry payload', 400);
   }
 
   const payload = parsedPayload.data;

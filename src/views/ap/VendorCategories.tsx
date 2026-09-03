@@ -50,7 +50,7 @@ const emptyForm: VendorCategoryForm = {
 };
 
 const VendorCategories = () => {
-    const { canCreate, canEdit, canDelete } = useModulePermissions('ap_vendor_categories');
+    const { canCreate, canEdit, canDelete } = useModulePermissions('ap_vendors');
     const { data: categories = [], isLoading } = useVendorCategories();
     const { data: chartOfAccounts = [] } = useChartOfAccounts();
     const createMutation = useCreateVendorCategory();

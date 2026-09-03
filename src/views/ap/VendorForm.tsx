@@ -256,7 +256,7 @@ const VendorForm = ({ recordId, mode: modeProp, workspaceTabId }: VendorFormProp
                         />
                     </div>
                     <div className="col-span-3">
-                        <label className="block mb-2 text-sm font-medium text-neutral-700">Category *</label>
+                        <label className="block mb-2 text-sm font-medium text-neutral-700">Category</label>
                         <select
                             className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] ${errors.categoryId ? 'border-danger-500' : 'border-neutral-300'}`}
                             name="categoryId"

@@ -8,6 +8,7 @@ import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requi
 import { nextNumber } from '@/lib/api-utils';
 import { apPaymentInputSchema } from '@/types/api';
 import { postApPaymentIfNeeded } from '@/lib/payment-posting';
+import { syncApPaymentSettlement } from '@/lib/settlement-status';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
@@ -140,6 +141,8 @@ export const POST = withPermission({ module: 'AP_PAYMENTS', action: 'create' }, 
         await postApPaymentIfNeeded(tx, orgId, created.id, dateOverride);
       }
     }
+    // Roll the allocations up into the settled documents' status (PAID).
+    await syncApPaymentSettlement(tx, orgId, created.id);
 
     return created;
   });

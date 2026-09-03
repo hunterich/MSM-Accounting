@@ -9,6 +9,21 @@
 	tls internal
 	encode gzip
 
+	# Browser hardening for everything served here (SPA and API alike).
+	# The CSP allows only same-origin scripts/styles/fonts/XHR — the SPA is a
+	# single-origin Vite build with no third-party assets — plus inline styles
+	# (the UI sets style attributes) and data:/blob: images (charts, previews).
+	# Loosen `connect-src` if the API ever moves to another origin.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		-Server
+	}
+
 	# API -> Next.js backend. Path is preserved: /api/v1/... reaches the backend
 	# unchanged, so the session cookie stays same-origin (SameSite=Lax works).
 	handle /api/* {

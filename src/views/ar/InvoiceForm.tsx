@@ -87,7 +87,7 @@ import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useExtraAction } from '../../hooks/useModulePermissions';
-import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice } from '../../hooks/useAR';
+import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice, useNextInvoiceNumber } from '../../hooks/useAR';
 import { useItems } from '../../hooks/useInventory';
 import { useSalesTypes } from '../../hooks/useSalesTypes';
 import { useDraftAutosave } from '../../hooks/useDraftAutosave';
@@ -185,7 +185,6 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const canOverridePrice   = useExtraAction('ar_invoices', 'overridePrice');
 
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
-    const docNumbering = useSettingsStore(s => s.documentNumbering?.ar_invoice ?? { prefix: 'INV', resetPeriod: 'monthly', seqLength: 6 });
 
     const [formData, setFormData] = useState<InvoiceFormData>({
         customerId: draftSeed?.customerId ?? '',
@@ -220,35 +219,11 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const itemSearchRef = useRef<HTMLDivElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    // Numbering Configuration (from Settings)
-    const numberingConfig = {
-        prefix: docNumbering.prefix,
-        reset: docNumbering.resetPeriod,
-        seqLength: docNumbering.seqLength,
-    };
-
-    const getMaxSequence = () => {
-        const nums = invoices
-            .map(inv => inv.number || '')
-            .map(n => {
-                const match = n.match(/(\d{3,})$/);
-                return match ? parseInt(match[1], 10) : 0;
-            });
-        return Math.max(0, ...nums);
-    };
-
-    const [nextSequence, setNextSequence] = useState(getMaxSequence() + 1);
-
-    const formatSequence = (num: number) => String(num).padStart(numberingConfig.seqLength, '0');
-
-    const buildAutoNumber = (dateStr: string) => {
-        const date = dateStr ? new Date(dateStr) : new Date();
-        const yyyy = date.getFullYear();
-        const mm = String(date.getMonth() + 1).padStart(2, '0');
-        return `${numberingConfig.prefix}/${yyyy}/${mm}/${formatSequence(nextSequence)}`;
-    };
-
-    const autoNumberPreview = buildAutoNumber(formData.issueDate);
+    // "Auto" numbering preview: the server's own answer for this issue date
+    // (Settings → Document numbering), so the preview is the number that gets
+    // saved. Not asked for while editing, or once a manual number is typed.
+    const { data: nextNumberData } = useNextInvoiceNumber(formData.number ? null : formData.issueDate || null);
+    const autoNumberPreview = nextNumberData?.number ?? '';
 
     useEffect(() => {
         // A recovered draft already holds the user's in-progress edits — don't

@@ -6,7 +6,7 @@ import TabContentHost from './TabContentHost';
 import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
+import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath, newDocumentTabForPath, isTablessPath } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
     const navigate = useNavigate();
@@ -45,6 +45,27 @@ const WorkspaceShell = (): React.ReactElement => {
     useEffect(() => {
         const path = location.pathname;
         const params = new URLSearchParams(location.search);
+
+        // The Forbidden page and the redirect-only area paths are rendered by
+        // the router, never as a tab (see isTablessPath).
+        if (isTablessPath(path)) return;
+
+        // A link straight to a "new document" form (pasted, bookmarked, or a
+        // fresh browser tab). The per-module blocks below ignore these paths
+        // because the New button opens the tab itself and then syncs the URL —
+        // which left a direct visit on "No open tabs". Focus the draft that is
+        // already open for this form, or open the tab the button would.
+        const fresh = newDocumentTabForPath(path, params);
+        if (fresh) {
+            const ws = useWorkspaceStore.getState();
+            const freshKey = moduleKeyOf(fresh.target);
+            const existing = ws.tabs.find(
+                (t) => t.kind === 'doc-form' && moduleKeyOf(t.target) === freshKey && t.target.recordId === fresh.target.recordId,
+            );
+            if (existing) ws.openTab(existing);
+            else open({ ...fresh, unique: true });
+            return;
+        }
 
         if (path.startsWith('/ar/sales-orders')) {
             if (path.startsWith('/ar/sales-orders/new')) return;
@@ -134,7 +155,7 @@ const WorkspaceShell = (): React.ReactElement => {
 
         if (path.startsWith('/ap/vendors')) {
             const vendorId = params.get('vendorId');
-            if ((path.startsWith('/ap/vendors/new') || path.startsWith('/ap/vendors/edit')) && !vendorId) return; // new from button
+            if (path.startsWith('/ap/vendors/new') && !vendorId) return; // new from button (handled above)
             if (vendorId) {
                 const m = params.get('mode') === 'edit' ? 'edit' : 'view';
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'vendor', recordId: vendorId, mode: m }, title: vendorId, path: `/ap/vendors/${m === 'edit' ? 'edit' : 'new'}?vendorId=${vendorId}&mode=${m}` });
@@ -159,7 +180,7 @@ const WorkspaceShell = (): React.ReactElement => {
 
         if (path.startsWith('/ap/bills') && !path.startsWith('/ap/bills/import')) {
             const billId = params.get('billId');
-            if ((path.startsWith('/ap/bills/new') || path.startsWith('/ap/bills/edit')) && !billId) return; // new from button
+            if (path.startsWith('/ap/bills/new') && !billId) return; // new from button (handled above)
             if (billId) {
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'bill', recordId: billId, mode: 'edit' }, title: billId, path: `/ap/bills/new?billId=${billId}&mode=view` });
             } else {
@@ -255,6 +276,15 @@ const WorkspaceShell = (): React.ReactElement => {
     // a route onto a different tab path (e.g. /ap/debits/new → the list), the
     // fresh value differs from the location and we navigate as intended.
     useEffect(() => {
+        // A tabless route (/403, a redirect-only area path) is rendered by the
+        // router over the tabs; on a full page load the restored active tab
+        // must not pull the URL away from it.
+        // Checked on the rendered location as well: a redirect-only path's
+        // <Navigate/> has already moved window.location by the time this runs
+        // (child effects fire first), and the restored active tab must not
+        // win over that redirect either.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (isTablessPath(location.pathname) || isTablessPath(window.location.pathname)) return;
         const s = useWorkspaceStore.getState();
         const current = s.tabs.find((t) => t.id === s.activeTabId)?.path;
         if (current && current !== window.location.pathname + window.location.search) {

@@ -7,7 +7,7 @@ import { Plus, Upload, ChevronDown, ChevronRight, PencilLine, Trash2, Archive, R
 import { exportToCsv } from '../../utils/exportCsv';
 import ListPage from '../../components/Layout/ListPage';
 import { SkeletonBlock } from '../../components/UI/LoadingSkeleton';
-import { useChartOfAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount } from '../../hooks/useGL';
+import { useChartOfAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount, useAccountBalances } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import {
     ACCOUNT_TYPES,
@@ -101,8 +101,18 @@ const ChartOfAccounts = () => {
 
     const accountTree = useMemo(() => buildAccountTree(accounts), [accounts]);
     const flatTree = useMemo(() => flattenTree(accountTree), [accountTree]);
-    // Balances: real rollup requires a dedicated endpoint; use empty map until GL wiring is complete
-    const groupedBalances = useMemo(() => rollupBalances(accounts, {}), [accounts]);
+    // Posted ledger balances per account, rolled up into headers. Shown on the
+    // account's normal side (a liability with a credit balance reads positive).
+    const { data: balancesData } = useAccountBalances();
+    const groupedBalances = useMemo(
+        () => rollupBalances(accounts, balancesData?.balances ?? {}),
+        [accounts, balancesData],
+    );
+    const naturalBalance = (accountId: string): number => {
+        const total = groupedBalances.totalsById[accountId] || 0;
+        const side = String(accountById[accountId]?.normalSide || '').toLowerCase();
+        return side === 'credit' ? -total : total;
+    };
 
     const reportGroups = useMemo(() => {
         return Array.from(new Set(accounts.map((account) => account.reportGroup))).sort();
@@ -349,7 +359,7 @@ const ChartOfAccounts = () => {
             key: 'id',
             label: 'Balance',
             align: 'right',
-            render: (id: unknown) => formatIDR(groupedBalances.totalsById[id as string] || 0)
+            render: (id: unknown) => formatIDR(naturalBalance(id as string))
         },
         {
             key: 'action',
@@ -408,7 +418,7 @@ const ChartOfAccounts = () => {
                                 name: account.name,
                                 type: account.type,
                                 parent: account.parentId ? (accountById[account.parentId] ? `${accountById[account.parentId].code} ${accountById[account.parentId].name}` : '') : '',
-                                balance: groupedBalances.totalsById[account.id] || 0,
+                                balance: naturalBalance(account.id),
                             }));
                             exportToCsv('chart-of-accounts.csv', rows, [
                                 { label: 'Code', key: 'code' },

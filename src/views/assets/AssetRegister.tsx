@@ -20,7 +20,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const AssetRegister = () => {
   const navigate = useNavigate();
-  const { canCreate } = useModulePermissions('assets');
+  const { canCreate } = useModulePermissions('gl_journal');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');

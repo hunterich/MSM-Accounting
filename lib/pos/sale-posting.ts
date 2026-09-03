@@ -4,6 +4,7 @@ import { advisoryLockKey } from '@/lib/advisory-lock';
 import { nextNumber } from '@/lib/api-utils';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
+import { syncArPaymentSettlement } from '../settlement-status';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { computeSaleTotals, type SaleLineInput } from './pricing';
 import { computeServiceCharge } from './sales-type-charge';
@@ -305,6 +306,8 @@ export async function postPosSale(
     select: { id: true },
   });
   await postArPaymentIfNeeded(tx, orgId, payment.id);
+  // The receipt settles the invoice in full → PAID (the invoice list reads the status).
+  await syncArPaymentSettlement(tx, orgId, payment.id);
 
   // 10. Record POS sale, tenders, and batch allocations.
   const posSale = await tx.posSale.create({

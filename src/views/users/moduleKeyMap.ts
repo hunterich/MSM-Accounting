@@ -10,11 +10,13 @@
  * Mapping between the two casings is a plain case fold:
  *   client `ar_invoices`  <->  API `AR_INVOICES`   (toUpperCase / toLowerCase)
  *
- * The client set has three keys with NO `ModuleKey` equivalent and they are
- * intentionally omitted from the matrix (the API can't store them):
- *   - ar_customer_categories
- *   - ap_vendor_categories
- *   - assets            (no ASSETS member in the Prisma enum)
+ * Three screens have no `ModuleKey` of their own and ride on the key the API
+ * guards them with (see the matching `withPermission` calls in the routes):
+ *   - customer categories -> AR_CUSTOMERS
+ *   - vendor categories   -> AP_VENDORS
+ *   - fixed assets        -> GL_JOURNAL   (no ASSETS member in the Prisma enum)
+ * The client route table (src/App.tsx) uses the same keys, so a role that can
+ * see the parent module can see these too, and the matrix needs no extra rows.
  *
  * Every member of `enum ModuleKey` (prisma/schema.prisma) is represented below;
  * keep this list in sync if the enum changes.
