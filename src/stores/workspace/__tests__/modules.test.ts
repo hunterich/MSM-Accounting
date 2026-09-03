@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { moduleKeyOf, isDocumentModule, docModuleTitle, pageModuleForPath, DOC_MODULES, pendingNoteRecordId, pendingNotePath, newDocumentTabForPath } from '../modules';
+import { moduleKeyOf, isDocumentModule, docModuleTitle, pageModuleForPath, DOC_MODULES, pendingNoteRecordId, pendingNotePath, newDocumentTabForPath, isTablessPath } from '../modules';
 
 describe('reports workspace module registration', () => {
   it('groups every reports tab under the single "reports" module key', () => {
@@ -89,5 +89,14 @@ describe('newDocumentTabForPath (direct links to "new" forms)', () => {
     expect(newDocumentTabForPath('/banking', q())).toBeNull();
     expect(newDocumentTabForPath('/banking/reconciliation', q())).toBeNull();
     expect(newDocumentTabForPath('/gl/journals/new', q())).toBeNull();
+  });
+});
+
+describe('isTablessPath', () => {
+  it('names the Forbidden page and the redirect-only area paths', () => {
+    for (const p of ['/403', '/ar', '/ap', '/inventory', '/hr', '/ar/subscriptions', '/ar/']) expect(isTablessPath(p), p).toBe(true);
+  });
+  it('leaves real screens to the tab mapping', () => {
+    for (const p of ['/', '/ar/invoices', '/ap/bills', '/inventory/items', '/hr/employees', '/gl', '/settings']) expect(isTablessPath(p), p).toBe(false);
   });
 });

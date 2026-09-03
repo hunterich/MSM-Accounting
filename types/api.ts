@@ -44,6 +44,8 @@ export const documentChargeSchema = z.object({
 export const createInvoiceInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   customerId: z.string().trim().min(1),
+  /** A manually typed number ("Manual" on the form); empty/absent = auto-numbered per org settings. */
+  number: z.string().trim().max(64).optional(),
   invoiceType: z.string().trim().default('Sales Invoice'),
   salesTypeId: z.string().trim().nullish(),
   issueDate: isoDateString,

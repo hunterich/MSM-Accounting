@@ -84,7 +84,7 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
   });
 
   if (!parsedPayload.success) {
-    return err('Invalid invoice payload', 400);
+    return err(parsedPayload.error.issues[0]?.message || 'Invalid invoice payload', 400);
   }
 
   const payload = parsedPayload.data;
@@ -136,7 +136,11 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
       documentAmount: totals.totalAmount,
     });
 
-    const number = await nextInvoiceNumber(tx, payload.organizationId);
+    // "Manual" on the form sends the typed number; "Auto" sends an empty one
+    // and the server allocates per Settings → Document numbering, scoped to
+    // the issue date's period. A manual duplicate fails with 409 on `number`.
+    const manualNumber = payload.number?.trim();
+    const number = manualNumber || await nextInvoiceNumber(tx, payload.organizationId, { issueDate: new Date(payload.issueDate) });
 
     const invoice = await tx.salesInvoice.create({
       data: {

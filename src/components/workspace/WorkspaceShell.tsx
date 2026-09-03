@@ -6,7 +6,7 @@ import TabContentHost from './TabContentHost';
 import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath, newDocumentTabForPath } from '../../stores/workspace/modules';
+import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath, newDocumentTabForPath, isTablessPath } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
     const navigate = useNavigate();
@@ -45,6 +45,10 @@ const WorkspaceShell = (): React.ReactElement => {
     useEffect(() => {
         const path = location.pathname;
         const params = new URLSearchParams(location.search);
+
+        // The Forbidden page and the redirect-only area paths are rendered by
+        // the router, never as a tab (see isTablessPath).
+        if (isTablessPath(path)) return;
 
         // A link straight to a "new document" form (pasted, bookmarked, or a
         // fresh browser tab). The per-module blocks below ignore these paths
@@ -272,6 +276,15 @@ const WorkspaceShell = (): React.ReactElement => {
     // a route onto a different tab path (e.g. /ap/debits/new → the list), the
     // fresh value differs from the location and we navigate as intended.
     useEffect(() => {
+        // A tabless route (/403, a redirect-only area path) is rendered by the
+        // router over the tabs; on a full page load the restored active tab
+        // must not pull the URL away from it.
+        // Checked on the rendered location as well: a redirect-only path's
+        // <Navigate/> has already moved window.location by the time this runs
+        // (child effects fire first), and the restored active tab must not
+        // win over that redirect either.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (isTablessPath(location.pathname) || isTablessPath(window.location.pathname)) return;
         const s = useWorkspaceStore.getState();
         const current = s.tabs.find((t) => t.id === s.activeTabId)?.path;
         if (current && current !== window.location.pathname + window.location.search) {

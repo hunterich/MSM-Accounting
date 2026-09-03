@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { signToken, COOKIE_NAME } from '@/lib/auth';
 import { comparePassword } from '@/lib/password';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
+import { clientAddress, loginThrottle } from '@/lib/login-throttle';
 
 export const runtime = 'nodejs';
 
@@ -45,10 +46,24 @@ export async function POST(req: NextRequest) {
     const parsed = schema.safeParse(body);
 
     if (!parsed.success) {
-      return withCors(NextResponse.json({ error: 'Invalid input' }, { status: 400 }));
+      return withCors(NextResponse.json({ error: 'Enter a valid email address and your password' }, { status: 400 }));
     }
 
     const { email, password } = parsed.data;
+
+    // Online guessing guard: too many failures for this account (or from this
+    // address) and the attempt is refused before the password is even checked.
+    const ip = clientAddress(req.headers);
+    const verdict = loginThrottle.check(email, ip);
+    if (!verdict.allowed) {
+      const minutes = Math.max(1, Math.ceil(verdict.retryAfterSeconds / 60));
+      const response = NextResponse.json(
+        { error: `Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` },
+        { status: 429 },
+      );
+      response.headers.set('Retry-After', String(verdict.retryAfterSeconds));
+      return withCors(response);
+    }
 
     const user = await prisma.user.findUnique({
       where: { email },
@@ -69,13 +84,16 @@ export async function POST(req: NextRequest) {
     });
 
     if (!user || !user.passwordHash) {
+      loginThrottle.recordFailure(email, ip);
       return withCors(NextResponse.json({ error: 'Invalid email or password' }, { status: 401 }));
     }
 
     const valid = await comparePassword(password, user.passwordHash);
     if (!valid) {
+      loginThrottle.recordFailure(email, ip);
       return withCors(NextResponse.json({ error: 'Invalid email or password' }, { status: 401 }));
     }
+    loginThrottle.recordSuccess(email);
 
     const memberships = user.memberships; // all active
 

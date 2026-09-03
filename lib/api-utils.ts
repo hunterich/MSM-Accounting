@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { ZodError } from 'zod';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { withCors } from '@/lib/cors';
@@ -72,6 +73,19 @@ export function logAuditTx(
   opts: AuditOpts,
 ) {
   return tx.auditLog.create({ data: buildAuditData(opts) });
+}
+
+/**
+ * "Duplicate record" told the user nothing about which value collided. Prisma
+ * names the unique index's columns in `meta.target`; drop the tenant column
+ * every index carries and name the rest ("code already exists").
+ */
+export function duplicateRecordMessage(error: { meta?: Record<string, unknown> | null }): string {
+  const target = error.meta?.target;
+  const columns = (Array.isArray(target) ? target.map(String) : typeof target === 'string' ? [target] : [])
+    .filter((c) => c !== 'organizationId');
+  if (columns.length === 0) return 'Duplicate record';
+  return `Duplicate record: ${columns.join(' + ')} already exists`;
 }
 
 export function err(message: string, status: number) {
@@ -256,8 +270,16 @@ export function withHandler<TContext = unknown>(
       }
 
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2002') return err('Duplicate record', 409);
+        if (error.code === 'P2002') return err(duplicateRecordMessage(error), 409);
         if (error.code === 'P2025') return err('Record not found', 404);
+      }
+
+      // A schema's `.parse()` that threw: the caller's input was wrong, not
+      // the server. Name the field the way the safeParse routes do.
+      if (error instanceof ZodError) {
+        const issue = error.issues[0];
+        const field = issue?.path?.length ? `${issue.path.join('.')}: ` : '';
+        return err(`${field}${issue?.message ?? 'Invalid input'}`, 400);
       }
 
       const message = error instanceof Error ? error.message : 'Internal error';

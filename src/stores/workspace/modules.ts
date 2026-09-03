@@ -80,6 +80,19 @@ export function pendingNotePath(kind: 'credit' | 'debit', returnKey: string): st
     return `${base}?fromReturn=${encodeURIComponent(returnKey)}`;
 }
 
+/**
+ * Routes that must not become workspace tabs: the Forbidden page (a tab
+ * literally titled "403" used to appear) and the bare area paths the router
+ * immediately redirects (`/ar` → `/ar/sales-orders` left an "Ar" tab behind).
+ * The shell skips these, and the content host renders them straight from the
+ * router instead of through a tab.
+ */
+const TABLESS_PATHS = new Set(['/403', '/ar', '/ap', '/inventory', '/hr', '/ar/subscriptions']);
+
+export function isTablessPath(path: string): boolean {
+    return TABLESS_PATHS.has(path.replace(/\/+$/, '') || '/');
+}
+
 /** Banking's "new" forms are one tab per action (recordId `new:<action>`). */
 const BANKING_NEW_FORMS: Record<string, { action: 'expense' | 'income' | 'transfer' | 'account'; title: string }> = {
     '/banking/payment': { action: 'expense', title: 'New payment' },

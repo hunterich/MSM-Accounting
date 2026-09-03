@@ -7,36 +7,9 @@ import { calculateNextPeriod } from '@/lib/subscription';
 import { routeForApproval } from '@/lib/approval/engine';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { resolveRequesterId } from '@/lib/approval/requester';
+import { nextInvoiceNumber } from '@/lib/invoice-number';
 
 export const runtime = 'nodejs';
-
-// FNV-1a 32-bit hash for advisory lock IDs (same helper recurring invoices use).
-function fnv1aHash(input: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = (hash * 0x01000193) >>> 0;
-  }
-  return hash || 1;
-}
-
-/**
- * Next "INV-000000" number for the org, serialized by a per-org advisory lock so
- * concurrent generations cannot collide. Mirrors recurring-invoices/run — note
- * SalesInvoice is deliberately NOT a nextNumber() target (invoice numbering is
- * centralized through this raw-MAX + advisory-lock pattern).
- */
-async function nextInvoiceNumber(tx: any, orgId: string): Promise<string> {
-  const lockKey = fnv1aHash(`invoice-seq:${orgId}`);
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-  const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-    SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max
-    FROM "SalesInvoice"
-    WHERE "organizationId" = ${orgId}
-  `;
-  const nextSeq = Number(rows[0]?.max ?? 0) + 1;
-  return `INV-${String(nextSeq).padStart(6, '0')}`;
-}
 
 export async function OPTIONS() {
   return corsPreflightResponse();

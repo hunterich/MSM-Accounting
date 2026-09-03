@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { nextInvoiceNumber } from '@/lib/invoice-number';
 
 export const runtime = 'nodejs';
 
@@ -13,33 +14,6 @@ type RouteContext = {
 export async function OPTIONS() {
   return corsPreflightResponse();
 }
-
-const INVOICE_PREFIX = 'INV';
-const INVOICE_DIGITS = 6;
-
-// FNV-1a 32-bit hash — significantly better distribution than the naive * 31 approach,
-// reducing advisory lock collisions across organizations.
-const hashLockKey = (input: string): number => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = (hash * 0x01000193) >>> 0;
-  }
-  return hash || 1;
-};
-
-const nextInvoiceNumber = async (tx: any, organizationId: string): Promise<string> => {
-  const lockKey = hashLockKey(`invoice-seq:${organizationId}`);
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-  const rows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-    SELECT MAX(CAST(SUBSTRING("number" FROM '^INV-(\\d+)$') AS INTEGER)) AS max_seq
-    FROM "SalesInvoice"
-    WHERE "organizationId" = ${organizationId}
-      AND "number" LIKE ${'INV-%'}
-  `;
-  const nextSeq = Number(rows[0]?.max_seq ?? 0) + 1;
-  return `${INVOICE_PREFIX}-${String(nextSeq).padStart(INVOICE_DIGITS, '0')}`;
-};
 
 export const POST = withPermission({ module: 'AR_SALES_ORDERS', action: 'create' }, async (req: NextRequest, context: RouteContext) => {
   try {

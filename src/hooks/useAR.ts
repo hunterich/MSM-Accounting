@@ -160,6 +160,19 @@ export function useNextCustomerCode(prefix: string | null) {
     });
 }
 
+/**
+ * The number the next invoice dated `issueDate` will get, per the org's
+ * numbering settings — the form's "Auto" preview. `null` = no query.
+ */
+export function useNextInvoiceNumber(issueDate: string | null) {
+    return useQuery({
+        queryKey: [...AR_KEYS.invoices, 'next-number', issueDate],
+        queryFn: () => api.get<{ number: string }>('/api/v1/invoices/next-number', { issueDate }),
+        enabled: !!issueDate,
+        staleTime: 0,
+    });
+}
+
 export function useCreateCustomer() {
     const qc = useQueryClient();
     return useMutation({
