@@ -33,6 +33,7 @@ import type {
 
 export const GL_KEYS = {
   accounts:       ['glAccounts'] as const,
+  balances:       ['glAccounts', 'balances'] as const,
   account:        (id: string) => ['glAccounts', id] as const,
   journalEntries: (filters?: Record<string, unknown>) => ['journalEntries', filters ?? {}] as const,
   journalEntry:   (id: string) => ['journalEntries', id] as const,
@@ -187,6 +188,19 @@ export function useDeleteAccount() {
   return useMutation({
     mutationFn: (id: string) => api.delete(`/api/v1/accounts/${id}`),
     onSuccess:  () => qc.invalidateQueries({ queryKey: GL_KEYS.accounts }),
+  });
+}
+
+/**
+ * Net debit balance per account over POSTED entries, for the chart's Balance
+ * column (`GET /api/v1/accounts/balances`). Headers are rolled up client-side.
+ * Always refetched on mount: a journal posted a moment ago must show.
+ */
+export function useAccountBalances() {
+  return useQuery({
+    queryKey: GL_KEYS.balances,
+    queryFn: () => api.get<{ asOfDate: string | null; balances: Record<string, number> }>('/api/v1/accounts/balances'),
+    staleTime: 0,
   });
 }
 

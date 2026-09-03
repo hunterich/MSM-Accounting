@@ -6,7 +6,7 @@ import TabContentHost from './TabContentHost';
 import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
+import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath, newDocumentTabForPath } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
     const navigate = useNavigate();
@@ -45,6 +45,23 @@ const WorkspaceShell = (): React.ReactElement => {
     useEffect(() => {
         const path = location.pathname;
         const params = new URLSearchParams(location.search);
+
+        // A link straight to a "new document" form (pasted, bookmarked, or a
+        // fresh browser tab). The per-module blocks below ignore these paths
+        // because the New button opens the tab itself and then syncs the URL —
+        // which left a direct visit on "No open tabs". Focus the draft that is
+        // already open for this form, or open the tab the button would.
+        const fresh = newDocumentTabForPath(path, params);
+        if (fresh) {
+            const ws = useWorkspaceStore.getState();
+            const freshKey = moduleKeyOf(fresh.target);
+            const existing = ws.tabs.find(
+                (t) => t.kind === 'doc-form' && moduleKeyOf(t.target) === freshKey && t.target.recordId === fresh.target.recordId,
+            );
+            if (existing) ws.openTab(existing);
+            else open({ ...fresh, unique: true });
+            return;
+        }
 
         if (path.startsWith('/ar/sales-orders')) {
             if (path.startsWith('/ar/sales-orders/new')) return;
@@ -134,7 +151,7 @@ const WorkspaceShell = (): React.ReactElement => {
 
         if (path.startsWith('/ap/vendors')) {
             const vendorId = params.get('vendorId');
-            if ((path.startsWith('/ap/vendors/new') || path.startsWith('/ap/vendors/edit')) && !vendorId) return; // new from button
+            if (path.startsWith('/ap/vendors/new') && !vendorId) return; // new from button (handled above)
             if (vendorId) {
                 const m = params.get('mode') === 'edit' ? 'edit' : 'view';
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'vendor', recordId: vendorId, mode: m }, title: vendorId, path: `/ap/vendors/${m === 'edit' ? 'edit' : 'new'}?vendorId=${vendorId}&mode=${m}` });
@@ -159,7 +176,7 @@ const WorkspaceShell = (): React.ReactElement => {
 
         if (path.startsWith('/ap/bills') && !path.startsWith('/ap/bills/import')) {
             const billId = params.get('billId');
-            if ((path.startsWith('/ap/bills/new') || path.startsWith('/ap/bills/edit')) && !billId) return; // new from button
+            if (path.startsWith('/ap/bills/new') && !billId) return; // new from button (handled above)
             if (billId) {
                 open({ kind: 'doc-form', target: { module: 'ap', entity: 'bill', recordId: billId, mode: 'edit' }, title: billId, path: `/ap/bills/new?billId=${billId}&mode=view` });
             } else {

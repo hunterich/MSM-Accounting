@@ -119,6 +119,7 @@ function App(): JSX.Element {
                     <Route path="ar/customers" element={<WorkspaceTabRoute />} />
                     <Route path="ar/payments" element={<WorkspaceTabRoute />} />
                     <Route path="ar/delivery-notes" element={<WorkspaceTabRoute />} />
+                    <Route path="ar/delivery-notes/new" element={<WorkspaceTabRoute />} />
                     <Route path="ar/credits" element={<WorkspaceTabRoute />} />
                     <Route path="ap/pos" element={<WorkspaceTabRoute />} />
                     <Route path="ap/bills" element={<WorkspaceTabRoute />} />
