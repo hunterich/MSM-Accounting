@@ -279,7 +279,7 @@ const COLUMN_SPECS: ColumnSpec[] = [
     // Required — parsing fails hard if any of these are missing.
     { internalKey: 'orderNumber',      required: true,  aliases: ['No. Pesanan', 'Nomor Pesanan', 'Order No', 'Order Number', 'Order ID'] },
     { internalKey: 'productName',      required: true,  aliases: ['Nama Produk', 'Product Name'] },
-    { internalKey: 'productTotal',     required: true,  aliases: ['Total Harga Produk', 'Total Produk', 'Product Total', 'SKU Subtotal After Discount'] },
+    { internalKey: 'productTotal',     required: true,  aliases: ['Total Harga Produk', 'Subtotal Pesanan', 'Total Produk', 'Product Total', 'SKU Subtotal After Discount'] },
 
     // Optional — missing → warning, parser still succeeds.
     { internalKey: 'orderStatus',        required: false, aliases: ['Status Pesanan', 'Order Status'] },
@@ -496,9 +496,13 @@ export async function parseShopeeExcel(
             return !(orderNum && !/\d/.test(orderNum));
         });
 
-    // Filter by status
+    // Filter by status. A reconciled "Matched Orders" sheet holds only orders
+    // Shopee has already paid out, so the order-status text (often still
+    // "Pesanan diterima, namun Pembeli masih dapat mengajukan pengembalian…")
+    // says nothing about whether the order is settled — keep every row.
+    const isReconciled = sheetName === 'Matched Orders';
     const filteredRows = mappedRows.filter((row) => {
-        if (importStatusFilter === 'All') return true;
+        if (importStatusFilter === 'All' || isReconciled) return true;
         const status = String(row.orderStatus).trim();
         if (status === importStatusFilter || status === 'Selesai') return true;
         skippedRows++;
