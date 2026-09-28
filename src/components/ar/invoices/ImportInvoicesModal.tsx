@@ -174,6 +174,21 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         return m;
     }, [skuIndex]);
 
+    /** Complete mappings, including items discovered by an SKU-index refresh.
+     *  This matters when an earlier create-all attempt persisted some items but
+     *  the modal still had a stale index: the UI and import payload must both
+     *  resolve those products to the now-existing inventory rows. */
+    const resolvedMappings = useMemo<Record<string, string>>(() => {
+        const resolved = { ...localMappings };
+        for (const p of parseResult?.uniqueProducts ?? []) {
+            if (resolved[p.key]) continue;
+            const norm = normalizeHeader(inventorySkuFor(p));
+            const existing = norm ? activeBySku.get(norm) : undefined;
+            if (existing) resolved[p.key] = existing.id;
+        }
+        return resolved;
+    }, [localMappings, parseResult, activeBySku]);
+
     /** A product's SKU for inventory lookup — same precedence as buildProductKey. */
     const productSku = (p: UniqueProduct): string => inventorySkuFor(p);
 
@@ -212,7 +227,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             const sku = productSku(p);
             const norm = normalizeHeader(sku);
             // Already mapped to an active item → not blocked.
-            if (localMappings[p.key]) continue;
+            if (resolvedMappings[p.key]) continue;
             // Active match takes precedence over inactive.
             if (norm && activeBySku.has(norm)) continue;
             if (norm && inactiveBySku.has(norm)) {
@@ -225,7 +240,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             }
         }
         return out;
-    }, [parseResult, localMappings, activeBySku, inactiveBySku, orderCountForKey]);
+    }, [parseResult, resolvedMappings, activeBySku, inactiveBySku, orderCountForKey]);
 
     const inactiveKeys = useMemo<Set<string>>(
         () => new Set(inactiveBlocked.map((b) => b.product.key)),
@@ -236,13 +251,13 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const unmatched = useMemo<UniqueProduct[]>(() => {
         if (!parseResult) return [];
         return parseResult.uniqueProducts.filter((p) => {
-            if (localMappings[p.key]) return false;
+            if (resolvedMappings[p.key]) return false;
             const norm = normalizeHeader(productSku(p));
             if (norm && activeBySku.has(norm)) return false;
             if (inactiveKeys.has(p.key)) return false;
             return true;
         });
-    }, [parseResult, localMappings, activeBySku, inactiveKeys]);
+    }, [parseResult, resolvedMappings, activeBySku, inactiveKeys]);
 
     // ── Step 1: Parse file (with platform detection) ───────────────────────────
 
@@ -328,12 +343,8 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     const mappedCount = useMemo<number>(() => {
         if (!parseResult) return 0;
-        return parseResult.uniqueProducts.filter((p) => {
-            if (localMappings[p.key]) return true;
-            const norm = normalizeHeader(productSku(p));
-            return Boolean(norm && activeBySku.has(norm));
-        }).length;
-    }, [parseResult, localMappings, activeBySku]);
+        return parseResult.uniqueProducts.filter((p) => Boolean(resolvedMappings[p.key])).length;
+    }, [parseResult, resolvedMappings]);
 
     const handleMappingChange = (productKey: string, inventoryItemId: string): void => {
         setLocalMappings((prev) => ({ ...prev, [productKey]: inventoryItemId }));
@@ -346,16 +357,33 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setCreatingItems(true);
         setCreateError('');
         const created: Record<string, string> = {};
-        const failures: string[] = [];
-        // Variations often share one parent SKU — create the item once and map
-        // every variation to it rather than failing on a duplicate SKU.
-        const createdBySku = new Map<string, string>();
+        const failures = new Map<string, string>();
+        // Include inventory rows that may have been created by an earlier,
+        // partially successful attempt. React Query can otherwise keep the
+        // modal's 30-second SKU index stale and make us POST the same SKU again.
+        const existingBySku = new Map<string, string>();
+        const indexItems = (items: Array<{ id: string; sku: string; isActive: boolean }>): void => {
+            for (const item of items) {
+                if (!item.isActive) continue;
+                const key = normalizeHeader(item.sku || '');
+                if (key && !existingBySku.has(key)) existingBySku.set(key, item.id);
+            }
+        };
+        indexItems(skuIndex?.data ?? []);
         try {
+            try {
+                const fresh = await refetchItems();
+                indexItems(fresh.data?.data ?? []);
+            } catch {
+                // Creation can still proceed; the final refresh below performs
+                // the same duplicate-recovery reconciliation.
+            }
+
             for (const p of unmatched) {
                 const sku = productSku(p);
                 const skuKey = normalizeHeader(sku);
-                if (skuKey && createdBySku.has(skuKey)) {
-                    created[p.key] = createdBySku.get(skuKey)!;
+                if (skuKey && existingBySku.has(skuKey)) {
+                    created[p.key] = existingBySku.get(skuKey)!;
                     continue;
                 }
                 const name = p.variationName
@@ -375,19 +403,43 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     });
                 } catch (itemErr) {
                     // Keep going — one bad product shouldn't block the other 150.
-                    failures.push(`${sku || p.productName}: ${(itemErr as Error).message}`);
+                    failures.set(p.key, `${sku || p.productName}: ${(itemErr as Error).message}`);
                     continue;
                 }
                 const newId = (res as { id?: string } | undefined)?.id;
                 if (newId) {
                     created[p.key] = newId;
-                    if (skuKey) createdBySku.set(skuKey, newId);
+                    if (skuKey) existingBySku.set(skuKey, newId);
+                } else {
+                    failures.set(p.key, `${sku || p.productName}: item was created without an ID`);
                 }
             }
-            if (failures.length > 0) {
+
+            // A duplicate can still win a race between the preflight refresh
+            // and POST. Refresh once more and treat that existing active item as
+            // the successful mapping instead of leaving the wizard stuck.
+            try {
+                const fresh = await refetchItems();
+                indexItems(fresh.data?.data ?? []);
+                for (const p of unmatched) {
+                    if (created[p.key]) continue;
+                    const skuKey = normalizeHeader(productSku(p));
+                    const existingId = skuKey ? existingBySku.get(skuKey) : undefined;
+                    if (existingId) {
+                        created[p.key] = existingId;
+                        failures.delete(p.key);
+                    }
+                }
+            } catch {
+                // Keep the original per-item error; the user can retry safely.
+            }
+
+            const failureMessages = Array.from(failures.values());
+            if (failureMessages.length > 0) {
                 setCreateError(
-                    `Could not create ${failures.length} item(s) — map them to an existing item instead. ` +
-                    failures.slice(0, 3).join('; ') + (failures.length > 3 ? ` (+${failures.length - 3} more)` : ''),
+                    `Could not create ${failureMessages.length} item(s) — map them to an existing item instead. ` +
+                    failureMessages.slice(0, 3).join('; ') +
+                    (failureMessages.length > 3 ? ` (+${failureMessages.length - 3} more)` : ''),
                 );
             }
         } catch (err) {
@@ -396,10 +448,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             // Preserve whatever was created before the failure — never discard
             // partial progress, otherwise a mid-batch error would orphan the
             // items already persisted server-side.
-            if (Object.keys(created).length > 0) {
-                setLocalMappings((prev) => ({ ...prev, ...created }));
-                await refetchItems();
-            }
+            if (Object.keys(created).length > 0) setLocalMappings((prev) => ({ ...prev, ...created }));
             setCreatingItems(false);
         }
     };
@@ -417,7 +466,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         // fire-and-forget. This is a convenience; a failure to save mappings
         // must never abort the actual order import below.
         void updateConnection
-            .mutateAsync({ id: shopId, itemMappings: localMappings })
+            .mutateAsync({ id: shopId, itemMappings: resolvedMappings })
             .catch((e) => console.error('Failed to persist item mappings', e));
 
         try {
@@ -435,7 +484,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     return {
                         // Falls back to '' for inactive-blocked SKUs — the server
                         // rejects the order and reports it in `failed`.
-                        itemId: localMappings[key] ?? '',
+                        itemId: resolvedMappings[key] ?? '',
                         description: item.variationName
                             ? `${item.productName} - ${item.variationName}`
                             : item.productName,
