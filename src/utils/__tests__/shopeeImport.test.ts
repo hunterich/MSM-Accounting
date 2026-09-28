@@ -410,3 +410,39 @@ describe('TikTok Shop export parsing', () => {
         expect(result.payments[0].method).toBe('COD');
     });
 });
+
+// ── Shopee reconciliation file (shopee.SHOP.FROM_TO.xlsx) ────
+
+describe('Shopee reconciliation file parsing', () => {
+    const HEADERS = [
+        'No. Pesanan', 'Status Pesanan', 'Waktu Pesanan Dibuat', 'SKU Induk', 'Nama Produk',
+        'Harga Setelah Diskon', 'Jumlah', 'Subtotal Pesanan', 'Waktu Pesanan Selesai',
+        'Amount Received (Rp)',
+    ];
+
+    function buildReconFile(rows: unknown[][]): File {
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Metric', 'Value'], ['Shop', 'CULTUSIA']]), 'Summary');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([HEADERS, ...rows]), 'Matched Orders');
+        const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+        return new File([buf], 'shopee.cultusia.20260914_20260920.xlsx');
+    }
+
+    it('reads "Subtotal Pesanan" as the line total', () => {
+        expect(resolveHeaders(HEADERS).resolvedHeaders.productTotal).toBe('Subtotal Pesanan');
+    });
+
+    it('keeps paid-out orders whatever their status text, even with the Selesai filter', async () => {
+        const file = buildReconFile([
+            ['2608125NSM5QC1', 'Sedang Dikirim', '2026-08-12 07:53', '233Q', 'Hair Color', 16000, 3, 48000, '', 36271],
+            ['2608222QCECQUN', 'Pesanan diterima, namun Pembeli masih dapat mengajukan pengembalian hingga 2026-09-21.',
+                '2026-08-22 17:30', '341B', 'Minyak Kemiri', 13634, 1, 13634, '2026-09-14 05:02', 9169],
+            ['260912ABCDEFGH', 'Selesai', '2026-09-12 10:00', '341B', 'Minyak Kemiri', 13634, 1, 13634, '2026-09-15 08:00', 9169],
+        ]);
+        const result = await parseShopeeExcel(file, 'Selesai', 'Shopee');
+        expect(result.headerReport.missingRequired).toHaveLength(0);
+        expect(result.stats.skippedRows).toBe(0);
+        expect(result.parsedOrders).toHaveLength(3);
+        expect(result.parsedOrders[0].totalProductAmount).toBe(48000);
+    });
+});
