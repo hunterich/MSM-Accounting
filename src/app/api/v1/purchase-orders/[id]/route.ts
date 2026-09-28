@@ -53,7 +53,13 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
       }
       await tx.purchaseOrder.update({
         where: { id, organizationId: orgId },
-        data: { ...header, updatedAt: new Date() },
+        data: {
+          ...header,
+          // The schema validates YYYY-MM-DD strings; Prisma's DateTime needs a Date.
+          ...(header.date && { date: new Date(header.date) }),
+          ...(header.expectedDate && { expectedDate: new Date(header.expectedDate) }),
+          updatedAt: new Date(),
+        },
       });
 
       // Auto-route the DRAFT → APPROVED finalize through the approval engine.

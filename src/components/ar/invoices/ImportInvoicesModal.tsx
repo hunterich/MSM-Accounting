@@ -18,6 +18,7 @@ import { normalizeHeader } from '../../../utils/headerUtils';
 import {
     parseShopeeExcel,
     buildProductKey,
+    inventorySkuFor,
     type ShopeeParseResult,
     type UniqueProduct,
     type HeaderResolution,
@@ -174,7 +175,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     }, [skuIndex]);
 
     /** A product's SKU for inventory lookup — same precedence as buildProductKey. */
-    const productSku = (p: UniqueProduct): string => p.parentSKU || p.skuReference || '';
+    const productSku = (p: UniqueProduct): string => inventorySkuFor(p);
 
     /** How many orders contain a line whose product key matches `key`. */
     const orderCountForKey = useCallback(
@@ -287,7 +288,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             const auto: Record<string, string> = { ...saved };
             for (const p of result.uniqueProducts) {
                 if (auto[p.key]) continue;
-                const norm = normalizeHeader(p.parentSKU || p.skuReference || '');
+                const norm = normalizeHeader(inventorySkuFor(p));
                 if (norm && activeBySku.has(norm)) {
                     auto[p.key] = activeBySku.get(norm)!.id;
                 }
@@ -345,24 +346,49 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setCreatingItems(true);
         setCreateError('');
         const created: Record<string, string> = {};
+        const failures: string[] = [];
+        // Variations often share one parent SKU — create the item once and map
+        // every variation to it rather than failing on a duplicate SKU.
+        const createdBySku = new Map<string, string>();
         try {
             for (const p of unmatched) {
                 const sku = productSku(p);
+                const skuKey = normalizeHeader(sku);
+                if (skuKey && createdBySku.has(skuKey)) {
+                    created[p.key] = createdBySku.get(skuKey)!;
+                    continue;
+                }
                 const name = p.variationName
                     ? `${p.productName} - ${p.variationName}`
                     : p.productName;
-                const res = await createItem.mutateAsync({
-                    sku,
-                    name,
-                    type: 'PRODUCT',
-                    unit: 'PCS',
-                    sellingPrice: priceByKey.get(p.key) ?? 0,
-                    costPrice: 0,
-                    openingStock: 0,
-                    isActive: true,
-                });
+                let res: unknown;
+                try {
+                    res = await createItem.mutateAsync({
+                        sku,
+                        name,
+                        type: 'PRODUCT',
+                        unit: 'PCS',
+                        sellingPrice: priceByKey.get(p.key) ?? 0,
+                        costPrice: 0,
+                        openingStock: 0,
+                        isActive: true,
+                    });
+                } catch (itemErr) {
+                    // Keep going — one bad product shouldn't block the other 150.
+                    failures.push(`${sku || p.productName}: ${(itemErr as Error).message}`);
+                    continue;
+                }
                 const newId = (res as { id?: string } | undefined)?.id;
-                if (newId) created[p.key] = newId;
+                if (newId) {
+                    created[p.key] = newId;
+                    if (skuKey) createdBySku.set(skuKey, newId);
+                }
+            }
+            if (failures.length > 0) {
+                setCreateError(
+                    `Could not create ${failures.length} item(s) — map them to an existing item instead. ` +
+                    failures.slice(0, 3).join('; ') + (failures.length > 3 ? ` (+${failures.length - 3} more)` : ''),
+                );
             }
         } catch (err) {
             setCreateError(`Failed to create items: ${(err as Error).message}`);
@@ -413,7 +439,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         description: item.variationName
                             ? `${item.productName} - ${item.variationName}`
                             : item.productName,
-                        sku: item.parentSKU || item.skuReference || '',
+                        sku: inventorySkuFor(item),
                         quantity: item.quantity,
                         // Unit price AFTER discount — matches the invoice line
                         // price used by the legacy transform.
