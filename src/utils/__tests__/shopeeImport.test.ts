@@ -446,3 +446,28 @@ describe('Shopee reconciliation file parsing', () => {
         expect(result.parsedOrders[0].totalProductAmount).toBe(48000);
     });
 });
+
+// ── inventorySkuFor ──────────────────────────────────────────
+
+import { inventorySkuFor } from '../shopeeImport';
+
+describe('inventorySkuFor', () => {
+    const noSku = { parentSKU: '', skuReference: '', productName: 'Cultusia Shampoo Warna Romantic Blue 150ml', variationName: 'Free Handuk' };
+
+    it('uses the Shopee SKU when there is one', () => {
+        expect(inventorySkuFor({ ...noSku, parentSKU: '233Q' })).toBe('233Q');
+        expect(inventorySkuFor({ ...noSku, skuReference: 'REF-9' })).toBe('REF-9');
+    });
+
+    it('derives a stable SHP- code when Shopee has no SKU', () => {
+        const sku = inventorySkuFor(noSku);
+        expect(sku).toMatch(/^SHP-[0-9A-Z]{7}$/);
+        expect(inventorySkuFor({ ...noSku })).toBe(sku);
+        // Case/spacing differences in the export don't change it.
+        expect(inventorySkuFor({ ...noSku, productName: noSku.productName.toUpperCase() })).toBe(sku);
+    });
+
+    it('gives different variations different codes', () => {
+        expect(inventorySkuFor({ ...noSku, variationName: 'Romantic Blue' })).not.toBe(inventorySkuFor(noSku));
+    });
+});

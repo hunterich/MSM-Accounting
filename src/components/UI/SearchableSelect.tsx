@@ -15,7 +15,8 @@ interface SearchableSelectProps {
     placeholder?: string;
     label?: React.ReactNode;
     onAddNew?: (term: string) => void;
-    footerAction?: { label: string; onAction: () => void };
+    /** Always-visible action under the list; receives whatever the user has typed in the search box. */
+    footerAction?: { label: string; onAction: (term: string) => void };
     disabled?: boolean;
     className?: string;
 }
@@ -123,7 +124,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder = "Select...",
                         <div className="border-t border-neutral-200">
                             <button
                                 type="button"
-                                onClick={() => { setIsOpen(false); footerAction.onAction(); }}
+                                onClick={() => { const term = searchTerm.trim(); setIsOpen(false); footerAction.onAction(term); }}
                                 className="w-full px-3 py-2 text-left text-[0.85rem] text-primary-600 font-medium flex items-center gap-1.5 hover:bg-primary-50 transition-colors"
                             >
                                 <Plus size={13} /> {footerAction.label}

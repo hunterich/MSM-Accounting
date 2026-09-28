@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, Search, Package } from 'lucide-react';
+import { Send, Search, Package, X } from 'lucide-react';
 
 import DocumentFormLayout from '../../documents/DocumentFormLayout';
 import LineItemsTable from '../../documents/LineItemsTable';
@@ -13,6 +13,7 @@ import { computeTotals } from '../../documents/computeTotals';
 import type { DocLine } from '../../documents/types';
 
 import SearchableSelect from '../../UI/SearchableSelect';
+import Button from '../../UI/Button';
 import { formatIDR } from '../../../utils/formatters';
 import {
     useVendors,
@@ -20,9 +21,12 @@ import {
     usePurchaseOrder,
     useCreatePurchaseOrder,
     useUpdatePurchaseOrder,
+    useCreateVendor,
 } from '../../../hooks/useAP';
 import { useItems } from '../../../hooks/useInventory';
-import { useAccountsByType } from '../../../hooks/useGL';
+import { useAccountsByType, useChartOfAccounts } from '../../../hooks/useGL';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { resolveAccountDefaults } from '../../../../lib/account-defaults';
 
 /**
  * POFormV2 — Purchase Order on the shared document-form system.
@@ -42,6 +46,15 @@ type Rec = { id: string } & Record<string, unknown>;
 const str = (v: unknown): string => String(v ?? '').trim();
 const firstStr = (...vals: unknown[]): string => vals.map(str).find(Boolean) || '';
 const num = (v: unknown): number => Number(v ?? 0) || 0;
+
+/** Next free VND-#### code, matching the Vendors form's numbering. */
+const nextVendorCode = (vendors: Rec[]): string => {
+    const max = vendors.reduce((m, v) => {
+        const match = str(v.code).match(/^VND-(\d+)$/);
+        return match ? Math.max(m, Number(match[1])) : m;
+    }, 0);
+    return `VND-${String(max + 1).padStart(4, '0')}`;
+};
 
 const OPEN_BILL_STATUSES = new Set(['unpaid', 'overdue', 'pending', 'partial']);
 
@@ -81,6 +94,10 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
 
     // ── Header ──────────────────────────────────────────────────────────────
     const [vendorId, setVendorId] = useState('');
+    // "Auto" lets the server allocate PO-####; "Manual" sends the typed number
+    // (a duplicate comes back as a 409 and is shown in the save alert).
+    const [numberingMode, setNumberingMode] = useState<'auto' | 'manual'>('auto');
+    const [manualNumber, setManualNumber] = useState('');
     const [orderDate, setOrderDate] = useState(todayString());
     const [expectedDate, setExpectedDate] = useState('');
     const [reference, setReference] = useState('');
@@ -201,11 +218,59 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
         [vendors],
     );
 
+    // ── Inline quick-create vendor ──────────────────────────────────────────
+    const createVendor = useCreateVendor();
+    const { data: chartOfAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
+    const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
+    const fallbackApAccountId = useMemo(() => {
+        const resolved = resolveAccountDefaults(chartOfAccounts, accountDefaultsConfig).apControl;
+        if (resolved) return resolved;
+        const liability = chartOfAccounts.find(
+            (a) => a.isActive && a.isPostable && String(a.type).toLowerCase() === 'liability',
+        );
+        return liability?.id || '';
+    }, [chartOfAccounts, accountDefaultsConfig]);
+    const [showNewVendor, setShowNewVendor] = useState(false);
+    const [newVendorName, setNewVendorName] = useState('');
+    const [newVendorError, setNewVendorError] = useState('');
+
+    const openNewVendor = (term: string) => {
+        setNewVendorName(term);
+        setNewVendorError('');
+        setShowNewVendor(true);
+    };
+    const closeNewVendor = () => { setShowNewVendor(false); setNewVendorName(''); setNewVendorError(''); };
+
+    const handleQuickCreateVendor = async () => {
+        const name = newVendorName.trim();
+        if (!name) { setNewVendorError('Name is required.'); return; }
+        if (accountsLoading) return;
+        if (!fallbackApAccountId) {
+            setNewVendorError('No Accounts Payable account found. Set one in Settings → Account defaults, or add the vendor from the Vendors page.');
+            return;
+        }
+        try {
+            const created = await createVendor.mutateAsync({
+                code: nextVendorCode(vendors),
+                name,
+                status: 'Active',
+                defaultApAccountId: fallbackApAccountId,
+            } as Parameters<typeof createVendor.mutateAsync>[0]) as { id: string };
+            setVendorId(created.id);
+            closeNewVendor();
+        } catch (e) {
+            setNewVendorError(e instanceof Error ? e.message : 'Failed to create vendor.');
+        }
+    };
+
     const dirty = doc.dirty || !!vendorId || !!expectedDate || !!notes;
 
     // ── Save ────────────────────────────────────────────────────────────────
     const validate = (): boolean => {
         if (!vendorId) { setActiveTab('items'); window.alert('Select a vendor first.'); return false; }
+        if (!isEdit && numberingMode === 'manual' && !manualNumber.trim()) {
+            window.alert('Enter a PO number, or switch PO Number back to Auto.'); return false;
+        }
         if (doc.lines.filter((l) => l.description.trim()).length === 0) {
             setActiveTab('items'); window.alert('Add at least one line item.'); return false;
         }
@@ -214,8 +279,10 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
 
     const buildPayload = (status: 'Draft' | 'Approved') => ({
         vendorId,
+        ...(!isEdit && numberingMode === 'manual' && manualNumber.trim() && { number: manualNumber.trim() }),
         date: orderDate,
-        expectedDate,
+        // Blank "Expected" is optional — omit it rather than send '' (the API rejects a non-date string).
+        ...(expectedDate && { expectedDate }),
         status,
         taxRate: tax.on ? tax.rate : 0,
         taxable: tax.on,
@@ -321,16 +388,71 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
                             label={<>Vendor <span className="text-danger-500">*</span></>}
                             options={vendorOptions}
                             value={vendorId}
-                            onChange={setVendorId}
+                            onChange={(val) => { setVendorId(val); closeNewVendor(); }}
+                            onAddNew={openNewVendor}
+                            footerAction={{ label: 'Add new vendor', onAction: openNewVendor }}
                             placeholder="Search & select vendor…"
                         />
+                        {showNewVendor && (
+                            <div className="rounded-lg border border-primary-200 bg-primary-50 p-3 -mt-2">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">New vendor</span>
+                                    <button type="button" onClick={closeNewVendor} className="text-neutral-400 hover:text-neutral-600"><X size={14} /></button>
+                                </div>
+                                <input
+                                    placeholder="Vendor name *"
+                                    value={newVendorName}
+                                    autoFocus
+                                    onChange={(e) => { setNewVendorName(e.target.value); setNewVendorError(''); }}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleQuickCreateVendor(); } }}
+                                    className={`${ctl} mb-2`}
+                                />
+                                {newVendorError && <div className="text-xs text-danger-600 mb-2">{newVendorError}</div>}
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] text-neutral-500">Fill in email, NPWP and terms later on the Vendors page.</span>
+                                    <Button
+                                        text={createVendor.isPending ? 'Creating…' : 'Create & select'}
+                                        variant="primary"
+                                        size="small"
+                                        disabled={createVendor.isPending || accountsLoading}
+                                        onClick={handleQuickCreateVendor}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <div className="col-span-3">
                         <label className={lbl}>PO Number</label>
-                        <div className={`${ctl} flex items-center justify-between font-mono text-neutral-500`}>
-                            {isEdit ? firstStr(editingPO?.number, poId) : 'Auto'}
-                            {!isEdit && <span className="text-[10px] text-neutral-400 font-sans">on save</span>}
-                        </div>
+                        {isEdit ? (
+                            <div className={`${ctl} flex items-center font-mono text-neutral-500`}>
+                                {firstStr(editingPO?.number, poId)}
+                            </div>
+                        ) : (
+                            <div className="flex gap-1">
+                                <select
+                                    aria-label="PO numbering"
+                                    className={`${ctl} w-[84px] shrink-0 px-1.5`}
+                                    value={numberingMode}
+                                    onChange={(e) => setNumberingMode(e.target.value as 'auto' | 'manual')}
+                                >
+                                    <option value="auto">Auto</option>
+                                    <option value="manual">Manual</option>
+                                </select>
+                                {numberingMode === 'auto' ? (
+                                    <div className={`${ctl} flex items-center justify-end font-sans text-[11px] text-neutral-400 bg-neutral-50`}>
+                                        assigned on save
+                                    </div>
+                                ) : (
+                                    <input
+                                        className={`${ctl} font-mono`}
+                                        value={manualNumber}
+                                        onChange={(e) => setManualNumber(e.target.value)}
+                                        placeholder="e.g. PO-TC-0001"
+                                        autoFocus
+                                    />
+                                )}
+                            </div>
+                        )}
                     </div>
                     <div className="col-span-2">
                         <label className={lbl}>Order date <span className="text-danger-500">*</span></label>

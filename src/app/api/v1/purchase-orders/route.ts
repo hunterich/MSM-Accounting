@@ -60,16 +60,29 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
   if (!parsed.success) {
     throw new ApiError(parsed.error.issues[0]?.message || 'Invalid purchase order payload', 400);
   }
-  const { lines, charges, ...header } = parsed.data;
+  const { lines, charges, number: manualNumber, ...header } = parsed.data;
 
   const po = await prisma.$transaction(async (tx) => {
     await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
     // Allocate the number INSIDE the transaction with `tx` so its advisory lock
     // stays held until the insert commits (calling it on the base `prisma`
     // client releases the lock before the insert → spurious 409s under load).
-    const number = await nextNumber(tx, 'PurchaseOrder', 'number', 'PO');
+    // "Manual" on the form sends the typed number; a duplicate fails the
+    // (organizationId, number) unique constraint → 409.
+    if (manualNumber) {
+      const taken = await tx.purchaseOrder.findFirst({ where: { organizationId: orgId, number: manualNumber }, select: { id: true } });
+      if (taken) throw new ApiError(`PO number ${manualNumber} is already used`, 409);
+    }
+    const number = manualNumber || await nextNumber(tx, 'PurchaseOrder', 'number', 'PO');
     const created = await tx.purchaseOrder.create({
-      data: { ...header, organizationId: orgId, number },
+      data: {
+        ...header,
+        // The schema validates YYYY-MM-DD strings; Prisma's DateTime needs a Date.
+        date: new Date(header.date),
+        expectedDate: header.expectedDate ? new Date(header.expectedDate) : null,
+        organizationId: orgId,
+        number,
+      },
     });
     if (lines && lines.length > 0) {
       await tx.purchaseOrderLine.createMany({

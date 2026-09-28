@@ -521,6 +521,8 @@ export const finalizeBillImportInputSchema = z.object({
 export const purchaseOrderInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   vendorId: z.string().trim().min(1, 'Vendor is required'),
+  // Optional manual PO number; blank/omitted → server allocates PO-####.
+  number: z.string().trim().max(50, 'PO number is too long').optional(),
   date: isoDateString,
   expectedDate: isoDateString.optional(),
   status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).default('DRAFT'),

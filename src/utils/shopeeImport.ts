@@ -410,6 +410,27 @@ export function buildProductKey(item: Pick<ShopeeLineItem, 'parentSKU' | 'skuRef
     return `${name}${variation ? ` - ${variation}` : ''}`;
 }
 
+/**
+ * The SKU to use for a marketplace product in inventory. Shopee leaves both SKU
+ * columns blank on some listings (bundles, free-gift variations…), but an
+ * inventory item needs one — so derive a stable `SHP-XXXXXXX` code from the
+ * product + variation name. The same listing always gets the same code, so it
+ * auto-matches the item it created on the next import.
+ */
+export function inventorySkuFor(item: Pick<ShopeeLineItem, 'parentSKU' | 'skuReference' | 'productName' | 'variationName'>): string {
+    const sku = String(item.parentSKU || item.skuReference || '').trim();
+    if (sku) return sku;
+    const basis = normalizeHeader(`${item.productName || ''}|${item.variationName || ''}`);
+    if (!basis) return '';
+    // FNV-1a 32-bit — tiny, deterministic, no dependency.
+    let h = 0x811c9dc5;
+    for (let i = 0; i < basis.length; i++) {
+        h ^= basis.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return `SHP-${h.toString(36).toUpperCase().padStart(7, '0')}`;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
