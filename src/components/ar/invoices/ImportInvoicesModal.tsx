@@ -5,7 +5,7 @@ import Button from '../../UI/Button';
 import Table from '../../UI/Table';
 import SearchableSelect from '../../UI/SearchableSelect';
 import StatusTag from '../../UI/StatusTag';
-import { Upload, CheckCircle, AlertTriangle, ArrowLeft, ArrowRight, Loader, PackageX, XCircle } from 'lucide-react';
+import { Upload, CheckCircle, AlertTriangle, ArrowLeft, ArrowRight, Loader, PackageX, XCircle, Search } from 'lucide-react';
 import {
     useEcommerceConnections,
     useUpdateEcommerceConnection,
@@ -243,6 +243,24 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             return true;
         });
     }, [parseResult, localMappings, activeBySku, inactiveKeys]);
+
+    // Mapping-table filter + per-product order counts (computed once, not per row).
+    const [mappingFilter, setMappingFilter] = useState('');
+    const orderCountByKey = useMemo<Map<string, number>>(() => {
+        const m = new Map<string, number>();
+        for (const order of parseResult?.parsedOrders ?? []) {
+            for (const key of new Set(order.items.map((it) => buildProductKey(it)))) {
+                m.set(key, (m.get(key) ?? 0) + 1);
+            }
+        }
+        return m;
+    }, [parseResult]);
+    const visibleUnmatched = useMemo<UniqueProduct[]>(() => {
+        const q = mappingFilter.trim().toLowerCase();
+        if (!q) return unmatched;
+        return unmatched.filter((p) =>
+            `${productSku(p)} ${p.productName} ${p.variationName}`.toLowerCase().includes(q));
+    }, [unmatched, mappingFilter]);
 
     // ── Step 1: Parse file (with platform detection) ───────────────────────────
 
@@ -646,24 +664,54 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                             disabled={creatingItems}
                         />
                     </div>
-                    <div className="max-h-40 overflow-y-auto">
-                        <ul className="space-y-1 text-xs">
-                            {unmatched.map((p) => (
-                                <li key={p.key} className="grid grid-cols-2 gap-2 items-center py-1 border-b border-amber-100 last:border-0">
-                                    <div className="truncate" title={p.key}>
-                                        {productSku(p) && <span className="font-mono text-amber-700">[{productSku(p)}]</span>} {p.productName}
-                                        {p.variationName ? ` - ${p.variationName}` : ''}
-                                    </div>
-                                    {/* Manual fallback: map to an existing item instead of creating. */}
-                                    <SearchableSelect
-                                        options={itemOptions}
-                                        value={localMappings[p.key] || ''}
-                                        onChange={(val: string) => handleMappingChange(p.key, val)}
-                                        placeholder="…or map to existing"
-                                    />
-                                </li>
-                            ))}
-                        </ul>
+                    {unmatched.length > 8 && (
+                        <div className="relative mb-2">
+                            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                            <input
+                                value={mappingFilter}
+                                onChange={(e) => setMappingFilter(e.target.value)}
+                                placeholder={`Filter ${unmatched.length} products by name or SKU…`}
+                                className="w-full h-9 pl-8 pr-3 rounded-md border border-amber-200 bg-white text-sm focus:border-primary-500 focus:outline-none"
+                            />
+                        </div>
+                    )}
+                    <div className="max-h-[max(220px,calc(90vh-400px))] overflow-y-auto rounded border border-amber-100 bg-white">
+                        <table className="w-full table-fixed text-sm">
+                            <thead className="sticky top-0 z-[1] bg-amber-100/90 text-left text-xs font-semibold text-amber-900">
+                                <tr>
+                                    <th className="py-2 px-3 w-[130px]">SKU</th>
+                                    <th className="py-2 px-3">Product</th>
+                                    <th className="py-2 px-3 w-[70px] text-right">Orders</th>
+                                    <th className="py-2 px-3 w-[38%]">Map to existing item (optional)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {visibleUnmatched.map((p) => (
+                                    <tr key={p.key} className="border-t border-amber-100 align-middle hover:bg-amber-50/60">
+                                        <td className="py-1.5 px-3 font-mono text-xs text-amber-700 whitespace-nowrap">{productSku(p) || '—'}</td>
+                                        <td className="py-1.5 px-3 text-neutral-800" title={p.key}>
+                                            {p.productName}
+                                            {p.variationName && <span className="text-neutral-500"> · {p.variationName}</span>}
+                                        </td>
+                                        <td className="py-1.5 px-3 text-right tabular-nums text-neutral-600">{orderCountByKey.get(p.key) ?? 0}</td>
+                                        <td className="py-1.5 px-3">
+                                            {/* Manual fallback: map to an existing item instead of creating. */}
+                                            <SearchableSelect
+                                                portal
+                                                className="!mb-0"
+                                                options={itemOptions}
+                                                value={localMappings[p.key] || ''}
+                                                onChange={(val: string) => handleMappingChange(p.key, val)}
+                                                placeholder="Create as new item"
+                                            />
+                                        </td>
+                                    </tr>
+                                ))}
+                                {visibleUnmatched.length === 0 && (
+                                    <tr><td colSpan={4} className="py-4 text-center text-sm text-neutral-500 italic">No products match &ldquo;{mappingFilter}&rdquo;</td></tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                     {createError && (
                         <div className="mt-2 text-xs text-red-700">{createError}</div>
@@ -875,7 +923,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             title={`Import ${platformName} Invoices — ${stepTitles[step] || ''}`}
             isOpen={isOpen}
             onClose={step === 'importing' ? () => { /* blocked during import */ } : handleClose}
-            size="lg"
+            size="xl"
         >
             {/* Step indicators */}
             <div className="flex gap-1 mb-4">
