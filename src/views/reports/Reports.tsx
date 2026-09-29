@@ -28,6 +28,7 @@ export type ReportType =
   | 'by-item'
   | 'by-item-customer'
   | 'history'
+  | 'sales-return-list'
   | 'monthly-chart'
   | 'share-by-customer'
   | 'aging'
@@ -143,6 +144,16 @@ export interface SalesHistoryRow {
   number: string;
   issueDate: string;
   customerName: string;
+  status: string;
+  totalAmount: number;
+}
+
+export interface SalesReturnListRow {
+  id: string;
+  number: string;
+  returnDate: string;
+  customerName: string;
+  invoiceNumber: string;
   status: string;
   totalAmount: number;
 }
@@ -692,6 +703,15 @@ const SALES_REPORTS: ReportDefinition[] = [
     filterMode: 'date-range',
   },
   {
+    id: 'sales-return-list',
+    category: 'sales',
+    apiPath: '/api/v1/reports/sales',
+    name: 'Sales Return List',
+    description: 'Lists sales returns with the original invoice and status',
+    type: 'table',
+    filterMode: 'date-range',
+  },
+  {
     id: 'monthly-chart',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
@@ -1050,6 +1070,21 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
       escapeCsvCell(row.status),
       row.totalAmount,
     ].join(',')).join('\n');
+    return csv;
+  }
+
+  if (report.id === 'sales-return-list') {
+    const rows = data.rows as SalesReturnListRow[];
+    let csv = 'No Retur,Tanggal,Pelanggan,No Faktur Asal,Status,Total\n';
+    csv += rows.map((row) => [
+      escapeCsvCell(row.number),
+      escapeCsvCell(row.returnDate),
+      escapeCsvCell(row.customerName),
+      escapeCsvCell(row.invoiceNumber),
+      escapeCsvCell(row.status),
+      row.totalAmount,
+    ].join(',')).join('\n');
+    csv += `\nTotal,,,,,${data.grandTotal as number}`;
     return csv;
   }
 
@@ -1577,6 +1612,7 @@ const Reports: React.FC<ReportsProps> = ({
         if (filterCustomer) params.customerSearch = filterCustomer;
         if (filterItem) params.itemSearch = filterItem;
       }
+      if (report.id === 'sales-return-list' && filterCustomer) params.customerSearch = filterCustomer;
       return params;
     }
 
@@ -2292,6 +2328,49 @@ const Reports: React.FC<ReportsProps> = ({
           <tfoot>
             <tr className="bg-blue-50 font-bold">
               <td colSpan={4} className="p-3 border border-neutral-300">Total ({rows.rows.length} faktur)</td>
+              <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.grandTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      );
+    }
+
+    if (report.id === 'sales-return-list') {
+      const rows = (data as { rows: SalesReturnListRow[]; grandTotal: number });
+      if (rows.rows.length === 0) {
+        return <div className="py-10 text-center text-sm text-neutral-500">Tidak ada retur penjualan pada periode ini.</div>;
+      }
+      return (
+        <table className="w-full border-collapse text-sm tabular-nums">
+          <thead>
+            <tr className="bg-blue-50">
+              <th className="p-3 text-left font-semibold border border-neutral-300">No Retur</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300 w-[120px]">Tanggal</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300">Faktur Asal</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300 w-[150px]">Status</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[160px]">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.rows.map((row) => (
+              <tr key={row.id} className="hover:bg-neutral-50">
+                <td className="p-3 border border-neutral-200 font-mono text-xs break-all">{row.number}</td>
+                <td className="p-3 border border-neutral-200">{formatDateID(row.returnDate)}</td>
+                <td className="p-3 border border-neutral-200">{row.customerName}</td>
+                <td className="p-3 border border-neutral-200 font-mono text-xs break-all">{row.invoiceNumber || '—'}</td>
+                <td className="p-3 border border-neutral-200">
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-neutral-100 text-neutral-600">
+                    {row.status.replace(/_/g, ' ')}
+                  </span>
+                </td>
+                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.totalAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-blue-50 font-bold">
+              <td colSpan={5} className="p-3 border border-neutral-300">Total ({rows.rows.length.toLocaleString('id-ID')} retur)</td>
               <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.grandTotal)}</td>
             </tr>
           </tfoot>
@@ -3977,6 +4056,24 @@ const Reports: React.FC<ReportsProps> = ({
                     </span>
                   </label>
                 </div>
+              </div>
+            )}
+
+            {paramModal.id === 'sales-return-list' && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Pelanggan</div>
+                <SearchableSelect
+                  label="Pelanggan (Opsional)"
+                  options={customerOptions}
+                  value={selectedCustomerId}
+                  onChange={(customerId) => {
+                    setSelectedCustomerId(customerId);
+                    const customer = customers.find((entry) => entry.id === customerId);
+                    setFilterCustomer(customer?.name || '');
+                  }}
+                  placeholder="Semua pelanggan"
+                  className="mb-0"
+                />
               </div>
             )}
 

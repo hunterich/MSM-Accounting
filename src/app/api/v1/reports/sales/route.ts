@@ -182,6 +182,43 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
+  /* ── Sales Return List ── */
+  if (type === 'return-list') {
+    // Same "live only" convention as invoices: DRAFT and VOID returns are not real yet / cancelled.
+    const returnWhere: any = {
+      organizationId: orgId,
+      status: { in: ['APPROVED', 'PENDING_CREDIT_NOTE', 'APPLIED'] },
+    };
+    if (dateFrom) returnWhere.returnDate = { ...returnWhere.returnDate, gte: new Date(dateFrom) };
+    if (dateTo) {
+      const end = new Date(dateTo); end.setHours(23, 59, 59, 999);
+      returnWhere.returnDate = { ...returnWhere.returnDate, lte: end };
+    }
+    if (customerSearch) {
+      returnWhere.customer = { name: { contains: customerSearch, mode: 'insensitive' } };
+    }
+    const returns = await prisma.salesReturn.findMany({
+      where: returnWhere,
+      include: {
+        customer: { select: { name: true } },
+        invoice:  { select: { number: true } },
+      },
+      orderBy: [{ returnDate: 'asc' }, { number: 'asc' }],
+      take: ROW_CAP + 1,
+    });
+    if (returns.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
+    const rows = returns.map(r => ({
+      id:            r.id,
+      number:        r.number,
+      returnDate:    r.returnDate,
+      customerName:  r.customer?.name || 'Unknown',
+      invoiceNumber: r.invoice?.number || '',
+      status:        r.status,
+      totalAmount:   Number(r.totalAmount || 0),
+    }));
+    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.totalAmount, 0) });
+  }
+
   /* ── Sales History ── */
   if (type === 'history') {
     const invoices = await prisma.salesInvoice.findMany({
