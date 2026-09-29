@@ -173,6 +173,7 @@ export interface SalesMonthlyRow {
 export interface SalesShareRow {
   customerName: string;
   total: number;
+  isOthers?: boolean;
 }
 
 export interface AgingRow {
@@ -732,7 +733,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Sales Share by Customer',
-    description: 'Customer share of total sales',
+    description: 'Pie chart of top customers by sales, the rest grouped as Others',
     type: 'chart',
     filterMode: 'date-range',
   },
@@ -741,7 +742,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Portion of Sales per Item',
-    description: 'Pie chart of the top 5 items by sales, the rest grouped as Others',
+    description: 'Pie chart of top-selling items, the rest grouped as Others',
     type: 'chart',
     filterMode: 'date-range',
   },
@@ -1393,6 +1394,70 @@ export interface ReportsProps {
   onParamsChange?: (params: ReportParams) => void;
 }
 
+// Pie + legend used by the "Portion of Sales" reports (per item, per customer).
+const SHARE_PALETTE = ['#3b6bd6', '#d2451e', '#f59e0b', '#16a34a', '#9333ea', '#0ea5c6', '#db2777', '#65a30d'];
+
+const ShareBreakdown: React.FC<{
+  rows: { label: string; total: number; isOthers?: boolean }[];
+  grandTotal: number;
+}> = ({ rows: inputRows, grandTotal }) => {
+  const rows = inputRows.filter((r) => r.total > 0);
+  if (rows.length === 0 || grandTotal <= 0) {
+    return <div className="py-10 text-center text-sm text-neutral-500">Tidak ada penjualan pada periode ini.</div>;
+  }
+  let palIdx = 0;
+  const slices = rows.map((r) => ({
+    ...r,
+    color: r.isOthers ? '#94a3b8' : SHARE_PALETTE[palIdx++ % SHARE_PALETTE.length],
+    pct: (r.total / grandTotal) * 100,
+  }));
+  const R = 110;
+  let angle = -Math.PI / 2;
+  const paths = slices.map((sl) => {
+    const sweep = (sl.total / grandTotal) * Math.PI * 2;
+    const a0 = angle;
+    angle += sweep;
+    if (slices.length === 1) return { ...sl, d: '' };
+    const large = sweep > Math.PI ? 1 : 0;
+    const x0 = R * Math.cos(a0), y0 = R * Math.sin(a0);
+    const x1 = R * Math.cos(a0 + sweep), y1 = R * Math.sin(a0 + sweep);
+    return { ...sl, d: `M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${R} ${R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z` };
+  });
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-10 py-4">
+      <svg viewBox={`${-R - 4} ${-R - 4} ${R * 2 + 8} ${R * 2 + 8}`} className="w-[260px] h-[260px] shrink-0" role="img" aria-label="Diagram porsi penjualan">
+        {paths.map((sl) => (
+          sl.d
+            ? <path key={sl.label} d={sl.d} fill={sl.color} stroke="#fff" strokeWidth={1.5}><title>{`${sl.label}: ${formatIDR(sl.total)} (${sl.pct.toFixed(1)}%)`}</title></path>
+            : <circle key={sl.label} r={R} fill={sl.color} />
+        ))}
+      </svg>
+      <div className="flex-1 min-w-[300px] max-w-[560px]">
+        <table className="w-full text-sm tabular-nums">
+          <tbody>
+            {slices.map((sl) => (
+              <tr key={sl.label} className="border-b border-neutral-200">
+                <td className="py-2 pr-2 w-4"><span className="block w-3 h-3 rounded-full print:[print-color-adjust:exact]" style={{ background: sl.color }} /></td>
+                <td className="py-2 pr-3">{sl.label}</td>
+                <td className="py-2 pr-3 text-right whitespace-nowrap">{formatIDR(sl.total)}</td>
+                <td className="py-2 text-right w-16 text-neutral-600">{sl.pct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-bold">
+              <td />
+              <td className="py-2">Total</td>
+              <td className="py-2 text-right whitespace-nowrap">{formatIDR(grandTotal)}</td>
+              <td className="py-2 text-right">100%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 const Reports: React.FC<ReportsProps> = ({
   variant = 'legacy',
   onRunReport,
@@ -1456,6 +1521,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [filterItem, setFilterItem] = useState<string>('');
   const [selectedItemId, setSelectedItemId] = useState<string>('');
   const [topNItem, setTopNItem] = useState<boolean>(false);
+  const [shareTopN, setShareTopN] = useState<number>(5);
   const [itemSortBy, setItemSortBy] = useState<'total' | 'qty'>('total');
   const [overdueStatus, setOverdueStatus] = useState<string>('');
   const [valuationCategoryId, setValuationCategoryId] = useState<string>('');
@@ -1581,6 +1647,7 @@ const Reports: React.FC<ReportsProps> = ({
     syncItemFilter(params.itemSearch || '');
     setTopNCustomer(Boolean(params.topN) && report.id === 'by-customer');
     setTopNItem(Boolean(params.topN) && report.id === 'by-item');
+    setShareTopN(params.topN && (report.id === 'share-by-item' || report.id === 'share-by-customer') ? params.topN : 5);
     setItemSortBy(params.sortBy === 'qty' ? 'qty' : 'total');
     setOverdueStatus(params.status || '');
     setValuationCategoryId(params.categoryId || '');
@@ -1607,6 +1674,7 @@ const Reports: React.FC<ReportsProps> = ({
     setFilterItem('');
     setSelectedItemId('');
     setTopNItem(false);
+    setShareTopN(5);
     setItemSortBy('total');
     setOverdueStatus('');
     setValuationCategoryId('');
@@ -1641,6 +1709,7 @@ const Reports: React.FC<ReportsProps> = ({
         if (filterCustomer) params.customerSearch = filterCustomer;
         if (filterItem) params.itemSearch = filterItem;
       }
+      if (report.id === 'share-by-item' || report.id === 'share-by-customer') params.topN = shareTopN;
       if (report.id === 'sales-return-list' && filterCustomer) params.customerSearch = filterCustomer;
       return params;
     }
@@ -2505,93 +2574,13 @@ const Reports: React.FC<ReportsProps> = ({
     }
 
     if (report.id === 'share-by-item') {
-      const shareData = data as { rows: SalesShareItemRow[]; grandTotal: number };
-      const rows = shareData.rows.filter((r) => r.total > 0);
-      if (rows.length === 0 || shareData.grandTotal <= 0) {
-        return <div className="py-10 text-center text-sm text-neutral-500">Tidak ada penjualan pada periode ini.</div>;
-      }
-      const palette = ['#3b6bd6', '#d2451e', '#f59e0b', '#16a34a', '#9333ea', '#0ea5c6', '#db2777', '#65a30d'];
-      const slices = rows.map((r, i) => ({
-        ...r,
-        color: r.isOthers ? '#94a3b8' : palette[i % palette.length],
-        pct: (r.total / shareData.grandTotal) * 100,
-      }));
-      const R = 110;
-      let angle = -Math.PI / 2;
-      const paths = slices.map((sl) => {
-        const sweep = (sl.total / shareData.grandTotal) * Math.PI * 2;
-        const a0 = angle;
-        angle += sweep;
-        if (slices.length === 1) return { ...sl, d: '' };
-        const large = sweep > Math.PI ? 1 : 0;
-        const x0 = R * Math.cos(a0), y0 = R * Math.sin(a0);
-        const x1 = R * Math.cos(a0 + sweep), y1 = R * Math.sin(a0 + sweep);
-        return { ...sl, d: `M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${R} ${R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z` };
-      });
-      return (
-        <div className="flex flex-wrap items-center justify-center gap-10 py-4">
-          <svg viewBox={`${-R - 4} ${-R - 4} ${R * 2 + 8} ${R * 2 + 8}`} className="w-[260px] h-[260px] shrink-0" role="img" aria-label="Diagram porsi penjualan per barang">
-            {paths.map((sl) => (
-              sl.d
-                ? <path key={sl.description} d={sl.d} fill={sl.color} stroke="#fff" strokeWidth={1.5}><title>{`${sl.description}: ${formatIDR(sl.total)} (${sl.pct.toFixed(1)}%)`}</title></path>
-                : <circle key={sl.description} r={R} fill={sl.color} />
-            ))}
-          </svg>
-          <div className="flex-1 min-w-[300px] max-w-[560px]">
-            <table className="w-full text-sm tabular-nums">
-              <tbody>
-                {slices.map((sl) => (
-                  <tr key={sl.description} className="border-b border-neutral-200">
-                    <td className="py-2 pr-2 w-4"><span className="block w-3 h-3 rounded-full print:[print-color-adjust:exact]" style={{ background: sl.color }} /></td>
-                    <td className="py-2 pr-3">{sl.description}</td>
-                    <td className="py-2 pr-3 text-right whitespace-nowrap">{formatIDR(sl.total)}</td>
-                    <td className="py-2 text-right w-16 text-neutral-600">{sl.pct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="font-bold">
-                  <td />
-                  <td className="py-2">Total</td>
-                  <td className="py-2 text-right whitespace-nowrap">{formatIDR(shareData.grandTotal)}</td>
-                  <td className="py-2 text-right">100%</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      );
+      const d = data as { rows: SalesShareItemRow[]; grandTotal: number };
+      return <ShareBreakdown rows={d.rows.map((r) => ({ label: r.description, total: r.total, isOthers: r.isOthers }))} grandTotal={d.grandTotal} />;
     }
 
     if (report.id === 'share-by-customer') {
-      const shareData = data as { rows: SalesShareRow[]; grandTotal: number };
-      const colors = ['bg-primary-500', 'bg-success-500', 'bg-warning-500', 'bg-purple-500', 'bg-pink-500', 'bg-cyan-500'];
-
-      return (
-        <div className="space-y-3">
-          {shareData.rows.map((row, i) => {
-            const share = shareData.grandTotal > 0 ? (row.total / shareData.grandTotal) * 100 : 0;
-            const color = colors[i % colors.length];
-
-            return (
-              <div key={i} className="flex items-center gap-3">
-                <div className="w-[180px] text-sm text-neutral-700 truncate" title={row.customerName}>
-                  {row.customerName}
-                </div>
-                <div className="flex-1 bg-neutral-100 rounded-full h-5 overflow-hidden">
-                  <div className={`${color} h-full rounded-full transition-all`} style={{ width: `${share}%` }} />
-                </div>
-                <div className="w-[100px] text-right text-sm font-medium">{share.toFixed(1)}%</div>
-                <div className="w-[140px] text-right text-sm text-neutral-600">{formatIDR(row.total)}</div>
-              </div>
-            );
-          })}
-          <div className="mt-4 pt-3 border-t border-neutral-200 flex justify-between font-bold">
-            <span className="text-sm">Total</span>
-            <span className="text-primary-700">{formatIDR(shareData.grandTotal)}</span>
-          </div>
-        </div>
-      );
+      const d = data as { rows: SalesShareRow[]; grandTotal: number };
+      return <ShareBreakdown rows={d.rows.map((r) => ({ label: r.customerName, total: r.total, isOthers: r.isOthers }))} grandTotal={d.grandTotal} />;
     }
 
     if (report.id === 'aging') {
@@ -4204,6 +4193,24 @@ const Reports: React.FC<ReportsProps> = ({
                     </span>
                   </label>
                 </div>
+              </div>
+            )}
+
+            {(paramModal.id === 'share-by-item' || paramModal.id === 'share-by-customer') && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Tampilan Diagram</div>
+                <label className="block text-sm text-neutral-600 mb-1">
+                  {paramModal.id === 'share-by-item' ? 'Jumlah barang teratas' : 'Jumlah pelanggan teratas'}
+                </label>
+                <select
+                  value={shareTopN}
+                  onChange={(e) => setShareTopN(Number(e.target.value))}
+                  className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                >
+                  {[5, 10, 15, 20].map((n) => (
+                    <option key={n} value={n}>Top {n} (sisanya digabung sebagai Others)</option>
+                  ))}
+                </select>
               </div>
             )}
 

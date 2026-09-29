@@ -273,8 +273,14 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       if (!map.has(key)) map.set(key, { customerName: name, total: 0 });
       map.get(key).total += Number(inv.totalAmount || 0);
     }
-    const rows = Array.from(map.values()).sort((a, b) => b.total - a.total);
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+    const sorted = Array.from(map.values())
+      .map((r: { customerName: string; total: number }) => ({ ...r, isOthers: false }))
+      .sort((a, b) => b.total - a.total);
+    const keep = topN && topN > 0 ? topN : 5;
+    const rows = sorted.slice(0, keep);
+    const othersTotal = sorted.slice(keep).reduce((s, r) => s + r.total, 0);
+    if (othersTotal !== 0) rows.push({ customerName: 'Others', total: othersTotal, isOthers: true });
+    return ok({ type, rows, grandTotal: sorted.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Portion of Sales per Item (top N + Others) ── */
