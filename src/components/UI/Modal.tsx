@@ -5,6 +5,7 @@ const sizeClasses: Record<string, string> = {
     sm: 'max-w-[400px]',
     md: 'max-w-[600px]',
     lg: 'max-w-[800px]',
+    xl: 'max-w-[1200px]',
 };
 
 interface ModalProps {
@@ -12,7 +13,7 @@ interface ModalProps {
     onClose: () => void;
     title?: React.ReactNode;
     children?: React.ReactNode;
-    size?: 'sm' | 'md' | 'lg';
+    size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
 const Modal = ({ isOpen, onClose, title, children, size = 'md' }: ModalProps): React.ReactElement | null => {
