@@ -68,6 +68,30 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
+  /* ── Drill-down: one customer's sales per day ── */
+  if (type === 'by-customer-daily') {
+    const customerId = searchParams.get('customerId');
+    if (!customerId) return err('customerId is required', 400);
+    const invoices = await prisma.salesInvoice.findMany({
+      where: { ...dateFilter, customerId: customerId === 'unknown' ? null : customerId },
+      select: { issueDate: true, totalAmount: true },
+      orderBy: { issueDate: 'asc' },
+      take: ROW_CAP + 1,
+    });
+    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
+    const map = new Map<string, { date: string; invoiceCount: number; total: number }>();
+    for (const inv of invoices) {
+      const d   = new Date(inv.issueDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const row = map.get(key) ?? { date: key, invoiceCount: 0, total: 0 };
+      row.invoiceCount += 1;
+      row.total += Number(inv.totalAmount || 0);
+      map.set(key, row);
+    }
+    const rows = Array.from(map.values());
+    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+  }
+
   /* ── Sales by Item ── */
   if (type === 'by-item') {
     const lines = await prisma.salesInvoiceLine.findMany({

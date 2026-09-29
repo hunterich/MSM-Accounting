@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useRef, useState } from 'react';
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package, Users,
-  Search, Printer, Download, FileText, X, LayoutGrid, BarChart3,
+  Search, Printer, Download, FileText, X, LayoutGrid, BarChart3, ChevronRight,
   type LucideIcon,
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
@@ -113,7 +113,14 @@ export interface OpenReportEntry {
 
 // ── Per-report row shapes ──────────────────────────────────────────────────────
 
+interface CustomerDayRow {
+  date: string;
+  invoiceCount: number;
+  total: number;
+}
+
 export interface SalesByCustomerRow {
+  customerId?: string;
   customerName: string;
   invoiceCount: number;
   total: number;
@@ -1399,6 +1406,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [activeReportId, setActiveReportId] = useState<ReportType | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [customerDays, setCustomerDays] = useState<Record<string, { open: boolean; loading: boolean; days: CustomerDayRow[]; error?: string }>>({});
   const printRef = useRef<HTMLDivElement>(null);
   const [reportPresets, setReportPresets] = useState<Record<string, ReportParams>>(loadReportPresets);
 
@@ -1962,6 +1970,33 @@ const Reports: React.FC<ReportsProps> = ({
   );
 
   // eslint-disable-next-line complexity
+  // Drill-down for Sales by Customer: click a customer's total to see its per-day orders.
+  const toggleCustomerDays = async (row: SalesByCustomerRow) => {
+    const id = row.customerId;
+    if (!id || !activeReport) return;
+    const key = `${activeReport.params.dateFrom}|${activeReport.params.dateTo}|${id}`;
+    const current = customerDays[key];
+    if (current && !current.error) {
+      setCustomerDays((prev) => ({ ...prev, [key]: { ...current, open: !current.open } }));
+      return;
+    }
+    setCustomerDays((prev) => ({ ...prev, [key]: { open: true, loading: true, days: [] } }));
+    try {
+      const res = await api.get<{ rows: CustomerDayRow[] }>('/api/v1/reports/sales', {
+        type: 'by-customer-daily',
+        customerId: id,
+        dateFrom: activeReport.params.dateFrom,
+        dateTo: activeReport.params.dateTo,
+      });
+      setCustomerDays((prev) => ({ ...prev, [key]: { open: true, loading: false, days: res.rows } }));
+    } catch (e) {
+      setCustomerDays((prev) => ({
+        ...prev,
+        [key]: { open: true, loading: false, days: [], error: e instanceof Error ? e.message : 'Gagal memuat rincian' },
+      }));
+    }
+  };
+
   const renderReportResult = (): React.ReactNode => {
     if (isLoading) return <div className="p-12 text-center text-neutral-500">Memuat laporan...</div>;
     if (error) return <div className="p-8 text-center text-danger-600">Error: {error}</div>;
@@ -2080,15 +2115,30 @@ const Reports: React.FC<ReportsProps> = ({
           <tbody>
             {rows.rows.map((row, i) => {
               const pct = rows.grandTotal > 0 ? (row.total / rows.grandTotal) * 100 : 0;
+              const dayKey = `${activeReport.params.dateFrom}|${activeReport.params.dateTo}|${row.customerId}`;
+              const detail = row.customerId ? customerDays[dayKey] : undefined;
               return (
-                <tr key={i} className="hover:bg-neutral-50">
+                <Fragment key={row.customerId ?? i}>
+                <tr className="hover:bg-neutral-50">
                   <td className="p-3 border border-neutral-200 text-center text-neutral-500">{i + 1}</td>
                   <td className="p-3 border border-neutral-200">{row.customerName}</td>
                   <td className="p-3 border border-neutral-200 text-right">{fmtInt(row.invoiceCount)}</td>
                   <td className="p-3 border border-neutral-200 text-right text-neutral-600">
                     {formatIDR(row.invoiceCount > 0 ? row.total / row.invoiceCount : 0)}
                   </td>
-                  <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
+                  <td className="p-3 border border-neutral-200 text-right font-medium">
+                    {row.customerId ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleCustomerDays(row)}
+                        title="Klik untuk melihat rincian per hari"
+                        className="inline-flex items-center gap-1 text-primary-700 hover:underline print:no-underline print:text-inherit"
+                      >
+                        <ChevronRight size={14} className={`print:hidden transition-transform ${detail?.open ? 'rotate-90' : ''}`} />
+                        {formatIDR(row.total)}
+                      </button>
+                    ) : formatIDR(row.total)}
+                  </td>
                   <td className="p-3 border border-neutral-200">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden print:border print:border-neutral-300">
@@ -2098,6 +2148,33 @@ const Reports: React.FC<ReportsProps> = ({
                     </div>
                   </td>
                 </tr>
+                {detail?.open && (
+                  <tr>
+                    <td className="border border-neutral-200 bg-neutral-50" />
+                    <td colSpan={5} className="px-3 py-2 border border-neutral-200 bg-neutral-50">
+                      {detail.loading ? (
+                        <span className="text-xs text-neutral-500">Memuat rincian...</span>
+                      ) : detail.error ? (
+                        <span className="text-xs text-danger-600">{detail.error}</span>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <tbody>
+                            {detail.days.map((d) => (
+                              <tr key={d.date} className="border-b border-neutral-200 last:border-0">
+                                <td className="py-1.5">
+                                  {new Date(`${d.date}T00:00:00`).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
+                                </td>
+                                <td className="py-1.5 text-right w-[110px] text-neutral-600">{fmtInt(d.invoiceCount)} order</td>
+                                <td className="py-1.5 text-right w-[170px] font-medium">{formatIDR(d.total)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
