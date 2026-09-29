@@ -26,6 +26,14 @@ interface NormalizedLine {
 interface InvoiceRecord {
     id: string;
     items?: RawLineItem[];
+    subtotal?: number | string;
+    discountAmount?: number | string;
+    taxEnabled?: boolean;
+    taxInclusive?: boolean;
+    taxRate?: number | string;
+    taxAmount?: number | string;
+    amount?: number | string;
+    charges?: Array<{ amount?: number | string }>;
     [key: string]: unknown;
 }
 
@@ -54,6 +62,11 @@ const InvoiceItemsTab: React.FC<InvoiceItemsTabProps> = ({ invoice }) => {
         const discount = gross * (Number(line.discount || 0) / 100);
         return sum + (gross - discount);
     }, 0);
+    const savedSubtotal = Number(invoice.subtotal ?? subtotal);
+    const discountAmount = Number(invoice.discountAmount ?? 0);
+    const chargesTotal = (invoice.charges ?? []).reduce((sum, charge) => sum + Number(charge.amount ?? 0), 0);
+    const taxAmount = Number(invoice.taxAmount ?? 0);
+    const total = Number(invoice.amount ?? savedSubtotal - discountAmount + chargesTotal + taxAmount);
 
     return (
         <div>
@@ -95,9 +108,17 @@ const InvoiceItemsTab: React.FC<InvoiceItemsTabProps> = ({ invoice }) => {
                     </tbody>
                 </table>
             </div>
-            <div className="mt-2.5 flex justify-end gap-3 items-center text-base">
-                <span>Total</span>
-                <strong>{formatIDR(subtotal)}</strong>
+            <div className="mt-2.5 ml-auto w-72 space-y-1 text-sm">
+                <div className="flex justify-between"><span>Items subtotal</span><strong>{formatIDR(savedSubtotal)}</strong></div>
+                {discountAmount > 0 && <div className="flex justify-between"><span>Invoice discount</span><span>- {formatIDR(discountAmount)}</span></div>}
+                {chargesTotal !== 0 && <div className="flex justify-between"><span>Other charges</span><span>{formatIDR(chargesTotal)}</span></div>}
+                {invoice.taxEnabled !== false && taxAmount !== 0 && (
+                    <div className="flex justify-between">
+                        <span>PPN {Number(invoice.taxRate ?? 0)}%{invoice.taxInclusive ? ' (included)' : ''}</span>
+                        <span>{formatIDR(taxAmount)}</span>
+                    </div>
+                )}
+                <div className="flex justify-between border-t border-neutral-200 pt-1 text-base"><strong>Invoice total</strong><strong>{formatIDR(total)}</strong></div>
             </div>
         </div>
     );

@@ -66,6 +66,7 @@ interface MappedRow {
     paymentMethod: unknown;
     totalPayment: unknown;
     trackingNumber: unknown;
+    shippingCarrier: unknown;
     /** 1-based Excel row index (header = 1, first data row = 2). */
     _rowIndex: number;
     /** Allow dynamic key access via resolved header entries. */
@@ -101,6 +102,7 @@ export interface ParsedShopeeOrder {
     province: string;
     paymentMethod: string;
     trackingNumber: string;
+    shippingCarrier?: string;
     totalPayment: number;
     totalProductAmount: number;
     items: ShopeeLineItem[];
@@ -254,7 +256,7 @@ type InternalKey =
     | 'productTotal' | 'totalDiscount' | 'sellerDiscount' | 'shopeeDiscount'
     | 'buyerShippingCost' | 'buyerUsername' | 'recipientName' | 'phone'
     | 'shippingAddress' | 'city' | 'province' | 'paymentMethod'
-    | 'totalPayment' | 'trackingNumber';
+    | 'totalPayment' | 'trackingNumber' | 'shippingCarrier';
 
 interface ColumnSpec {
     internalKey: InternalKey;
@@ -305,6 +307,7 @@ const COLUMN_SPECS: ColumnSpec[] = [
     { internalKey: 'paymentMethod',      required: false, aliases: ['Metode Pembayaran', 'Payment Method'] },
     { internalKey: 'totalPayment',       required: false, aliases: ['Total Pembayaran', 'Total Payment', 'Order Amount'] },
     { internalKey: 'trackingNumber',     required: false, aliases: ['No. Resi', 'Nomor Resi', 'Tracking Number', 'Tracking No', 'Tracking ID'] },
+    { internalKey: 'shippingCarrier',    required: false, aliases: ['Jasa Kirim', 'Opsi Pengiriman', 'Kurir', 'Logistic Service', 'Logistics Provider', 'Shipping Provider', 'Shipping Method'] },
 ];
 
 /** Normalise a header string for fuzzy matching.
@@ -558,12 +561,12 @@ export async function parseShopeeExcel(
             const priceAfterDiscount = parseNum(row.priceAfterDiscount) || (productTotal / quantity);
             const item: ShopeeLineItem = {
                 productName: String(row.productName).trim(),
-                variationName: String(row.variationName).trim(),
+                variationName: String(row.variationName ?? '').trim(),
                 priceAfterDiscount,
                 quantity,
                 productTotal,
-                parentSKU: String(row.parentSKU).trim(),
-                skuReference: String(row.skuReference).trim(),
+                parentSKU: String(row.parentSKU ?? '').trim(),
+                skuReference: String(row.skuReference ?? '').trim(),
                 sellerDiscount: parseNum(row.sellerDiscount),
                 shopeeDiscount: parseNum(row.shopeeDiscount),
             };
@@ -590,14 +593,15 @@ export async function parseShopeeExcel(
             orderDate: parseDateCell(first.orderCreatedTime),
             paymentDate: parseDateCell(first.paymentTime),
             completionDate: parseDateCell(first.orderCompletedTime),
-            buyerUsername: String(first.buyerUsername).trim(),
-            recipientName: String(first.recipientName).trim(),
-            phone: String(first.phone).trim(),
-            shippingAddress: String(first.shippingAddress).trim(),
-            city: String(first.city).trim(),
-            province: String(first.province).trim(),
-            paymentMethod: String(first.paymentMethod).trim(),
-            trackingNumber: String(first.trackingNumber).trim(),
+            buyerUsername: String(first.buyerUsername ?? '').trim(),
+            recipientName: String(first.recipientName ?? '').trim(),
+            phone: String(first.phone ?? '').trim(),
+            shippingAddress: String(first.shippingAddress ?? '').trim(),
+            city: String(first.city ?? '').trim(),
+            province: String(first.province ?? '').trim(),
+            paymentMethod: String(first.paymentMethod ?? '').trim(),
+            trackingNumber: String(first.trackingNumber ?? '').trim(),
+            shippingCarrier: String(first.shippingCarrier ?? '').trim(),
             totalPayment: parseNum(first.totalPayment),
             totalProductAmount,
             items,

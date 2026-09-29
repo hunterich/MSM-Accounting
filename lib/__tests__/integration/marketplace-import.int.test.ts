@@ -274,16 +274,31 @@ describe('marketplace import orchestrator', () => {
     });
     expect(first.created).toBe(1);
 
-    const second = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], {
+    const enrichedOrder = {
+      ...order,
+      trackingNumber: 'JX1234567890',
+      shippingCarrier: 'J&T Express',
+      shippingAddress: 'Surabaya',
+    };
+    const second = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [enrichedOrder], {
       recordPayment: true,
     });
     expect(second.created).toBe(0);
-    expect(second.skipped).toBe(1);
+    expect(second.logisticsUpdated).toBe(1);
+    expect(second.skipped).toBe(0);
+
+    const third = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [enrichedOrder], {
+      recordPayment: true,
+    });
+    expect(third.skipped).toBe(1);
 
     const invoices = await prisma.salesInvoice.findMany({
       where: { organizationId: s.org.orgId, poNumber: 'ORDER-DUP-1' },
     });
     expect(invoices).toHaveLength(1);
+    expect(invoices[0]).toMatchObject({
+      trackingNumber: 'JX1234567890', shippingCarrier: 'J&T Express', shippingAddress: 'Surabaya',
+    });
 
     await assertTrialBalanced(s.org.orgId, 'marketplace idempotent');
     await cleanupOrg(s.org.orgId);

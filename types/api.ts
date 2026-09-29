@@ -614,6 +614,9 @@ export const marketplaceImportLineSchema = z.object({
 export const marketplaceImportOrderSchema = z.object({
   orderNo: z.string().trim().min(1),
   issueDate: isoDateString,
+  shippingAddress: z.string().trim().max(1000).optional(),
+  shippingCarrier: z.string().trim().max(200).optional(),
+  trackingNumber: z.string().trim().max(200).optional(),
   lines: z.array(marketplaceImportLineSchema).min(1),
 });
 

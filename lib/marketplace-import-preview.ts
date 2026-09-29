@@ -9,20 +9,23 @@ export interface PreviewOrder extends ImportOrder {
 
 export interface PreviewOrderResult {
   orderNo: string;
-  status: 'create' | 'already_imported' | 'blocked';
+  status: 'create' | 'logistics_update' | 'already_imported' | 'blocked';
   reason?: string;
   sourceTotal: number;
   invoiceTotal: number | null;
+  taxAmount: number | null;
   difference: number | null;
 }
 
 export interface MarketplaceImportPreview {
   create: number;
+  logisticsUpdates: number;
   alreadyImported: number;
   blocked: number;
   amountDifferences: number;
   sourceTotal: number;
   invoiceTotal: number;
+  taxAmount: number;
   paymentAccountMissing: boolean;
   setupErrors: string[];
   orders: PreviewOrderResult[];
@@ -53,14 +56,14 @@ export async function previewMarketplaceOrders(
   const [existingInvoices, items] = await Promise.all([
     prisma.salesInvoice.findMany({
       where: { organizationId: orgId, poNumber: { in: orderNos }, status: { not: 'VOID' } },
-      select: { poNumber: true },
+      select: { poNumber: true, shippingAddress: true, shippingCarrier: true, trackingNumber: true },
     }),
     prisma.item.findMany({
       where: { organizationId: orgId, id: { in: itemIds } },
       select: { id: true, name: true, isActive: true },
     }),
   ]);
-  const existingOrderNos = new Set(existingInvoices.map((invoice) => invoice.poNumber));
+  const existingByOrderNo = new Map(existingInvoices.map((invoice) => [invoice.poNumber, invoice]));
   const itemsById = new Map(items.map((item) => [item.id, item]));
   const seenOrderNos = new Set<string>();
   const taxInclusive = Boolean(
@@ -75,11 +78,13 @@ export async function previewMarketplaceOrders(
 
   const result: MarketplaceImportPreview = {
     create: 0,
+    logisticsUpdates: 0,
     alreadyImported: 0,
     blocked: 0,
     amountDifferences: 0,
     sourceTotal: 0,
     invoiceTotal: 0,
+    taxAmount: 0,
     paymentAccountMissing,
     setupErrors,
     orders: [],
@@ -91,15 +96,25 @@ export async function previewMarketplaceOrders(
       status: 'create',
       sourceTotal: order.sourceTotal,
       invoiceTotal: null,
+      taxAmount: null,
       difference: null,
     };
-    if (existingOrderNos.has(order.orderNo)) {
-      row.status = 'already_imported';
-      result.alreadyImported++;
-    } else if (seenOrderNos.has(order.orderNo)) {
+    const existing = existingByOrderNo.get(order.orderNo);
+    if (seenOrderNos.has(order.orderNo)) {
       row.status = 'blocked';
       row.reason = 'Order number occurs more than once in this file';
       result.blocked++;
+    } else if (existing) {
+      if ((!existing.trackingNumber && order.trackingNumber) ||
+          (!existing.shippingCarrier && order.shippingCarrier) ||
+          (!existing.shippingAddress && order.shippingAddress)) {
+        row.status = 'logistics_update';
+        row.reason = 'Fill missing logistics details on the existing invoice';
+        result.logisticsUpdates++;
+      } else {
+        row.status = 'already_imported';
+        result.alreadyImported++;
+      }
     } else if (order.missingDate) {
       row.status = 'blocked';
       row.reason = 'No usable order date; enter a date for orders missing one';
@@ -122,10 +137,12 @@ export async function previewMarketplaceOrders(
       } else {
         const totals = calculateMarketplaceOrderTotals(order, org, taxInclusive);
         row.invoiceTotal = totals.totalAmount;
+        row.taxAmount = totals.taxAmount;
         row.difference = asMoney(totals.totalAmount - order.sourceTotal);
         result.create++;
         result.sourceTotal = asMoney(result.sourceTotal + order.sourceTotal);
         result.invoiceTotal = asMoney(result.invoiceTotal + totals.totalAmount);
+        result.taxAmount = asMoney(result.taxAmount + totals.taxAmount);
         if (row.difference !== 0) result.amountDifferences++;
       }
     }

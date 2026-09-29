@@ -266,7 +266,7 @@ const TIKTOK_HEADERS = [
     'SKU Seller Discount', 'SKU Platform Discount', 'Shipping Fee After Discount',
     'Order Amount', 'Created Time', 'Paid Time', 'Delivered Time', 'Tracking ID',
     'Buyer Username', 'Recipient', 'Phone #', 'Detail Address', 'Regency and City',
-    'Province', 'Payment Method',
+    'Province', 'Payment Method', 'Shipping Provider',
 ];
 
 function buildTikTokFile(rows: unknown[][]): File {
@@ -303,6 +303,7 @@ const tiktokRow = (overrides: Record<string, unknown> = {}): unknown[] => {
         'Regency and City': 'Kota Surabaya',
         'Province': 'Jawa Timur',
         'Payment Method': 'DANA',
+        'Shipping Provider': 'J&T Express',
         ...overrides,
     };
     return TIKTOK_HEADERS.map((h) => base[h] ?? '');
@@ -326,6 +327,7 @@ describe('TikTok Shop export parsing', () => {
         expect(result.resolvedHeaders.productTotal).toBe('SKU Subtotal After Discount');
         expect(result.resolvedHeaders.parentSKU).toBe('Seller SKU');
         expect(result.resolvedHeaders.trackingNumber).toBe('Tracking ID');
+        expect(result.resolvedHeaders.shippingCarrier).toBe('Shipping Provider');
         expect(result.resolvedHeaders.totalPayment).toBe('Order Amount');
         expect(result.resolvedHeaders.phone).toBe('Phone #');
         expect(result.resolvedHeaders.orderCompletedTime).toBe('Delivered Time');
@@ -341,6 +343,7 @@ describe('TikTok Shop export parsing', () => {
         expect(order.orderDate).toBe('2026-04-21');
         expect(order.completionDate).toBe('2026-04-24');
         expect(order.trackingNumber).toBe('JX1234567890');
+        expect(order.shippingCarrier).toBe('J&T Express');
     });
 
     it('filters out Dibatalkan orders with the default Selesai filter', async () => {

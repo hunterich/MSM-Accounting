@@ -35,6 +35,9 @@ export const GET = withHandler(async (req: NextRequest) => {
   if (search) where.OR = [
     { number: { contains: search, mode: 'insensitive' } },
     { customer: { name: { contains: search, mode: 'insensitive' } } },
+    { poNumber: { contains: search, mode: 'insensitive' } },
+    { trackingNumber: { contains: search, mode: 'insensitive' } },
+    { shippingCarrier: { contains: search, mode: 'insensitive' } },
   ];
   if (dateFrom || dateTo) {
     where.issueDate = {

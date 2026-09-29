@@ -2,6 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { Upload } from 'lucide-react';
 import InvoiceCatalogPanel from './InvoiceCatalogPanel';
+import InvoicePrintPreview from './InvoicePrintPreview';
 import ImportInvoicesModal from './ImportInvoicesModal';
 import PageHeader from '../../Layout/PageHeader';
 import Button from '../../UI/Button';
@@ -16,20 +17,23 @@ const InvoiceListPane = (): React.ReactElement => {
     const canReprint = useExtraAction('ar_invoices', 'reprint');
     const { open } = useWorkspaceNav();
     const [isImportOpen, setIsImportOpen] = useState(false);
+    const [printInvoiceId, setPrintInvoiceId] = useState<string | null>(null);
+    const [filters, setFilters] = useState<InvoiceFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
     // Read from the same source the form writes to (the invoices API via React
     // Query), so seeded + just-saved invoices both appear here and can be
     // opened as tabs.
-    const { data: invoicesResult, isLoading } = useInvoices();
+    const { data: invoicesResult, isLoading } = useInvoices(filters.searchTerm ? { search: filters.searchTerm } : {});
     const invoices = useMemo(() => invoicesResult?.data ?? [], [invoicesResult?.data]);
-
-    const [filters, setFilters] = useState<InvoiceFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
 
     const filteredData = useMemo(() => invoices.filter((item) => {
         const keyword = filters.searchTerm.toLowerCase();
         const dateField = item.issueDate || item.date;
         const matchesSearch = (item.customerName || '').toLowerCase().includes(keyword)
             || item.id.toLowerCase().includes(keyword)
-            || (item.number || '').toLowerCase().includes(keyword);
+            || (item.number || '').toLowerCase().includes(keyword)
+            || (item.poNumber || '').toLowerCase().includes(keyword)
+            || (item.trackingNumber || '').toLowerCase().includes(keyword)
+            || (item.shippingCarrier || '').toLowerCase().includes(keyword);
         const matchesStatus = filters.status ? item.status === filters.status : true;
         let matchesDate = true;
         if (filters.dateFrom) matchesDate = matchesDate && new Date(dateField) >= new Date(filters.dateFrom);
@@ -80,9 +84,10 @@ const InvoiceListPane = (): React.ReactElement => {
                 canEdit={canEdit}
                 canPrint={canReprint}
                 onEditInvoice={openEdit}
-                onPrintInvoice={() => {}}
+                onPrintInvoice={setPrintInvoiceId}
             />
             <ImportInvoicesModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
+            <InvoicePrintPreview invoiceId={printInvoiceId} onClose={() => setPrintInvoiceId(null)} />
         </div>
     );
 };

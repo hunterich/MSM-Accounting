@@ -59,6 +59,16 @@ describe('marketplace import review', () => {
     expect(result.orders[5].reason).toMatch(/more than once/i);
     expect(result.sourceTotal).toBe(100_000);
     expect(result.invoiceTotal).toBe(111_000);
+    expect(result.taxAmount).toBe(11_000);
+  });
+
+  it('offers a logistics-only update for an existing invoice with no tracking number', async () => {
+    const existing = { ...order('existing'), trackingNumber: 'JX123', shippingCarrier: 'J&T Express' };
+    const result = await previewMarketplaceOrders('org-1', 'connection-1', [existing], { recordPayment: true });
+
+    expect(result.create).toBe(0);
+    expect(result.logisticsUpdates).toBe(1);
+    expect(result.orders[0]).toMatchObject({ status: 'logistics_update' });
   });
 
   it('flags missing customer and payment account before import', async () => {

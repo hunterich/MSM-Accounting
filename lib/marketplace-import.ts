@@ -36,6 +36,9 @@ export interface ImportOrderLine {
 export interface ImportOrder {
   orderNo: string;
   issueDate: string;
+  shippingAddress?: string;
+  shippingCarrier?: string;
+  trackingNumber?: string;
   lines: ImportOrderLine[];
 }
 
@@ -48,6 +51,7 @@ export interface ImportOptions {
 
 export interface ImportResult {
   created: number;
+  logisticsUpdated: number;
   skipped: number;
   failed: Array<{ orderNo: string; reason: string }>;
 }
@@ -81,7 +85,7 @@ export async function importMarketplaceOrders(
   orders: ImportOrder[],
   options: ImportOptions,
 ): Promise<ImportResult> {
-  const result: ImportResult = { created: 0, skipped: 0, failed: [] };
+  const result: ImportResult = { created: 0, logisticsUpdated: 0, skipped: 0, failed: [] };
 
   // Load the connection ONCE up front; it is constant across the batch.
   const conn = await prisma.ecommerceConnection.findFirst({
@@ -138,7 +142,7 @@ export async function importMarketplaceOrders(
       // The tx callback returns a discriminator; counters are updated AFTER the
       // transaction commits (mirrors payment-posting) so a Prisma retry of the
       // callback can never double-count.
-      const outcome = await prisma.$transaction(async (tx): Promise<'created' | 'skipped'> => {
+      const outcome = await prisma.$transaction(async (tx): Promise<'created' | 'logistics_updated' | 'skipped'> => {
         // 1. Idempotency — skip orders already imported (ignore VOID re-use).
         const existing = await tx.salesInvoice.findFirst({
           where: {
@@ -146,9 +150,20 @@ export async function importMarketplaceOrders(
             poNumber: order.orderNo,
             status: { not: 'VOID' },
           },
-          select: { id: true },
+          select: { id: true, shippingAddress: true, shippingCarrier: true, trackingNumber: true },
         });
         if (existing) {
+          // A repeat export can enrich a previously imported invoice without
+          // touching its amounts, status, inventory, payment, or journal.
+          const logistics = {
+            ...(!existing.shippingAddress && order.shippingAddress ? { shippingAddress: order.shippingAddress } : {}),
+            ...(!existing.shippingCarrier && order.shippingCarrier ? { shippingCarrier: order.shippingCarrier } : {}),
+            ...(!existing.trackingNumber && order.trackingNumber ? { trackingNumber: order.trackingNumber } : {}),
+          };
+          if (Object.keys(logistics).length > 0) {
+            await tx.salesInvoice.update({ where: { id: existing.id }, data: logistics });
+            return 'logistics_updated';
+          }
           return 'skipped';
         }
 
@@ -189,6 +204,9 @@ export async function importMarketplaceOrders(
             number,
             customerId,
             poNumber: order.orderNo,
+            shippingAddress: order.shippingAddress || null,
+            shippingCarrier: order.shippingCarrier || null,
+            trackingNumber: order.trackingNumber || null,
             issueDate,
             // Marketplace orders are paid same-day; due date equals the issue date.
             dueDate: issueDate,
@@ -250,6 +268,7 @@ export async function importMarketplaceOrders(
       });
 
       if (outcome === 'created') result.created += 1;
+      else if (outcome === 'logistics_updated') result.logisticsUpdated += 1;
       else result.skipped += 1;
     } catch (error) {
       result.failed.push({

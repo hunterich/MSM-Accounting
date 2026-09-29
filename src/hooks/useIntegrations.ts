@@ -141,6 +141,9 @@ export interface MarketplaceImportPayload {
   orders: Array<{
     orderNo: string;
     issueDate: string;
+    shippingAddress?: string;
+    shippingCarrier?: string;
+    trackingNumber?: string;
     lines: Array<{
       itemId: string;
       description: string;
@@ -154,6 +157,7 @@ export interface MarketplaceImportPayload {
 
 export interface MarketplaceImportResult {
   created: number;
+  logisticsUpdated: number;
   skipped: number;
   failed: Array<{ orderNo: string; reason: string }>;
 }
@@ -167,19 +171,22 @@ export interface MarketplaceImportPreviewPayload extends MarketplaceImportPayloa
 
 export interface MarketplaceImportPreviewResult {
   create: number;
+  logisticsUpdates: number;
   alreadyImported: number;
   blocked: number;
   amountDifferences: number;
   sourceTotal: number;
   invoiceTotal: number;
+  taxAmount: number;
   paymentAccountMissing: boolean;
   setupErrors: string[];
   orders: Array<{
     orderNo: string;
-    status: 'create' | 'already_imported' | 'blocked';
+    status: 'create' | 'logistics_update' | 'already_imported' | 'blocked';
     reason?: string;
     sourceTotal: number;
     invoiceTotal: number | null;
+    taxAmount: number | null;
     difference: number | null;
   }>;
 }

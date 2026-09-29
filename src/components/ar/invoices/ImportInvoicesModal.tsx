@@ -401,6 +401,9 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 return {
                     orderNo: order.orderNumber,
                     issueDate: sourceDate || fallbackDate || new Date().toISOString().slice(0, 10),
+                    shippingAddress: [order.shippingAddress, order.city, order.province].filter(Boolean).join(', '),
+                    shippingCarrier: order.shippingCarrier || '',
+                    trackingNumber: order.trackingNumber || '',
                     sourceTotal: order.totalProductAmount,
                     missingDate: !sourceDate && !fallbackDate,
                     lines: order.items.map((item) => ({
@@ -434,7 +437,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 if (!active) return;
                 setReviewLoading(false);
                 setAlreadyImportedOrderNos(new Set(result.orders
-                    .filter((order) => order.status === 'already_imported')
+                    .filter((order) => order.status === 'already_imported' || order.status === 'logistics_update')
                     .map((order) => order.orderNo)));
                 setReviewState({ key: reviewKey, result });
             })
@@ -552,7 +555,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     // ── Step 4: Build payload + POST to the backend ────────────────────────────
 
     const handleImport = async (): Promise<void> => {
-        if (!previewRequest || !currentReview || currentReview.create === 0 ||
+        if (!previewRequest || !currentReview || currentReview.create + currentReview.logisticsUpdates === 0 ||
             currentReview.setupErrors.length > 0 ||
             (currentReview.amountDifferences > 0 && !amountsReviewed) ||
             (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)) return;
@@ -769,6 +772,11 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     {currentReview.alreadyImported} already imported order{currentReview.alreadyImported > 1 ? 's' : ''} do not need product mapping.
                 </p>
             )}
+            {currentReview && currentReview.logisticsUpdates > 0 && (
+                <p className="text-xs text-neutral-600">
+                    {currentReview.logisticsUpdates} existing invoice{currentReview.logisticsUpdates > 1 ? 's' : ''} can receive missing logistics details without product mapping or accounting changes.
+                </p>
+            )}
             {reviewError && <p className="text-xs text-red-700">Could not check existing orders: {reviewError}</p>}
 
             <div className="text-xs text-neutral-500">
@@ -915,14 +923,17 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     </p>
                 ) : (
                     <>
-                        <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                        <div className="grid grid-cols-4 gap-2 text-center text-sm">
                             <div><div className="text-neutral-500">New</div><strong>{currentReview.create}</strong></div>
+                            <div><div className="text-neutral-500">Logistics updates</div><strong>{currentReview.logisticsUpdates}</strong></div>
                             <div><div className="text-neutral-500">Already imported</div><strong>{currentReview.alreadyImported}</strong></div>
                             <div><div className="text-neutral-500">Blocked</div><strong>{currentReview.blocked}</strong></div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 mt-3 border-t border-neutral-200 pt-3 text-sm">
-                            <span className="text-neutral-500">Export total for new orders</span>
+                            <span className="text-neutral-500">Export product total for new orders</span>
                             <span className="text-right">{formatIDR(currentReview.sourceTotal)}</span>
+                            <span className="text-neutral-500">PPN on new invoices</span>
+                            <span className="text-right">{formatIDR(currentReview.taxAmount)}</span>
                             <span className="text-neutral-500">Expected invoice total</span>
                             <strong className="text-right">{formatIDR(currentReview.invoiceTotal)}</strong>
                         </div>
@@ -958,7 +969,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     <ul className="mt-2 max-h-36 overflow-y-auto space-y-1 text-xs">
                         {currentReview.orders.filter((order) => order.status === 'create' && order.difference !== 0).map((order, index) => (
                             <li key={`${order.orderNo}-${index}`}>
-                                {order.orderNo}: export {formatIDR(order.sourceTotal)} → invoice {formatIDR(order.invoiceTotal ?? 0)}
+                                {order.orderNo}: products {formatIDR(order.sourceTotal)}, PPN {formatIDR(order.taxAmount ?? 0)}, invoice {formatIDR(order.invoiceTotal ?? 0)}
                             </li>
                         ))}
                     </ul>
@@ -1004,10 +1015,14 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             <h3 className="text-lg font-semibold">Import Complete</h3>
             {importResult && (
                 <>
-                    <div className="grid grid-cols-3 gap-4 w-full">
+                    <div className="grid grid-cols-4 gap-4 w-full">
                         <div className="bg-green-50 border border-green-200 rounded-md p-3 text-center">
                             <div className="text-xs text-green-700">Created</div>
                             <div className="text-lg font-semibold text-green-800">{importResult.created.toLocaleString()}</div>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-center">
+                            <div className="text-xs text-blue-700">Logistics updated</div>
+                            <div className="text-lg font-semibold text-blue-800">{(importResult.logisticsUpdated ?? 0).toLocaleString()}</div>
                         </div>
                         <div className="bg-neutral-50 border border-neutral-200 rounded-md p-3 text-center">
                             <div className="text-xs text-neutral-500">Skipped</div>
@@ -1120,10 +1135,11 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                             <Button text="Close" variant="primary" onClick={handleClose} />
                         ) : step === 'configure' ? (
                             <Button
-                                text={reviewLoading ? 'Checking orders...' : `Import ${currentReview?.create.toLocaleString() ?? 0} New Orders`}
+                                text={reviewLoading ? 'Checking orders...' :
+                                    `Import ${currentReview?.create.toLocaleString() ?? 0} New / Update ${currentReview?.logisticsUpdates.toLocaleString() ?? 0} Logistics`}
                                 variant="primary"
                                 onClick={() => void handleImport()}
-                                disabled={reviewLoading || !currentReview || currentReview.create === 0 ||
+                                disabled={reviewLoading || !currentReview || currentReview.create + currentReview.logisticsUpdates === 0 ||
                                     currentReview.setupErrors.length > 0 ||
                                     (currentReview.amountDifferences > 0 && !amountsReviewed) ||
                                     (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)}

@@ -550,6 +550,8 @@ model SalesInvoice {
   dueDate         DateTime?
   shippingDate    DateTime?
   poNumber        String?
+  shippingCarrier String?
+  trackingNumber  String?
   email           String?
   billingAddress  String?
   shippingAddress String?

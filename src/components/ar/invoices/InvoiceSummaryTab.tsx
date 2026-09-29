@@ -12,6 +12,13 @@ interface InvoiceRecord {
     dueDate?: string;
     currency?: string;
     amount?: number | string;
+    subtotal?: number | string;
+    discountAmount?: number | string;
+    taxEnabled?: boolean;
+    taxInclusive?: boolean;
+    taxRate?: number | string;
+    taxAmount?: number | string;
+    charges?: Array<{ amount?: number | string }>;
     [key: string]: unknown;
 }
 
@@ -20,6 +27,7 @@ interface InvoiceSummaryTabProps {
 }
 
 const InvoiceSummaryTab: React.FC<InvoiceSummaryTabProps> = ({ invoice }) => {
+    const chargesTotal = (invoice.charges ?? []).reduce((sum, charge) => sum + Number(charge.amount ?? 0), 0);
     return (
         <div className="detail-grid">
             <div className="detail-field">
@@ -47,7 +55,29 @@ const InvoiceSummaryTab: React.FC<InvoiceSummaryTabProps> = ({ invoice }) => {
                 <strong>{invoice.currency || 'IDR'}</strong>
             </div>
             <div className="detail-field span-2">
-                <label>Total</label>
+                <label>Items Subtotal</label>
+                <strong>{formatIDR(invoice.subtotal ?? 0)}</strong>
+            </div>
+            {Number(invoice.discountAmount ?? 0) > 0 && (
+                <div className="detail-field span-2">
+                    <label>Invoice Discount</label>
+                    <strong>- {formatIDR(invoice.discountAmount)}</strong>
+                </div>
+            )}
+            {chargesTotal !== 0 && (
+                <div className="detail-field span-2">
+                    <label>Other Charges</label>
+                    <strong>{formatIDR(chargesTotal)}</strong>
+                </div>
+            )}
+            {invoice.taxEnabled !== false && Number(invoice.taxAmount ?? 0) !== 0 && (
+                <div className="detail-field span-2">
+                    <label>PPN {Number(invoice.taxRate ?? 0)}%{invoice.taxInclusive ? ' (included)' : ''}</label>
+                    <strong>{formatIDR(invoice.taxAmount)}</strong>
+                </div>
+            )}
+            <div className="detail-field span-2">
+                <label>Invoice Total</label>
                 <strong className="text-primary-500">{formatIDR(invoice.amount)}</strong>
             </div>
         </div>

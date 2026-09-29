@@ -4,6 +4,8 @@ import { formatDateID } from '../../../utils/formatters';
 interface InvoiceRecord {
     billingAddress?: string;
     shippingAddress?: string;
+    shippingCarrier?: string;
+    trackingNumber?: string;
     poNumber?: string;
     shippingDate?: string;
     notes?: string;
@@ -28,6 +30,14 @@ const InvoiceLogisticsTab: React.FC<InvoiceLogisticsTabProps> = ({ invoice }) =>
             <div className="detail-field">
                 <label>PO Number</label>
                 <div>{invoice.poNumber || '-'}</div>
+            </div>
+            <div className="detail-field">
+                <label>Shipping Service / Carrier</label>
+                <div>{invoice.shippingCarrier || '-'}</div>
+            </div>
+            <div className="detail-field">
+                <label>Tracking Number / No. Resi</label>
+                <div className="font-mono select-all">{invoice.trackingNumber || '-'}</div>
             </div>
             <div className="detail-field">
                 <label>Shipping Date</label>
