@@ -26,7 +26,12 @@ vi.mock('@/lib/marketplace-import', () => ({
   importMarketplaceOrders: vi.fn().mockResolvedValue({ created: 0, skipped: 0, failed: 0 }),
 }));
 
+vi.mock('@/lib/marketplace-import-preview', () => ({
+  previewMarketplaceOrders: vi.fn().mockResolvedValue({ create: 0, alreadyImported: 0, blocked: 1, orders: [] }),
+}));
+
 import { POST } from '../integrations/[id]/import/route';
+import { POST as previewPOST } from '../integrations/[id]/import/preview/route';
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
@@ -48,6 +53,20 @@ beforeEach(() => {
 });
 
 describe('marketplace import route body validation', () => {
+  it('accepts an unmapped item for read-only preview while import remains strict', async () => {
+    const body = {
+      orders: [{
+        orderNo: 'ORD-UNMAPPED', issueDate: '2026-06-01', sourceTotal: 1000, missingDate: false,
+        lines: [{ itemId: '', description: 'Unmapped product', quantity: 1, unitPrice: 1000 }],
+      }],
+      options: { recordPayment: false },
+    };
+    const preview = await previewPOST(makeJsonReq('/api/v1/integrations/conn-1/import/preview', body), params('conn-1'));
+    expect(preview.status).toBe(200);
+    const imported = await POST(makeJsonReq('/api/v1/integrations/conn-1/import', body), params('conn-1'));
+    expect(imported.status).toBe(400);
+  });
+
   it('returns 400 when orders array is empty', async () => {
     const res = await POST(
       makeJsonReq('/api/v1/integrations/conn-1/import', {

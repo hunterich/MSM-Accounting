@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import Modal from '../../UI/Modal';
 import Button from '../../UI/Button';
@@ -10,7 +10,10 @@ import {
     useEcommerceConnections,
     useUpdateEcommerceConnection,
     useImportMarketplaceOrders,
+    usePreviewMarketplaceOrders,
     type MarketplaceImportResult,
+    type MarketplaceImportPreviewPayload,
+    type MarketplaceImportPreviewResult,
 } from '../../../hooks/useIntegrations';
 import { useItemSkuIndex, useCreateItem } from '../../../hooks/useInventory';
 import { detectPlatformFromHeaders } from '../../../utils/marketplaceFormat';
@@ -74,6 +77,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const shops: EcommerceConnection[] = connectionsData?.data ?? [];
     const updateConnection = useUpdateEcommerceConnection();
     const importMutation = useImportMarketplaceOrders();
+    const { mutateAsync: previewOrders } = usePreviewMarketplaceOrders();
 
     // Full, unpaginated SKU index (active + inactive) — the regular /items list
     // clamps to maxLimit:100, which would silently hide items beyond the first
@@ -97,6 +101,13 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     // Configure state
     const [recordPayment, setRecordPayment] = useState<boolean>(true);
     const [dateField, setDateField] = useState<'completionDate' | 'paymentDate' | 'orderDate'>('completionDate');
+    const [fallbackDate, setFallbackDate] = useState<string>('');
+    const [reviewState, setReviewState] = useState<{ key: string; result: MarketplaceImportPreviewResult } | null>(null);
+    const [reviewLoading, setReviewLoading] = useState<boolean>(false);
+    const [reviewError, setReviewError] = useState<string>('');
+    const [amountsReviewed, setAmountsReviewed] = useState<boolean>(false);
+    const [statusesReviewed, setStatusesReviewed] = useState<boolean>(false);
+    const [alreadyImportedOrderNos, setAlreadyImportedOrderNos] = useState<Set<string>>(new Set());
 
     // Import state
     const [importResult, setImportResult] = useState<MarketplaceImportResult | null>(null);
@@ -141,6 +152,13 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setCreateError('');
         setRecordPayment(true);
         setDateField('completionDate');
+        setFallbackDate('');
+        setReviewState(null);
+        setReviewLoading(false);
+        setReviewError('');
+        setAmountsReviewed(false);
+        setStatusesReviewed(false);
+        setAlreadyImportedOrderNos(new Set());
         setImportResult(null);
         setImportError('');
     }, []);
@@ -179,15 +197,19 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
      *  the modal still had a stale index: the UI and import payload must both
      *  resolve those products to the now-existing inventory rows. */
     const resolvedMappings = useMemo<Record<string, string>>(() => {
-        const resolved = { ...localMappings };
+        const resolved: Record<string, string> = {};
+        const activeIds = new Set((skuIndex?.data ?? []).filter((item) => item.isActive).map((item) => item.id));
         for (const p of parseResult?.uniqueProducts ?? []) {
-            if (resolved[p.key]) continue;
+            if (localMappings[p.key] && activeIds.has(localMappings[p.key])) {
+                resolved[p.key] = localMappings[p.key];
+                continue;
+            }
             const norm = normalizeHeader(inventorySkuFor(p));
             const existing = norm ? activeBySku.get(norm) : undefined;
             if (existing) resolved[p.key] = existing.id;
         }
         return resolved;
-    }, [localMappings, parseResult, activeBySku]);
+    }, [localMappings, parseResult, activeBySku, skuIndex]);
 
     /** A product's SKU for inventory lookup — same precedence as buildProductKey. */
     const productSku = (p: UniqueProduct): string => inventorySkuFor(p);
@@ -198,12 +220,22 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             if (!parseResult) return 0;
             let count = 0;
             for (const order of parseResult.parsedOrders) {
-                if (order.items.some((it) => buildProductKey(it) === key)) count++;
+                if (!alreadyImportedOrderNos.has(order.orderNumber) &&
+                    order.items.some((it) => buildProductKey(it) === key)) count++;
             }
             return count;
         },
-        [parseResult],
+        [parseResult, alreadyImportedOrderNos],
     );
+
+    const relevantProductKeys = useMemo(() => {
+        const keys = new Set<string>();
+        for (const order of parseResult?.parsedOrders ?? []) {
+            if (alreadyImportedOrderNos.has(order.orderNumber)) continue;
+            for (const item of order.items) keys.add(buildProductKey(item));
+        }
+        return keys;
+    }, [parseResult, alreadyImportedOrderNos]);
 
     /** Best price seen for a product (per-unit, after discount) — used when
      *  bulk-creating a new inventory item. */
@@ -224,6 +256,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         if (!parseResult) return [];
         const out: InactiveBlocked[] = [];
         for (const p of parseResult.uniqueProducts) {
+            if (!relevantProductKeys.has(p.key)) continue;
             const sku = productSku(p);
             const norm = normalizeHeader(sku);
             // Already mapped to an active item → not blocked.
@@ -240,7 +273,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             }
         }
         return out;
-    }, [parseResult, resolvedMappings, activeBySku, inactiveBySku, orderCountForKey]);
+    }, [parseResult, resolvedMappings, activeBySku, inactiveBySku, orderCountForKey, relevantProductKeys]);
 
     const inactiveKeys = useMemo<Set<string>>(
         () => new Set(inactiveBlocked.map((b) => b.product.key)),
@@ -251,13 +284,14 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const unmatched = useMemo<UniqueProduct[]>(() => {
         if (!parseResult) return [];
         return parseResult.uniqueProducts.filter((p) => {
+            if (!relevantProductKeys.has(p.key)) return false;
             if (resolvedMappings[p.key]) return false;
             const norm = normalizeHeader(productSku(p));
             if (norm && activeBySku.has(norm)) return false;
             if (inactiveKeys.has(p.key)) return false;
             return true;
         });
-    }, [parseResult, resolvedMappings, activeBySku, inactiveKeys]);
+    }, [parseResult, resolvedMappings, activeBySku, inactiveKeys, relevantProductKeys]);
 
     // ── Step 1: Parse file (with platform detection) ───────────────────────────
 
@@ -267,6 +301,8 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setFile(f);
         setParseError('');
         setHeaderReport(null);
+        setReviewState(null);
+        setAlreadyImportedOrderNos(new Set());
         setParsing(true);
 
         try {
@@ -343,12 +379,72 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     const mappedCount = useMemo<number>(() => {
         if (!parseResult) return 0;
-        return parseResult.uniqueProducts.filter((p) => Boolean(resolvedMappings[p.key])).length;
-    }, [parseResult, resolvedMappings]);
+        return parseResult.uniqueProducts.filter((p) => relevantProductKeys.has(p.key) && Boolean(resolvedMappings[p.key])).length;
+    }, [parseResult, resolvedMappings, relevantProductKeys]);
 
     const handleMappingChange = (productKey: string, inventoryItemId: string): void => {
         setLocalMappings((prev) => ({ ...prev, [productKey]: inventoryItemId }));
     };
+
+    const ordersMissingAllDates = useMemo(
+        () => parseResult?.parsedOrders.filter((order) => !order.completionDate && !order.paymentDate && !order.orderDate).length ?? 0,
+        [parseResult],
+    );
+
+    const previewRequest = useMemo<(MarketplaceImportPreviewPayload & { connectionId: string }) | null>(() => {
+        if (!parseResult || !selectedShop) return null;
+        return {
+            connectionId: selectedShop.id,
+            options: { customerId: selectedShop.customer, recordPayment },
+            orders: parseResult.parsedOrders.map((order) => {
+                const sourceDate = order[dateField] || order.completionDate || order.paymentDate || order.orderDate;
+                return {
+                    orderNo: order.orderNumber,
+                    issueDate: sourceDate || fallbackDate || new Date().toISOString().slice(0, 10),
+                    sourceTotal: order.totalProductAmount,
+                    missingDate: !sourceDate && !fallbackDate,
+                    lines: order.items.map((item) => ({
+                        itemId: resolvedMappings[buildProductKey(item)] ?? '',
+                        description: item.variationName
+                            ? `${item.productName} - ${item.variationName}`
+                            : item.productName,
+                        sku: inventorySkuFor(item),
+                        quantity: item.quantity,
+                        unitPrice: item.priceAfterDiscount,
+                    })),
+                };
+            }),
+        };
+    }, [parseResult, shopId, selectedShop?.customer, recordPayment, dateField, fallbackDate, resolvedMappings]);
+
+    const reviewKey = useMemo(() => previewRequest ? JSON.stringify(previewRequest) : '', [previewRequest]);
+    const currentReview = reviewState?.key === reviewKey ? reviewState.result : null;
+
+    useEffect(() => {
+        if ((step !== 'mapping' && step !== 'configure') || !previewRequest) return;
+        if (reviewState?.key === reviewKey) return;
+        let active = true;
+        setReviewState(null);
+        setReviewLoading(true);
+        setReviewError('');
+        setAmountsReviewed(false);
+        setStatusesReviewed(false);
+        void previewOrders(previewRequest)
+            .then((result) => {
+                if (!active) return;
+                setReviewLoading(false);
+                setAlreadyImportedOrderNos(new Set(result.orders
+                    .filter((order) => order.status === 'already_imported')
+                    .map((order) => order.orderNo)));
+                setReviewState({ key: reviewKey, result });
+            })
+            .catch((error: Error) => {
+                if (!active) return;
+                setReviewLoading(false);
+                setReviewError(error.message);
+            });
+        return () => { active = false; };
+    }, [step, previewRequest, previewOrders, reviewKey, reviewState]);
 
     // ── Step 2: Bulk-create all unmatched products as inventory items ──────────
 
@@ -456,56 +552,49 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     // ── Step 4: Build payload + POST to the backend ────────────────────────────
 
     const handleImport = async (): Promise<void> => {
-        const shop = shops.find((s) => s.id === shopId);
-        if (!shop || !parseResult) return;
+        if (!previewRequest || !currentReview || currentReview.create === 0 ||
+            currentReview.setupErrors.length > 0 ||
+            (currentReview.amountDifferences > 0 && !amountsReviewed) ||
+            (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)) return;
 
         setImportError('');
         setStep('importing');
 
-        // Persist the resolved item mappings on the connection for next time —
-        // fire-and-forget. This is a convenience; a failure to save mappings
-        // must never abort the actual order import below.
-        void updateConnection
-            .mutateAsync({ id: shopId, itemMappings: resolvedMappings })
-            .catch((e) => console.error('Failed to persist item mappings', e));
-
         try {
-            // Build the endpoint payload from parsed orders.
-            const orders = parseResult.parsedOrders.map((order) => {
-                const issueDate =
-                    order[dateField] ||
-                    order.completionDate ||
-                    order.paymentDate ||
-                    order.orderDate ||
-                    new Date().toISOString().split('T')[0];
+            // Recheck immediately before posting. Another user may have imported
+            // an order or changed an item while this review was open.
+            const freshReview = await previewOrders(previewRequest);
+            if (JSON.stringify(freshReview) !== JSON.stringify(currentReview)) {
+                setReviewState({ key: reviewKey, result: freshReview });
+                setAmountsReviewed(false);
+                setStatusesReviewed(false);
+                setReviewError('The review changed while it was open. Check the updated counts and amounts before importing.');
+                setStep('configure');
+                return;
+            }
 
-                const lines = order.items.map((item) => {
-                    const key = buildProductKey(item);
-                    return {
-                        // Falls back to '' for inactive-blocked SKUs — the server
-                        // rejects the order and reports it in `failed`.
-                        itemId: resolvedMappings[key] ?? '',
-                        description: item.variationName
-                            ? `${item.productName} - ${item.variationName}`
-                            : item.productName,
-                        sku: inventorySkuFor(item),
-                        quantity: item.quantity,
-                        // Unit price AFTER discount — matches the invoice line
-                        // price used by the legacy transform.
-                        unitPrice: item.priceAfterDiscount,
-                    };
-                });
+            const orders = previewRequest.orders
+                .filter((_, index) => freshReview.orders[index]?.status !== 'blocked')
+                .map(({ sourceTotal: _sourceTotal, missingDate: _missingDate, ...order }) => order);
 
-                return { orderNo: order.orderNumber, issueDate: issueDate as string, lines };
-            });
+            // Save mappings for later imports. Failure to save this convenience
+            // setting does not affect the orders already validated below.
+            void updateConnection
+                .mutateAsync({ id: previewRequest.connectionId, itemMappings: resolvedMappings })
+                .catch((error) => console.error('Failed to persist item mappings', error));
 
             const res = await importMutation.mutateAsync({
-                connectionId: shopId,
+                connectionId: previewRequest.connectionId,
                 orders,
-                options: { customerId: shop.customer, recordPayment },
+                options: previewRequest.options,
             });
 
-            setImportResult(res);
+            setImportResult({
+                ...res,
+                failed: [...res.failed, ...freshReview.orders
+                    .filter((order) => order.status === 'blocked')
+                    .map((order) => ({ orderNo: order.orderNo, reason: order.reason || 'Blocked by pre-import review' }))],
+            });
             setStep('done');
         } catch (err) {
             setImportError((err as Error).message || 'Import failed.');
@@ -670,9 +759,17 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
                 <div className="text-sm text-neutral-600">
-                    <strong>{mappedCount}</strong> of <strong>{parseResult?.uniqueProducts.length || 0}</strong> products matched by SKU
+                    <strong>{mappedCount}</strong> of <strong>{relevantProductKeys.size}</strong> products in new orders matched by SKU
                 </div>
             </div>
+
+            {reviewLoading && <p className="text-xs text-neutral-500">Checking which orders were imported before...</p>}
+            {currentReview && currentReview.alreadyImported > 0 && (
+                <p className="text-xs text-neutral-600">
+                    {currentReview.alreadyImported} already imported order{currentReview.alreadyImported > 1 ? 's' : ''} do not need product mapping.
+                </p>
+            )}
+            {reviewError && <p className="text-xs text-red-700">Could not check existing orders: {reviewError}</p>}
 
             <div className="text-xs text-neutral-500">
                 Products are matched to your inventory by SKU. Create any that are new, then continue.
@@ -692,7 +789,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                             variant="primary"
                             icon={creatingItems ? <Loader size={14} className="animate-spin" /> : undefined}
                             onClick={() => void handleCreateAll()}
-                            disabled={creatingItems}
+                            disabled={creatingItems || reviewLoading || !currentReview}
                         />
                     </div>
                     <div className="max-h-40 overflow-y-auto">
@@ -706,7 +803,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                                     {/* Manual fallback: map to an existing item instead of creating. */}
                                     <SearchableSelect
                                         options={itemOptions}
-                                        value={localMappings[p.key] || ''}
+                                        value={resolvedMappings[p.key] || ''}
                                         onChange={(val: string) => handleMappingChange(p.key, val)}
                                         placeholder="…or map to existing"
                                     />
@@ -792,37 +889,102 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 </select>
             </div>
 
-            {/* Import summary */}
-            <div className="bg-neutral-50 rounded-lg p-4 mt-2">
-                <h4 className="text-sm font-semibold mb-3">Import Summary</h4>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-neutral-500">Orders to send:</div>
-                    <div className="font-medium">{parseResult?.parsedOrders.length.toLocaleString() ?? 0}</div>
-                    <div className="text-neutral-500">Products matched:</div>
-                    <div className="font-medium">{mappedCount.toLocaleString()}</div>
-                    <div className="text-neutral-500">Total amount:</div>
-                    <div className="font-semibold">{formatIDR(parseResult?.stats.totalAmount ?? 0)}</div>
-                </div>
-            </div>
-
-            {inactiveBlocked.length > 0 && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
-                    <div className="flex items-center gap-2 font-semibold mb-1">
-                        <PackageX size={14} />
-                        {inactiveBlocked.length} product{inactiveBlocked.length > 1 ? 's' : ''} map to inactive items
-                    </div>
-                    <p className="text-xs text-amber-700">
-                        Orders containing these will be rejected by the server and listed as failed.
-                    </p>
+            {ordersMissingAllDates > 0 && (
+                <div>
+                    <label className="form-label" htmlFor="marketplace-import-fallback-date">
+                        Date for {ordersMissingAllDates} order{ordersMissingAllDates > 1 ? 's' : ''} with no date in the file
+                    </label>
+                    <input
+                        id="marketplace-import-fallback-date"
+                        type="date"
+                        className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-white text-sm"
+                        value={fallbackDate}
+                        onChange={(event) => setFallbackDate(event.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-neutral-500">These orders will be excluded until you enter a date.</p>
                 </div>
             )}
 
-            {importError && (
+            {/* Server-backed review uses the same tax calculation as posting. */}
+            <div className="bg-neutral-50 rounded-lg p-4 mt-2">
+                <h4 className="text-sm font-semibold mb-3">Pre-import review</h4>
+                {reviewLoading || !currentReview ? (
+                    <p className="flex items-center gap-2 text-sm text-neutral-600">
+                        {reviewLoading && <Loader size={14} className="animate-spin" />}
+                        {reviewLoading ? 'Checking orders and invoice amounts...' : 'Review unavailable.'}
+                    </p>
+                ) : (
+                    <>
+                        <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                            <div><div className="text-neutral-500">New</div><strong>{currentReview.create}</strong></div>
+                            <div><div className="text-neutral-500">Already imported</div><strong>{currentReview.alreadyImported}</strong></div>
+                            <div><div className="text-neutral-500">Blocked</div><strong>{currentReview.blocked}</strong></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mt-3 border-t border-neutral-200 pt-3 text-sm">
+                            <span className="text-neutral-500">Export total for new orders</span>
+                            <span className="text-right">{formatIDR(currentReview.sourceTotal)}</span>
+                            <span className="text-neutral-500">Expected invoice total</span>
+                            <strong className="text-right">{formatIDR(currentReview.invoiceTotal)}</strong>
+                        </div>
+                        <p className="mt-2 text-xs text-neutral-500">This is a pre-check; accounting-period rules and changes made by another user can still prevent posting.</p>
+                    </>
+                )}
+            </div>
+
+            {currentReview && currentReview.setupErrors.length > 0 && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-800">
+                    <strong>Shop setup needs attention</strong>
+                    <ul className="mt-1 list-disc list-inside">
+                        {currentReview.setupErrors.map((error) => <li key={error}>{error}</li>)}
+                    </ul>
+                </div>
+            )}
+
+            {currentReview && currentReview.blocked > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                    <strong>{currentReview.blocked} order{currentReview.blocked > 1 ? 's' : ''} will not be sent</strong>
+                    <ul className="mt-2 max-h-36 overflow-y-auto space-y-1 text-xs">
+                        {currentReview.orders.filter((order) => order.status === 'blocked').map((order, index) => (
+                            <li key={`${order.orderNo}-${index}`}>{order.orderNo}: {order.reason}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {currentReview && currentReview.amountDifferences > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                    <strong>{currentReview.amountDifferences} order{currentReview.amountDifferences > 1 ? 's' : ''} differ from the export total</strong>
+                    <p className="mt-1 text-xs">Invoice amounts include the configured tax treatment and are calculated from unit prices and quantities.</p>
+                    <ul className="mt-2 max-h-36 overflow-y-auto space-y-1 text-xs">
+                        {currentReview.orders.filter((order) => order.status === 'create' && order.difference !== 0).map((order, index) => (
+                            <li key={`${order.orderNo}-${index}`}>
+                                {order.orderNo}: export {formatIDR(order.sourceTotal)} → invoice {formatIDR(order.invoiceTotal ?? 0)}
+                            </li>
+                        ))}
+                    </ul>
+                    <label className="flex items-center gap-2 mt-3 text-xs cursor-pointer">
+                        <input type="checkbox" checked={amountsReviewed} onChange={(event) => setAmountsReviewed(event.target.checked)} />
+                        I reviewed these amount differences.
+                    </label>
+                </div>
+            )}
+
+            {selectedShop?.importStatusFilter === 'All' && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+                    <p>All Statuses is selected for this shop. The file may contain canceled or refunded orders.</p>
+                    <label className="flex items-center gap-2 mt-2 text-xs cursor-pointer">
+                        <input type="checkbox" checked={statusesReviewed} onChange={(event) => setStatusesReviewed(event.target.checked)} />
+                        I reviewed the order statuses in the export.
+                    </label>
+                </div>
+            )}
+
+            {(reviewError || importError) && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
                     <div className="flex items-center gap-2 font-semibold">
-                        <AlertTriangle size={14} /> Import failed
+                        <AlertTriangle size={14} /> {importError ? 'Import failed' : 'Review needs attention'}
                     </div>
-                    <div className="mt-1 text-xs">{importError}</div>
+                    <div className="mt-1 text-xs">{importError || reviewError}</div>
                 </div>
             )}
         </div>
@@ -895,12 +1057,12 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     // Confirm is blocked while any product is unmatched (must be created/mapped).
     // Inactive-blocked products do NOT block — their orders are excluded server-side.
-    const confirmBlocked = unmatched.length > 0;
+    const confirmBlocked = unmatched.length > 0 || reviewLoading || !currentReview;
 
     const canGoNext = (): boolean => {
         if (step === 'upload') return false; // handled by file select
         if (step === 'preview') return true;
-        if (step === 'mapping') return unmatched.length === 0;
+        if (step === 'mapping') return unmatched.length === 0 && Boolean(currentReview) && !reviewLoading;
         if (step === 'configure') return true;
         return false;
     };
@@ -958,13 +1120,18 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                             <Button text="Close" variant="primary" onClick={handleClose} />
                         ) : step === 'configure' ? (
                             <Button
-                                text={`Import ${parseResult?.parsedOrders.length.toLocaleString() || 0} Orders`}
+                                text={reviewLoading ? 'Checking orders...' : `Import ${currentReview?.create.toLocaleString() ?? 0} New Orders`}
                                 variant="primary"
                                 onClick={() => void handleImport()}
+                                disabled={reviewLoading || !currentReview || currentReview.create === 0 ||
+                                    currentReview.setupErrors.length > 0 ||
+                                    (currentReview.amountDifferences > 0 && !amountsReviewed) ||
+                                    (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)}
                             />
                         ) : step === 'mapping' ? (
                             <Button
-                                text={confirmBlocked ? `${unmatched.length} product(s) need mapping` : 'Next'}
+                                text={reviewLoading || !currentReview ? 'Checking orders...' :
+                                    unmatched.length > 0 ? `${unmatched.length} product(s) need mapping` : 'Next'}
                                 variant="primary"
                                 icon={confirmBlocked ? undefined : <ArrowRight size={14} />}
                                 onClick={handleNext}

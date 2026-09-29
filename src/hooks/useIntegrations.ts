@@ -158,6 +158,39 @@ export interface MarketplaceImportResult {
   failed: Array<{ orderNo: string; reason: string }>;
 }
 
+export interface MarketplaceImportPreviewPayload extends MarketplaceImportPayload {
+  orders: Array<MarketplaceImportPayload['orders'][number] & {
+    sourceTotal: number;
+    missingDate: boolean;
+  }>;
+}
+
+export interface MarketplaceImportPreviewResult {
+  create: number;
+  alreadyImported: number;
+  blocked: number;
+  amountDifferences: number;
+  sourceTotal: number;
+  invoiceTotal: number;
+  paymentAccountMissing: boolean;
+  setupErrors: string[];
+  orders: Array<{
+    orderNo: string;
+    status: 'create' | 'already_imported' | 'blocked';
+    reason?: string;
+    sourceTotal: number;
+    invoiceTotal: number | null;
+    difference: number | null;
+  }>;
+}
+
+export function usePreviewMarketplaceOrders() {
+  return useMutation({
+    mutationFn: ({ connectionId, ...body }: MarketplaceImportPreviewPayload & { connectionId: string }) =>
+      api.post<MarketplaceImportPreviewResult>(`/api/v1/integrations/${connectionId}/import/preview`, body),
+  });
+}
+
 export function useImportMarketplaceOrders() {
   const qc = useQueryClient();
   return useMutation({

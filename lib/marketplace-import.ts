@@ -52,6 +52,28 @@ export interface ImportResult {
   failed: Array<{ orderNo: string; reason: string }>;
 }
 
+export function calculateMarketplaceOrderTotals(
+  order: ImportOrder,
+  org: { taxEnabled: boolean; taxDefaultRate: unknown; taxInclusiveByDefault: boolean },
+  taxInclusive: boolean,
+) {
+  return calculateInvoiceTotals(
+    {
+      lines: order.lines.map((line) => ({
+        itemId: line.itemId,
+        description: line.description,
+        code: line.sku || null,
+        quantity: line.quantity,
+        unit: 'PCS',
+        price: line.unitPrice,
+        discountPct: 0,
+      })),
+      tax: { inclusive: taxInclusive },
+    },
+    org,
+  );
+}
+
 export async function importMarketplaceOrders(
   orgId: string,
   userId: string,
@@ -68,6 +90,10 @@ export async function importMarketplaceOrders(
   });
   if (!conn) {
     throw new Error(`Ecommerce connection not found: ${connectionId}`);
+  }
+
+  if (options.recordPayment && !conn.holdingAccountId) {
+    throw new Error('Choose a settlement/holding account for this shop before recording payments');
   }
 
   const customerId = options.customerId || conn.customerId;
@@ -147,25 +173,7 @@ export async function importMarketplaceOrders(
         }
 
         // 3. Totals via the shared calculator (same shape the UI route builds).
-        const totals = calculateInvoiceTotals(
-          {
-            lines: order.lines.map((l) => ({
-              itemId: l.itemId,
-              description: l.description,
-              code: l.sku || null,
-              quantity: l.quantity,
-              unit: 'PCS',
-              price: l.unitPrice,
-              discountPct: 0,
-            })),
-            tax: { inclusive: taxInclusive },
-          },
-          {
-            taxEnabled: org.taxEnabled,
-            taxDefaultRate: org.taxDefaultRate,
-            taxInclusiveByDefault: org.taxInclusiveByDefault,
-          },
-        );
+        const totals = calculateMarketplaceOrderTotals(order, org, taxInclusive);
 
         const issueDate = new Date(order.issueDate);
         if (Number.isNaN(issueDate.getTime())) {
