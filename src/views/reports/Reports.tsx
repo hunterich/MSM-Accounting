@@ -2380,36 +2380,96 @@ const Reports: React.FC<ReportsProps> = ({
 
     if (report.id === 'monthly-chart') {
       const chartData = data as { rows: SalesMonthlyRow[]; grandTotal: number };
-      const max = Math.max(...chartData.rows.map((row) => row.total), 1);
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+      // Fill months with no sales so gaps show as empty slots instead of being skipped.
+      const byMonth = new Map(chartData.rows.map((r) => [r.month, r.total]));
+      const months: SalesMonthlyRow[] = [];
+      const from = activeReport.params.dateFrom;
+      const to = activeReport.params.dateTo;
+      if (from && to) {
+        const cur = new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, 1);
+        const end = new Date(Number(to.slice(0, 4)), Number(to.slice(5, 7)) - 1, 1);
+        while (cur <= end && months.length < 120) {
+          const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+          months.push({ month: key, total: byMonth.get(key) ?? 0 });
+          cur.setMonth(cur.getMonth() + 1);
+        }
+      } else {
+        months.push(...chartData.rows);
+      }
+      if (months.length === 0 || chartData.grandTotal === 0) {
+        return <div className="py-10 text-center text-sm text-neutral-500">Tidak ada penjualan pada periode ini.</div>;
+      }
+
+      const max = Math.max(...months.map((m) => m.total), 1);
+      const rawStep = max / 4;
+      const pow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const step = [1, 2, 2.5, 5, 10].map((f) => f * pow).find((s) => s >= rawStep) ?? rawStep;
+      const top = step * Math.ceil(max / step);
+      const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
+      const compact = (n: number) =>
+        n >= 1e9 ? `${(n / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M`
+        : n >= 1e6 ? `${(n / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt`
+        : n.toLocaleString('id-ID');
+      const monthLabel = (key: string) => {
+        const [year, month] = key.split('-');
+        return `${monthNames[parseInt(month, 10) - 1]} ${year}`;
+      };
+      const best = months.reduce((a, b) => (b.total > a.total ? b : a), months[0]);
+      const avg = chartData.grandTotal / months.length;
+      const CHART_H = 260;
 
       return (
         <div>
-          <div className="flex items-end gap-2 h-[280px] px-4 pb-8 pt-4 overflow-x-auto">
-            {chartData.rows.map((row, i) => {
-              const pct = (row.total / max) * 100;
-              const [year, month] = row.month.split('-');
-              const label = `${monthNames[parseInt(month, 10) - 1]} ${year}`;
-
-              return (
-                <div key={i} className="flex flex-col items-center gap-1 flex-1 min-w-[60px]">
-                  <div className="text-xs font-medium text-neutral-600">{formatIDR(row.total)}</div>
-                  <div
-                    className="w-full bg-primary-500 rounded-t-sm transition-all"
-                    style={{ height: `${Math.max(pct * 2, 4)}px` }}
-                    title={formatIDR(row.total)}
-                  />
-                  <div className="text-[10px] text-neutral-500 text-center leading-tight">{label}</div>
-                </div>
-              );
-            })}
-            {chartData.rows.length === 0 && (
-              <div className="w-full text-center text-neutral-500 self-center">No data</div>
-            )}
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            {[
+              { label: 'Total Penjualan', value: formatIDR(chartData.grandTotal) },
+              { label: 'Rata-rata / Bulan', value: formatIDR(avg) },
+              { label: 'Bulan Tertinggi', value: `${monthLabel(best.month)} · ${formatIDR(best.total)}` },
+            ].map((s) => (
+              <div key={s.label} className="rounded-md border border-neutral-200 px-4 py-3">
+                <div className="text-xs text-neutral-500">{s.label}</div>
+                <div className="text-sm font-semibold text-neutral-900 mt-0.5 tabular-nums">{s.value}</div>
+              </div>
+            ))}
           </div>
-          <div className="mt-4 pt-4 border-t border-neutral-200 flex justify-between items-center px-4">
-            <span className="text-sm text-neutral-600">Total Penjualan</span>
-            <span className="font-bold text-lg text-primary-700">{formatIDR(chartData.grandTotal)}</span>
+
+          <div className="flex overflow-x-auto pb-2">
+            <div className="relative shrink-0 w-14 text-right pr-2 text-[10px] text-neutral-500 tabular-nums" style={{ height: CHART_H }}>
+              {ticks.map((t) => (
+                <div key={t} className="absolute right-2 -translate-y-1/2" style={{ bottom: `${(t / top) * 100}%`, transform: 'translateY(50%)' }}>
+                  {compact(t)}
+                </div>
+              ))}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="relative border-l border-b border-neutral-300" style={{ height: CHART_H, minWidth: months.length * 56 }}>
+                {ticks.slice(1).map((t) => (
+                  <div key={t} className="absolute left-0 right-0 border-t border-dashed border-neutral-200" style={{ bottom: `${(t / top) * 100}%` }} />
+                ))}
+                <div className="absolute inset-0 flex items-end gap-2 px-2">
+                  {months.map((m) => (
+                    <div key={m.month} className="flex-1 h-full flex flex-col justify-end items-center min-w-0" title={`${monthLabel(m.month)}: ${formatIDR(m.total)}`}>
+                      {m.total > 0 && (
+                        <div className="text-[10px] font-medium text-neutral-700 tabular-nums mb-1 whitespace-nowrap">
+                          {months.length > 9 ? compact(m.total) : m.total.toLocaleString('id-ID')}
+                        </div>
+                      )}
+                      <div
+                        className="w-full max-w-[64px] rounded-t-sm bg-primary-500 print:[print-color-adjust:exact]"
+                        style={{ height: `${(m.total / top) * (CHART_H - 20)}px`, minHeight: m.total > 0 ? 2 : 0 }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2 px-2 pt-1.5" style={{ minWidth: months.length * 56 }}>
+                {months.map((m) => (
+                  <div key={m.month} className="flex-1 text-center text-[10px] text-neutral-600 min-w-0">{monthLabel(m.month)}</div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       );
