@@ -277,5 +277,27 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
+  /* ── Portion of Sales per Item (top N + Others) ── */
+  if (type === 'share-by-item') {
+    const lines = await prisma.salesInvoiceLine.findMany({
+      where: { invoice: dateFilter },
+      select: { description: true, lineSubtotal: true },
+      take: ROW_CAP + 1,
+    });
+    if (lines.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
+    const map = new Map<string, number>();
+    for (const line of lines) {
+      map.set(line.description, (map.get(line.description) || 0) + Number(line.lineSubtotal || 0));
+    }
+    const sorted = Array.from(map.entries())
+      .map(([description, total]) => ({ description, total, isOthers: false }))
+      .sort((a, b) => b.total - a.total);
+    const keep = topN && topN > 0 ? topN : 5;
+    const rows = sorted.slice(0, keep);
+    const othersTotal = sorted.slice(keep).reduce((s, r) => s + r.total, 0);
+    if (othersTotal !== 0) rows.push({ description: 'Others', total: othersTotal, isOthers: true });
+    return ok({ type, rows, grandTotal: sorted.reduce((s, r) => s + r.total, 0) });
+  }
+
   return err('Unknown report type', 400);
 });

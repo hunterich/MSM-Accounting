@@ -31,6 +31,7 @@ export type ReportType =
   | 'sales-return-list'
   | 'monthly-chart'
   | 'share-by-customer'
+  | 'share-by-item'
   | 'aging'
   | 'customer-balance'
   | 'overdue-list'
@@ -156,6 +157,12 @@ export interface SalesReturnListRow {
   invoiceNumber: string;
   status: string;
   totalAmount: number;
+}
+
+export interface SalesShareItemRow {
+  description: string;
+  total: number;
+  isOthers: boolean;
 }
 
 export interface SalesMonthlyRow {
@@ -729,6 +736,15 @@ const SALES_REPORTS: ReportDefinition[] = [
     type: 'chart',
     filterMode: 'date-range',
   },
+  {
+    id: 'share-by-item',
+    category: 'sales',
+    apiPath: '/api/v1/reports/sales',
+    name: 'Portion of Sales per Item',
+    description: 'Pie chart of the top 5 items by sales, the rest grouped as Others',
+    type: 'chart',
+    filterMode: 'date-range',
+  },
 ];
 
 const AR_REPORTS: ReportDefinition[] = [
@@ -1107,6 +1123,19 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
       escapeCsvCell(row.month),
       row.total,
     ].join(',')).join('\n');
+    return csv;
+  }
+
+  if (report.id === 'share-by-item') {
+    const rows = data.rows as SalesShareItemRow[];
+    const grandTotal = data.grandTotal as number;
+    let csv = 'Barang,Total,Porsi (%)\n';
+    csv += rows.map((row) => [
+      escapeCsvCell(row.description),
+      row.total,
+      grandTotal > 0 ? ((row.total / grandTotal) * 100).toFixed(1) : 0,
+    ].join(',')).join('\n');
+    csv += `\nTotal,${grandTotal},100.0`;
     return csv;
   }
 
@@ -2470,6 +2499,65 @@ const Reports: React.FC<ReportsProps> = ({
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (report.id === 'share-by-item') {
+      const shareData = data as { rows: SalesShareItemRow[]; grandTotal: number };
+      const rows = shareData.rows.filter((r) => r.total > 0);
+      if (rows.length === 0 || shareData.grandTotal <= 0) {
+        return <div className="py-10 text-center text-sm text-neutral-500">Tidak ada penjualan pada periode ini.</div>;
+      }
+      const palette = ['#3b6bd6', '#d2451e', '#f59e0b', '#16a34a', '#9333ea', '#0ea5c6', '#db2777', '#65a30d'];
+      const slices = rows.map((r, i) => ({
+        ...r,
+        color: r.isOthers ? '#94a3b8' : palette[i % palette.length],
+        pct: (r.total / shareData.grandTotal) * 100,
+      }));
+      const R = 110;
+      let angle = -Math.PI / 2;
+      const paths = slices.map((sl) => {
+        const sweep = (sl.total / shareData.grandTotal) * Math.PI * 2;
+        const a0 = angle;
+        angle += sweep;
+        if (slices.length === 1) return { ...sl, d: '' };
+        const large = sweep > Math.PI ? 1 : 0;
+        const x0 = R * Math.cos(a0), y0 = R * Math.sin(a0);
+        const x1 = R * Math.cos(a0 + sweep), y1 = R * Math.sin(a0 + sweep);
+        return { ...sl, d: `M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${R} ${R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z` };
+      });
+      return (
+        <div className="flex flex-wrap items-center justify-center gap-10 py-4">
+          <svg viewBox={`${-R - 4} ${-R - 4} ${R * 2 + 8} ${R * 2 + 8}`} className="w-[260px] h-[260px] shrink-0" role="img" aria-label="Diagram porsi penjualan per barang">
+            {paths.map((sl) => (
+              sl.d
+                ? <path key={sl.description} d={sl.d} fill={sl.color} stroke="#fff" strokeWidth={1.5}><title>{`${sl.description}: ${formatIDR(sl.total)} (${sl.pct.toFixed(1)}%)`}</title></path>
+                : <circle key={sl.description} r={R} fill={sl.color} />
+            ))}
+          </svg>
+          <div className="flex-1 min-w-[300px] max-w-[560px]">
+            <table className="w-full text-sm tabular-nums">
+              <tbody>
+                {slices.map((sl) => (
+                  <tr key={sl.description} className="border-b border-neutral-200">
+                    <td className="py-2 pr-2 w-4"><span className="block w-3 h-3 rounded-full print:[print-color-adjust:exact]" style={{ background: sl.color }} /></td>
+                    <td className="py-2 pr-3">{sl.description}</td>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap">{formatIDR(sl.total)}</td>
+                    <td className="py-2 text-right w-16 text-neutral-600">{sl.pct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="font-bold">
+                  <td />
+                  <td className="py-2">Total</td>
+                  <td className="py-2 text-right whitespace-nowrap">{formatIDR(shareData.grandTotal)}</td>
+                  <td className="py-2 text-right">100%</td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
       );
