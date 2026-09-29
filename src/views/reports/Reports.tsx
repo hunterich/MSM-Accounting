@@ -966,6 +966,13 @@ const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 const REPORT_PRESETS_KEY = 'msm-report-presets';
 
+const PERIOD_PRESETS: { label: string; range: () => [string, string] }[] = [
+  { label: 'Bulan ini', range: () => [fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), fmtDate(today)] },
+  { label: 'Bulan lalu', range: () => [fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)), fmtDate(new Date(today.getFullYear(), today.getMonth(), 0))] },
+  { label: '3 bulan terakhir', range: () => [fmtDate(new Date(today.getFullYear(), today.getMonth() - 2, 1)), fmtDate(today)] },
+  { label: 'Tahun ini', range: () => [fmtDate(new Date(today.getFullYear(), 0, 1)), fmtDate(today)] },
+];
+
 // Presets hold org entity ids (accountId, warehouseId, customerId, …) so they
 // are partitioned per company, mirroring the org-scoped zustand stores.
 const reportPresetsKey = (): string => `${REPORT_PRESETS_KEY}:${getActiveOrgId() ?? 'default'}`;
@@ -999,13 +1006,18 @@ const getStatusPillClass = (status: string): string => {
 const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
   if (report.id === 'by-customer') {
     const rows = data.rows as SalesByCustomerRow[];
-    let csv = 'Pelanggan,Jumlah Invoice,Total Penjualan\n';
-    csv += rows.map((row) => [
+    const grand = data.grandTotal as number;
+    const totalInvoices = rows.reduce((s, r) => s + r.invoiceCount, 0);
+    let csv = 'No,Pelanggan,Jumlah Invoice,Rata-rata per Invoice,Total Penjualan,Kontribusi (%)\n';
+    csv += rows.map((row, i) => [
+      i + 1,
       escapeCsvCell(row.customerName),
       row.invoiceCount,
+      row.invoiceCount > 0 ? Math.round(row.total / row.invoiceCount) : 0,
       row.total,
+      grand > 0 ? ((row.total / grand) * 100).toFixed(1) : '0.0',
     ].join(',')).join('\n');
-    csv += `\nTotal,,${data.grandTotal as number}`;
+    csv += `\n,Total,${totalInvoices},${totalInvoices > 0 ? Math.round(grand / totalInvoices) : 0},${grand},100.0`;
     return csv;
   }
 
@@ -2047,29 +2059,60 @@ const Reports: React.FC<ReportsProps> = ({
 
     if (report.id === 'by-customer') {
       const rows = (data as { rows: SalesByCustomerRow[]; grandTotal: number });
+      const totalInvoices = rows.rows.reduce((s, r) => s + r.invoiceCount, 0);
+      const fmtInt = (n: number) => n.toLocaleString('id-ID');
+      const fmtPct = (n: number) => `${n.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+      if (rows.rows.length === 0) {
+        return <div className="py-10 text-center text-sm text-neutral-500">Tidak ada penjualan pada periode ini.</div>;
+      }
       return (
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full border-collapse text-sm tabular-nums">
           <thead>
             <tr className="bg-blue-50">
+              <th className="p-3 text-center font-semibold border border-neutral-300 w-[52px]">#</th>
               <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
-              <th className="p-3 text-right font-semibold border border-neutral-300 w-[120px]">Jml Invoice</th>
-              <th className="p-3 text-right font-semibold border border-neutral-300 w-[180px]">Penjualan</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[110px]">Jml Invoice</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[170px]">Rata-rata / Invoice</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300 w-[170px]">Penjualan</th>
+              <th className="p-3 text-left font-semibold border border-neutral-300 w-[190px]">Kontribusi</th>
             </tr>
           </thead>
           <tbody>
-            {rows.rows.map((row, i) => (
-              <tr key={i} className="hover:bg-neutral-50">
-                <td className="p-3 border border-neutral-200">{row.customerName}</td>
-                <td className="p-3 border border-neutral-200 text-right">{row.invoiceCount}</td>
-                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
-              </tr>
-            ))}
+            {rows.rows.map((row, i) => {
+              const pct = rows.grandTotal > 0 ? (row.total / rows.grandTotal) * 100 : 0;
+              return (
+                <tr key={i} className="hover:bg-neutral-50">
+                  <td className="p-3 border border-neutral-200 text-center text-neutral-500">{i + 1}</td>
+                  <td className="p-3 border border-neutral-200">{row.customerName}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{fmtInt(row.invoiceCount)}</td>
+                  <td className="p-3 border border-neutral-200 text-right text-neutral-600">
+                    {formatIDR(row.invoiceCount > 0 ? row.total / row.invoiceCount : 0)}
+                  </td>
+                  <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
+                  <td className="p-3 border border-neutral-200">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden print:border print:border-neutral-300">
+                        <div className="h-full rounded-full bg-primary-500" style={{ width: `${Math.min(pct, 100)}%` }} />
+                      </div>
+                      <span className="w-12 text-right text-xs text-neutral-600">{fmtPct(pct)}</span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
           <tfoot>
             <tr className="bg-blue-50 font-bold">
-              <td className="p-3 border border-neutral-300">Total Pelanggan</td>
-              <td className="p-3 border border-neutral-300 text-right">{rows.rows.length}</td>
+              <td className="p-3 border border-neutral-300" />
+              <td className="p-3 border border-neutral-300">
+                Total <span className="font-normal text-neutral-500">({fmtInt(rows.rows.length)} pelanggan)</span>
+              </td>
+              <td className="p-3 border border-neutral-300 text-right">{fmtInt(totalInvoices)}</td>
+              <td className="p-3 border border-neutral-300 text-right">
+                {formatIDR(totalInvoices > 0 ? rows.grandTotal / totalInvoices : 0)}
+              </td>
               <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.grandTotal)}</td>
+              <td className="p-3 border border-neutral-300 text-right text-xs">100%</td>
             </tr>
           </tfoot>
         </table>
@@ -3752,6 +3795,28 @@ const Reports: React.FC<ReportsProps> = ({
                     />
                   </div>
                 </div>
+                {paramModal.category === 'sales' && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {PERIOD_PRESETS.map((preset) => {
+                      const [from, to] = preset.range();
+                      const active = dateFrom === from && dateTo === to;
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => { setDateFrom(from); setDateTo(to); }}
+                          className={`px-2.5 h-7 text-xs rounded-full border transition-colors ${
+                            active
+                              ? 'bg-primary-50 border-primary-300 text-primary-700 font-medium'
+                              : 'bg-neutral-0 border-neutral-300 text-neutral-600 hover:bg-neutral-100'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {paramModal.id === 'profit-loss-multi-period' && (
                   <div className="mt-4">
                     <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Periode Pembanding</div>
@@ -3811,7 +3876,7 @@ const Reports: React.FC<ReportsProps> = ({
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Pelanggan</div>
                 <div className="space-y-3">
                   <SearchableSelect
-                    label="Customer (Optional)"
+                    label="Pelanggan (Opsional)"
                     options={customerOptions}
                     value={selectedCustomerId}
                     onChange={(customerId) => {
@@ -3819,17 +3884,20 @@ const Reports: React.FC<ReportsProps> = ({
                       const customer = customers.find((entry) => entry.id === customerId);
                       setFilterCustomer(customer?.name || '');
                     }}
-                    placeholder="Select customer..."
+                    placeholder="Semua pelanggan"
                     className="mb-0"
                   />
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <label className="flex items-start gap-3 p-3 rounded-md border border-neutral-200 hover:bg-neutral-50 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={topNCustomer}
                       onChange={(e) => setTopNCustomer(e.target.checked)}
-                      className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                      className="mt-0.5 w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
                     />
-                    <span className="text-sm text-neutral-700">Top 30 Pelanggan <span className="text-neutral-400">(berdasarkan nilai penjualan)</span></span>
+                    <span>
+                      <span className="block text-sm font-medium text-neutral-800">Top 30 Pelanggan</span>
+                      <span className="block text-xs text-neutral-500">Tampilkan 30 pelanggan dengan nilai penjualan tertinggi</span>
+                    </span>
                   </label>
                 </div>
               </div>
@@ -3973,13 +4041,13 @@ const Reports: React.FC<ReportsProps> = ({
               </div>
             )}
 
-            <div className="flex justify-between pt-2">
+            <div className="flex items-center justify-between pt-4 border-t border-neutral-200">
               <button
                 type="button"
                 onClick={resetModalFilters}
                 className="text-sm text-neutral-500 hover:text-neutral-800 underline"
               >
-                Reset Filters
+                Reset Filter
               </button>
               <Button
                 text="Tampilkan"
