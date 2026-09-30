@@ -36,6 +36,9 @@ export interface ImportOrderLine {
 export interface ImportOrder {
   orderNo: string;
   issueDate: string;
+  shippingAddress?: string;
+  shippingCarrier?: string;
+  trackingNumber?: string;
   lines: ImportOrderLine[];
 }
 
@@ -48,8 +51,31 @@ export interface ImportOptions {
 
 export interface ImportResult {
   created: number;
+  logisticsUpdated: number;
   skipped: number;
   failed: Array<{ orderNo: string; reason: string }>;
+}
+
+export function calculateMarketplaceOrderTotals(
+  order: ImportOrder,
+  org: { taxEnabled: boolean; taxDefaultRate: unknown; taxInclusiveByDefault: boolean },
+  taxInclusive: boolean,
+) {
+  return calculateInvoiceTotals(
+    {
+      lines: order.lines.map((line) => ({
+        itemId: line.itemId,
+        description: line.description,
+        code: line.sku || null,
+        quantity: line.quantity,
+        unit: 'PCS',
+        price: line.unitPrice,
+        discountPct: 0,
+      })),
+      tax: { inclusive: taxInclusive },
+    },
+    org,
+  );
 }
 
 export async function importMarketplaceOrders(
@@ -59,7 +85,7 @@ export async function importMarketplaceOrders(
   orders: ImportOrder[],
   options: ImportOptions,
 ): Promise<ImportResult> {
-  const result: ImportResult = { created: 0, skipped: 0, failed: [] };
+  const result: ImportResult = { created: 0, logisticsUpdated: 0, skipped: 0, failed: [] };
 
   // Load the connection ONCE up front; it is constant across the batch.
   const conn = await prisma.ecommerceConnection.findFirst({
@@ -68,6 +94,10 @@ export async function importMarketplaceOrders(
   });
   if (!conn) {
     throw new Error(`Ecommerce connection not found: ${connectionId}`);
+  }
+
+  if (options.recordPayment && !conn.holdingAccountId) {
+    throw new Error('Choose a settlement/holding account for this shop before recording payments');
   }
 
   const customerId = options.customerId || conn.customerId;
@@ -112,7 +142,7 @@ export async function importMarketplaceOrders(
       // The tx callback returns a discriminator; counters are updated AFTER the
       // transaction commits (mirrors payment-posting) so a Prisma retry of the
       // callback can never double-count.
-      const outcome = await prisma.$transaction(async (tx): Promise<'created' | 'skipped'> => {
+      const outcome = await prisma.$transaction(async (tx): Promise<'created' | 'logistics_updated' | 'skipped'> => {
         // 1. Idempotency — skip orders already imported (ignore VOID re-use).
         const existing = await tx.salesInvoice.findFirst({
           where: {
@@ -120,9 +150,20 @@ export async function importMarketplaceOrders(
             poNumber: order.orderNo,
             status: { not: 'VOID' },
           },
-          select: { id: true },
+          select: { id: true, shippingAddress: true, shippingCarrier: true, trackingNumber: true },
         });
         if (existing) {
+          // A repeat export can enrich a previously imported invoice without
+          // touching its amounts, status, inventory, payment, or journal.
+          const logistics = {
+            ...(!existing.shippingAddress && order.shippingAddress ? { shippingAddress: order.shippingAddress } : {}),
+            ...(!existing.shippingCarrier && order.shippingCarrier ? { shippingCarrier: order.shippingCarrier } : {}),
+            ...(!existing.trackingNumber && order.trackingNumber ? { trackingNumber: order.trackingNumber } : {}),
+          };
+          if (Object.keys(logistics).length > 0) {
+            await tx.salesInvoice.update({ where: { id: existing.id }, data: logistics });
+            return 'logistics_updated';
+          }
           return 'skipped';
         }
 
@@ -147,25 +188,7 @@ export async function importMarketplaceOrders(
         }
 
         // 3. Totals via the shared calculator (same shape the UI route builds).
-        const totals = calculateInvoiceTotals(
-          {
-            lines: order.lines.map((l) => ({
-              itemId: l.itemId,
-              description: l.description,
-              code: l.sku || null,
-              quantity: l.quantity,
-              unit: 'PCS',
-              price: l.unitPrice,
-              discountPct: 0,
-            })),
-            tax: { inclusive: taxInclusive },
-          },
-          {
-            taxEnabled: org.taxEnabled,
-            taxDefaultRate: org.taxDefaultRate,
-            taxInclusiveByDefault: org.taxInclusiveByDefault,
-          },
-        );
+        const totals = calculateMarketplaceOrderTotals(order, org, taxInclusive);
 
         const issueDate = new Date(order.issueDate);
         if (Number.isNaN(issueDate.getTime())) {
@@ -181,6 +204,9 @@ export async function importMarketplaceOrders(
             number,
             customerId,
             poNumber: order.orderNo,
+            shippingAddress: order.shippingAddress || null,
+            shippingCarrier: order.shippingCarrier || null,
+            trackingNumber: order.trackingNumber || null,
             issueDate,
             // Marketplace orders are paid same-day; due date equals the issue date.
             dueDate: issueDate,
@@ -242,6 +268,7 @@ export async function importMarketplaceOrders(
       });
 
       if (outcome === 'created') result.created += 1;
+      else if (outcome === 'logistics_updated') result.logisticsUpdated += 1;
       else result.skipped += 1;
     } catch (error) {
       result.failed.push({

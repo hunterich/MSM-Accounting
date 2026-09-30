@@ -79,8 +79,20 @@ interface InvoiceRecord {
     due?: string;
     status?: string;
     amount?: number | string;
+    amountPaid?: number | string;
+    paidAmount?: number | string;
+    paid?: number | string;
+    downPayment?: number | string;
+    dp?: number | string;
+    subtotal?: number | string;
+    discountAmount?: number | string;
+    taxEnabled?: boolean;
+    taxInclusive?: boolean;
+    taxRate?: number | string;
+    taxAmount?: number | string;
+    totalAmount?: number | string;
+    charges?: Array<{ amount?: number | string }>;
     notes?: string;
-    [key: string]: unknown;
 }
 
 interface CompanyInfo {
@@ -90,7 +102,6 @@ interface CompanyInfo {
     phone?: string;
     email?: string;
     npwp?: string;
-    [key: string]: unknown;
 }
 
 interface InvoicePrintTemplateProps {
@@ -108,10 +119,18 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({ invoice, li
 
     const rows = lineItems.map(normalizeLine);
     const subtotalFromRows = rows.reduce((sum, row) => sum + row.total, 0);
-    const subtotal = subtotalFromRows > 0 ? subtotalFromRows : toNumber(invoice.amount);
-    const safeTaxRate = toNumber(taxRate);
-    const taxAmount = subtotal * (safeTaxRate / 100);
-    const totalAmount = subtotal + taxAmount;
+    // A saved invoice is authoritative: its tax treatment, discounts, charges,
+    // and rounded totals must not be recalculated from today's settings.
+    const saved = invoice.totalAmount != null && invoice.subtotal != null;
+    const subtotal = saved ? toNumber(invoice.subtotal) :
+        subtotalFromRows > 0 ? subtotalFromRows : toNumber(invoice.amount);
+    const discountAmount = saved ? toNumber(invoice.discountAmount) : 0;
+    const chargesTotal = saved ? (invoice.charges ?? []).reduce((sum, charge) => sum + toNumber(charge.amount), 0) : 0;
+    const safeTaxRate = saved
+        ? invoice.taxEnabled === false ? 0 : toNumber(invoice.taxRate)
+        : toNumber(taxRate);
+    const taxAmount = saved ? toNumber(invoice.taxAmount) : subtotal * (safeTaxRate / 100);
+    const totalAmount = saved ? toNumber(invoice.totalAmount) : subtotal + taxAmount;
 
     // Down-payment / partial settlement, read defensively (field name varies by record).
     const paid = toNumber(invoice.amountPaid ?? invoice.paidAmount ?? invoice.paid ?? invoice.downPayment ?? invoice.dp);
@@ -124,7 +143,7 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({ invoice, li
 
     const showUnit = options.showUnitColumn;
     const showDiscount = options.showDiscountColumn;
-    const colSpan = 4 + (showUnit ? 1 : 0) + (showDiscount ? 1 : 0);
+    const colSpan = 5 + (showUnit ? 1 : 0) + (showDiscount ? 1 : 0);
 
     return (
         <div className="print-template" style={pageStyle(options)}>
@@ -185,16 +204,24 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({ invoice, li
                     <span>Subtotal</span>
                     <strong>{formatIDR(subtotal)}</strong>
                 </div>
-                {safeTaxRate > 0 ? (
+                {discountAmount > 0 ? (
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                        <span>DPP</span>
-                        <strong>{formatIDR(subtotal)}</strong>
+                        <span>Invoice discount</span>
+                        <strong>- {formatIDR(discountAmount)}</strong>
                     </div>
                 ) : null}
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                    <span>PPN {safeTaxRate}%</span>
-                    <strong>{formatIDR(taxAmount)}</strong>
-                </div>
+                {chargesTotal !== 0 ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                        <span>Other charges</span>
+                        <strong>{formatIDR(chargesTotal)}</strong>
+                    </div>
+                ) : null}
+                {safeTaxRate > 0 ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                        <span>PPN {safeTaxRate}%{saved && invoice.taxInclusive ? ' (included)' : ''}</span>
+                        <strong>{formatIDR(taxAmount)}</strong>
+                    </div>
+                ) : null}
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: `2px solid ${totalAccent(options)}`, fontSize: '14px', color: totalAccent(options) }}>
                     <span>TOTAL</span>
                     <strong>{formatIDR(totalAmount)}</strong>

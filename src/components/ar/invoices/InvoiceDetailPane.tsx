@@ -1,7 +1,8 @@
 // src/components/ar/invoices/InvoiceDetailPane.tsx
-import React, { useMemo } from 'react';
+import React, { useState } from 'react';
 import InvoiceDetailTabs from './InvoiceDetailTabs';
-import { useInvoices } from '../../../hooks/useAR';
+import InvoicePrintPreview from './InvoicePrintPreview';
+import { useInvoice } from '../../../hooks/useAR';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePermissions';
 
@@ -10,18 +11,13 @@ interface Props { invoiceId: string; workspaceTabId: string }
 const InvoiceDetailPane = ({ invoiceId }: Props): React.ReactElement => {
     const { canEdit, canDelete } = useModulePermissions('ar_invoices');
     const canReprint = useExtraAction('ar_invoices', 'reprint');
+    const [isPrintOpen, setIsPrintOpen] = useState(false);
     const { open } = useWorkspaceNav();
-    // Same source as the form/list (invoices API) so a saved invoice is
-    // viewable immediately. The detail tabs read line items from the local
-    // invoiceItemTemplates store themselves (keyed by invoice id), matching
-    // how InvoiceWorkbench wires the detail view.
-    const { data: invoicesResult } = useInvoices();
-    const invoice = useMemo(
-        () => (invoicesResult?.data ?? []).find((inv) => inv.id === invoiceId) ?? null,
-        [invoicesResult?.data, invoiceId],
-    );
+    const { data: invoice, isLoading, error } = useInvoice(invoiceId);
 
-    if (!invoice) return <div className="invoice-workbench-card"><div className="empty-detail">Invoice not found.</div></div>;
+    if (!invoice) return <div className="invoice-workbench-card"><div className="empty-detail">
+        {isLoading ? 'Loading invoice...' : error ? `Could not load invoice: ${error.message}` : 'Invoice not found.'}
+    </div></div>;
 
     const openEdit = () => open({
         kind: 'doc-form',
@@ -31,16 +27,19 @@ const InvoiceDetailPane = ({ invoiceId }: Props): React.ReactElement => {
     });
 
     return (
-        <InvoiceDetailTabs
-            invoice={invoice as unknown as { id: string; [key: string]: unknown }}
-            onEdit={openEdit}
-            onPrint={() => {}}
-            onVoid={() => {}}
-            canEdit={canEdit}
-            canDelete={canDelete}
-            canPrint={canReprint}
-            canVoid={canEdit}
-        />
+        <>
+            <InvoiceDetailTabs
+                invoice={invoice as unknown as { id: string; [key: string]: unknown }}
+                onEdit={openEdit}
+                onPrint={() => setIsPrintOpen(true)}
+                onVoid={() => {}}
+                canEdit={canEdit}
+                canDelete={canDelete}
+                canPrint={canReprint}
+                canVoid={canEdit}
+            />
+            <InvoicePrintPreview invoiceId={isPrintOpen ? invoiceId : null} onClose={() => setIsPrintOpen(false)} />
+        </>
     );
 };
 

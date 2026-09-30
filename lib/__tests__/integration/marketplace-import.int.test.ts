@@ -11,6 +11,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { importMarketplaceOrders, type ImportOrder } from '../../marketplace-import';
+import { previewMarketplaceOrders, type PreviewOrder } from '../../marketplace-import-preview';
 import { postOpeningStockIfNeeded } from '../../inventory-opening';
 import {
   prisma,
@@ -175,6 +176,52 @@ async function seedScenario(): Promise<Scenario> {
 }
 
 describe('marketplace import orchestrator', () => {
+  it('reviews existing, new, inactive, and undated orders without posting them', async () => {
+    const s = await seedScenario();
+    const activeItemId = await createStockedItem(s.org.orgId, 25_000, 10);
+    const inactiveItemId = await createInactiveItem(s.org.orgId);
+    const existing: ImportOrder = {
+      orderNo: 'REVIEW-EXISTING', issueDate: '2026-06-01',
+      lines: [{ itemId: activeItemId, description: 'Stocked Product', sku: 'STK', quantity: 1, unitPrice: 100_000 }],
+    };
+    await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [existing], { recordPayment: false });
+
+    const orders: PreviewOrder[] = [
+      { ...existing, sourceTotal: 100_000, missingDate: false },
+      {
+        orderNo: 'REVIEW-NEW', issueDate: '2026-06-02', sourceTotal: 100_000, missingDate: false,
+        lines: [{ itemId: activeItemId, description: 'Stocked Product', sku: 'STK', quantity: 1, unitPrice: 100_000 }],
+      },
+      {
+        orderNo: 'REVIEW-INACTIVE', issueDate: '2026-06-02', sourceTotal: 1_000, missingDate: false,
+        lines: [{ itemId: inactiveItemId, description: 'Inactive Product', sku: 'INA', quantity: 1, unitPrice: 1_000 }],
+      },
+      {
+        orderNo: 'REVIEW-NO-DATE', issueDate: '2026-06-02', sourceTotal: 1_000, missingDate: true,
+        lines: [{ itemId: activeItemId, description: 'Stocked Product', sku: 'STK', quantity: 1, unitPrice: 1_000 }],
+      },
+    ];
+    const preview = await previewMarketplaceOrders(s.org.orgId, s.connectionId, orders, { recordPayment: true });
+    expect(preview.create).toBe(1);
+    expect(preview.alreadyImported).toBe(1);
+    expect(preview.blocked).toBe(2);
+    expect(preview.amountDifferences).toBe(1);
+    expect(preview.orders[1].invoiceTotal).toBe(111_000);
+    expect(preview.orders[1].difference).toBe(11_000);
+    expect(preview.orders[2].reason).toMatch(/inactive/i);
+    expect(preview.orders[3].reason).toMatch(/date/i);
+    expect(await prisma.salesInvoice.count({ where: { organizationId: s.org.orgId } })).toBe(1);
+
+    await prisma.ecommerceConnection.update({ where: { id: s.connectionId }, data: { holdingAccountId: null } });
+    const noAccount = await previewMarketplaceOrders(s.org.orgId, s.connectionId, orders, { recordPayment: true });
+    expect(noAccount.paymentAccountMissing).toBe(true);
+    expect(noAccount.setupErrors).toHaveLength(1);
+    await expect(importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [existing], { recordPayment: true }))
+      .rejects.toThrow(/holding account/i);
+
+    await cleanupOrg(s.org.orgId);
+  });
+
   it('happy path: imports an order to a PAID, GL-balanced invoice', async () => {
     const s = await seedScenario();
     const itemId = await createStockedItem(s.org.orgId, 100_000, 10);
@@ -227,16 +274,31 @@ describe('marketplace import orchestrator', () => {
     });
     expect(first.created).toBe(1);
 
-    const second = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], {
+    const enrichedOrder = {
+      ...order,
+      trackingNumber: 'JX1234567890',
+      shippingCarrier: 'J&T Express',
+      shippingAddress: 'Surabaya',
+    };
+    const second = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [enrichedOrder], {
       recordPayment: true,
     });
     expect(second.created).toBe(0);
-    expect(second.skipped).toBe(1);
+    expect(second.logisticsUpdated).toBe(1);
+    expect(second.skipped).toBe(0);
+
+    const third = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [enrichedOrder], {
+      recordPayment: true,
+    });
+    expect(third.skipped).toBe(1);
 
     const invoices = await prisma.salesInvoice.findMany({
       where: { organizationId: s.org.orgId, poNumber: 'ORDER-DUP-1' },
     });
     expect(invoices).toHaveLength(1);
+    expect(invoices[0]).toMatchObject({
+      trackingNumber: 'JX1234567890', shippingCarrier: 'J&T Express', shippingAddress: 'Surabaya',
+    });
 
     await assertTrialBalanced(s.org.orgId, 'marketplace idempotent');
     await cleanupOrg(s.org.orgId);

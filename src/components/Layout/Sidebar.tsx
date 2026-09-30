@@ -25,8 +25,6 @@ import {
     Menu,
     X,
     ClipboardCheck,
-    SlidersHorizontal,
-    Tags,
     type LucideIcon,
 } from 'lucide-react';
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
@@ -47,14 +45,22 @@ interface NavGroup {
 
 const NAV_GROUPS: NavGroup[] = [
     {
-        group: 'Operations',
-        groupIcon: Boxes,
+        group: 'General Ledger',
+        groupIcon: BookOpen,
         items: [
-            { label: 'HR & Payroll',  path: '/hr',         icon: Users },
-            { label: 'Assets',        path: '/assets',     icon: Building2 },
-            { label: 'Users & Roles', path: '/users',      icon: Users },
-            { label: 'Data & Tools',  path: '/tools',      icon: Wrench },
-            { label: 'Settings',      path: '/settings',   icon: Settings },
+            { label: 'Chart of Accounts', path: '/gl',          icon: BookOpen },
+            { label: 'Journal Entries',   path: '/gl/journals', icon: FileText },
+        ],
+    },
+    {
+        group: 'Cash & Bank',
+        groupIcon: Landmark,
+        items: [
+            { label: 'Payment',        path: '/banking/payment',        icon: ArrowUpRight },
+            { label: 'Receive',        path: '/banking/receive',        icon: ArrowDownLeft },
+            { label: 'Bank Transfer',  path: '/banking/transfer',       icon: ArrowRightLeft },
+            { label: 'Bank Accounts',  path: '/banking',                icon: Wallet },
+            { label: 'Reconciliation', path: '/banking/reconciliation', icon: CheckSquare },
         ],
     },
     {
@@ -88,17 +94,6 @@ const NAV_GROUPS: NavGroup[] = [
         ],
     },
     {
-        group: 'Cash & Bank',
-        groupIcon: Landmark,
-        items: [
-            { label: 'Payment',        path: '/banking/payment',        icon: ArrowUpRight },
-            { label: 'Receive',        path: '/banking/receive',        icon: ArrowDownLeft },
-            { label: 'Bank Transfer',  path: '/banking/transfer',       icon: ArrowRightLeft },
-            { label: 'Bank Accounts',  path: '/banking',                icon: Wallet },
-            { label: 'Reconciliation', path: '/banking/reconciliation', icon: CheckSquare },
-        ],
-    },
-    {
         group: 'Inventory',
         groupIcon: Package,
         items: [
@@ -109,19 +104,10 @@ const NAV_GROUPS: NavGroup[] = [
         ],
     },
     {
-        group: 'Point of Sale',
-        groupIcon: SlidersHorizontal,
+        group: 'Fixed Assets',
+        groupIcon: Building2,
         items: [
-            { label: 'Modifier POS', path: '/pos/modifiers', icon: SlidersHorizontal },
-            { label: 'Tipe Penjualan', path: '/pos/sales-types', icon: Tags },
-        ],
-    },
-    {
-        group: 'General Ledger',
-        groupIcon: BookOpen,
-        items: [
-            { label: 'Chart of Accounts', path: '/gl',          icon: BookOpen },
-            { label: 'Journal Entries',   path: '/gl/journals', icon: FileText },
+            { label: 'Fixed Assets', path: '/assets', icon: Building2 },
         ],
     },
     {
@@ -131,6 +117,16 @@ const NAV_GROUPS: NavGroup[] = [
             { label: 'Reports', path: '/reports', icon: BarChart3 },
             { label: 'Sales Performance', path: '/reports/sales-performance', icon: BarChart3 },
             { label: 'Sales by Type', path: '/reports/sales-by-type', icon: BarChart3 },
+        ],
+    },
+    {
+        group: 'Settings',
+        groupIcon: Settings,
+        items: [
+            { label: 'HR & Payroll',  path: '/hr',         icon: Users },
+            { label: 'Users & Roles', path: '/users',      icon: Users },
+            { label: 'Data & Tools',  path: '/tools',      icon: Wrench },
+            { label: 'Settings',      path: '/settings',   icon: Settings },
         ],
     },
 ];
@@ -395,7 +391,7 @@ const Sidebar = (): React.ReactElement => {
 
             <div className="flex-1 overflow-y-auto py-2 min-h-0">
                 {visibleGroups.map(g => {
-                    const collapsed = collapsedGroups[g.group];
+                    const collapsed = collapsedGroups[g.group] !== false;
                     return (
                         <div key={g.group} className="mb-1">
                             <button

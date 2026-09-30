@@ -622,7 +622,14 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         dueDate: formData.dueDate,
         status: (editingInvoiceId ? invoices.find((inv) => inv.id === editingInvoiceId)?.status : undefined) || 'Draft',
         notes: formData.notes,
-        amount: calculateSubtotal(),
+        amount: calculateTotal(),
+        subtotal: calculateSubtotal(),
+        discountAmount: calculateDiscountAmount(calculateSubtotal()),
+        taxEnabled: taxSettings.enabled,
+        taxInclusive: taxSettings.inclusive,
+        taxRate: taxSettings.rate,
+        taxAmount: calculateTaxAmount(calculateSubtotal() - calculateDiscountAmount(calculateSubtotal())),
+        totalAmount: calculateTotal(),
     };
 
     // Attachment Logic
@@ -1182,7 +1189,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                 lineItems={formData.items as unknown as Record<string, unknown>[]}
                 company={company as unknown as Record<string, unknown>}
                 options={printSettings}
-                taxRate={globalTaxSettings.defaultRate}
+                taxRate={taxSettings.rate}
             />
         </PrintPreviewModal>
       </>
