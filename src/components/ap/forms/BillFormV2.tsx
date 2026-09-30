@@ -6,6 +6,7 @@ import DocumentFormLayout from '../../documents/DocumentFormLayout';
 import LineItemsTable from '../../documents/LineItemsTable';
 import AdditionalCostsTable from '../../documents/AdditionalCostsTable';
 import AdditionalInfoTab, { type TaxState } from '../../documents/AdditionalInfoTab';
+import DocumentSettlementPanel from '../../documents/DocumentSettlementPanel';
 import DocumentTotals from '../../documents/DocumentTotals';
 import VendorContextRail, { type RecentDoc } from './VendorContextRail';
 import { useDocumentLines } from '../../documents/useDocumentLines';
@@ -395,6 +396,8 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
                     </div>
                 </div>
             </div>
+
+            {isPosted && <DocumentSettlementPanel kind="bill" id={editingBill?.id ? String(editingBill.id) : billId} />}
 
             <div className="flex gap-1 border-b border-neutral-200 px-1">
                 <TabBtn id="items" label="Items" />
