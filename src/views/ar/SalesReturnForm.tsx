@@ -55,7 +55,7 @@ import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { useCustomers, useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
-import { useItems } from '../../hooks/useInventory';
+import { useAllItems } from '../../hooks/useInventory';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -105,7 +105,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     const salesReturns = srData?.data ?? [];
     const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
-    const { data: productsData, isLoading: productsLoading } = useItems();
+    const { data: productsData, isLoading: productsLoading } = useAllItems();
     const products = productsData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);

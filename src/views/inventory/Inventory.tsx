@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
@@ -8,7 +8,8 @@ import { Plus, Search, Download } from 'lucide-react';
 import { exportToCsv } from '../../utils/exportCsv';
 import ListPage from '../../components/Layout/ListPage';
 import { formatIDR } from '../../utils/formatters';
-import { useItems, useItemCategories } from '../../hooks/useInventory';
+import { useItems, useItemCategories, fetchAllItems } from '../../hooks/useInventory';
+import { useToastStore } from '../../stores/useToastStore';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 interface InventoryItem {
@@ -23,35 +24,78 @@ interface InventoryItem {
     status: string;
 }
 
+const PAGE_SIZE = 50;
+
+/** Status dropdown label → /items `stockStatus` param. */
+const STOCK_STATUS_PARAM: Record<string, string> = {
+    'In Stock': 'in',
+    'Low Stock': 'low',
+    'Out of Stock': 'out',
+};
+
 const Inventory = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('inv_items');
-    const { data: itemsResult, isLoading } = useItems();
-    const { data: itemCategories = [] } = useItemCategories();
-    // API normalizer already computes stock, cost, price, and status
-    const items = (itemsResult?.data ?? []) as InventoryItem[];
+    const pushToast = useToastStore((s) => s.pushToast);
 
     const [searchTerm, setSearchTerm] = useState<string>('');
+    const [debouncedSearch, setDebouncedSearch] = useState<string>('');
     const [categoryFilter, setCategoryFilter] = useState<string>('');
     const [statusFilter, setStatusFilter] = useState<string>('');
+    const [page, setPage] = useState<number>(1);
 
-    const filteredItems = useMemo(() => {
-        const keyword = searchTerm.toLowerCase();
-        return items.filter((item) => {
-            const matchesSearch =
-                (item.sku || '').toLowerCase().includes(keyword) ||
-                item.name.toLowerCase().includes(keyword) ||
-                (item.category || '').toLowerCase().includes(keyword);
-            const matchesCategory = categoryFilter ? item.categoryId === categoryFilter : true;
-            const matchesStatus = statusFilter ? item.status === statusFilter : true;
-            return matchesSearch && matchesCategory && matchesStatus;
-        });
-    }, [items, searchTerm, categoryFilter, statusFilter]);
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+        return () => clearTimeout(t);
+    }, [searchTerm]);
 
-    const statuses = useMemo(
-        () => Array.from(new Set(items.map((item) => item.status))).sort(),
-        [items]
-    );
+    useEffect(() => { setPage(1); }, [debouncedSearch, categoryFilter, statusFilter]);
+
+    // Search, category, status, and paging all run server-side — the API pages
+    // results, so filtering only the loaded page would hide most of the catalog.
+    const listFilters = useMemo(() => {
+        const f: Record<string, unknown> = {};
+        if (debouncedSearch) f.search = debouncedSearch;
+        if (categoryFilter) f.categoryId = categoryFilter;
+        if (statusFilter) f.stockStatus = STOCK_STATUS_PARAM[statusFilter];
+        return f;
+    }, [debouncedSearch, categoryFilter, statusFilter]);
+    const { data: itemsResult, isLoading } = useItems({ ...listFilters, page, limit: PAGE_SIZE });
+    const { data: itemCategories = [] } = useItemCategories();
+    // API normalizer already computes stock, cost, price, and status
+    const filteredItems = (itemsResult?.data ?? []) as InventoryItem[];
+    const total = itemsResult?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    const [exporting, setExporting] = useState<boolean>(false);
+    const handleExport = async (): Promise<void> => {
+        setExporting(true);
+        try {
+            // Export every matching item, not just the page on screen.
+            const all = (await fetchAllItems(listFilters)) as InventoryItem[];
+            exportToCsv('inventory.csv', all.map((item) => ({
+                sku: item.sku || '',
+                name: item.name,
+                category: item.category || '',
+                stock: item.stock,
+                cost: item.cost,
+                price: item.price,
+                status: item.status,
+            })), [
+                { label: 'SKU', key: 'sku' },
+                { label: 'Item Name', key: 'name' },
+                { label: 'Category', key: 'category' },
+                { label: 'Stock', key: 'stock' },
+                { label: 'Cost', key: 'cost' },
+                { label: 'Price', key: 'price' },
+                { label: 'Status', key: 'status' },
+            ]);
+        } catch (e) {
+            pushToast(`Export failed: ${(e as Error).message}`, 'error');
+        } finally {
+            setExporting(false);
+        }
+    };
 
     const openItem = (row: InventoryItem, mode = 'view') => {
         navigate(`/inventory/new?mode=${mode}&itemId=${row.id}`, { state: { item: row } });
@@ -96,29 +140,11 @@ const Inventory = () => {
                     <button
                         className="btn btn-secondary flex items-center gap-1"
                         title="Export CSV"
-                        onClick={() => {
-                            const rows = filteredItems.map((item) => ({
-                                sku: item.sku || '',
-                                name: item.name,
-                                category: item.category || '',
-                                stock: item.stock,
-                                cost: item.cost,
-                                price: item.price,
-                                status: item.status,
-                            }));
-                            exportToCsv('inventory.csv', rows, [
-                                { label: 'SKU', key: 'sku' },
-                                { label: 'Item Name', key: 'name' },
-                                { label: 'Category', key: 'category' },
-                                { label: 'Stock', key: 'stock' },
-                                { label: 'Cost', key: 'cost' },
-                                { label: 'Price', key: 'price' },
-                                { label: 'Status', key: 'status' },
-                            ]);
-                        }}
+                        disabled={exporting}
+                        onClick={() => { void handleExport(); }}
                     >
                         <Download size={16} />
-                        <span className="hidden sm:inline">Export</span>
+                        <span className="hidden sm:inline">{exporting ? 'Exporting…' : 'Export'}</span>
                     </button>
                     <Button
                         text="Add Item"
@@ -179,6 +205,28 @@ const Inventory = () => {
                     isLoading={isLoading}
                     loadingLabel="Loading inventory items..."
                 />
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-between px-4 py-2 border-t border-neutral-200 text-sm">
+                        <span className="text-neutral-500">{total.toLocaleString()} items total</span>
+                        <div className="flex gap-2">
+                            <button
+                                className="px-2 py-1 rounded border border-neutral-300 text-neutral-700 disabled:opacity-40"
+                                disabled={page <= 1}
+                                onClick={() => setPage((p) => p - 1)}
+                            >
+                                Previous
+                            </button>
+                            <span className="px-2 py-1 text-neutral-600">{page} / {totalPages}</span>
+                            <button
+                                className="px-2 py-1 rounded border border-neutral-300 text-neutral-700 disabled:opacity-40"
+                                disabled={page >= totalPages}
+                                onClick={() => setPage((p) => p + 1)}
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                )}
             </Card>
         </ListPage>
     );

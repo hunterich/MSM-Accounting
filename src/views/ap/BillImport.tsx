@@ -12,7 +12,7 @@ import {
     useUpdateBillImportSession,
 } from '../../hooks/useBillImports';
 import { useVendors } from '../../hooks/useAP';
-import { useItems } from '../../hooks/useInventory';
+import { useAllItems } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { formatIDR } from '../../utils/formatters';
 import type { BillImportLine, BillImportReviewData } from '../../types';
@@ -64,7 +64,7 @@ const BillImport: React.FC = () => {
 
     const { data: vendorsResult } = useVendors({ limit: 200 });
     const vendors = vendorsResult?.data ?? [];
-    const { data: itemsResult } = useItems({ limit: 500, isActive: true });
+    const { data: itemsResult } = useAllItems({ isActive: true });
     const items = itemsResult?.data ?? [];
     const { data: accounts = [] } = useChartOfAccounts();
 

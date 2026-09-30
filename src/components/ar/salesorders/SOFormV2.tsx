@@ -16,7 +16,7 @@ import SearchableSelect from '../../UI/SearchableSelect';
 import { formatIDR } from '../../../utils/formatters';
 import { useWorkspaceStore } from '../../../stores/useWorkspaceStore';
 import { useCustomers, useInvoices, useSalesOrder, useCreateSalesOrder, useUpdateSalesOrder, useConvertSOToInvoice } from '../../../hooks/useAR';
-import { useItems } from '../../../hooks/useInventory';
+import { useAllItems } from '../../../hooks/useInventory';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import PrintPreviewModal from '../../UI/PrintPreviewModal';
 import SalesOrderPrintTemplate from '../../print/SalesOrderPrintTemplate';
@@ -70,7 +70,7 @@ const SOFormV2: React.FC<SOFormV2Props> = ({ mode = 'create', workspaceTabId, re
 
     // ── Server data ─────────────────────────────────────────────────────────
     const { data: customersResult } = useCustomers({ limit: 100 });
-    const { data: itemsResult } = useItems({ limit: 100 });
+    const { data: itemsResult } = useAllItems();
     const { data: invoicesResult } = useInvoices({ limit: 100 });
 
     const { data: selectedSO = null } = useSalesOrder(isEdit ? soId : undefined);

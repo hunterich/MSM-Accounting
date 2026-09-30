@@ -10,7 +10,7 @@ import { exportCsvToPdf } from '../../utils/exportPdf';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCustomers } from '../../hooks/useAR';
 import { useVendors } from '../../hooks/useAP';
-import { useItems, useWarehouses, useItemCategories } from '../../hooks/useInventory';
+import { useAllItems, useWarehouses, useItemCategories } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBankAccounts } from '../../hooks/useBanking';
 import Button from '../../components/UI/Button';
@@ -1321,7 +1321,7 @@ const Reports: React.FC<ReportsProps> = ({
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: vendorsData } = useVendors({ limit: 200 });
-  const { data: itemsData } = useItems({ limit: 100 });
+  const { data: itemsData } = useAllItems();
   const { data: accountsData } = useChartOfAccounts();
   const { data: warehousesData } = useWarehouses();
   const { data: categoriesData } = useItemCategories();

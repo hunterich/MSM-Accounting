@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { useItems, useCreateItem, useUpdateItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
+import { useAllItems, useCreateItem, useUpdateItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
@@ -144,7 +144,7 @@ const InventoryForm = () => {
     const updateItem   = useUpdateItem();
     const nextSkuMut   = useNextItemSku();
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
-    const { data: itemsData, isLoading: itemsLoading } = useItems();
+    const { data: itemsData, isLoading: itemsLoading } = useAllItems();
     const { data: itemCategories = [], isLoading: categoriesLoading } = useItemCategories();
     const storeProducts = itemsData?.data ?? [];
 

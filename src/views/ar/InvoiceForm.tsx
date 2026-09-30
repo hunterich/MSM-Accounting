@@ -88,7 +88,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useExtraAction } from '../../hooks/useModulePermissions';
 import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice, useNextInvoiceNumber } from '../../hooks/useAR';
-import { useItems } from '../../hooks/useInventory';
+import { useAllItems } from '../../hooks/useInventory';
 import { useSalesTypes } from '../../hooks/useSalesTypes';
 import { useDraftAutosave } from '../../hooks/useDraftAutosave';
 
@@ -168,7 +168,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const customerList = (customersData?.data || []) as CustomerLike[];
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = ((invoicesData?.data || []).filter(Boolean)) as InvoiceLike[];
-    const { data: itemsData, isLoading: itemsLoading } = useItems();
+    const { data: itemsData, isLoading: itemsLoading } = useAllItems();
     const products = (itemsData?.data || []) as ProductLike[];
     const { data: salesTypes = [] } = useSalesTypes();
     const createInvoice = useCreateInvoice();

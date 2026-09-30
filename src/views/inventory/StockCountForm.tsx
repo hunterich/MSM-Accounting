@@ -13,7 +13,7 @@ import {
     useReopenStockCount,
     usePostStockCount,
     useCancelStockCount,
-    useItems,
+    useAllItems,
     useItemCategories,
     useWarehouses,
     type StockCountLineRow,
@@ -196,7 +196,7 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
     const { canCreate, canEdit } = useModulePermissions('inv_adj');
 
     const { data: count, isLoading } = useStockCount(id);
-    const { data: itemsData }        = useItems();
+    const { data: itemsData }        = useAllItems();
     const { data: categories = [] }  = useItemCategories();
     const { data: warehouses = [] }  = useWarehouses();
 

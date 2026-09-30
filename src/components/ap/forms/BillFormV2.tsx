@@ -22,7 +22,7 @@ import {
     useCreateBill,
     useUpdateBill,
 } from '../../../hooks/useAP';
-import { useItems } from '../../../hooks/useInventory';
+import { useAllItems } from '../../../hooks/useInventory';
 import { useAccountsByType } from '../../../hooks/useGL';
 
 /**
@@ -77,7 +77,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
 
     // ── Data ────────────────────────────────────────────────────────────────
     const { data: vendorsResult } = useVendors();
-    const { data: itemsResult } = useItems({ limit: 100 });
+    const { data: itemsResult } = useAllItems();
     const { data: billsResult } = useBills();
     const { data: expenseAccountsData } = useAccountsByType('Expense');
     const { data: editingBillRaw } = useBill(isEdit ? billId : undefined);

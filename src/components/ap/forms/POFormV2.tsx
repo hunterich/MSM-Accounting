@@ -23,7 +23,7 @@ import {
     useUpdatePurchaseOrder,
     useCreateVendor,
 } from '../../../hooks/useAP';
-import { useItems } from '../../../hooks/useInventory';
+import { useAllItems } from '../../../hooks/useInventory';
 import { useAccountsByType, useChartOfAccounts } from '../../../hooks/useGL';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../../lib/account-defaults';
@@ -75,7 +75,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
 
     // ── Data ────────────────────────────────────────────────────────────────
     const { data: vendorsResult } = useVendors();
-    const { data: itemsResult } = useItems({ limit: 100 });
+    const { data: itemsResult } = useAllItems();
     const { data: posResult } = usePurchaseOrders();
     const { data: editingPORaw } = usePurchaseOrder(isEdit ? poId : undefined);
     const editingPO = editingPORaw as unknown as Rec | undefined;
