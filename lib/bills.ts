@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { nextNumber, validateForeignKey } from '@/lib/api-utils';
 import type { BillInput } from '@/types/api';
+import { prepareAssetLines } from './asset-purchases';
 
 type CreateBillOptions = {
   attachment?: {
@@ -91,14 +92,16 @@ export async function createBillRecord(
   });
 
   if (lines && lines.length > 0) {
+    const preparedLines = await prepareAssetLines(tx, orgId, created.id, lines, header);
     // Explicit field mapping (no spread): keeps transient inputs like
     // `alreadyReceived` out of the BillLine insert.
     await tx.billLine.createMany({
-      data: lines.map((line, index) => ({
+      data: preparedLines.map((line, index) => ({
         billId: created.id,
         lineNo: line.lineNo ?? index + 1,
         itemId: line.itemId || null,
         accountId: line.accountId || null,
+        assetId: 'assetId' in line ? line.assetId as string : null,
         purchaseOrderLineId: line.purchaseOrderLineId || null,
         description: line.description,
         unit: line.unit || 'PCS',
@@ -153,7 +156,7 @@ export async function createBillRecord(
     where: { id: created.id },
     include: {
       vendor: true,
-      lines: true,
+      lines: { include: { asset: true } },
       charges: true,
       attachments: true,
     },

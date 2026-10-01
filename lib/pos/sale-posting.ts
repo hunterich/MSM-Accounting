@@ -10,6 +10,7 @@ import { computeSaleTotals, type SaleLineInput } from './pricing';
 import { computeServiceCharge } from './sales-type-charge';
 import { flattenSaleLines, type MaterializedLine } from './modifier-lines';
 import { pickFefo, type BatchAvailability } from './fefo-picker';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export interface PosTenderInput {
   method: 'CASH';
@@ -114,6 +115,10 @@ export async function postPosSale(
     return { ...l, price: round2(l.price - delta) };
   });
   const materialized = flattenSaleLines(normalized);
+  // The catalog hides inactive products, but a stale/offline POS cart must be
+  // rejected at posting time as well. Modifier-linked inventory items are
+  // included because `materialized` contains them too.
+  await assertItemsActive(tx, orgId, materialized.map((line) => line.itemId));
 
   // 3. Totals + cash validation.
   const totals = computeSaleTotals(materialized, TAX_RATE);

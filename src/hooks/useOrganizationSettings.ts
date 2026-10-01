@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
 import type { OrganizationSettings, RawOrganizationSettings, ApprovalRequirementsMap } from '../types';
 import { DEFAULT_PRINT_OPTIONS } from '../types';
-import { normalizeFeatures, normalizeDocumentNumbering, normalizeSalesPolicy } from '../../lib/organization/settings-config';
+import { normalizeFeatures, normalizeDocumentNumbering, normalizeSalesPolicy, normalizePurchasePolicy } from '../../lib/organization/settings-config';
 
 const DEFAULT_APPROVAL_REQUIREMENTS: ApprovalRequirementsMap = {
   ar_sales_orders: false,
@@ -72,6 +72,7 @@ function normalizeOrganizationSettings(raw: RawOrganizationSettings & { needsInv
     features: normalizeFeatures(raw.features),
     documentNumbering: normalizeDocumentNumbering(raw.documentNumbering),
     salesPolicy: normalizeSalesPolicy(raw.salesPolicy),
+    purchasePolicy: normalizePurchasePolicy(raw.purchasePolicy),
     // The same parser the server guard reads through, so the screen and the
     // enforcement can never disagree about what is configured.
     transactionDatePolicy: parseTransactionDatePolicy(raw.transactionDatePolicy),

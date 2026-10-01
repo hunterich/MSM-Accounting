@@ -38,6 +38,19 @@ function bill(over: any = {}) {
 }
 
 describe('postBillToLedger', () => {
+  it('posts an asset purchase once to fixed assets/AP and never creates inventory', async () => {
+    const tx = { ...makeTx(), asset: { findFirst: vi.fn(async () => ({ status: 'DRAFT', category: { assetAccountId: 'acc-prepaid' }, purchaseLine: { billId: 'bill-1' }, acquisitionCost: 1000 })) } };
+    tx.account.findFirst.mockResolvedValue(ACCOUNTS.find(a => a.id === 'acc-prepaid'));
+    await postBillToLedger(tx as any, 'org-a', bill({ taxable: true, taxInclusive: true, taxRate: 11, lines: [{ id: 'bl', assetId: 'asset', accountId: 'acc-prepaid', itemId: null, quantity: 1, price: 1110, lineTotal: 1110, purchaseOrderLineId: null }] }));
+    expect(addCostLayer).not.toHaveBeenCalled();
+    expect(postJournalEntry).toHaveBeenCalledTimes(1);
+    const je = (postJournalEntry as any).mock.calls[0][1];
+    expect(je.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accountId: 'acc-prepaid', debit: 1000, description: 'Asset purchase - BILL-0001' }),
+      expect.objectContaining({ accountId: 'acc-tax', debit: 110 }),
+      expect.objectContaining({ accountId: 'acc-ap', credit: 1110 }),
+    ]));
+  });
   beforeEach(() => {
     (addCostLayer as any).mockClear();
     (postJournalEntry as any).mockClear();

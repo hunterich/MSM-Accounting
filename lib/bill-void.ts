@@ -3,6 +3,7 @@ import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
 import { reversePurchaseLayers } from './inventory-costing';
+import { lockAssetPurchases } from './asset-purchases';
 
 type Tx = Prisma.TransactionClient;
 
@@ -25,6 +26,9 @@ export async function voidBill(
   billId: string,
   opts: { date: Date },
 ): Promise<void> {
+  await lockAssetPurchases(tx, orgId);
+  const activeAssets = await tx.billLine.count({ where: { billId, bill: { organizationId: orgId }, asset: { status: { not: 'DRAFT' } } } });
+  if (activeAssets) throw new ApiError('Cannot void a bill after its purchased asset is activated. Resolve the asset lifecycle first.', 422);
   const bill = await tx.bill.findFirst({
     where: { id: billId, organizationId: orgId },
     select: {

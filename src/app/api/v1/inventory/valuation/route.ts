@@ -18,7 +18,15 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const warehouseId = searchParams.get('warehouseId');
 
   // Fetch all items for the org (optionally filtered by category)
-  const itemWhere: any = { organizationId: orgId, isActive: true };
+  // Deactivation is an operational selection rule, not an accounting write-off.
+  // Keep inactive items with residual quantity in inventory valuation.
+  const itemWhere: any = {
+    organizationId: orgId,
+    OR: [
+      { isActive: true },
+      { inventoryLots: { some: { qtyBalance: { not: 0 } } } },
+    ],
+  };
   if (categoryId) itemWhere.categoryId = categoryId;
 
   const itemsList = await prisma.item.findMany({

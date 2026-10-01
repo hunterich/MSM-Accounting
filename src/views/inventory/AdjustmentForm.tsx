@@ -5,7 +5,7 @@ import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import FormPage from '../../components/Layout/FormPage';
-import { useStockAdjustments, useItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
+import { useStockAdjustments, useAllItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
@@ -110,7 +110,8 @@ const AdjustmentForm = () => {
     const updateAdjustmentMutation = useUpdateStockAdjustment();
     const { data: adjustmentsData, isLoading: adjustmentsLoading } = useStockAdjustments();
     const adjustments = adjustmentsData?.data ?? [];
-    const { data: itemsData, isLoading: itemsLoading } = useItems();
+    // Inventory cleanup remains available after an item is deactivated.
+    const { data: itemsData, isLoading: itemsLoading } = useAllItems({ isActive: 'all' });
     const products = itemsData?.data ?? [];
     const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
 
@@ -377,7 +378,7 @@ const AdjustmentForm = () => {
                                                     <option value="">Select Item...</option>
                                                     {products.map((p) => (
                                                         <option key={p.id} value={p.id}>
-                                                            {p.name}
+                                                            {p.name}{p.isActive ? '' : ' (Inactive)'}
                                                         </option>
                                                     ))}
                                                 </select>

@@ -23,8 +23,10 @@ import {
     useCreateBill,
     useUpdateBill,
 } from '../../../hooks/useAP';
-import { useItems } from '../../../hooks/useInventory';
+import { useAllItems } from '../../../hooks/useInventory';
 import { useAccountsByType } from '../../../hooks/useGL';
+import { useAssetCategories, useAssets } from '../../../hooks/useAssets';
+import AssetPurchaseFields from './AssetPurchaseFields';
 
 /**
  * BillFormV2 — Vendor Bill on the shared document-form system.
@@ -78,10 +80,12 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
 
     // ── Data ────────────────────────────────────────────────────────────────
     const { data: vendorsResult } = useVendors();
-    const { data: itemsResult } = useItems({ limit: 100 });
+    const { data: itemsResult } = useAllItems();
     const { data: billsResult } = useBills();
     const { data: expenseAccountsData } = useAccountsByType('Expense');
     const { data: editingBillRaw } = useBill(isEdit ? billId : undefined);
+    const { data: assetCategories = [] } = useAssetCategories();
+    const { data: draftAssets } = useAssets({ status: 'DRAFT', limit: 100 });
     const editingBill = editingBillRaw as unknown as Rec | undefined;
 
     const createBill = useCreateBill();
@@ -124,6 +128,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
             discount: num(l.discountPct ?? l.discount),
             taxRate: TAX_RATE,
             accountId: firstStr(l.accountId),
+            ...(!!l.assetId && { assetPurchase: { mode: 'LINK' as const, assetId: str(l.assetId) } }),
         }));
     }, [editingBill]);
 
@@ -149,7 +154,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
         setIssueDate(str(editingBill.issueDate ?? editingBill.date) || todayString());
         setDueDate(str(editingBill.dueDate ?? editingBill.due));
         setNotes(str(editingBill.notes));
-        if (typeof editingBill.taxAmount === 'number') setTax((t) => ({ ...t, on: num(editingBill.taxAmount) > 0 }));
+        setTax({ on: Boolean(editingBill.taxable ?? num(editingBill.taxAmount) > 0), rate: num(editingBill.taxRate), mode: editingBill.taxInclusive ? 'inclusive' : 'exclusive' });
         setWithholdingRate(num(editingBill.withholdingRate));
         setLines(seedLines);
         setCharges(seedCharges);
@@ -238,6 +243,15 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
 
     // ── Save ────────────────────────────────────────────────────────────────
     const validate = (): boolean => {
+        if (isEdit && editingBill && str(editingBill.status).toUpperCase() !== 'DRAFT' && doc.lines.some(l => l.assetPurchase)) {
+            window.alert('Posted asset-purchase bills must be voided while the asset is still draft, then replaced.'); return false;
+        }
+        for (const line of doc.lines.filter(l => l.assetPurchase)) {
+            const a = line.assetPurchase!;
+            if (line.price <= 0 || (a.mode === 'CREATE' ? !a.categoryId || !a.name.trim() : !a.assetId)) {
+                setActiveTab('items'); window.alert('Complete the asset name/category or draft-asset link, and enter a positive purchase price.'); return false;
+            }
+        }
         if (!vendorId) { setActiveTab('items'); window.alert('Select a vendor first.'); return false; }
         if (!vendorInvoiceNo.trim()) { setActiveTab('info'); setRefError(true); return false; }
         if (doc.lines.filter((l) => l.description.trim()).length === 0) {
@@ -267,6 +281,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
                 lineNo: idx + 1,
                 ...(l.productId && { itemId: l.productId }),
                 ...(!l.productId && l.accountId && { accountId: l.accountId }),
+                ...(l.assetPurchase && { assetPurchase: l.assetPurchase }),
                 description: l.description.trim(),
                 quantity: num(l.qty),
                 unit: l.unit || 'PCS',
@@ -358,7 +373,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
             <ClosedPeriodBanner date={issueDate} />
             {isPosted && (
                 <div className="bg-warning-50 border border-warning-200 rounded-lg px-4 py-2.5 text-[12px] text-warning-800">
-                    This bill is already posted. Saving your changes will <strong>reverse and re-post</strong> its journal entry (only while the period is open). Bills with payments or returns, or those raised from a purchase order, must be voided to change.
+                    {doc.lines.some(l => l.assetPurchase) ? 'This asset-purchase bill is posted. To change it, void it while its assets are still draft, then create a replacement bill.' : <>This bill is already posted. Saving your changes will <strong>reverse and re-post</strong> its journal entry (only while the period is open). Bills with payments or returns, or those raised from a purchase order, must be voided to change.</>}
                 </div>
             )}
             <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4">
@@ -406,7 +421,16 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
             </div>
 
             {activeTab === 'items' && (
-                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} searchSlot={searchSlot} accountOptions={accountOptions} />
+                <div className="space-y-3">
+                <div className="flex justify-end"><button type="button" className="text-[13px] font-semibold text-primary-700 px-3 py-2 rounded-md border border-primary-200" onClick={() => doc.addLine({ description: 'Asset purchase', qty: 1, assetPurchase: { mode: 'CREATE', name: '', categoryId: '', salvageValue: 0 } })}>+ Add asset purchase</button></div>
+                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={id => {
+                    if (seedLines.some(l => l.id === id && l.assetPurchase)) { window.alert('Keep saved asset links. Delete the draft bill to cancel this purchase.'); return; } doc.removeLine(id);
+                }} searchSlot={searchSlot} accountOptions={accountOptions} renderLineDetails={line => <AssetPurchaseFields line={line} categories={assetCategories}
+                    assets={(draftAssets?.data ?? []).filter(a => !a.purchaseLine || a.purchaseLine.billId === str(editingBill?._id))}
+                    cost={Math.round(line.qty * line.price * (1 - line.discount / 100) / (tax.on && tax.mode === 'inclusive' ? 1 + tax.rate / 100 : 1) * 100) / 100}
+                    saved={seedLines.some(l => l.id === line.id && !!l.assetPurchase)}
+                    onChange={assetPurchase => setLines(prev => prev.map(l => l.id === line.id ? { ...l, assetPurchase, ...(assetPurchase ? { qty: 1, accountId: undefined } : {}) } : l))} />}/>
+                </div>
             )}
             {activeTab === 'costs' && (
                 <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} accountOptions={accountOptions} />

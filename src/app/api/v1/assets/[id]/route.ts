@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, err, logAudit, ok, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { updateAssetInputSchema } from '@/types/api';
+import { lockAssetPurchases } from '@/lib/asset-purchases';
 
 export const runtime = 'nodejs';
 
@@ -22,6 +23,7 @@ export const GET = withHandler(async function GET(
     where: { id, organizationId: orgId, deletedAt: null },
     include: {
       category: true,
+      purchaseLine: { select: { billId: true, bill: { select: { id: true, number: true, status: true } } } },
       depreciationEntries: {
         orderBy: [{ year: 'asc' }, { month: 'asc' }],
       },
@@ -44,11 +46,19 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
     return err(parsed.error.issues[0]?.message || 'Invalid payload', 400);
   }
 
-  const existing = await prisma.asset.findFirst({
+  const updated = await prisma.$transaction(async tx => {
+  await lockAssetPurchases(tx, orgId);
+  const existing = await tx.asset.findFirst({
     where: { id, organizationId: orgId, deletedAt: null },
-    select: { id: true, status: true },
+    select: { id: true, status: true, purchaseLine: true, acquisitionCost: true },
   });
   if (!existing) throw new ApiError('Asset not found', 404);
+  if (existing.purchaseLine && parsed.data.salvageValue !== undefined && parsed.data.salvageValue > Number(existing.acquisitionCost)) {
+    throw new ApiError('Salvage value cannot exceed asset cost.', 422);
+  }
+  if (existing.purchaseLine && ['categoryId', 'acquisitionDate', 'acquisitionCost'].some(key => key in parsed.data)) {
+    throw new ApiError('Edit the source bill to change a purchased asset’s category, date, or cost.', 422);
+  }
   if (existing.status !== 'DRAFT' && existing.status !== 'ACTIVE') {
     throw new ApiError('Can only edit DRAFT or ACTIVE assets', 422);
   }
@@ -56,7 +66,7 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
   // Tenant-isolation guard: a reassigned category must belong to this org.
   if (parsed.data.categoryId) {
     await validateForeignKey(
-      prisma.assetCategory,
+      tx.assetCategory,
       { id: parsed.data.categoryId, organizationId: orgId },
       'Asset category not found in organization',
     );
@@ -67,10 +77,11 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
     updateData.acquisitionDate = new Date(updateData.acquisitionDate);
   }
 
-  const updated = await prisma.asset.update({
+  return tx.asset.update({
     where: { id },
     data: updateData,
     include: { category: { select: { id: true, name: true } } },
+  });
   });
 
   logAudit({
@@ -92,19 +103,23 @@ export const DELETE = withPermission({ module: 'GL_JOURNAL', action: 'delete' },
   const orgId = requireOrg(req);
   const { id } = await params;
 
-  const existing = await prisma.asset.findFirst({
+  await prisma.$transaction(async tx => {
+  await lockAssetPurchases(tx, orgId);
+  const existing = await tx.asset.findFirst({
     where: { id, organizationId: orgId, deletedAt: null },
-    select: { id: true, status: true },
+    select: { id: true, status: true, purchaseLine: { include: { bill: true } } },
   });
   if (!existing) throw new ApiError('Asset not found', 404);
   if (existing.status !== 'DRAFT') {
     throw new ApiError('Can only delete DRAFT assets', 422);
   }
+  if (existing.purchaseLine && !existing.purchaseLine.bill.deletedAt && existing.purchaseLine.bill.status !== 'VOID') throw new ApiError('Delete the draft source bill to cancel this asset purchase.', 422);
 
   // Soft delete
-  await prisma.asset.update({
+  await tx.asset.update({
     where: { id },
     data: { deletedAt: new Date() },
+  });
   });
 
   logAudit({

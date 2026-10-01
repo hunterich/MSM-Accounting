@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { assetInputSchema } from '@/types/api';
+import { nextAssetNumber } from '@/lib/asset-purchases';
 
 export const runtime = 'nodejs';
 
@@ -35,7 +36,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
       skip: (page - 1) * limit,
       take: limit,
       orderBy: { createdAt: 'desc' },
-      include: { category: { select: { id: true, name: true } } },
+      include: { category: { select: { id: true, name: true } }, purchaseLine: { select: { billId: true, bill: { select: { id: true, number: true, status: true } } } } },
     }),
     prisma.asset.count({ where }),
   ]);
@@ -60,13 +61,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
 
   const asset = await prisma.$transaction(async (tx: any) => {
     // Generate asset number
-    const countResult = await tx.$queryRaw`
-      SELECT MAX(CAST(SUBSTRING("assetNo" FROM '[0-9]+') AS INTEGER)) AS max
-      FROM "Asset"
-      WHERE "organizationId" = ${orgId}
-    `;
-    const maxSeq = Number((countResult as any)[0]?.max ?? 0);
-    const assetNo = `ASSET-${String(maxSeq + 1).padStart(6, '0')}`;
+    const assetNo = await nextAssetNumber(tx, orgId);
 
     return tx.asset.create({
       data: {

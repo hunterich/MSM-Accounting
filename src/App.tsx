@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { ErrorBoundary, PageErrorFallback } from './components/UI/ErrorBoundary'
 import Layout from './components/Layout/Layout'
@@ -8,6 +8,7 @@ import Login from './views/Login'
 import Forbidden from './views/Forbidden'
 import { TableSkeleton } from './components/UI/LoadingSkeleton'
 import type { JSX } from 'react'
+import { useLanguageStore } from './stores/useLanguageStore'
 
 const Dashboard = lazy(() => import('./views/Dashboard'))
 const ChartOfAccounts = lazy(() => import('./views/gl/ChartOfAccounts'))
@@ -81,6 +82,12 @@ const PageFallback = (): JSX.Element => (
 const WorkspaceTabRoute = (): null => null
 
 function App(): JSX.Element {
+    const language = useLanguageStore((state) => state.language) ?? 'en'
+
+    useEffect(() => {
+        document.documentElement.lang = language === 'id' ? 'id' : 'en'
+    }, [language])
+
     const withPermission = (element: JSX.Element, moduleKey: string, action = 'view') => (
         <PermissionRoute moduleKey={moduleKey} action={action}>
             {element}

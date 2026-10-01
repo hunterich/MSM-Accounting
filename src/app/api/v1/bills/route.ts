@@ -14,6 +14,7 @@ import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -91,6 +92,15 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
   let bill;
   try {
     bill = await prisma.$transaction(async (tx: any) => {
+    // PO/receipt-backed lines may finish an existing commitment after the item
+    // is deactivated. Ad-hoc new bill lines may only use active items.
+    await assertItemsActive(
+      tx,
+      orgId,
+      (parsed.data.lines ?? [])
+        .filter((line) => !line.purchaseOrderLineId)
+        .map((line) => line.itemId),
+    );
     const createdBill = await createBillRecord(tx, orgId, parsed.data);
 
     // --- PO line qty tracking: VALIDATE + LINK at create time ---

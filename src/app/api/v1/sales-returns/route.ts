@@ -7,6 +7,7 @@ import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
 import { createSalesReturnInputSchema } from '@/types/api';
+import { prepareSalesReturnLines } from '@/lib/sales-return-lines';
 
 export const runtime = 'nodejs';
 
@@ -63,6 +64,7 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
     for (const itemId of returnItemIds) {
       await validateForeignKey(tx.item, { id: itemId, organizationId: orgId }, 'Item not found in organization');
     }
+    const preparedLines = await prepareSalesReturnLines(tx, orgId, header.invoiceId, header.customerId, lines ?? []);
     const number = await nextNumber(tx, 'SalesReturn', 'number', 'SRN');
     const created = await tx.salesReturn.create({
       data: {
@@ -80,9 +82,11 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
             const price = asMoney(toNumber(l.price));
             return {
               lineNo:   idx + 1,
-              itemId:   l.itemId || null,
-              itemName: l.itemName || l.description || '',
-              qtySold:  toNumber(l.qtySold),
+              sourceInvoiceLineId: preparedLines[idx].sourceInvoiceLineId,
+              goodsReceived: preparedLines[idx].goodsReceived,
+              itemId:   preparedLines[idx].itemId,
+              itemName: preparedLines[idx].itemName,
+              qtySold:  preparedLines[idx].qtySold,
               qtyReturn,
               unit:     l.unit || 'PCS',
               price,
@@ -94,10 +98,10 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
       include: { lines: true },
     });
 
-    // Post inventory leg if user creates as APPROVED directly. PUT handler
-    // covers DRAFT → APPROVED transitions. If the approval engine routes the
+    // Both direct approval and Save & Create Credit Note finalize the inventory
+    // leg. PUT covers the corresponding draft transitions. If approval routes the
     // finalize for approval first, hold the return at PENDING_APPROVAL and post NO GL.
-    if (created.status === 'APPROVED') {
+    if (created.status === 'APPROVED' || created.status === 'PENDING_CREDIT_NOTE') {
       const routed = await routeForApproval(tx, {
         orgId,
         userId,

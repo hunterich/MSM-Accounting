@@ -30,6 +30,8 @@ import {
 import { SIDEBAR_PERMISSION_MAP, SUBITEM_PERMISSION_MAP } from '../../stores/useAccessStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useSettingsStore, type FeatureFlags } from '../../stores/useSettingsStore';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { translate } from '../../i18n/language';
 
 interface SubItem {
     label: string;
@@ -190,6 +192,8 @@ const allGroupsCollapsed = (): Record<string, boolean> =>
 
 const Sidebar = (): React.ReactElement => {
     const location = useLocation();
+    const language = useLanguageStore((s) => s.language) ?? 'en';
+    const t = (text: string) => translate(language, text);
     const permissions = useAuthStore((s) => s.permissions);
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const features = useSettingsStore((s) => s.features);
@@ -303,7 +307,7 @@ const Sidebar = (): React.ReactElement => {
 
     // ── Desktop icon rail: logo + one icon per group, hover tooltip, click flyout ──
     const RailBody = (
-        <nav ref={railRef} className="sidebar-rail hidden md:flex" aria-label="Primary">
+        <nav ref={railRef} className="sidebar-rail hidden md:flex" aria-label={t('Primary')}>
             <div className="sidebar-logo">
                 <span className="sidebar-logo-text" aria-hidden="true">M</span>
             </div>
@@ -322,7 +326,7 @@ const Sidebar = (): React.ReactElement => {
                                     to={g.items[0].path}
                                     end={g.items[0].path === '/'}
                                     className={`sidebar-icon-btn ${groupActive ? 'active' : ''}`}
-                                    aria-label={g.group}
+                                    aria-label={t(g.group)}
                                 >
                                     <GroupIcon size={18} strokeWidth={1.8} />
                                 </NavLink>
@@ -332,7 +336,7 @@ const Sidebar = (): React.ReactElement => {
                                     ref={el => { triggerRefs.current[g.group] = el; }}
                                     className={`sidebar-icon-btn ${groupActive || isOpen ? 'active' : ''}`}
                                     onClick={() => toggleFlyout(g.group, g.items.length)}
-                                    aria-label={g.group}
+                                    aria-label={t(g.group)}
                                     aria-expanded={isOpen}
                                     aria-haspopup="true"
                                 >
@@ -340,16 +344,16 @@ const Sidebar = (): React.ReactElement => {
                                 </button>
                             )}
 
-                            {!isOpen && <span className="sidebar-tooltip">{g.group}</span>}
+                            {!isOpen && <span className="sidebar-tooltip">{t(g.group)}</span>}
 
                             {isOpen && !single && (
                                 <div
                                     className="sidebar-flyout tiles"
                                     style={{ position: 'fixed', top: flyoutTop, left: 55 }}
-                                    aria-label={g.group}
+                                    aria-label={t(g.group)}
                                     onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeFlyout(g.group); } }}
                                 >
-                                    <div className="sidebar-flyout-heading">{g.group}</div>
+                                    <div className="sidebar-flyout-heading">{t(g.group)}</div>
                                     <div
                                         className="sidebar-tile-grid"
                                         style={{ '--tile-cols': Math.min(TILE_COLS, g.items.length) } as React.CSSProperties}
@@ -363,10 +367,10 @@ const Sidebar = (): React.ReactElement => {
                                                     to={it.path}
                                                     end={it.path === '/'}
                                                     className={`sidebar-tile ${active ? 'active' : ''}`}
-                                                    title={it.label}
+                                                    title={t(it.label)}
                                                 >
                                                     <ItemIcon className="sidebar-tile-icon" size={38} strokeWidth={1.4} />
-                                                    <span className="sidebar-tile-label">{it.label}</span>
+                                                    <span className="sidebar-tile-label">{t(it.label)}</span>
                                                 </NavLink>
                                             );
                                         })}
@@ -383,7 +387,7 @@ const Sidebar = (): React.ReactElement => {
     );
 
     const SidebarBody = (
-        <nav className="w-[240px] h-full bg-[#0e1730] flex flex-col text-white flex-shrink-0" aria-label="Primary">
+        <nav className="w-[240px] h-full bg-[#0e1730] flex flex-col text-white flex-shrink-0" aria-label={t('Primary')}>
             <div className="h-[52px] px-4 flex items-center gap-2 border-b border-white/10 flex-shrink-0">
                 <div className="w-7 h-7 rounded-md bg-primary-700 flex items-center justify-center font-bold text-sm">M</div>
                 <div className="font-semibold text-[14px]">MSM Accounting</div>
@@ -402,7 +406,7 @@ const Sidebar = (): React.ReactElement => {
                                 <span className={`inline-flex transition-transform ${collapsed ? '-rotate-90' : ''}`}>
                                     <ChevronDown size={10} />
                                 </span>
-                                <span>{g.group}</span>
+                                <span>{t(g.group)}</span>
                             </button>
                             {!collapsed && g.items.map(it => {
                                 const Icon = it.icon;
@@ -426,7 +430,7 @@ const Sidebar = (): React.ReactElement => {
                                                 <>
                                                     {a && <span className="absolute left-0 top-1 bottom-1 w-[3px] bg-primary-400 rounded-r" />}
                                                     <span className={a ? 'text-primary-300' : 'text-white/55'}><Icon size={15} strokeWidth={1.6} /></span>
-                                                    <span className="flex-1 truncate">{it.label}</span>
+                                                    <span className="flex-1 truncate">{t(it.label)}</span>
                                                 </>
                                             );
                                         }}
@@ -445,7 +449,7 @@ const Sidebar = (): React.ReactElement => {
     return (
         <>
             <div className="fixed top-0 left-0 right-0 h-14 bg-[#0e1730] flex md:hidden items-center px-4 z-50">
-                <button type="button" onClick={() => setMobileOpen(true)} className="text-white p-1 mr-3" aria-label="Open menu">
+                <button type="button" onClick={() => setMobileOpen(true)} className="text-white p-1 mr-3" aria-label={t('Open menu')}>
                     <Menu size={24} />
                 </button>
                 <span className="text-white font-semibold text-base">MSM Accounting</span>
@@ -458,7 +462,7 @@ const Sidebar = (): React.ReactElement => {
                         <div className="h-full flex flex-col bg-[#0e1730]">
                             <div className="flex items-center justify-between h-14 px-4 border-b border-white/10">
                                 <span className="text-white font-semibold text-base">MSM Accounting</span>
-                                <button type="button" onClick={() => setMobileOpen(false)} className="text-white p-1" aria-label="Close menu">
+                                <button type="button" onClick={() => setMobileOpen(false)} className="text-white p-1" aria-label={t('Close menu')}>
                                     <X size={22} />
                                 </button>
                             </div>
@@ -475,21 +479,23 @@ const Sidebar = (): React.ReactElement => {
 
 function RailFooter(): React.ReactElement {
     const user = useAuthStore((s) => s.user);
+    const language = useLanguageStore((s) => s.language) ?? 'en';
     const roleType = useAuthStore((s) => s.roleType);
     const initials = (user?.fullName || user?.email || 'U')
         .split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
     return (
         <div className="sidebar-icon-wrapper" style={{ marginTop: 'auto', marginBottom: 4 }}>
-            <NavLink to="/settings" className="sidebar-icon-btn" aria-label={user?.fullName || 'Account'}>
+            <NavLink to="/settings" className="sidebar-icon-btn" aria-label={user?.fullName || translate(language, 'Account')}>
                 <span className="sidebar-avatar">{initials}</span>
             </NavLink>
-            <span className="sidebar-tooltip">{user?.fullName || user?.email || 'Account'}{roleType ? ` · ${roleType}` : ''}</span>
+            <span className="sidebar-tooltip">{user?.fullName || user?.email || translate(language, 'Account')}{roleType ? ` · ${roleType}` : ''}</span>
         </div>
     );
 }
 
 const UserFooter = (): React.ReactElement => {
     const user = useAuthStore((s) => s.user);
+    const language = useLanguageStore((s) => s.language) ?? 'en';
     const roleType = useAuthStore((s) => s.roleType);
     const initials = (user?.fullName || user?.email || 'U')
         .split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -499,10 +505,10 @@ const UserFooter = (): React.ReactElement => {
                 {initials}
             </div>
             <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-medium truncate">{user?.fullName || user?.email || 'Signed in'}</div>
+                <div className="text-[12px] font-medium truncate">{user?.fullName || user?.email || translate(language, 'Signed in')}</div>
                 {roleType && <div className="text-[10px] text-white/50 truncate">{roleType}</div>}
             </div>
-            <NavLink to="/settings" className="text-white/55 hover:text-white" aria-label="Settings">
+            <NavLink to="/settings" className="text-white/55 hover:text-white" aria-label={translate(language, 'Settings')}>
                 <Settings size={14} />
             </NavLink>
         </div>

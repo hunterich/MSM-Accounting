@@ -12,6 +12,7 @@ import { useAccountDefaults, useOrganizationSettings, useUpdateOrganizationSetti
 import { ACCOUNT_DEFAULT_SPECS, DEFAULT_ACCOUNT_DEFAULTS } from '../../../lib/account-defaults';
 import type { AccountDefaultKey } from '../../../lib/account-defaults';
 import type { LucideIcon } from 'lucide-react';
+import { DEFAULT_PURCHASE_POLICY } from '../../../lib/organization/settings-config';
 import {
     DEFAULT_TRANSACTION_DATE_POLICY,
     type TransactionDatePolicy,
@@ -94,6 +95,7 @@ const MENU_GROUPS: MenuGroup[] = [
         label: 'Sales & purchasing',
         items: [
             { id: 'customers', label: 'Customers & Sales', icon: User },
+            { id: 'purchase', label: 'Purchase', icon: Briefcase },
             { id: 'restrictions', label: 'Restrictions', icon: Lock },
             { id: 'approvals', label: 'Approval Rules', icon: ClipboardCheck },
         ],
@@ -166,6 +168,7 @@ const Settings = () => {
         enforceLimit: storeCustomerCreditSettings.enforceLimit,
     });
     const [salesPolicy, setSalesPolicy] = useState(storeSalesPolicy);
+    const [purchasePolicy, setPurchasePolicy] = useState(DEFAULT_PURCHASE_POLICY);
     const [datePolicy, setDatePolicy] = useState<TransactionDatePolicy>(DEFAULT_TRANSACTION_DATE_POLICY);
     const [features, setFeatures] = useState(storeFeatures);
     const [approvalRequirements, setApprovalRequirements] = useState(storeApprovalRequirements);
@@ -223,6 +226,7 @@ const Settings = () => {
         enforceLimit: s.enforceCreditLimit,
       });
       setSalesPolicy(s.salesPolicy);
+      setPurchasePolicy(s.purchasePolicy);
       setDatePolicy(s.transactionDatePolicy);
       setFeatures((prev) => ({ ...prev, ...s.features }));
       setNumberingForm((prev) => ({ ...prev, ...s.documentNumbering }));
@@ -305,6 +309,14 @@ const Settings = () => {
                 return;
             }
             updateFeatures(features);
+        }
+
+        if (sectionId === 'purchase') {
+            if (!Number.isInteger(purchasePolicy.autoCloseDays) || purchasePolicy.autoCloseDays < 0 || purchasePolicy.autoCloseDays > 3650) {
+                window.alert('Auto-close days must be a whole number from 0 to 3650.'); return;
+            }
+            try { await updateOrgSettings.mutateAsync({ purchasePolicy }); }
+            catch (e) { window.alert(`Failed to save purchase settings: ${e instanceof Error ? e.message : 'Unknown error'}`); return; }
         }
 
         if (sectionId === 'restrictions') {
@@ -628,6 +640,26 @@ const Settings = () => {
                         <div className="settings-save-wrap">
                             <Button text="Save Changes" variant="primary" icon={<Save size={16} />} onClick={() => saveSection('features')} />
                         </div>
+                    </Card>
+                )}
+
+                {activeTab === 'purchase' && (
+                    <Card>
+                        <h3 className="settings-section-title">Purchase Order</h3>
+                        <FeatureRow label="Auto-close purchase orders"
+                            checked={purchasePolicy.autoCloseEnabled}
+                            onChange={(autoCloseEnabled) => setPurchasePolicy({ ...purchasePolicy, autoCloseEnabled })}
+                            hint="Default for new orders. Only approved or partially received orders close; received goods can still be billed." />
+                        <label className="form-label">Days after expected delivery date</label>
+                        <input type="number" min={0} max={3650} step={1}
+                            className="h-9 px-3 border border-neutral-300 rounded-md mb-3"
+                            value={purchasePolicy.autoCloseDays}
+                            onChange={(e) => setPurchasePolicy({ ...purchasePolicy, autoCloseDays: Number(e.target.value) })} />
+                        <FeatureRow label="Allow auto-close to be modified on individual orders"
+                            checked={purchasePolicy.allowAutoCloseOverride}
+                            onChange={(allowAutoCloseOverride) => setPurchasePolicy({ ...purchasePolicy, allowAutoCloseOverride })} />
+                        <p className="settings-help-text">Orders without an expected delivery date stay open. Deadlines use the company timezone and are checked every 15 minutes. Existing orders keep their saved settings.</p>
+                        <Button onClick={() => void saveSection('purchase')} disabled={updateOrgSettings.isPending} className="mt-4">Save Purchase Settings</Button>
                     </Card>
                 )}
 

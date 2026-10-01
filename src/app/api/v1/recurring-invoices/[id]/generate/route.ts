@@ -11,6 +11,7 @@ import {
 import { withPermission } from '@/lib/authz';
 import { routeForApproval } from '@/lib/approval/engine';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -77,6 +78,7 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
     if (template.status !== 'ACTIVE') {
       throw new ApiError(`Cannot generate invoice: template status is ${template.status}`, 422);
     }
+    await assertItemsActive(tx, orgId, template.lines.map((line) => line.itemId));
 
     // 3. Generate sequential invoice number with advisory lock
     const lockKey = fnv1aHash(`invoice-seq:${orgId}`);

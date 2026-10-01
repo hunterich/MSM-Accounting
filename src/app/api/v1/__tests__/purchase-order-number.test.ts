@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const tx = {
+  organization: { findUnique: vi.fn(async () => ({ purchasePolicy: null })) },
   purchaseOrder: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
   purchaseOrderLine: { createMany: vi.fn() },
   purchaseOrderCharge: { createMany: vi.fn() },
@@ -53,6 +54,7 @@ const basePayload = {
 };
 
 beforeEach(() => {
+  tx.organization.findUnique.mockResolvedValue({ purchasePolicy: null });
   vi.clearAllMocks();
   tx.purchaseOrder.create.mockImplementation(async ({ data }: any) => ({ id: 'po-1', number: data.number }));
   tx.purchaseOrder.findUnique.mockImplementation(async () => ({ id: 'po-1', number: tx.purchaseOrder.create.mock.calls[0]?.[0]?.data?.number }));
@@ -60,6 +62,18 @@ beforeEach(() => {
 });
 
 describe('POST /api/v1/purchase-orders — numbering', () => {
+  it('persists the organization auto-close defaults on the new order', async () => {
+    tx.organization.findUnique.mockResolvedValue({ purchasePolicy: { autoCloseEnabled: true, autoCloseDays: 45, allowAutoCloseOverride: false } } as any);
+    const res = await createPO(makeReq(basePayload));
+    expect(res.status).toBe(201);
+    expect(tx.purchaseOrder.create.mock.calls[0][0].data).toMatchObject({ autoCloseEnabled: true, autoCloseDays: 45 });
+  });
+  it('rejects unauthorized per-order overrides even if sent directly to the API', async () => {
+    tx.organization.findUnique.mockResolvedValue({ purchasePolicy: { autoCloseEnabled: true, autoCloseDays: 30, allowAutoCloseOverride: false } } as any);
+    const res = await createPO(makeReq({ ...basePayload, autoCloseEnabled: false }));
+    expect(res.status).toBe(422);
+    expect(tx.purchaseOrder.create).not.toHaveBeenCalled();
+  });
   it('allocates the next PO number when none is given', async () => {
     const res = await createPO(makeReq(basePayload));
     expect(res.status).toBe(201);

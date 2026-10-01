@@ -6,6 +6,7 @@ import { registerSW } from 'virtual:pwa-register';
 import PosApp from './PosApp';
 import { useAuthStore } from '../stores/useAuthStore';
 import { bootstrapActiveOrg } from '../lib/activeOrg';
+import { unregisterLegacyRootPosWorker } from '../lib/pwaScope';
 import '../index.css';
 
 // Consume the ?org= open-in-new-tab handshake and pin this tab's active company
@@ -15,7 +16,11 @@ import '../index.css';
 // is an idempotent no-op.)
 bootstrapActiveOrg();
 
-registerSW({ immediate: true });
+// Migrate installations that previously registered the POS worker for `/`,
+// then install the current narrow-scoped worker declared in vite.config.js.
+void unregisterLegacyRootPosWorker()
+  .catch((error) => console.warn('[POS PWA] Failed to remove legacy worker', error))
+  .finally(() => registerSW({ immediate: true }));
 
 const on401 = (e: unknown) => {
   if ((e as { status?: number })?.status === 401) {

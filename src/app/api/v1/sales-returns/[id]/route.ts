@@ -6,6 +6,8 @@ import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { updateSalesReturnInputSchema } from '@/types/api';
+import { prepareSalesReturnLines, lockSalesReturns } from '@/lib/sales-return-lines';
+import { ApiError } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -63,9 +65,12 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
     }
 
     const sr = await prisma.$transaction(async (tx) => {
+      const initial = await tx.salesReturn.findFirst({ where: { id, organizationId: orgId } });
+      if (!initial) throw new ApiError('Sales return not found', 404);
+      await lockSalesReturns(tx, orgId, initial.invoiceId);
       const prior = await tx.salesReturn.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, journalEntryId: true },
+        include: { lines: true },
       });
       if (!prior) {
         throw new Error('Sales return not found');
@@ -75,6 +80,13 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       if (prior.status !== 'DRAFT' && !isStatusOnlyUpdate) {
         throw new Error('Only DRAFT sales returns can be modified');
       }
+      if (prior.status !== 'DRAFT' && header.status !== prior.status) {
+        throw new ApiError('Finalized sales returns cannot change status here; use the void action', 422);
+      }
+      const preparedLines = await prepareSalesReturnLines(
+        tx, orgId, header.invoiceId ?? prior.invoiceId, header.customerId ?? prior.customerId,
+        lines ?? prior.lines, id,
+      );
 
       if (lines) {
         await tx.salesReturnLine.deleteMany({ where: { salesReturnId: id } });
@@ -93,9 +105,11 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
             lines: {
               create: lines.map((l, idx) => ({
                 lineNo:    idx + 1,
-                itemId:    l.itemId || null,
-                itemName:  l.itemName || l.description || '',
-                qtySold:   Number(l.qtySold ?? 0),
+                sourceInvoiceLineId: preparedLines[idx].sourceInvoiceLineId,
+                goodsReceived: preparedLines[idx].goodsReceived,
+                itemId:    preparedLines[idx].itemId,
+                itemName:  preparedLines[idx].itemName,
+                qtySold:   preparedLines[idx].qtySold,
                 qtyReturn: Number(l.qtyReturn ?? 0),
                 unit:      l.unit || 'PCS',
                 price:     Number(l.price ?? 0),
@@ -111,7 +125,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       // unless the approval engine routes the finalize for approval first. The update
       // above may have already stamped status='APPROVED'; if approval is required,
       // hold the return at PENDING_APPROVAL and post NO GL.
-      if (prior.status === 'DRAFT' && updated.status === 'APPROVED' && !prior.journalEntryId) {
+      if (prior.status === 'DRAFT' && ['APPROVED', 'PENDING_CREDIT_NOTE'].includes(updated.status) && !prior.postedAt) {
         const routed = await routeForApproval(tx, {
           orgId,
           userId,
@@ -138,7 +152,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
     return withCors(NextResponse.json(sr));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
+    return withCors(NextResponse.json({ error: message }, { status: error instanceof ApiError ? error.status : 500 }));
   }
 });
 
@@ -147,6 +161,13 @@ export const DELETE = withPermission({ module: 'AR_CREDITS', action: 'delete' },
   const orgId = req.headers.get('x-org-id')!;
   try {
     await prisma.$transaction(async (tx) => {
+      const initial = await tx.salesReturn.findFirst({ where: { id, organizationId: orgId } });
+      if (!initial) throw new ApiError('Sales return not found', 404);
+      await lockSalesReturns(tx, orgId, initial.invoiceId);
+      const prior = await tx.salesReturn.findFirst({ where: { id, organizationId: orgId } });
+      if (!prior || prior.status !== 'DRAFT' || prior.postedAt || prior.journalEntryId) {
+        throw new ApiError('Only draft sales returns can be deleted; void finalized returns instead', 422);
+      }
       await tx.salesReturnLine.deleteMany({ where: { salesReturnId: id } });
       await tx.salesReturn.delete({ where: { id, organizationId: orgId } });
     });
@@ -154,6 +175,6 @@ export const DELETE = withPermission({ module: 'AR_CREDITS', action: 'delete' },
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
+    return withCors(NextResponse.json({ error: message }, { status: error instanceof ApiError ? error.status : 500 }));
   }
 });

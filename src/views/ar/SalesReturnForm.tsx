@@ -5,6 +5,8 @@ import Input from '../../components/UI/Input';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 
 interface SalesReturnLine {
+    sourceInvoiceLineId: string;
+    goodsReceived: boolean;
     itemId:    string;
     itemName:  string;
     qtySold:   number;
@@ -30,7 +32,8 @@ interface SalesReturnData {
     lines:           SalesReturnLine[];
 }
 
-interface SalesReturnLineInput extends Partial<SalesReturnLine> {
+interface SalesReturnLineInput extends Partial<Omit<SalesReturnLine, 'sourceInvoiceLineId'>> {
+    sourceInvoiceLineId?: string | null;
     id?: string;
     name?: string;
     qty?: number;
@@ -55,7 +58,7 @@ import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { useCustomers, useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
-import { useItems } from '../../hooks/useInventory';
+import { useAllItems } from '../../hooks/useInventory';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -71,6 +74,8 @@ const buildReturnNo = (dateStr: string, seq = 1) => {
 };
 
 const normalizeLine = (line: SalesReturnLineInput): SalesReturnLine => ({
+    sourceInvoiceLineId: String(line.sourceInvoiceLineId || ''),
+    goodsReceived: line.goodsReceived ?? true,
     // `itemId` must be the PRODUCT id, or nothing. It used to fall back to
     // `line.id` — the invoice LINE's id — so every save was rejected with
     // "Item not found in organization". Invoice lines are free-text unless a
@@ -105,7 +110,8 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     const salesReturns = srData?.data ?? [];
     const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
-    const { data: productsData, isLoading: productsLoading } = useItems();
+    // A deactivated item can still be returned against an historical sale.
+    const { data: productsData, isLoading: productsLoading } = useAllItems({ isActive: 'all' });
     const products = productsData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
@@ -128,6 +134,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                 // `id` keys the row in the UI; `itemId` is the product FK and
                 // stays empty when the invoice line has no product linked.
                 id: String(l.id || ''),
+                sourceInvoiceLineId: String(l.id || ''),
                 itemId: String(l.itemId || ''),
                 itemName: String(l.description || l.itemName || ''),
                 qty: Number(l.quantity || 0),
@@ -226,7 +233,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     }));
     const itemOptions = products.map((product) => ({
         value: product.id,
-        label: `${product.sku || product.code || product.name} • ${product.name}`
+        label: `${product.sku || product.code || product.name} • ${product.name}${product.isActive ? '' : ' (Inactive)'}`
     }));
 
     const accountMap = useMemo<Record<string, any>>(() => {
@@ -248,13 +255,17 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Liability');
     }, [chartOfAccounts]);
 
-    const getAlreadyReturnedQty = (invoiceId: string, itemId: string, excludeReturnId = state.returnId) => {
+    const getAlreadyReturnedQty = (invoiceId: string, itemId: string, excludeReturnId = state.returnId, sourceInvoiceLineId?: string) => {
         return salesReturns
             .filter((ret) => ret.invoiceId === invoiceId)
             .filter((ret) => !excludeReturnId || ret.id !== excludeReturnId)
+            .filter((ret) => ret.status !== 'Void')
             .reduce((sum, ret) => {
-                const line = (ret.lines || []).find((ln: SalesReturnLineInput) => (ln.itemId || ln.id) === itemId);
-                return sum + Number(line?.qtyReturn || 0);
+                return sum + (ret.lines || [])
+                    .filter((ln) => sourceInvoiceLineId && ln.sourceInvoiceLineId
+                        ? ln.sourceInvoiceLineId === sourceInvoiceLineId
+                        : ln.itemId === itemId)
+                    .reduce((qty, ln) => qty + Number(ln.qtyReturn || 0), 0);
             }, 0);
     };
 
@@ -373,13 +384,13 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         }));
     };
 
-    const updateLine = (index: number, field: keyof SalesReturnLine, value: string | number) => {
+    const updateLine = (index: number, field: keyof SalesReturnLine, value: string | number | boolean) => {
         setReturnData((prev) => {
             const nextLines = [...prev.lines];
             const line: SalesReturnLine = { ...nextLines[index] };
             if (field === 'qtyReturn') {
                 const parsed = Number(value || 0);
-                const alreadyReturned = getAlreadyReturnedQty(prev.invoiceId, line.itemId, state.returnId);
+                const alreadyReturned = getAlreadyReturnedQty(prev.invoiceId, line.itemId, state.returnId, line.sourceInvoiceLineId);
                 const maxReturnableQty = Math.max(0, Number(line.qtySold || 0) - alreadyReturned);
                 line.qtyReturn = Math.max(0, Math.min(parsed, maxReturnableQty));
             } else {
@@ -421,7 +432,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         const payload = {
             ...returnData,
             ...(returnNumber && { returnNumber }),
-            lines: selectedLines
+            lines: selectedLines.map((line) => ({ ...line, sourceInvoiceLineId: line.sourceInvoiceLineId || undefined }))
         };
         // Persist the return via API
         const returnRecord = {
@@ -693,7 +704,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             <div className="invoice-panel panel-no-padding mt-12">
                 <div className="panel-section-title">Returned Items</div>
                 <div className="panel-section-note">
-                    One sales return links to one source invoice. For partial return, input only the returned quantity. Lines with quantity `0` are ignored.
+                    Returns use the original invoice cost. Uncheck Goods received back when the customer keeps the goods; inventory and COGS will stay unchanged. Lines with quantity `0` are ignored.
                 </div>
                 <table className="module-table">
                     <thead>
@@ -701,6 +712,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                             <th>Item</th>
                             <th className="text-right">Qty Sold</th>
                             <th className="text-right">Qty Return</th>
+                            <th>Goods received back</th>
                             <th>Unit</th>
                             <th className="text-right">Price</th>
                             <th className="text-right">Line Total</th>
@@ -709,7 +721,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                     <tbody>
                         {returnData.lines.length === 0 && (
                             <tr>
-                                <td colSpan={6} className="module-empty-state">
+                                <td colSpan={7} className="module-empty-state">
                                     Select an invoice to load item lines.
                                 </td>
                             </tr>
@@ -723,11 +735,17 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                                         type="number"
                                         className="w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed"
                                         min={0}
-                                        max={Math.max(0, Number(line.qtySold || 0) - getAlreadyReturnedQty(returnData.invoiceId, line.itemId, state.returnId))}
+                                        max={Math.max(0, Number(line.qtySold || 0) - getAlreadyReturnedQty(returnData.invoiceId, line.itemId, state.returnId, line.sourceInvoiceLineId))}
                                         value={line.qtyReturn}
                                         onChange={(e) => updateLine(idx, 'qtyReturn', e.target.value)}
                                         disabled={isView}
                                     />
+                                </td>
+                                <td>
+                                    <input type="checkbox" checked={line.goodsReceived}
+                                        aria-label={`Goods received back: ${line.itemName}`}
+                                        onChange={(e) => updateLine(idx, 'goodsReceived', e.target.checked)}
+                                        disabled={isView} />
                                 </td>
                                 <td>{line.unit}</td>
                                 <td className="text-right">{formatIDR(line.price)}</td>

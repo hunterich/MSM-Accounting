@@ -67,6 +67,10 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
     // blocks here and re-reads the incremented receivedQty.
     const receiveLockId = fnv1aHash(`po-receive:${po.id}`);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${receiveLockId})`;
+    const current = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId }, select: { status: true } });
+    if (!current || !['APPROVED', 'PARTIAL_RECEIVED'].includes(current.status)) {
+      throw new ApiError('PO is closed or is not approved for receiving', 422);
+    }
 
     // Refuse to receive into a closed/locked accounting period.
     await assertPeriodOpen(tx, orgId, receiptDate, dateOverride);

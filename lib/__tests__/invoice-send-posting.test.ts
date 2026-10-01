@@ -6,6 +6,7 @@ vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id
 vi.mock('../inventory-costing', () => ({ calculateAndPostCOGS: vi.fn(async () => 0) }));
 
 import { postJournalEntry } from '../journal-posting';
+import { calculateAndPostCOGS } from '../inventory-costing';
 
 const ACCOUNTS = [
   { id: 'acc-ar', code: '121', name: 'Piutang Usaha', type: 'Asset', isActive: true, isPostable: true },
@@ -75,5 +76,30 @@ describe('postInvoiceSend — additional charges', () => {
     const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
     const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
+  });
+});
+
+describe('postInvoiceSend — original cost snapshots', () => {
+  it('saves the actual consumed COGS on each source line, including zero cost', async () => {
+    const tx = makeTx() as any;
+    tx.organization.findUnique.mockResolvedValue({ costingMethod: 'FIFO', accountDefaults: {
+      inventoryAsset: 'acc-inventory', cogsExpense: 'acc-cogs',
+    } });
+    tx.account.findMany.mockResolvedValue([...ACCOUNTS,
+      { id: 'acc-inventory', code: '131', name: 'Inventory', type: 'Asset', isActive: true, isPostable: true },
+      { id: 'acc-cogs', code: '51', name: 'COGS', type: 'Expense', isActive: true, isPostable: true },
+    ]);
+    tx.salesInvoiceLine.findMany.mockResolvedValue([
+      { id: 'line-1', itemId: 'item-1', quantity: 2 },
+      { id: 'line-2', itemId: 'item-1', quantity: 1 },
+    ]);
+    tx.salesInvoiceLine.update = vi.fn();
+    tx.item.findMany.mockResolvedValue([{ id: 'item-1' }]);
+    vi.mocked(calculateAndPostCOGS).mockResolvedValueOnce(225).mockResolvedValueOnce(0);
+    await postInvoiceSend(tx, 'org-a', 'inv-1');
+    expect(tx.salesInvoiceLine.update.mock.calls).toEqual([
+      [{ where: { id: 'line-1' }, data: { cogsAmount: 225 } }],
+      [{ where: { id: 'line-2' }, data: { cogsAmount: 0 } }],
+    ]);
   });
 });

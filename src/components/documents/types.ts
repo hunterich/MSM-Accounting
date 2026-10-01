@@ -35,6 +35,8 @@ export interface DocLine {
     accountId?: string;
     /** human label for the coded account, e.g. "6310 · Internet" (display only) */
     accountLabel?: string;
+    assetPurchase?: { mode: 'CREATE'; name: string; categoryId: string; usefulLifeMonths?: number; salvageValue?: number; serialNumber?: string }
+        | { mode: 'LINK'; assetId: string };
 }
 
 /** A non-product cost: delivery, insurance, entertainment, handling, etc. */

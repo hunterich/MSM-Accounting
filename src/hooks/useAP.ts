@@ -58,6 +58,7 @@ const PO_STATUS_UP: Record<string, string> = {
 };
 
 type LegacyDocumentLine = {
+    assetPurchase?: import('../components/documents/types').DocLine['assetPurchase'];
     lineNo?: number;
     itemId?: string | null;
     accountId?: string | null;
@@ -98,6 +99,7 @@ const serializeDocumentLines = (payload: LegacyDocumentPayload) => {
                 lineNo: line.lineNo ?? idx + 1,
                 ...(line.itemId && { itemId: line.itemId }),
                 ...(line.accountId && { accountId: line.accountId }),
+                ...(line.assetPurchase && { assetPurchase: line.assetPurchase }),
                 // Preserve the PO link so editing a goods-receipt bill doesn't
                 // strip it and double-count inventory on finalize.
                 ...(line.purchaseOrderLineId && { purchaseOrderLineId: line.purchaseOrderLineId }),
@@ -160,6 +162,11 @@ function normalizeVendorCategory(raw: RawVendorCategory): VendorCategory {
 
 function normalizeBill(raw: RawBill): Bill {
     return {
+        charges: (raw.charges ?? []).map(c => ({ ...c, amount: Number(c.amount ?? 0), taxRate: Number(c.taxRate ?? 0) })),
+        vendorInvoiceNo: raw.vendorInvoiceNo || '',
+        taxable: raw.taxable ?? false,
+        taxInclusive: raw.taxInclusive ?? false,
+        withholdingRate: Number(raw.withholdingRate ?? 0),
         id:         raw.number   || raw.id,
         _id:        raw.id,
         number:     raw.number   || '',
@@ -233,6 +240,9 @@ function normalizePO(raw: RawPurchaseOrder): PurchaseOrder {
         vendorCode:   raw.vendor?.code || '',
         date:         raw.date         ? String(raw.date).slice(0, 10)         : '',
         expectedDate: raw.expectedDate ? String(raw.expectedDate).slice(0, 10) : '',
+        autoCloseEnabled: raw.autoCloseEnabled ?? false,
+        autoCloseDays: raw.autoCloseDays ?? 30,
+        autoClosedAt: raw.autoClosedAt ?? null,
         status:       PO_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as POStatus),
         amount:       Number(raw.totalAmount ?? 0),
         totalAmount:  Number(raw.totalAmount ?? 0),
@@ -367,7 +377,7 @@ export function useCreateBill() {
             ...serializePayableDocument(body, BILL_STATUS_UP),
             status: BILL_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
         }),
-        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.bills }),
+        onSuccess: () => { qc.invalidateQueries({ queryKey: AP_KEYS.bills }); qc.invalidateQueries({ queryKey: ['assets'] }); },
     });
 }
 
@@ -379,6 +389,7 @@ export function useUpdateBill() {
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AP_KEYS.bills });
             qc.invalidateQueries({ queryKey: AP_KEYS.bill(vars.id) });
+            qc.invalidateQueries({ queryKey: ['assets'] });
         },
     });
 }
@@ -387,7 +398,7 @@ export function useDeleteBill() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/bills/${id}`),
-        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.bills }),
+        onSuccess: () => { qc.invalidateQueries({ queryKey: AP_KEYS.bills }); qc.invalidateQueries({ queryKey: ['assets'] }); },
     });
 }
 
@@ -398,6 +409,7 @@ export function useVoidBill() {
         onSuccess: (_, id) => {
             qc.invalidateQueries({ queryKey: AP_KEYS.bills });
             qc.invalidateQueries({ queryKey: AP_KEYS.bill(id) });
+            qc.invalidateQueries({ queryKey: ['assets'] });
         },
     });
 }
@@ -494,7 +506,7 @@ export function usePurchaseOrder(id: string | undefined) {
 export function useCreatePurchaseOrder() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (body: Partial<PurchaseOrder> & LegacyDocumentPayload) => api.post('/api/v1/purchase-orders', {
+        mutationFn: (body: Omit<Partial<PurchaseOrder>, 'expectedDate'> & { expectedDate?: string | null } & LegacyDocumentPayload) => api.post('/api/v1/purchase-orders', {
             ...serializePayableDocument(body, PO_STATUS_UP),
             status: PO_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
         }),
@@ -505,7 +517,7 @@ export function useCreatePurchaseOrder() {
 export function useUpdatePurchaseOrder() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, ...updates }: Partial<PurchaseOrder> & LegacyDocumentPayload & { id: string }) =>
+        mutationFn: ({ id, ...updates }: Omit<Partial<PurchaseOrder>, 'expectedDate'> & { expectedDate?: string | null } & LegacyDocumentPayload & { id: string }) =>
             api.put(`/api/v1/purchase-orders/${id}`, serializePayableDocument(updates, PO_STATUS_UP)),
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AP_KEYS.pos });

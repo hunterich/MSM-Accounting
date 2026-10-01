@@ -12,6 +12,7 @@ import { calculateInvoiceTotals } from '@/lib/invoice-totals';
 import { nextInvoiceNumber } from '@/lib/invoice-number';
 import { enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -116,16 +117,7 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
       { id: payload.customerId, organizationId: payload.organizationId },
       'Customer not found in organization',
     );
-    const lineItemIds = Array.from(
-      new Set(payload.lines.map((l) => l.itemId).filter((id): id is string => !!id)),
-    );
-    for (const itemId of lineItemIds) {
-      await validateForeignKey(
-        tx.item,
-        { id: itemId, organizationId: payload.organizationId },
-        'Item not found in organization',
-      );
-    }
+    await assertItemsActive(tx, payload.organizationId, payload.lines.map((line) => line.itemId));
 
     const totals = calculateInvoiceTotals(payload, {
       taxEnabled: organization.taxEnabled,

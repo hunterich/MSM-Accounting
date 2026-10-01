@@ -62,6 +62,7 @@ function normalizeItem(raw: RawInventoryItem): InventoryItem {
         inventoryAccountId: raw.inventoryAccountId || '',
         revenueAccountId:   raw.revenueAccountId   || '',
         cogsAccountId:      raw.cogsAccountId      || '',
+        isActive:           raw.isActive !== false,
         status: currentStock === 0 ? 'Out of Stock' : currentStock < 5 ? 'Low Stock' : 'In Stock',
     };
 }
@@ -110,6 +111,40 @@ export function useItems(filters: Record<string, unknown> = {}) {
         }),
         staleTime: 30_000,
     });
+}
+
+/** Every item matching `filters`, fetched page by page. Use for item pickers:
+ *  /items is paginated (default 20, max 100 per page), so a single useItems()
+ *  call silently hides the rest of the catalog. Same result shape as useItems. */
+export function useAllItems(filters: Record<string, unknown> = {}) {
+    return useQuery({
+        // Prefixed with INV_KEYS.items so item mutations invalidate it too.
+        queryKey: [...INV_KEYS.items, 'all', filters],
+        queryFn:  () => fetchAllItemsRaw(filters),
+        select:   (res) => ({
+            ...res,
+            data: (res.data || []).map(normalizeItem),
+        }),
+        staleTime: 30_000,
+    });
+}
+
+async function fetchAllItemsRaw(filters: Record<string, unknown>): Promise<ListResponse<RawInventoryItem>> {
+    const limit = 100;
+    const first = await api.get<ListResponse<RawInventoryItem>>('/api/v1/items', { ...filters, page: 1, limit });
+    const data = [...(first.data || [])];
+    const pages = Math.ceil((first.total || 0) / limit);
+    for (let page = 2; page <= pages; page++) {
+        const res = await api.get<ListResponse<RawInventoryItem>>('/api/v1/items', { ...filters, page, limit });
+        data.push(...(res.data || []));
+    }
+    return { ...first, data, page: 1, limit: data.length };
+}
+
+/** One-off fetch of every item matching `filters` (e.g. for CSV export). */
+export async function fetchAllItems(filters: Record<string, unknown> = {}): Promise<InventoryItem[]> {
+    const res = await fetchAllItemsRaw(filters);
+    return (res.data || []).map(normalizeItem);
 }
 
 /** Lightweight, unpaginated index of ALL items (active + inactive) — only

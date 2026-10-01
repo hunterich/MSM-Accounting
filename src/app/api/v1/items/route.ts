@@ -9,6 +9,14 @@ import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 
 export const runtime = 'nodejs';
 
+const STOCK_STATUSES = new Set(['in', 'low', 'out']);
+
+/** Mirrors the status rule in useInventory's normalizeItem. */
+function stockStatusOf(qty: number): 'in' | 'low' | 'out' {
+  if (qty === 0) return 'out';
+  return qty < 5 ? 'low' : 'in';
+}
+
 export async function OPTIONS() {
   return corsPreflightResponse();
 }
@@ -20,12 +28,33 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const type = searchParams.get('type');
   const search = searchParams.get('search');
   const isActive = searchParams.get('isActive');
-  const where: any = { organizationId: orgId, isActive: isActive ? isActive === 'true' : true };
+  const categoryId = searchParams.get('categoryId');
+  const where: any = { organizationId: orgId };
+  // Transaction pickers omit this parameter and receive active items only. The
+  // item master explicitly requests `all` so archived items remain manageable.
+  if (isActive !== 'all') where.isActive = isActive ? isActive === 'true' : true;
   if (type) where.type = type;
+  if (categoryId) where.categoryId = categoryId;
   if (search) where.OR = [
     { name: { contains: search, mode: 'insensitive' } },
     { sku: { contains: search, mode: 'insensitive' } },
   ];
+  // Stock status is derived from on-hand quantity, so resolve the matching ids
+  // across the whole filtered catalog before paginating.
+  const stockStatus = searchParams.get('stockStatus');
+  if (stockStatus && STOCK_STATUSES.has(stockStatus)) {
+    const candidates = await prisma.item.findMany({ where, select: { id: true } });
+    const candidateIds = candidates.map((i) => i.id);
+    const balances = candidateIds.length
+      ? await prisma.inventoryLot.groupBy({
+          by: ['itemId'],
+          where: { itemId: { in: candidateIds } },
+          _sum: { qtyBalance: true },
+        })
+      : [];
+    const balanceMap = new Map(balances.map((r) => [r.itemId, Number(r._sum.qtyBalance ?? 0)]));
+    where.id = { in: candidateIds.filter((id) => stockStatusOf(balanceMap.get(id) ?? 0) === stockStatus) };
+  }
   const [data, total] = await Promise.all([
     prisma.item.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { name: 'asc' }, include: { category: { select: { id: true, name: true, code: true } } } }),
     prisma.item.count({ where }),

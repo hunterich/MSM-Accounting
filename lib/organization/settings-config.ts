@@ -40,6 +40,27 @@ export function normalizeSalesPolicy(raw: unknown): SalesPolicy {
   return out;
 }
 
+export interface PurchasePolicy {
+  autoCloseEnabled: boolean;
+  autoCloseDays: number;
+  allowAutoCloseOverride: boolean;
+}
+export const DEFAULT_PURCHASE_POLICY: PurchasePolicy = {
+  autoCloseEnabled: false, autoCloseDays: 30, allowAutoCloseOverride: true,
+};
+export function normalizePurchasePolicy(raw: unknown): PurchasePolicy {
+  const out = { ...DEFAULT_PURCHASE_POLICY };
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const o = raw as Record<string, unknown>;
+    if (typeof o.autoCloseEnabled === 'boolean') out.autoCloseEnabled = o.autoCloseEnabled;
+    if (typeof o.allowAutoCloseOverride === 'boolean') out.allowAutoCloseOverride = o.allowAutoCloseOverride;
+    if (typeof o.autoCloseDays === 'number' && Number.isInteger(o.autoCloseDays) && o.autoCloseDays >= 0 && o.autoCloseDays <= 3650) {
+      out.autoCloseDays = o.autoCloseDays;
+    }
+  }
+  return out;
+}
+
 export interface DocNumberingConfig { prefix: string; resetPeriod: string; seqLength: number; }
 export const DOC_NUMBERING_KEYS = ['ar_invoice', 'ap_bill', 'so_order', 'po_order', 'ar_payment', 'ap_payment'] as const;
 export type DocNumberingKey = (typeof DOC_NUMBERING_KEYS)[number];

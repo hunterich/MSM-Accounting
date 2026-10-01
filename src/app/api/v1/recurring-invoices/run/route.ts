@@ -11,6 +11,7 @@ import { withPermission } from '@/lib/authz';
 import { routeForApproval } from '@/lib/approval/engine';
 import { resolveRequesterId } from '@/lib/approval/requester';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -71,6 +72,7 @@ async function generateFromTemplate(
 
       if (!template) throw new Error('Template not found');
       if (template.status !== 'ACTIVE') throw new Error(`Template status is ${template.status}`);
+      await assertItemsActive(tx, orgId, template.lines.map((line) => line.itemId));
 
       // Acquire advisory lock scoped to this org's invoice sequence
       const lockKey = fnv1aHash(`invoice-seq:${orgId}`);

@@ -70,7 +70,7 @@ export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (
           if (found) {
             await tx.stockCountLine.update({ where: { id: found.id }, data: { countedQty, note: l.note ?? null } });
           } else {
-            const item = await tx.item.findFirst({ where: { id: l.itemId, organizationId: orgId, isActive: true }, select: { id: true, costPrice: true } });
+            const item = await tx.item.findFirst({ where: { id: l.itemId, organizationId: orgId }, select: { id: true, costPrice: true } });
             if (!item) throw new ApiError('Item not found in organization', 404);
             const lotAgg = await tx.inventoryLot.aggregate({ where: { organizationId: orgId, itemId: l.itemId }, _sum: { qtyBalance: true } });
             await tx.stockCountLine.create({

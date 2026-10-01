@@ -48,6 +48,7 @@ model Organization {
   features                         Json?
   documentNumbering                Json?
   salesPolicy                      Json?
+  purchasePolicy                   Json?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -610,6 +611,8 @@ model SalesInvoiceLine {
   price         Decimal  @default(0) @db.Decimal(18, 2)
   discountPct   Decimal  @default(0) @db.Decimal(5, 2)
   lineSubtotal  Decimal  @default(0) @db.Decimal(18, 2)
+  // Actual COGS consumed at posting; null means historical cost is unavailable.
+  cogsAmount    Decimal? @db.Decimal(18, 2)
   performedById String?
   parentLineNo  Int?
   isModifier    Boolean  @default(false)
@@ -618,6 +621,7 @@ model SalesInvoiceLine {
   invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   item           Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
   performedBy    Employee?    @relation(fields: [performedById], references: [id], onDelete: SetNull)
+  returnLines    SalesReturnLine[]
 
   @@unique([invoiceId, lineNo])
   @@index([itemId])
@@ -840,12 +844,17 @@ model SalesReturnLine {
   unit          String   @default("PCS")
   price         Decimal  @default(0) @db.Decimal(18, 2)
   lineTotal     Decimal  @default(0) @db.Decimal(18, 2)
+  sourceInvoiceLineId String?
+  goodsReceived Boolean @default(true)
+  inventoryCost Decimal? @db.Decimal(18, 2)
 
   salesReturn   SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
   item          Item?       @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  sourceInvoiceLine SalesInvoiceLine? @relation(fields: [sourceInvoiceLineId], references: [id], onDelete: Restrict)
 
   @@unique([salesReturnId, lineNo])
   @@index([itemId])
+  @@index([sourceInvoiceLineId])
 }
 
 model CreditNote {
@@ -892,6 +901,9 @@ model PurchaseOrder {
   vendorId       String
   date           DateTime
   expectedDate   DateTime?
+  autoCloseEnabled Boolean           @default(false)
+  autoCloseDays    Int               @default(30)
+  autoClosedAt     DateTime?
   status         PurchaseOrderStatus @default(DRAFT)
   taxRate        Decimal             @default(0) @db.Decimal(5, 2)
   taxable        Boolean             @default(false)
@@ -912,6 +924,7 @@ model PurchaseOrder {
   @@unique([organizationId, number])
   @@index([organizationId, date, status])
   @@index([vendorId])
+  @@index([autoCloseEnabled, status, expectedDate])
 }
 
 // Additional cost on a purchase order. POs never journal, so these are advisory
@@ -1007,6 +1020,8 @@ model BillLine {
   lineNo               Int
   itemId               String?
   accountId            String?
+  assetId              String?  @unique
+  asset                Asset?   @relation(fields: [assetId], references: [id], onDelete: Restrict)
   description          String
   quantity             Decimal  @default(0) @db.Decimal(18, 4)
   unit                 String   @default("PCS")
@@ -1341,7 +1356,7 @@ model InventoryLedgerEntry {
   documentId     String
   qtyIn          Decimal     @default(0) @db.Decimal(18, 4)
   qtyOut         Decimal     @default(0) @db.Decimal(18, 4)
-  unitCost       Decimal     @default(0) @db.Decimal(18, 2)
+  unitCost       Decimal     @default(0) @db.Decimal(18, 6)
   valueChange    Decimal     @default(0) @db.Decimal(18, 2)
   migrationBatchId String?
   createdAt      DateTime    @default(now())
@@ -2293,6 +2308,8 @@ model Asset {
   description             String?
   categoryId              String
   acquisitionDate         DateTime
+  readyForUseDate         DateTime?
+  purchaseLine            BillLine?
   acquisitionCost         Decimal            @db.Decimal(18, 2)
   depreciationMethod      DepreciationMethod @default(STRAIGHT_LINE)
   usefulLifeMonths        Int                @default(60)

@@ -23,9 +23,12 @@ import {
     useUpdatePurchaseOrder,
     useCreateVendor,
 } from '../../../hooks/useAP';
-import { useItems } from '../../../hooks/useInventory';
+import { useAllItems } from '../../../hooks/useInventory';
 import { useAccountsByType, useChartOfAccounts } from '../../../hooks/useGL';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useOrganizationSettings } from '../../../hooks/useOrganizationSettings';
+import { DEFAULT_PURCHASE_POLICY } from '../../../../lib/organization/settings-config';
+import { autoCloseDate } from '../../../../lib/purchase-order-auto-close-config';
 import { resolveAccountDefaults } from '../../../../lib/account-defaults';
 
 /**
@@ -75,10 +78,11 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
 
     // ── Data ────────────────────────────────────────────────────────────────
     const { data: vendorsResult } = useVendors();
-    const { data: itemsResult } = useItems({ limit: 100 });
+    const { data: itemsResult } = useAllItems();
     const { data: posResult } = usePurchaseOrders();
     const { data: editingPORaw } = usePurchaseOrder(isEdit ? poId : undefined);
     const editingPO = editingPORaw as unknown as Rec | undefined;
+    const isReceivedOrder = editingPO?.status === 'Billed';
     const { data: expenseAccountsData } = useAccountsByType('Expense');
     const accountOptions = useMemo(
         () => (expenseAccountsData ?? []).map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` })),
@@ -102,7 +106,17 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
     const [expectedDate, setExpectedDate] = useState('');
     const [reference, setReference] = useState('');
     const [notes, setNotes] = useState('');
-    const [autoClose, setAutoClose] = useState('60');
+    const { data: orgSettings, isLoading: purchaseSettingsLoading } = useOrganizationSettings();
+    const purchasePolicy = orgSettings?.purchasePolicy ?? DEFAULT_PURCHASE_POLICY;
+    const [autoCloseEnabled, setAutoCloseEnabled] = useState(false);
+    const [autoCloseDays, setAutoCloseDays] = useState(30);
+    const autoCloseSeeded = useRef(false);
+    useEffect(() => {
+        if (isEdit || !orgSettings || autoCloseSeeded.current) return;
+        setAutoCloseEnabled(orgSettings.purchasePolicy.autoCloseEnabled);
+        setAutoCloseDays(orgSettings.purchasePolicy.autoCloseDays);
+        autoCloseSeeded.current = true;
+    }, [orgSettings, isEdit]);
     const [tax, setTax] = useState<TaxState>({ on: false, rate: TAX_RATE, mode: 'exclusive' });
 
     // ── Lines ───────────────────────────────────────────────────────────────
@@ -141,6 +155,8 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
         setVendorId(str(editingPO.vendorId));
         setOrderDate(str(editingPO.date ?? editingPO.issueDate) || todayString());
         setExpectedDate(str(editingPO.expectedDate ?? editingPO.expiryDate));
+        setAutoCloseEnabled(editingPO.autoCloseEnabled === true);
+        setAutoCloseDays(Number(editingPO.autoCloseDays ?? 30));
         setNotes(str(editingPO.notes));
         setLines(seedLines);
         setCharges(seedCharges);
@@ -268,6 +284,10 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
     // ── Save ────────────────────────────────────────────────────────────────
     const validate = (): boolean => {
         if (!vendorId) { setActiveTab('items'); window.alert('Select a vendor first.'); return false; }
+        if (purchaseSettingsLoading || !orgSettings) { window.alert('Purchase settings are not loaded yet. Try again after they load.'); return false; }
+        if (!Number.isInteger(autoCloseDays) || autoCloseDays < 0 || autoCloseDays > 3650) {
+            setActiveTab('info'); window.alert('Auto-close days must be a whole number from 0 to 3650.'); return false;
+        }
         if (!isEdit && numberingMode === 'manual' && !manualNumber.trim()) {
             window.alert('Enter a PO number, or switch PO Number back to Auto.'); return false;
         }
@@ -282,7 +302,8 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
         ...(!isEdit && numberingMode === 'manual' && manualNumber.trim() && { number: manualNumber.trim() }),
         date: orderDate,
         // Blank "Expected" is optional — omit it rather than send '' (the API rejects a non-date string).
-        ...(expectedDate && { expectedDate }),
+        ...(expectedDate ? { expectedDate } : isEdit ? { expectedDate: null } : {}),
+        ...(purchasePolicy.allowAutoCloseOverride && { autoCloseEnabled, autoCloseDays }),
         status,
         taxRate: tax.on ? tax.rate : 0,
         taxable: tax.on,
@@ -320,7 +341,10 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
         try {
             const payload = buildPayload(status);
             if (isEdit && editingPO) {
-                await updatePO.mutateAsync({ id: str(editingPO._id || editingPO.id), ...payload });
+                await updatePO.mutateAsync({ id: str(editingPO._id || editingPO.id), ...(isReceivedOrder ? {
+                    expectedDate: expectedDate || null,
+                    ...(purchasePolicy.allowAutoCloseOverride && { autoCloseEnabled, autoCloseDays }),
+                } : payload) });
             } else {
                 await createPO.mutateAsync(payload);
             }
@@ -379,7 +403,35 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
         </div>
     );
 
-    const main = (
+    const autoClosePanel = (<div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-3">
+                    <div className="text-[11px] uppercase tracking-wide text-neutral-500 font-semibold mb-2">Purchase order auto-close</div>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={autoCloseEnabled}
+                            disabled={!orgSettings || !purchasePolicy.allowAutoCloseOverride}
+                            onChange={(e) => setAutoCloseEnabled(e.target.checked)} />
+                        Auto-close this order
+                    </label>
+                    <label className="block mt-3 mb-1 text-xs">Days after expected delivery date</label>
+                    <input type="number" min={0} max={3650} step={1} aria-label="Auto-close days"
+                        className={`${ctl} max-w-[160px]`} value={autoCloseDays}
+                        disabled={!orgSettings || !purchasePolicy.allowAutoCloseOverride}
+                        onChange={(e) => setAutoCloseDays(Number(e.target.value))} />
+                    <div className="text-xs text-neutral-500 mt-2">
+                        {autoCloseEnabled ? expectedDate
+                            ? `Scheduled close date: ${autoCloseDate(expectedDate, autoCloseDays)}. Checked every 15 minutes in the company timezone.`
+                            : 'Set an expected delivery date to schedule auto-close.'
+                            : 'This order will stay open until it is received or manually closed.'}
+                        {!purchasePolicy.allowAutoCloseOverride && ' Individual changes are disabled in Purchase settings.'}
+                    </div>
+                </div>);
+    const main = isReceivedOrder ? (
+        <div>
+            <p className="text-sm text-neutral-600 mb-3">Goods have been received against this PO. You can update its expected delivery date and auto-close options; its received lines stay fixed.</p>
+            <label className={lbl}>Expected delivery date</label>
+            <input type="date" className={ctl} value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
+            {autoClosePanel}
+        </div>
+    ) : (
         <>
             <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4">
                 <div className="grid grid-cols-12 gap-3">
@@ -478,6 +530,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
                 <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} accountOptions={accountOptions} />
             )}
             {activeTab === 'info' && (
+                <>
                 <AdditionalInfoTab
                     party="vendor"
                     tax={tax}
@@ -486,10 +539,9 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
                     onDeliveryDateChange={setExpectedDate}
                     reference={reference}
                     onReferenceChange={setReference}
-                    isOrder
-                    autoClose={autoClose}
-                    onAutoCloseChange={setAutoClose}
                 />
+                {autoClosePanel}
+                </>
             )}
 
             <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4">
@@ -517,7 +569,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
     return (
         <div className="p-0">
             <DocumentFormLayout
-                title={isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}
+                title={isReceivedOrder ? 'Purchase Order Settings' : isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}
                 dirty={dirty}
                 saving={saving}
                 onBack={goBack}
@@ -526,11 +578,11 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
                     { label: 'Print A4', hint: 'Standard paper', onClick: () => window.print() },
                     { label: 'Email PDF', onClick: () => {} },
                 ]}
-                onSaveDraft={handleSaveDraft}
-                primaryLabel="Save & send to vendor"
-                primaryIcon={<Send size={13} />}
+                onSaveDraft={isReceivedOrder ? undefined : handleSaveDraft}
+                primaryLabel={isReceivedOrder ? 'Save order settings' : 'Save & send to vendor'}
+                primaryIcon={isReceivedOrder ? undefined : <Send size={13} />}
                 onPrimary={handleConfirm}
-                primaryOptions={[
+                primaryOptions={isReceivedOrder ? undefined : [
                     { label: 'Save & send to vendor', hint: 'Approve the PO', onClick: handleConfirm },
                     { label: 'Save as draft', hint: 'Keep editable', onClick: handleSaveDraft },
                 ]}

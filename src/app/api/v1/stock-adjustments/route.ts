@@ -57,7 +57,8 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
       await validateForeignKey(tx.warehouse, { id: warehouseId, organizationId: orgId }, 'Warehouse not found in organization');
     }
     for (const line of lines) {
-      await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId, isActive: true }, 'Item not found in organization');
+      // Inactive items remain adjustable so residual stock can be written down.
+      await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId }, 'Item not found in organization');
     }
 
     const number = await nextNumber(tx, 'StockAdjustment', 'number', 'ADJ');

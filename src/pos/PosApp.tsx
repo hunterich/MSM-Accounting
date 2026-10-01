@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '@/src/stores/useAuthStore';
+import { useLanguageStore } from '@/src/stores/useLanguageStore';
 import { api } from '@/src/api/apiClient';
 import { getActiveOrgId, setActiveOrgId } from '@/src/lib/activeOrg';
 import { resolvePosGate } from './posGate';
@@ -20,6 +21,7 @@ const Splash = (): React.ReactElement => (
 );
 
 export default function PosApp(): React.ReactElement {
+  const language = useLanguageStore((s) => s.language) ?? 'id';
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const org = useAuthStore((s) => s.org);
@@ -28,6 +30,7 @@ export default function PosApp(): React.ReactElement {
   const checkSession = useAuthStore((s) => s.checkSession);
 
   useEffect(() => { void checkSession(); }, [checkSession]);
+  useEffect(() => { document.documentElement.lang = language; }, [language]);
 
   if (isLoading) return <Splash />;
   if (!user) return <LoginView />;

@@ -6,6 +6,8 @@ import { moduleKeyOf, isDocumentModule, docModuleTitle, DOC_MODULES } from '../.
 import { isPinnedTab } from '../../stores/workspace/reducers';
 import { TAB_CAP, MODULE_CAP } from '../../stores/workspace/types';
 import TabContextMenu, { type TabMenuItem } from './TabContextMenu';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { translate } from '../../i18n/language';
 
 /**
  * Two-level tab bar (Accurate-style):
@@ -26,6 +28,8 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
     const reopenClosed = useWorkspaceStore((s) => s.reopenClosed);
     const closedStack = useWorkspaceStore((s) => s.closedStack);
     const { open } = useWorkspaceNav();
+    const language = useLanguageStore((s) => s.language) ?? 'en';
+    const t = (text: string) => translate(language, text);
 
     const [menu, setMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
 
@@ -48,11 +52,11 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
     }
 
     const handleCloseModule = (key: string, dirty: boolean) => {
-        if (dirty && !window.confirm('This module has unsaved changes. Close it and discard them?')) return;
+        if (dirty && !window.confirm(t('This module has unsaved changes. Close it and discard them?'))) return;
         closeModule(key);
     };
     const handleCloseDoc = (id: string, dirty: boolean) => {
-        if (dirty && !window.confirm('Discard unsaved changes in this tab?')) return;
+        if (dirty && !window.confirm(t('Discard unsaved changes in this tab?'))) return;
         closeTab(id);
     };
 
@@ -82,11 +86,11 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
         const hasRight = idx < tabs.length - 1;
         const confirmBulk = (dirty: boolean, msg: string) => !dirty || window.confirm(msg);
         return [
-            { label: 'Close', icon: <X size={15} />, onClick: () => handleCloseDoc(id, self?.status !== 'clean') },
-            { label: 'Close others', icon: <Copy size={15} />, disabled: !hasOthers, onClick: () => { if (confirmBulk(othersDirty, 'Some other tabs have unsaved changes. Close them and discard?')) closeOthers(id); } },
-            { label: 'Close to the right', icon: <ChevronRight size={15} />, disabled: !hasRight, onClick: () => { if (confirmBulk(rightDirty, 'Tabs to the right have unsaved changes. Close them and discard?')) closeToRight(id); } },
-            { label: 'Close all', icon: <XCircle size={15} />, onClick: () => { if (confirmBulk(anyDirty, 'Some tabs have unsaved changes. Close all and discard?')) closeAll(); } },
-            { label: 'Reopen closed tab', icon: <RotateCcw size={15} />, disabled: closedStack.length === 0, onClick: () => reopenClosed() },
+            { label: t('Close'), icon: <X size={15} />, onClick: () => handleCloseDoc(id, self?.status !== 'clean') },
+            { label: t('Close others'), icon: <Copy size={15} />, disabled: !hasOthers, onClick: () => { if (confirmBulk(othersDirty, t('Some other tabs have unsaved changes. Close them and discard?'))) closeOthers(id); } },
+            { label: t('Close to the right'), icon: <ChevronRight size={15} />, disabled: !hasRight, onClick: () => { if (confirmBulk(rightDirty, t('Tabs to the right have unsaved changes. Close them and discard?'))) closeToRight(id); } },
+            { label: t('Close all'), icon: <XCircle size={15} />, onClick: () => { if (confirmBulk(anyDirty, t('Some tabs have unsaved changes. Close all and discard?'))) closeAll(); } },
+            { label: t('Reopen closed tab'), icon: <RotateCcw size={15} />, disabled: closedStack.length === 0, onClick: () => reopenClosed() },
         ];
     };
 
@@ -98,10 +102,10 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                         key={m.key}
                         className={`workbench-doc-tab ${m.key === activeModuleKey ? 'active' : ''}`}
                         onClick={() => activateModule(m.key)}
-                        title={m.title}
+                        title={t(m.title)}
                     >
                         {m.dirty && <span className="w-1.5 h-1.5 rounded-full bg-warning-500 mr-1.5 inline-block" />}
-                        {m.title}
+                        {t(m.title)}
                         {/* The dashboard is permanent — no close control at all. */}
                         {!m.pinned && (
                             <span className="workbench-doc-tab-close" onClick={(e) => { e.stopPropagation(); handleCloseModule(m.key, m.dirty); }}>
@@ -110,7 +114,7 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                         )}
                     </button>
                 ))}
-                <div className="workbench-tab-count">{modules.length}/{MODULE_CAP} module{modules.length === 1 ? '' : 's'}</div>
+                <div className="workbench-tab-count">{modules.length}/{MODULE_CAP} {language === 'id' ? 'modul' : `module${modules.length === 1 ? '' : 's'}`}</div>
             </div>
 
             {docModule && (
@@ -118,35 +122,35 @@ const TwoLevelTabBar = (): React.ReactElement | null => {
                     <button
                         className={`workbench-doc-tab workbench-doc-tab-catalog ${listTab && listTab.id === activeTabId ? 'active' : ''}`}
                         onClick={openCatalog}
-                        title={`${docModule.title} list`}
+                        title={`${t(docModule.title)} ${language === 'id' ? 'daftar' : 'list'}`}
                     >
                         <List size={16} />
                     </button>
                     {docModule.newPath && (
-                        <button className="workbench-doc-tab workbench-doc-tab-new" onClick={openNew} title={docModule.newLabel ?? 'New'}>
+                        <button className="workbench-doc-tab workbench-doc-tab-new" onClick={openNew} title={t(docModule.newLabel ?? 'New')}>
                             <Plus size={16} />
-                            {docModule.newLabel}
+                            {docModule.newLabel && t(docModule.newLabel)}
                         </button>
                     )}
                     <div className="workbench-doc-tab-scroll">
-                        {recordTabs.map((t) => (
+                        {recordTabs.map((tab) => (
                             <button
-                                key={t.id}
-                                className={`workbench-doc-tab ${t.id === activeTabId ? 'active' : ''}`}
-                                onClick={() => activateTab(t.id)}
-                                onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); handleCloseDoc(t.id, t.status !== 'clean'); } }}
-                                onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, tabId: t.id }); }}
-                                title={t.title}
+                                key={tab.id}
+                                className={`workbench-doc-tab ${tab.id === activeTabId ? 'active' : ''}`}
+                                onClick={() => activateTab(tab.id)}
+                                onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); handleCloseDoc(tab.id, tab.status !== 'clean'); } }}
+                                onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, tabId: tab.id }); }}
+                                title={t(tab.title)}
                             >
-                                {t.status !== 'clean' && <span className="w-1.5 h-1.5 rounded-full bg-warning-500 mr-1.5 inline-block" />}
-                                {t.title}
-                                <span className="workbench-doc-tab-close" onClick={(e) => { e.stopPropagation(); handleCloseDoc(t.id, t.status !== 'clean'); }}>
+                                {tab.status !== 'clean' && <span className="w-1.5 h-1.5 rounded-full bg-warning-500 mr-1.5 inline-block" />}
+                                {t(tab.title)}
+                                <span className="workbench-doc-tab-close" onClick={(e) => { e.stopPropagation(); handleCloseDoc(tab.id, tab.status !== 'clean'); }}>
                                     <X size={14} />
                                 </span>
                             </button>
                         ))}
                     </div>
-                    <div className="workbench-tab-count">Open tabs: {recordTabs.length}/{TAB_CAP}</div>
+                    <div className="workbench-tab-count">{t('Open tabs')}: {recordTabs.length}/{TAB_CAP}</div>
                 </div>
             )}
 

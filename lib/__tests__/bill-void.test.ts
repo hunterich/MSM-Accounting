@@ -18,6 +18,9 @@ const DATE = new Date('2026-06-14');
 
 function makeTx(bill: any, jeByMemo: any = null, claimCount = 1) {
   return {
+    $queryRaw: vi.fn(async () => []),
+    $executeRaw: vi.fn(async () => 1),
+    billLine: { count: vi.fn(async () => 0) },
     bill: {
       findFirst: vi.fn(async () => bill),
       updateMany: vi.fn(async () => ({ count: claimCount })),
@@ -33,6 +36,12 @@ const posted = (over: any = {}) => ({
 });
 
 describe('voidBill', () => {
+  it('blocks reversal after an asset is activated', async () => {
+    const tx = makeTx(posted()); tx.billLine.count.mockResolvedValue(1);
+    await expect(voidBill(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/activated/);
+    expect(tx.bill.updateMany).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+  });
   beforeEach(() => vi.clearAllMocks());
 
   it('reverses the posting JE, removes the inventory it booked, and marks VOID (non-PO bill)', async () => {

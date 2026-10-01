@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### 🚑 Fixed — stale deployments no longer break lazy-loaded pages
+- **A tab left open during an upgrade could fail with "Failed to fetch dynamically imported module"** when its old app shell requested a hashed page chunk already replaced by the new container. The back-office entry now refreshes once on Vite preload failures, the error screen's retry performs a real reload for chunk errors, and Caddy revalidates HTML/service-worker metadata while caching hashed assets immutably.
+- **The offline POS worker no longer controls the accounting application.** Its scope is narrowed from `/` to `/pos.html`; both entries remove the legacy root-scoped registration, and Workbox immediately claims the corrected worker while cleaning obsolete precaches.
+
+### ✨ Added — reversible item deactivation
+- **Inactive items stay out of new business without erasing history.** The item master now has Active / Inactive / All views and can reopen an inactive item for reactivation. New invoices, sales orders, purchase orders, ad-hoc bills, recurring templates and POS sales reject inactive item IDs server-side, so a stale browser or direct API call cannot bypass the picker. Existing document lines remain editable, PO receipts and returns can finish, and recurring generation stops with the retired SKU named.
+- **Deactivation is not an inventory write-off.** Inactive items with residual stock remain in valuation and stock counts, inventory adjustments can clear them, and historical report filters include them. POS hides both inactive products and modifier options backed by inactive inventory items.
+
 ### 🔒 Hardened — sign-in throttling and browser security headers
 - **Sign-in is rate-limited.** Ten failed attempts on an account within fifteen minutes (or fifty from one address) answer 429 with `Retry-After` and a plain message; a correct password clears the account's counter. `lib/login-throttle.ts` keeps the counters in process memory, which fits the single API container the deploy runs — a multi-instance deploy would need them behind a shared store
 - **Security headers.** The API now sends `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cache-Control: no-store`, a deny-all CSP and, in production, HSTS. The SPA's headers live where the SPA is served: `deploy/Caddyfile` adds the same plus a same-origin Content-Security-Policy (inline styles and data:/blob: images allowed, nothing third-party). Verify the CSP against the real deployment once — it cannot be exercised from the dev servers
