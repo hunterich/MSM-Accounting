@@ -24,6 +24,16 @@
 		-Server
 	}
 
+	# HTML and the service-worker metadata must be revalidated on every load so
+	# a new deployment cannot leave a browser pointing at removed hashed chunks.
+	@entryFiles path / /index.html /pos.html /pos-sw.js /pos-manifest.webmanifest
+	header @entryFiles Cache-Control "no-cache, no-store, must-revalidate"
+
+	# Content-hashed assets are safe to cache forever; a changed file gets a new
+	# URL. Open tabs that reference an old URL recover through the SPA reload hook.
+	@hashedAssets path /assets/*
+	header @hashedAssets Cache-Control "public, max-age=31536000, immutable"
+
 	# API -> Next.js backend. Path is preserved: /api/v1/... reaches the backend
 	# unchanged, so the session cookie stays same-origin (SameSite=Lax works).
 	handle /api/* {

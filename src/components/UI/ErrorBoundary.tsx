@@ -15,6 +15,13 @@ interface ErrorBoundaryState {
     error: Error | null;
 }
 
+export function isChunkLoadError(error: Error | null): boolean {
+    if (!error) return false;
+    return /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|chunkloaderror|loading chunk .* failed/i.test(
+        `${error.name} ${error.message}`,
+    );
+}
+
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     constructor(props: ErrorBoundaryProps) {
         super(props);
@@ -30,6 +37,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
 
     handleReset = (): void => {
+        if (isChunkLoadError(this.state.error)) {
+            window.location.reload();
+            return;
+        }
         this.setState({ hasError: false, error: null });
     };
 
@@ -64,6 +75,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 }
 
 export function PageErrorFallback({ error, reset }: ErrorFallbackProps): React.ReactElement {
+    const staleChunk = isChunkLoadError(error);
     return (
         <div className="flex flex-col items-center justify-center min-h-[400px] p-8 text-center">
             <div className="rounded-lg border border-red-200 bg-red-50 p-8 max-w-lg">
@@ -79,7 +91,7 @@ export function PageErrorFallback({ error, reset }: ErrorFallbackProps): React.R
                         onClick={reset}
                         className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
                     >
-                        Coba Lagi
+                        {staleChunk ? 'Muat Ulang Aplikasi' : 'Coba Lagi'}
                     </button>
                     <button
                         onClick={() => window.location.href = '/'}

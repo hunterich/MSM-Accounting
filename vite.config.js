@@ -17,11 +17,15 @@ export default defineConfig({
             registerType: 'autoUpdate',
             filename: 'pos-sw.js',
             manifestFilename: 'pos-manifest.webmanifest',
+            // POS is the only offline application. Keeping the worker scoped to
+            // its entry URL prevents its precache from serving stale back-office
+            // HTML/chunks after a deployment.
+            scope: '/pos.html',
             manifest: {
                 name: 'Pharmacy POS',
                 short_name: 'POS',
                 start_url: '/pos.html',
-                scope: '/',
+                scope: '/pos.html',
                 display: 'standalone',
                 background_color: '#ffffff',
                 theme_color: '#0f766e',
@@ -31,8 +35,18 @@ export default defineConfig({
                 ],
             },
             workbox: {
-                globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-                globIgnores: ['**/main-*.js'],
+                // Cache only the POS shell and its shared runtime. Back-office
+                // page chunks are intentionally absent from the offline cache.
+                globPatterns: [
+                    'pos.html',
+                    'assets/pos-*.js',
+                    'assets/index-*.{js,css}',
+                    'assets/workbox-window*.js',
+                ],
+                navigateFallback: 'pos.html',
+                cleanupOutdatedCaches: true,
+                clientsClaim: true,
+                skipWaiting: true,
                 maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
             },
         }),
