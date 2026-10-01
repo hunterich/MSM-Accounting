@@ -35,6 +35,9 @@ const AssetDetail = () => {
   const disposeMutation = useDisposeAsset();
 
   const [showDisposeModal, setShowDisposeModal] = useState(false);
+  const [showActivateModal, setShowActivateModal] = useState(false);
+  const [readyForUseDate, setReadyForUseDate] = useState(new Date().toISOString().slice(0, 10));
+  const [activationError, setActivationError] = useState('');
   const [disposalForm, setDisposalForm] = useState({
     disposalDate: new Date().toISOString().slice(0, 10),
     disposalAmount: '',
@@ -64,12 +67,11 @@ const AssetDetail = () => {
   }
 
   const handleActivate = async () => {
-    if (!window.confirm('Activate this asset? It will start being eligible for depreciation.')) return;
     try {
-      await activateMutation.mutateAsync(asset.id);
-      window.location.reload();
-    } catch {
-      // Error handled by React Query
+      await activateMutation.mutateAsync({ id: asset.id, readyForUseDate });
+      setShowActivateModal(false);
+    } catch (error) {
+      setActivationError(error instanceof Error ? error.message : 'Activation failed.');
     }
   };
 
@@ -151,7 +153,7 @@ const AssetDetail = () => {
               text="Activate"
               variant="primary"
               icon={<CheckCircle size={16} />}
-              onClick={handleActivate}
+              onClick={() => { setReadyForUseDate(asset.readyForUseDate || new Date().toISOString().slice(0, 10)); setActivationError(''); setShowActivateModal(true); }}
             />
           )}
           {(asset.status === 'ACTIVE' || asset.status === 'FULLY_DEPRECIATED') && canEdit && (
@@ -166,6 +168,10 @@ const AssetDetail = () => {
       }
     >
       {/* Asset Info */}
+      {asset.purchaseLine && <div className="mb-4 border border-primary-200 bg-primary-50 rounded-lg p-3 text-sm">
+        Purchased on <button className="text-primary-700 underline" onClick={() => navigate(`/ap/bills/edit?billId=${asset.purchaseLine!.bill.id}`)}>{asset.purchaseLine.bill.number}</button>
+        <span className="ml-2 text-neutral-600">({asset.purchaseLine.bill.status}) · Purchase cost is posted by this bill.</span>
+      </div>}
       <div className="grid grid-cols-12 gap-4 mb-4">
         <div className="col-span-8">
           <Card>
@@ -186,6 +192,7 @@ const AssetDetail = () => {
                 <span className="text-neutral-500">Acquisition Date:</span>
                 <span className="ml-2">{asset.acquisitionDate}</span>
               </div>
+              <div><span className="text-neutral-500">Ready for use:</span><span className="ml-2">{asset.readyForUseDate || 'Set when activating'}</span></div>
               <div>
                 <span className="text-neutral-500">Depreciation Method:</span>
                 <span className="ml-2">{METHOD_LABELS[asset.depreciationMethod] || asset.depreciationMethod}</span>
@@ -307,6 +314,12 @@ const AssetDetail = () => {
       </Card>
 
       {/* Disposal Modal */}
+      <Modal isOpen={showActivateModal} onClose={() => setShowActivateModal(false)} title="Activate asset" size="sm">
+        <p className="text-sm text-neutral-600 mb-4">Enter the date this asset became available for use. Depreciation starts from this month; activation creates no purchase journal.</p>
+        <Input label="Ready for use *" type="date" value={readyForUseDate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReadyForUseDate(e.target.value)} />
+        {activationError && <p role="alert" className="text-sm text-danger-600 mt-3">{activationError}</p>}
+        <div className="flex gap-2 justify-end mt-4"><Button text="Cancel" variant="secondary" onClick={() => setShowActivateModal(false)} /><Button text={activateMutation.isPending ? 'Activating…' : 'Activate'} variant="primary" disabled={!readyForUseDate || activateMutation.isPending} onClick={handleActivate} /></div>
+      </Modal>
       <Modal isOpen={showDisposeModal} onClose={() => setShowDisposeModal(false)} title="Dispose Asset" size="md">
         <div className="space-y-4">
           <div className="p-3 bg-red-50 rounded-lg text-sm text-red-700">

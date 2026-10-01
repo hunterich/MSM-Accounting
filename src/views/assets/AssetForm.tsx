@@ -141,9 +141,9 @@ const AssetForm = () => {
     const payload = {
       name: formData.name.trim(),
       description: formData.description.trim() || undefined,
-      categoryId: formData.categoryId,
+      ...(!existingAsset?.purchaseLine && { categoryId: formData.categoryId,
       acquisitionDate: formData.acquisitionDate,
-      acquisitionCost: parseFloat(formData.acquisitionCost),
+      acquisitionCost: parseFloat(formData.acquisitionCost) }),
       depreciationMethod: formData.depreciationMethod,
       usefulLifeMonths: parseInt(formData.usefulLifeMonths),
       salvageValue: parseFloat(formData.salvageValue) || 0,
@@ -224,9 +224,11 @@ const AssetForm = () => {
             </div>
             <div className="col-span-4">
               <label className="form-label">Category *</label>
+              {existingAsset?.purchaseLine && <p className="text-xs text-primary-700 mb-2">Category, acquisition date and cost come from the source bill.</p>}
               <select
                 className="block w-full h-9 px-3 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md focus:border-primary-500 focus:outline-0"
                 value={formData.categoryId}
+                disabled={!!existingAsset?.purchaseLine}
                 onChange={(e) => handleCategoryChange(e.target.value)}
               >
                 <option value="">Select category</option>
@@ -251,6 +253,7 @@ const AssetForm = () => {
             <div className="col-span-4">
               <Input
                 label="Acquisition Date *"
+                disabled={!!existingAsset?.purchaseLine}
                 type="date"
                 value={formData.acquisitionDate}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -263,6 +266,7 @@ const AssetForm = () => {
             <div className="col-span-4">
               <Input
                 label="Acquisition Cost *"
+                disabled={!!existingAsset?.purchaseLine}
                 type="number"
                 value={formData.acquisitionCost}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {

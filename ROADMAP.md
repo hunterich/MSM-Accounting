@@ -430,12 +430,18 @@
 | Accessibility (a11y) audit | Not started | Low |
 | Virtual scrolling / lazy-load for large lists (Accurate pattern) | [~] Table.jsx supports @tanstack/react-virtual (auto >50 rows), record count footer on all list pages | **Critical** |
 | Performance optimization (large datasets) | Not started | Medium |
-| i18n framework (proper ID/EN switching) | Not started | Low |
+| App language switching (English / Bahasa Indonesia) | Deferred until core workflows stabilize; no partial-language selector release | Low |
 | CI/CD pipeline | [x] `.github/workflows/ci.yml` — GitHub Actions: tsc + vitest + prisma db push on every push/PR; Vercel deploy via GitHub integration | Medium |
 | Backup & restore functionality | [x] In-app Backup & Restore (PR #45) — automatic twice-daily `pg_dump --format=custom`, manual "Back up now", synced-folder cloud/external destinations, guarded admin-only restore (safety backup + type-RESTORE), backup history, `node-cron` scheduler via `instrumentation.ts`, `SYSTEM_BACKUP` RBAC | High |
 | API route hardening | [x] `withHandler()` + `requireOrg()`/`requireAuth()` across all routes; `@ts-nocheck` removed; duplicate utility functions consolidated; FNV-1a advisory lock hashing; body size limits | **Critical** |
 | Duplicate file cleanup | [x] Removed `apiClient.js` (kept `.ts`), `useAuthStore.js` (kept `.ts`) | Medium |
 | Frontend TypeScript migration | [x] Complete — 96 files converted (all views, components, utils, hooks, tests). `mockData.js` has since been deleted along with the five stores that read it, so `vite.config.js` is the only JS left | Medium |
+
+### Language support — deferred
+
+- [ ] While building new screens, keep user-facing text easy to translate; keep UI language separate from the organization's accounting locale and number/date formatting.
+- [ ] After the core accounting workflows are stable, translate and review complete flows in **English and Bahasa Indonesia** (including forms, validation/errors, navigation, reports, and print output).
+- [ ] Add the login language selector and in-app switcher only when the main workflows are translated and tested end-to-end, so users do not encounter a mixed-language interface. No Chinese translation is planned.
 
 ---
 

@@ -392,6 +392,11 @@ export const updateOrganizationSettingsInputSchema = z.object({
     blockSellBelowCost: z.boolean().optional(),
     requireSalesOrder: z.boolean().optional(),
   }).optional(),
+  purchasePolicy: z.object({
+    autoCloseEnabled: z.boolean().optional(),
+    autoCloseDays: z.number().int().min(0).max(3650).optional(),
+    allowAutoCloseOverride: z.boolean().optional(),
+  }).optional(),
   // Pembatasan Tanggal Transaksi. `null` on a bound means no limit that way;
   // the server re-normalizes anyway, so this only has to reject nonsense.
   transactionDatePolicy: z.object({
@@ -427,6 +432,14 @@ const documentLineSchema = z.object({
   lineTotal: positiveDecimal.optional(),
 });
 
+export const assetPurchaseLineSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('CREATE'), name: z.string().trim().min(1), categoryId: z.string().trim().min(1),
+    usefulLifeMonths: z.coerce.number().int().min(1).optional(), salvageValue: positiveDecimal.optional(),
+    serialNumber: z.string().trim().optional() }),
+  z.object({ mode: z.literal('LINK'), assetId: z.string().trim().min(1) }),
+]);
+const billLineSchema = documentLineSchema.extend({ assetPurchase: assetPurchaseLineSchema.optional() });
+
 export const billInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   vendorId: z.string().trim().min(1, 'Vendor is required'),
@@ -445,7 +458,7 @@ export const billInputSchema = z.object({
   taxAmount: positiveDecimal.default(0),
   totalAmount: positiveDecimal.default(0),
   notes: z.string().trim().optional(),
-  lines: z.array(documentLineSchema).default([]),
+  lines: z.array(billLineSchema).default([]),
   charges: z.array(documentChargeSchema).optional(),
 });
 
@@ -466,7 +479,7 @@ export const updateBillInputSchema = z.object({
   taxAmount: positiveDecimal.optional(),
   totalAmount: positiveDecimal.optional(),
   notes: z.string().trim().optional(),
-  lines: z.array(documentLineSchema).optional(),
+  lines: z.array(billLineSchema).optional(),
   charges: z.array(documentChargeSchema).optional(),
 });
 
@@ -525,6 +538,8 @@ export const purchaseOrderInputSchema = z.object({
   number: z.string().trim().max(50, 'PO number is too long').optional(),
   date: isoDateString,
   expectedDate: isoDateString.optional(),
+  autoCloseEnabled: z.boolean().optional(),
+  autoCloseDays: z.number().int().min(0).max(3650).optional(),
   status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).default('DRAFT'),
   taxRate: positiveDecimal.max(100).default(0),
   taxable: z.boolean().default(false),
@@ -540,7 +555,9 @@ export const purchaseOrderInputSchema = z.object({
 export const updatePurchaseOrderInputSchema = z.object({
   vendorId: z.string().trim().min(1).optional(),
   date: isoDateString.optional(),
-  expectedDate: isoDateString.optional(),
+  expectedDate: isoDateString.nullish(),
+  autoCloseEnabled: z.boolean().optional(),
+  autoCloseDays: z.number().int().min(0).max(3650).optional(),
   status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).optional(),
   taxRate: positiveDecimal.max(100).optional(),
   taxable: z.boolean().optional(),
@@ -1272,11 +1289,13 @@ const returnStatusEnum = z.enum([
 ]);
 
 const salesReturnLineInputSchema = z.object({
+  sourceInvoiceLineId: z.string().trim().min(1).nullish(),
+  goodsReceived: z.boolean().optional(),
   itemId: z.string().trim().nullish(),
   itemName: z.string().trim().nullish(),
   description: z.string().trim().nullish(),
   qtySold: decimalNumber.optional(),
-  qtyReturn: decimalNumber.optional(),
+  qtyReturn: decimalNumber.min(0).optional(),
   unit: z.string().trim().optional(),
   price: decimalNumber.optional(),
   lineTotal: decimalNumber.optional(),

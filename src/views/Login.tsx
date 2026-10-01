@@ -4,7 +4,10 @@ import { GoogleLogin } from '@react-oauth/google';
 import { Eye, EyeOff } from 'lucide-react';
 import Button from '../components/UI/Button';
 import Input from '../components/UI/Input';
+import LanguageSelect from '../components/UI/LanguageSelect';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useLanguageStore } from '../stores/useLanguageStore';
+import { translate } from '../i18n/language';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -12,6 +15,8 @@ const Login = () => {
   const login = useAuthStore((s) => s.login);
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
   const googleEnabled = Boolean(import.meta.env?.VITE_GOOGLE_CLIENT_ID);
+  const language = useLanguageStore((s) => s.language) ?? 'en';
+  const t = (text: string) => translate(language, text);
 
   const [email, setEmail] = useState<string>('admin@demo.com');
   const [password, setPassword] = useState<string>('admin123');
@@ -34,7 +39,7 @@ const Login = () => {
       await login(email, password);
       navigateAfterLogin();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : t('Login failed'));
     } finally {
       setSubmitting(false);
     }
@@ -42,7 +47,7 @@ const Login = () => {
 
   const handleGoogleSuccess = async (credentialResponse: { credential?: string }) => {
     if (!credentialResponse?.credential) {
-      setError('Google login failed');
+      setError(t('Google login failed'));
       return;
     }
 
@@ -52,7 +57,7 @@ const Login = () => {
       await loginWithGoogle(credentialResponse.credential);
       navigateAfterLogin();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Google login failed');
+      setError(err instanceof Error ? err.message : t('Google login failed'));
     } finally {
       setGoogleSubmitting(false);
     }
@@ -69,37 +74,38 @@ const Login = () => {
             MSM Accounting
           </p>
           <h1 className="max-w-md text-4xl font-semibold leading-tight text-neutral-900">
-            Keep your books clean, fast, and under control.
+            {t('Keep your books clean, fast, and under control.')}
           </h1>
           <p className="mt-4 max-w-lg text-base text-neutral-700">
-            Manage invoices, vendor bills, stock movements, and reporting from one focused workspace.
+            {t('Manage invoices, vendor bills, stock movements, and reporting from one focused workspace.')}
           </p>
 
           <div className="mt-8 grid gap-3 text-sm text-neutral-700">
             <div className="rounded-xl border border-neutral-200 bg-neutral-0 px-4 py-3">
-              Live AP/AR visibility with accurate balances.
+              {t('Live AP/AR visibility with accurate balances.')}
             </div>
             <div className="rounded-xl border border-neutral-200 bg-neutral-0 px-4 py-3">
-              Structured access by role and organization.
+              {t('Structured access by role and organization.')}
             </div>
             <div className="rounded-xl border border-neutral-200 bg-neutral-0 px-4 py-3">
-              Journal-ready records for monthly close.
+              {t('Journal-ready records for monthly close.')}
             </div>
           </div>
         </section>
 
         <section className="w-full rounded-2xl border border-neutral-200 bg-neutral-0 p-6 shadow-lg sm:p-8">
+          <div className="mb-4 flex justify-end"><LanguageSelect /></div>
           <div className="mb-7">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
-              Welcome back
+              {t('Welcome back')}
             </p>
-            <h2 className="text-3xl font-semibold text-neutral-900">Sign in</h2>
-            <p className="mt-2 text-sm text-neutral-600">Use your MSM Accounting credentials.</p>
+            <h2 className="text-3xl font-semibold text-neutral-900">{t('Sign in')}</h2>
+            <p className="mt-2 text-sm text-neutral-600">{t('Use your MSM Accounting credentials.')}</p>
           </div>
 
           <form onSubmit={handleSubmit}>
             <Input
-              label="Email"
+              label={t('Email')}
               type="email"
               placeholder="you@company.com"
               value={email}
@@ -109,14 +115,14 @@ const Login = () => {
 
             <div className="mb-4">
               <label className="block mb-2 text-sm font-medium text-neutral-700">
-                Password
+                {t('Password')}
                 <span className="text-danger-500"> *</span>
               </label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   className="block w-full rounded-md border border-neutral-300 bg-neutral-0 px-3 py-2 pr-12 text-base leading-normal text-neutral-900 transition-[border-color,box-shadow] duration-150 min-h-10 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
-                  placeholder="Enter your password"
+                  placeholder={t('Enter your password')}
                   value={password}
                   required
                   onChange={(e) => setPassword(e.target.value)}
@@ -125,14 +131,14 @@ const Login = () => {
                   type="button"
                   onClick={() => setShowPassword((current) => !current)}
                   className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center rounded-r-md text-neutral-500 transition hover:text-neutral-700"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  title={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={t(showPassword ? 'Hide password' : 'Show password')}
+                  title={t(showPassword ? 'Hide password' : 'Show password')}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
               <div className="mt-1 text-xs text-neutral-500">
-                Demo login: `admin@demo.com` / `admin123`
+                {t('Demo login: `admin@demo.com` / `admin123`')}
               </div>
             </div>
 
@@ -147,19 +153,19 @@ const Login = () => {
               variant="primary"
               className="w-full rounded-lg"
               disabled={submitting}
-              text={submitting ? 'Signing in...' : 'Sign in to dashboard'}
+              text={t(submitting ? 'Signing in...' : 'Sign in to dashboard')}
             />
           </form>
 
           {googleEnabled ? (
             <div className="mt-5 border-t border-neutral-200 pt-5">
               <div className="mb-3 text-xs font-medium uppercase tracking-[0.12em] text-neutral-500">
-                Or continue with Google
+                {t('Or continue with Google')}
               </div>
               <div className={googleSubmitting ? 'pointer-events-none opacity-70' : ''}>
                 <GoogleLogin
                   onSuccess={handleGoogleSuccess}
-                  onError={() => setError('Google sign-in was cancelled or failed')}
+                  onError={() => setError(t('Google sign-in was cancelled or failed'))}
                   useOneTap={false}
                 />
               </div>
@@ -167,7 +173,7 @@ const Login = () => {
           ) : null}
 
           <p className="mt-6 text-xs text-neutral-500">
-            By signing in, you access your organization workspace and accounting records.
+            {t('By signing in, you access your organization workspace and accounting records.')}
           </p>
         </section>
       </div>

@@ -57,7 +57,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
         status: 'ACTIVE',
         deletedAt: null,
       },
-      include: { category: true },
+      include: { category: true, purchaseLine: true },
     });
 
     if (activeAssets.length === 0) {
@@ -115,8 +115,9 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       const usefulLifeMonths = asset.usefulLifeMonths;
 
       // Calculate months elapsed since acquisition
-      const acqDate = new Date(asset.acquisitionDate);
-      const monthsElapsed = (year - acqDate.getFullYear()) * 12 + (month - (acqDate.getMonth() + 1));
+      const acqDate = new Date(asset.readyForUseDate ?? asset.acquisitionDate);
+      const monthsElapsed = (year - acqDate.getUTCFullYear()) * 12 + (month - (acqDate.getUTCMonth() + 1));
+      if (monthsElapsed < 0) continue;
 
       const depAmount = calculateMonthlyDepreciation(
         asset.depreciationMethod,
@@ -131,12 +132,18 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
 
       const newAccumulated = asMoney(accumulatedDep + depAmount);
       const newBookValue = asMoney(acquisitionCost - newAccumulated);
-      const depDate = new Date(year, month - 1, 28); // Use 28th of the month
+      const depDate = new Date(year, month - 1, monthsElapsed === 0 && asset.readyForUseDate ? Math.max(28, acqDate.getUTCDate()) : 28);
+      if (depDate.getDate() !== 28) await assertPeriodOpen(tx, orgId, depDate);
 
       // Create journal entry
       let journalEntryId: string | null = null;
       const depExpenseAccountId = asset.category?.depExpenseAccountId || defaultDepExpenseId;
       const accumDepAccountId = asset.category?.accumDepAccountId || defaultAccumDepId;
+      if (asset.purchaseLine) {
+        const validExpense = accounts.some((a: any) => a.id === depExpenseAccountId && a.type === 'EXPENSE' && a.isPostable);
+        const validAccum = accounts.some((a: any) => a.id === accumDepAccountId && a.type === 'ASSET' && a.isPostable);
+        if (!validExpense || !validAccum) throw new ApiError('Purchased asset needs active, postable depreciation accounts before running depreciation.', 422);
+      }
 
       if (depExpenseAccountId && accumDepAccountId) {
         // Use the advisory-locked sequence generator (same as every other JE

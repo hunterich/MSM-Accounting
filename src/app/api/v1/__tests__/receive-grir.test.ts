@@ -24,6 +24,16 @@ function req(body: unknown) {
 
 beforeEach(() => vi.clearAllMocks());
 
+it('rechecks PO status after the lock and rejects a PO auto-closed before receipt', async () => {
+  vi.mocked(prisma.purchaseOrder.findFirst).mockResolvedValue({ id: 'po-1', status: 'APPROVED', taxable: false } as any);
+  const tx = { $executeRaw: vi.fn(), purchaseOrder: { findFirst: vi.fn(async () => ({ status: 'CLOSED' })) }, bill: { create: vi.fn() } };
+  vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
+  const res = await receive(req({ lines: [{ purchaseOrderLineId: 'pol-1', qtyReceived: 1 }] }), { params: Promise.resolve({ id: 'po-1' }) });
+  expect(res.status).toBe(422);
+  expect(tx.bill.create).not.toHaveBeenCalled();
+  expect(addCostLayer).not.toHaveBeenCalled();
+});
+
 it('posts Dr Inventory / Cr GR/IR at net cost and a cost layer for an inventory line', async () => {
   vi.mocked(prisma.purchaseOrder.findFirst).mockResolvedValue({
     id: 'po-1', number: 'PO-0001', vendorId: 'v-1', organizationId: 'org-a',
@@ -36,7 +46,7 @@ it('posts Dr Inventory / Cr GR/IR at net cost and a cost layer for an inventory 
     $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(async () => ({ id: 'pol-1', quantity: 10, receivedQty: 0, purchaseOrderId: 'po-1', description: 'Widget', price: 1000, unit: 'PCS', itemId: 'item-1' })), update: vi.fn(), findMany: vi.fn(async () => [{ quantity: 10, receivedQty: 10 }]) },
     bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })) },
-    purchaseOrder: { update: vi.fn() },
+    purchaseOrder: { findFirst: vi.fn(async () => ({ status: 'APPROVED' })), update: vi.fn() },
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO', accountDefaults: null })) },
@@ -65,7 +75,7 @@ it('refuses to receive into a closed/locked period and posts nothing', async () 
     $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
     bill: { create: vi.fn() },
-    purchaseOrder: { update: vi.fn() },
+    purchaseOrder: { findFirst: vi.fn(async () => ({ status: 'APPROVED' })), update: vi.fn() },
     item: { findMany: vi.fn() },
     account: { findMany: vi.fn() },
     organization: { findUnique: vi.fn() },
@@ -93,7 +103,7 @@ it('values a discounted PO line at its net (post-discount) cost', async () => {
     $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(async () => ({ id: 'pol-1', quantity: 10, receivedQty: 0, purchaseOrderId: 'po-1', description: 'Widget', price: 1000, discountPct: 10, unit: 'PCS', itemId: 'item-1' })), update: vi.fn(), findMany: vi.fn(async () => [{ quantity: 10, receivedQty: 10 }]) },
     bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })) },
-    purchaseOrder: { update: vi.fn() },
+    purchaseOrder: { findFirst: vi.fn(async () => ({ status: 'APPROVED' })), update: vi.fn() },
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO', accountDefaults: null })) },

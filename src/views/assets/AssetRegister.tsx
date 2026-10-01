@@ -83,6 +83,11 @@ const AssetRegister = () => {
     },
     { key: 'name', label: 'Name', sortable: true },
     { key: 'categoryName', label: 'Category' },
+    { key: 'readyForUseDate', label: 'Ready for use', render: (val: unknown) => (val as string) || '—' },
+    { key: 'purchaseLine', label: 'Source bill', render: (_: unknown, row: Record<string, unknown>) => {
+      const source = row.purchaseLine as { bill: { id: string; number: string } } | undefined;
+      return source ? <button className="text-primary-600 underline" onClick={() => navigate(`/ap/bills/edit?billId=${source.bill.id}`)}>{source.bill.number}</button> : '—';
+    } },
     {
       key: 'acquisitionDate',
       label: 'Acq. Date',

@@ -56,9 +56,11 @@ const dict = {
 
 export type StringKey = keyof typeof dict;
 
-/** Translate a key. Defaults to Bahasa Indonesia; falls back to the key if unknown. */
-export function t(key: StringKey, locale: Locale = 'id'): string {
+/** Translate a key using the selected app language; fall back to the key if unknown. */
+export function t(key: StringKey, locale: Locale = useLanguageStore.getState().language ?? 'id'): string {
   const entry = dict[key];
   if (!entry) return key;
   return entry[locale] ?? key;
 }
+import { useLanguageStore } from '../../stores/useLanguageStore';
+

@@ -6,6 +6,9 @@ import { updatePurchaseOrderInputSchema } from '@/types/api';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission } from '@/lib/authz';
 import { assertItemsActive } from '@/lib/item-availability';
+import { normalizePurchasePolicy } from '@/lib/organization/settings-config';
+import { resolveAutoCloseOptions } from '@/lib/purchase-order-auto-close-config';
+import { lockPurchaseOrder } from '@/lib/purchase-order-auto-close';
 
 export const runtime = 'nodejs';
 
@@ -47,11 +50,20 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
     const { lines, charges, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
+      await lockPurchaseOrder(tx, id);
       const existing = await tx.purchaseOrder.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, lines: { select: { itemId: true } } },
+        select: { id: true, status: true, autoCloseEnabled: true, autoCloseDays: true, lines: { select: { itemId: true, receivedQty: true } } },
       });
       if (!existing) return null;
+      if (['CLOSED', 'CANCELLED'].includes(existing.status)) throw new ApiError('Closed or cancelled purchase orders cannot be modified', 422);
+      if (existing.status === 'PARTIAL_RECEIVED' || existing.lines.some((line) => Number(line.receivedQty) > 0)) {
+        if (lines || charges || Object.keys(header).some((key) => !['expectedDate', 'autoCloseEnabled', 'autoCloseDays'].includes(key))) {
+          throw new ApiError('Received purchase orders can only change their expected delivery date and auto-close options', 422);
+        }
+      }
+      const org = await tx.organization.findUnique({ where: { id: orgId }, select: { purchasePolicy: true } });
+      const autoClose = resolveAutoCloseOptions(normalizePurchasePolicy(org?.purchasePolicy), header, existing);
       if (lines) {
         await assertItemsActive(tx, orgId, lines.map((line) => line.itemId), {
           allowItemIds: existing.lines.flatMap((line) => line.itemId ? [line.itemId] : []),
@@ -64,9 +76,10 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
         where: { id, organizationId: orgId },
         data: {
           ...header,
+          ...autoClose,
           // The schema validates YYYY-MM-DD strings; Prisma's DateTime needs a Date.
           ...(header.date && { date: new Date(header.date) }),
-          ...(header.expectedDate && { expectedDate: new Date(header.expectedDate) }),
+          ...(header.expectedDate !== undefined && { expectedDate: header.expectedDate ? new Date(header.expectedDate) : null }),
           updatedAt: new Date(),
         },
       });

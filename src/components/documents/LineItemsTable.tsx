@@ -29,6 +29,7 @@ interface LineItemsTableProps {
      * accounts (e.g. Expense accounts). Omitted → no account column (SO/Invoice).
      */
     accountOptions?: { value: string; label: string }[];
+    renderLineDetails?: (line: DocLine) => React.ReactNode;
 }
 
 const TEXT_KEYS = new Set<keyof DocLine>(['description', 'unit', 'code']);
@@ -44,6 +45,7 @@ const LineItemsTable = ({
     onRemove,
     searchSlot,
     accountOptions,
+    renderLineDetails,
 }: LineItemsTableProps): React.ReactElement => {
     const handle = (id: string, key: keyof DocLine) => (e: React.ChangeEvent<HTMLInputElement>) => {
         const v = TEXT_KEYS.has(key) ? e.target.value : Number(e.target.value || 0);
@@ -92,7 +94,7 @@ const LineItemsTable = ({
                         </tr>
                     ) : (
                         lines.map((l) => (
-                            <tr key={l.id} className="border-b border-neutral-100 last:border-0">
+                            <React.Fragment key={l.id}><tr className="border-b border-neutral-100 last:border-0">
                                 <td className="px-3 py-1.5">
                                     <div className="flex items-center gap-1.5">
                                         {l.code && <span className="font-mono text-[11px] text-primary-700">{l.code}</span>}
@@ -111,7 +113,7 @@ const LineItemsTable = ({
                                 </td>
                                 {showAccount && (
                                     <td className="px-2 py-1.5">
-                                        {l.productId ? (
+                                        {l.assetPurchase ? <span className="text-[11px] text-primary-700">From asset category</span> : l.productId ? (
                                             <span className="text-[11px] text-neutral-400 italic">from item</span>
                                         ) : (
                                             <select
@@ -125,7 +127,7 @@ const LineItemsTable = ({
                                         )}
                                     </td>
                                 )}
-                                <td className="px-2 py-1.5"><input type="number" value={l.qty} onChange={handle(l.id, 'qty')} className={`${cell} text-right tabular-nums`} /></td>
+                                <td className="px-2 py-1.5"><input type="number" disabled={!!l.assetPurchase} value={l.qty} onChange={handle(l.id, 'qty')} className={`${cell} text-right tabular-nums`} /></td>
                                 <td className="px-2 py-1.5"><input value={l.unit} onChange={handle(l.id, 'unit')} className={cell} /></td>
                                 <td className="px-2 py-1.5"><input type="number" value={l.price} onChange={handle(l.id, 'price')} className={`${cell} text-right tabular-nums`} /></td>
                                 <td className="px-2 py-1.5"><input type="number" value={l.discount} onChange={handle(l.id, 'discount')} className={`${cell} text-right tabular-nums`} /></td>
@@ -136,7 +138,7 @@ const LineItemsTable = ({
                                         <X size={15} />
                                     </button>
                                 </td>
-                            </tr>
+                            </tr>{renderLineDetails && <tr><td colSpan={colSpan} className="px-3 pb-3">{renderLineDetails(l)}</td></tr>}</React.Fragment>
                         ))
                     )}
                 </tbody>

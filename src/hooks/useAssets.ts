@@ -34,6 +34,8 @@ interface RawAsset {
   categoryId: string;
   category?: { id: string; name: string } | null;
   acquisitionDate: string;
+  readyForUseDate?: string | null;
+  purchaseLine?: { billId: string; bill: { id: string; number: string; status: string } } | null;
   acquisitionCost: number | string;
   depreciationMethod: string;
   usefulLifeMonths: number;
@@ -89,6 +91,8 @@ export interface Asset {
   categoryId: string;
   categoryName: string;
   acquisitionDate: string;
+  readyForUseDate: string;
+  purchaseLine: RawAsset['purchaseLine'];
   acquisitionCost: number;
   depreciationMethod: string;
   usefulLifeMonths: number;
@@ -161,6 +165,8 @@ function normalizeAsset(raw: RawAsset): Asset {
     categoryId: raw.categoryId || '',
     categoryName: raw.category?.name || '',
     acquisitionDate: raw.acquisitionDate ? String(raw.acquisitionDate).slice(0, 10) : '',
+    readyForUseDate: raw.readyForUseDate ? String(raw.readyForUseDate).slice(0, 10) : '',
+    purchaseLine: raw.purchaseLine,
     acquisitionCost: Number(raw.acquisitionCost ?? 0),
     depreciationMethod: raw.depreciationMethod || 'STRAIGHT_LINE',
     usefulLifeMonths: raw.usefulLifeMonths ?? 60,
@@ -276,7 +282,7 @@ export function useDeleteAsset() {
 export function useActivateAsset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.post(`/api/v1/assets/${id}/activate`),
+    mutationFn: ({ id, readyForUseDate }: { id: string; readyForUseDate: string }) => api.post(`/api/v1/assets/${id}/activate`, { readyForUseDate }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ASSET_KEYS.assets });
     },

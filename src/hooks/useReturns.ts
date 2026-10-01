@@ -81,6 +81,9 @@ function normalizeSalesReturn(raw: RawSalesReturn): SalesReturn {
     status:          RETURN_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as ReturnStatus) ?? 'Draft',
     lines: (raw.lines ?? []).map((l) => ({
       id:        l.id,
+      sourceInvoiceLineId: l.sourceInvoiceLineId ?? null,
+      goodsReceived: l.goodsReceived ?? true,
+      inventoryCost: l.inventoryCost == null ? null : Number(l.inventoryCost),
       itemId:    l.itemId || '',
       itemName:  l.itemName || l.item?.name || '',
       qtySold:   Number(l.qtySold ?? 0),

@@ -11,6 +11,7 @@ import { reverseBillPosting } from '@/lib/repost';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { assertItemsActive } from '@/lib/item-availability';
+import { prepareAssetLines, lockAssetPurchases } from '@/lib/asset-purchases';
 
 function isFakturDuplicate(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // either the cuid or the number so edit-loading works from any entry point.
     const bill = await prisma.bill.findFirst({
       where: { organizationId: orgId, OR: [{ id }, { number: id }] },
-      include: { vendor: true, lines: true, charges: true, attachments: true },
+      include: { vendor: true, lines: { include: { asset: true } }, charges: true, attachments: true },
     });
     if (!bill) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
     return withCors(NextResponse.json(bill));
@@ -65,16 +66,30 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
     let postedEditBefore: unknown = null;
 
     const updated = await prisma.$transaction(async (tx) => {
+      await lockAssetPurchases(tx, orgId);
       const existing = await tx.bill.findFirst({
         where: { id, organizationId: orgId },
         select: {
           id: true, status: true, vendorInvoiceNo: true, poId: true,
           number: true, issueDate: true, journalEntryId: true,
-          lines: { select: { itemId: true } },
+          lines: { select: { itemId: true, assetId: true } },
           _count: { select: { paymentAllocations: true, purchaseReturns: true, debitNotes: true } },
         },
       });
       if (!existing) return null;
+      const linkedAssetIds = (existing.lines ?? []).flatMap(l => l.assetId ? [l.assetId] : []);
+      if (linkedAssetIds.length && existing.status !== 'DRAFT') {
+        throw new ApiError('Posted asset-purchase bills cannot be edited. Void the bill while its assets are still draft, then replace it.', 422);
+      }
+      if (lines && linkedAssetIds.some(assetId => !lines.some(l => l.assetPurchase?.mode === 'LINK' && l.assetPurchase.assetId === assetId))) {
+        throw new ApiError('Keep the saved asset links on this bill. Delete the draft bill to cancel the purchase.', 422);
+      }
+      if (linkedAssetIds.length && !lines && ['issueDate', 'taxable', 'taxInclusive', 'taxRate'].some(key => key in header)) {
+        throw new ApiError('Include asset lines when changing the bill date or tax treatment.', 422);
+      }
+      if (existing.status !== 'DRAFT' && lines?.some(l => l.assetPurchase)) {
+        throw new ApiError('Add asset purchases on a draft or new bill.', 422);
+      }
 
       if (lines) {
         await assertItemsActive(
@@ -147,18 +162,22 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
         },
       });
       if (lines) {
+        const billHeader = await tx.bill.findUniqueOrThrow({ where: { id } });
+        const preparedLines = await prepareAssetLines(tx, orgId, id, lines, billHeader);
         await tx.billLine.deleteMany({ where: { billId: id } });
         await tx.billLine.createMany({
-          data: lines.map((l, idx: number) => ({
+          data: preparedLines.map((l, idx: number) => ({
             billId: id,
             itemId: l.itemId || null,
             accountId: l.accountId || null,
+            assetId: 'assetId' in l ? l.assetId as string : null,
             purchaseOrderLineId: l.purchaseOrderLineId || null,
             lineNo: l.lineNo ?? idx + 1,
             description: l.description,
             quantity: l.quantity,
             unit: l.unit,
             price: l.price,
+            discountPct: l.discountPct ?? 0,
             lineTotal: l.lineTotal ?? (Number(l.quantity) * Number(l.price)),
           })),
         });
@@ -228,7 +247,7 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
       }
       return tx.bill.findFirst({
         where: { id, organizationId: orgId },
-        include: { vendor: true, lines: true, charges: true, attachments: true },
+        include: { vendor: true, lines: { include: { asset: true } }, charges: true, attachments: true },
       });
     });
     if (!updated) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
@@ -255,17 +274,20 @@ export const DELETE = withPermission({ module: 'AP_BILLS', action: 'delete' }, a
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
-    const existing = await prisma.bill.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
-    if (!existing) {
-      return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
-    }
-    if (existing.status !== 'DRAFT') {
-      return withCors(NextResponse.json({ error: 'Only DRAFT bills can be deleted' }, { status: 403 }));
-    }
-    await prisma.bill.update({ where: { id, organizationId: orgId }, data: { deletedAt: new Date() } });
+    await prisma.$transaction(async tx => {
+      await lockAssetPurchases(tx, orgId);
+      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId, deletedAt: null }, select: { id: true, status: true, lines: { select: { assetId: true } } } });
+      if (!existing) throw new ApiError('Not found', 404);
+      if (existing.status !== 'DRAFT') throw new ApiError('Only DRAFT bills can be deleted', 403);
+      const deletedAt = new Date();
+      const assetIds = existing.lines.flatMap(l => l.assetId ? [l.assetId] : []);
+      if (assetIds.length) await tx.asset.updateMany({ where: { id: { in: assetIds }, organizationId: orgId, status: 'DRAFT' }, data: { deletedAt } });
+      await tx.bill.update({ where: { id, organizationId: orgId }, data: { deletedAt } });
+    });
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Bill', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
+    if (error instanceof ApiError) return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

@@ -166,7 +166,8 @@ export async function postInvoiceSend(
   if (organization?.costingMethod) {
     const invoiceLines = await tx.salesInvoiceLine.findMany({
       where: { invoiceId },
-      select: { itemId: true, quantity: true },
+      select: { id: true, itemId: true, quantity: true },
+      orderBy: { lineNo: 'asc' },
     });
 
     const itemIds = invoiceLines
@@ -218,6 +219,11 @@ export async function postInvoiceSend(
             invoiceDate,
             { allowNegativeStock: opts.allowNegativeStock ?? false },
           );
+
+          await tx.salesInvoiceLine.update({
+            where: { id: line.id },
+            data: { cogsAmount: cogs },
+          });
 
           if (cogs > 0) {
             await postJournalEntry(tx, {

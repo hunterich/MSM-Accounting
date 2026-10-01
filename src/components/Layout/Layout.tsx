@@ -8,6 +8,9 @@ import Toaster from '../UI/Toaster';
 import { useAuthStore } from '../../stores/useAuthStore';
 import ChangePasswordModal from '../auth/ChangePasswordModal';
 import WorkspaceShell from '../workspace/WorkspaceShell';
+import LanguageSelect from '../UI/LanguageSelect';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { translate } from '../../i18n/language';
 
 /**
  * Application shell, laid out the way Accurate Online lays its window out:
@@ -27,6 +30,8 @@ const Layout = (): React.ReactElement => {
     const navigate = useNavigate();
     const user = useAuthStore((s) => s.user);
     const logout = useAuthStore((s) => s.logout);
+    const language = useLanguageStore((s) => s.language) ?? 'en';
+    const t = (text: string) => translate(language, text);
     const [showChangePassword, setShowChangePassword] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -62,13 +67,13 @@ const Layout = (): React.ReactElement => {
                     </div>
 
                     <div className="acc-topbar-tools">
-                        <button type="button" className="acc-topbar-icon" aria-label="Search" title="Search">
+                        <button type="button" className="acc-topbar-icon" aria-label={t('Search')} title={t('Search')}>
                             <Search size={15} />
                         </button>
-                        <button type="button" className="acc-topbar-icon" aria-label="Help" title="Help">
+                        <button type="button" className="acc-topbar-icon" aria-label={t('Help')} title={t('Help')}>
                             <HelpCircle size={15} />
                         </button>
-                        <button type="button" className="acc-topbar-icon" aria-label="Notifications" title="Notifications">
+                        <button type="button" className="acc-topbar-icon" aria-label={t('Notifications')} title={t('Notifications')}>
                             <Bell size={15} />
                         </button>
 
@@ -84,7 +89,7 @@ const Layout = (): React.ReactElement => {
                                 onClick={() => setMenuOpen((o) => !o)}
                                 aria-haspopup="menu"
                                 aria-expanded={menuOpen}
-                                aria-label="Account menu"
+                                aria-label={t('Account menu')}
                             >
                                 <span className="acc-topbar-avatar">{initials}</span>
                                 <ChevronDown size={11} />
@@ -93,15 +98,16 @@ const Layout = (): React.ReactElement => {
                             {menuOpen && (
                                 <div
                                     role="menu"
-                                    className="absolute right-2 top-[32px] z-[120] min-w-[190px] rounded-md border border-neutral-200 bg-neutral-0 py-1 shadow-lg"
+                                    className="absolute right-2 top-[32px] z-[120] min-w-[215px] rounded-md border border-neutral-200 bg-neutral-0 py-1 shadow-lg"
                                 >
+                                    <div className="border-b border-neutral-200 px-3 py-2"><LanguageSelect /></div>
                                     <button
                                         type="button"
                                         role="menuitem"
                                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-[0.78rem] text-neutral-800 hover:bg-neutral-100"
                                         onClick={() => { setMenuOpen(false); setShowChangePassword(true); }}
                                     >
-                                        <KeyRound size={14} /> Change password
+                                        <KeyRound size={14} /> {t('Change password')}
                                     </button>
                                     <button
                                         type="button"
@@ -109,7 +115,7 @@ const Layout = (): React.ReactElement => {
                                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-[0.78rem] text-neutral-800 hover:bg-neutral-100"
                                         onClick={() => { setMenuOpen(false); void handleLogout(); }}
                                     >
-                                        <LogOut size={14} /> Logout
+                                        <LogOut size={14} /> {t('Logout')}
                                     </button>
                                 </div>
                             )}

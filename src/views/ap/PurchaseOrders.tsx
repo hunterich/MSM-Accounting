@@ -198,7 +198,7 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
                 return (
                     <div className="flex gap-1.5 justify-end flex-wrap">
                         <Button text="View" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row['id'] as string}&mode=view`); }} />
-                        <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row['id'] as string}&mode=edit`); }} />
+                        <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit || isClosed} onClick={(event: React.MouseEvent) => { event.stopPropagation(); navigate(`/ap/pos/edit?poId=${row['id'] as string}&mode=edit`); }} />
                         <Button text="Print" size="small" variant="tertiary" onClick={(event: React.MouseEvent) => { event.stopPropagation(); queuePrintPo(row['id'] as string); }} />
                         {isDraft && (
                             <Button

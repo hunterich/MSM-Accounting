@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Button from '@/src/components/UI/Button';
 import Input from '@/src/components/UI/Input';
+import LanguageSelect from '@/src/components/UI/LanguageSelect';
 import { useAuthStore } from '@/src/stores/useAuthStore';
 import { t } from '../i18n/strings';
 
@@ -20,6 +21,7 @@ export default function LoginView(): React.ReactElement {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <form onSubmit={submit} className="w-80 space-y-4 rounded-lg bg-white p-6 shadow">
+        <div className="flex justify-end"><LanguageSelect defaultLanguage="id" /></div>
         <h1 className="text-xl font-semibold">{t('app.title')}</h1>
         <Input label={t('auth.email')} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <Input label={t('auth.password')} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />

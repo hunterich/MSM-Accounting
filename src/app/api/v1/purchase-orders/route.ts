@@ -9,6 +9,8 @@ import { ApiError, listResponse, logAudit, nextNumber, ok, parsePaginationParams
 import { purchaseOrderInputSchema } from '@/types/api';
 import { withPermission } from '@/lib/authz';
 import { assertItemsActive } from '@/lib/item-availability';
+import { normalizePurchasePolicy } from '@/lib/organization/settings-config';
+import { resolveAutoCloseOptions } from '@/lib/purchase-order-auto-close-config';
 
 export const runtime = 'nodejs';
 
@@ -64,6 +66,8 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
   const { lines, charges, number: manualNumber, ...header } = parsed.data;
 
   const po = await prisma.$transaction(async (tx) => {
+    const org = await tx.organization.findUnique({ where: { id: orgId }, select: { purchasePolicy: true } });
+    const autoClose = resolveAutoCloseOptions(normalizePurchasePolicy(org?.purchasePolicy), header);
     await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
     await assertItemsActive(tx, orgId, (lines ?? []).map((line) => line.itemId));
     // Allocate the number INSIDE the transaction with `tx` so its advisory lock
@@ -79,6 +83,7 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
     const created = await tx.purchaseOrder.create({
       data: {
         ...header,
+        ...autoClose,
         // The schema validates YYYY-MM-DD strings; Prisma's DateTime needs a Date.
         date: new Date(header.date),
         expectedDate: header.expectedDate ? new Date(header.expectedDate) : null,

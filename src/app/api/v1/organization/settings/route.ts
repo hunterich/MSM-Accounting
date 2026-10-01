@@ -19,6 +19,7 @@ import {
   normalizeFeatures,
   normalizeDocumentNumbering,
   normalizeSalesPolicy,
+  normalizePurchasePolicy,
 } from '@/lib/organization/settings-config';
 
 export const runtime = 'nodejs';
@@ -47,6 +48,7 @@ type OrganizationSettingsRecord = {
   features: unknown;
   documentNumbering: unknown;
   salesPolicy: unknown;
+  purchasePolicy: unknown;
   transactionDatePolicy: unknown;
 };
 
@@ -127,6 +129,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     features: normalizeFeatures(organization.features),
     documentNumbering: normalizeDocumentNumbering(organization.documentNumbering),
     salesPolicy: normalizeSalesPolicy(organization.salesPolicy),
+    purchasePolicy: normalizePurchasePolicy(organization.purchasePolicy),
     transactionDatePolicy: parseTransactionDatePolicy(organization.transactionDatePolicy),
     needsInventoryValuationSetup: !organization.costingMethod,
   });
@@ -272,6 +275,9 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
   if (parsed.data.salesPolicy !== undefined) {
     updateData.salesPolicy = normalizeSalesPolicy(parsed.data.salesPolicy);
   }
+  if (parsed.data.purchasePolicy !== undefined) {
+    updateData.purchasePolicy = normalizePurchasePolicy(parsed.data.purchasePolicy);
+  }
   if (parsed.data.documentNumbering !== undefined) {
     const existing = normalizeDocumentNumbering(
       ((await prisma.organization.findUnique({
@@ -321,6 +327,7 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
     features: normalizeFeatures(updated.features),
     documentNumbering: normalizeDocumentNumbering(updated.documentNumbering),
     salesPolicy: normalizeSalesPolicy(updated.salesPolicy),
+    purchasePolicy: normalizePurchasePolicy(updated.purchasePolicy),
     needsInventoryValuationSetup: !updated.costingMethod,
   });
 });

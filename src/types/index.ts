@@ -188,6 +188,10 @@ export interface RawBillAttachment {
 }
 
 export interface RawBill {
+  vendorInvoiceNo?: string | null;
+  taxable?: boolean;
+  taxInclusive?: boolean;
+  withholdingRate?: number | string | null;
   id: string;
   number?: string | null;
   vendorId?: string | null;
@@ -237,6 +241,9 @@ export interface RawPurchaseOrder {
   vendor?: { name?: string; code?: string } | null;
   date?: string | null;
   expectedDate?: string | null;
+  autoCloseEnabled?: boolean;
+  autoCloseDays?: number;
+  autoClosedAt?: string | null;
   status?: string | null;
   totalAmount?: number | string | null;
   notes?: string | null;
@@ -333,6 +340,7 @@ export interface RawOrganizationSettings {
   features?: Record<string, boolean> | null;
   documentNumbering?: Record<string, { prefix?: string; resetPeriod?: string; seqLength?: number }> | null;
   salesPolicy?: { blockSellBelowCost?: boolean; requireSalesOrder?: boolean } | null;
+  purchasePolicy?: { autoCloseEnabled?: boolean; autoCloseDays?: number; allowAutoCloseOverride?: boolean } | null;
   transactionDatePolicy?: unknown;
 }
 
@@ -495,6 +503,7 @@ export interface OrganizationSettings {
   features: Record<string, boolean>;
   documentNumbering: Record<string, { prefix: string; resetPeriod: string; seqLength: number }>;
   salesPolicy: { blockSellBelowCost: boolean; requireSalesOrder: boolean };
+  purchasePolicy: { autoCloseEnabled: boolean; autoCloseDays: number; allowAutoCloseOverride: boolean };
   transactionDatePolicy: TransactionDatePolicy;
 }
 
@@ -682,6 +691,10 @@ export interface BillAttachment {
 }
 
 export interface Bill {
+  vendorInvoiceNo?: string;
+  taxable?: boolean;
+  taxInclusive?: boolean;
+  withholdingRate?: number;
   /** Display ID — uses BILL number if available. */
   id: string;
   /** DB primary key for mutations. */
@@ -802,6 +815,9 @@ export interface PurchaseOrder {
   vendorCode: string;
   date: string;
   expectedDate: string;
+  autoCloseEnabled?: boolean;
+  autoCloseDays?: number;
+  autoClosedAt?: string | null;
   status: POStatus;
   amount: number;
   totalAmount: number;
@@ -1213,6 +1229,9 @@ export type DebitNoteStatus  = 'Draft' | 'Applied' | 'Void';
 
 export interface RawReturnLine {
   id?: string;
+  sourceInvoiceLineId?: string | null;
+  goodsReceived?: boolean;
+  inventoryCost?: number | string | null;
   itemId?: string | null;
   itemName?: string | null;
   item?: { name?: string } | null;
@@ -1249,6 +1268,9 @@ export interface RawSalesReturn {
 
 export interface SalesReturnLine {
   id?: string;
+  sourceInvoiceLineId?: string | null;
+  goodsReceived?: boolean;
+  inventoryCost?: number | null;
   itemId: string;
   itemName: string;
   qtySold: number;

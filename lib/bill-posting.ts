@@ -6,6 +6,7 @@ import { postJournalEntry } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
 import { ensurePphPayableAccount } from './withholding';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
+import { ApiError } from './errors';
 
 type Tx = Prisma.TransactionClient;
 
@@ -13,6 +14,7 @@ interface PostableBillLine {
   id: string;
   itemId: string | null;
   accountId?: string | null;
+  assetId?: string | null;
   quantity: unknown;
   price: unknown;
   lineTotal: unknown;
@@ -54,6 +56,15 @@ interface PostableBill {
 export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill): Promise<void> {
   const lines = bill.lines ?? [];
   if (lines.length === 0) return;
+  for (const line of lines.filter(l => l.assetId)) {
+    const asset = await tx.asset.findFirst({ where: { id: line.assetId!, organizationId: orgId, deletedAt: null }, include: { category: true, purchaseLine: true } });
+    const account = asset?.category.assetAccountId ? await tx.account.findFirst({ where: { id: asset.category.assetAccountId, organizationId: orgId, isActive: true, isPostable: true } }) : null;
+    const gross = asMoney(toNumber(line.lineTotal));
+    const net = bill.taxable && bill.taxInclusive ? asMoney(gross / (1 + toNumber(bill.taxRate) / 100)) : gross;
+    if (!asset || asset.status !== 'DRAFT' || asset.purchaseLine?.billId !== bill.id || line.itemId || line.purchaseOrderLineId || Number(line.quantity) !== 1 || !account || !['ASSET', 'Asset'].includes(account.type) || line.accountId !== account.id || asMoney(Number(asset.acquisitionCost)) !== net) {
+      throw new ApiError('Asset purchase link, category account, or cost has changed. Review the draft bill before posting.', 422);
+    }
+  }
 
   const itemIds = lines.map((l) => l.itemId).filter((x): x is string => Boolean(x));
   const inventoryItems = itemIds.length
@@ -183,7 +194,8 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   }
   for (const [accountId, amount] of expenseByAccount) {
     if (amount > 0) {
-      journalLines.push({ accountId, description: `Expense - ${bill.number}`, debit: amount, credit: 0 });
+      const label = lines.some(l => l.assetId && l.accountId === accountId) ? 'Asset purchase' : 'Expense';
+      journalLines.push({ accountId, description: `${label} - ${bill.number}`, debit: amount, credit: 0 });
     }
   }
   for (const [accountId, amount] of chargesByAccount) {
