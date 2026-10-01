@@ -153,6 +153,8 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
         where: { id, organizationId: orgId },
         data: {
           ...header,
+          ...(header.issueDate && { issueDate: new Date(header.issueDate) }),
+          ...(header.dueDate && { dueDate: new Date(header.dueDate) }),
           // An edit never un-posts a bill — keep it OPEN/OVERDUE (a draft downgrade
           // would be a void, which has its own endpoint).
           ...(isPostedEdit && { status: existing.status }),

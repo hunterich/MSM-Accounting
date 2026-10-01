@@ -9,9 +9,10 @@ const line = (over = {}): BillInput['lines'][number] => ({ description: 'Laptop'
 function fixture(over: Record<string, unknown> = {}) {
   const tx = {
     $queryRaw: vi.fn(async () => [{ max: 4 }]),
+    $executeRaw: vi.fn(async () => 1),
     assetCategory: { findFirst: vi.fn(async () => ({ id: 'cat', assetAccountId: 'fixed', usefulLifeMonths: 36, salvagePercent: 10, depreciationMethod: 'STRAIGHT_LINE' })) },
     account: { findFirst: vi.fn(async () => ({ id: 'fixed', type: 'ASSET' })) },
-    asset: { findFirst: vi.fn(async () => null), create: vi.fn(async ({ data }) => ({ id: 'a5', ...data })), update: vi.fn(async ({ data }) => ({ id: 'a1', ...data })) },
+    asset: { findFirst: vi.fn(async (_query: unknown) => null), create: vi.fn(async ({ data }) => ({ id: 'a5', ...data })), update: vi.fn(async ({ data }) => ({ id: 'a1', ...data })) },
     ...over,
   };
   return tx;

@@ -188,6 +188,7 @@ export interface RawBillAttachment {
 }
 
 export interface RawBill {
+  charges?: Record<string, unknown>[];
   vendorInvoiceNo?: string | null;
   taxable?: boolean;
   taxInclusive?: boolean;
@@ -691,6 +692,7 @@ export interface BillAttachment {
 }
 
 export interface Bill {
+  charges?: Record<string, unknown>[];
   vendorInvoiceNo?: string;
   taxable?: boolean;
   taxInclusive?: boolean;

@@ -43,6 +43,7 @@ it('posts to the ledger when a DRAFT bill transitions to OPEN', async () => {
     purchaseOrder: { findFirst: vi.fn() },
     // assertPeriodOpen FOR SHARE-locks the period via a raw query; [] = open.
     $queryRaw: vi.fn(async () => []),
+    $executeRaw: vi.fn(async () => 1),
     organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));
@@ -65,6 +66,7 @@ it('refuses to finalize a bill into a closed/locked period and does not post', a
     purchaseOrder: { findFirst: vi.fn() },
     // assertPeriodOpen FOR SHARE-locks the period via a raw query; a closed row here.
     $queryRaw: vi.fn(async () => [{ name: 'Mar 2026', status: 'CLOSED', isLocked: false }]),
+    $executeRaw: vi.fn(async () => 1),
     organization: { findUnique: vi.fn(async () => ({ approvalRequirements: null })) },
   };
   vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => cb(tx));

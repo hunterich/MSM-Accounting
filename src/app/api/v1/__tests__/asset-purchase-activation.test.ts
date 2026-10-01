@@ -8,7 +8,7 @@ function fixture(over = {}) {
   const asset = { id: 'asset', status: 'DRAFT', assetNo: 'ASSET-1', acquisitionDate: new Date('2026-09-01'),
     category: { depExpenseAccountId: 'dep', accumDepAccountId: 'accum' },
     purchaseLine: { bill: { organizationId: 'org', status: 'OPEN', journalEntryId: 'je', deletedAt: null, voidedAt: null } }, ...over };
-  const tx = { $queryRaw: vi.fn(async () => []), asset: { findFirst: vi.fn(async () => asset), update: vi.fn(async ({ data }) => ({ ...asset, ...data })) }, account: { findFirst: vi.fn(async () => ({ id: 'account' })) } };
+  const tx = { $executeRaw: vi.fn(async () => 1), asset: { findFirst: vi.fn(async (_query: unknown) => asset), update: vi.fn(async ({ data }) => ({ ...asset, ...data })) }, account: { findFirst: vi.fn(async () => ({ id: 'account' })) } };
   vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(tx));
   return tx;
 }

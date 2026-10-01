@@ -162,6 +162,7 @@ function normalizeVendorCategory(raw: RawVendorCategory): VendorCategory {
 
 function normalizeBill(raw: RawBill): Bill {
     return {
+        charges: (raw.charges ?? []).map(c => ({ ...c, amount: Number(c.amount ?? 0), taxRate: Number(c.taxRate ?? 0) })),
         vendorInvoiceNo: raw.vendorInvoiceNo || '',
         taxable: raw.taxable ?? false,
         taxInclusive: raw.taxInclusive ?? false,
@@ -397,7 +398,7 @@ export function useDeleteBill() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/bills/${id}`),
-        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.bills }),
+        onSuccess: () => { qc.invalidateQueries({ queryKey: AP_KEYS.bills }); qc.invalidateQueries({ queryKey: ['assets'] }); },
     });
 }
 
@@ -408,6 +409,7 @@ export function useVoidBill() {
         onSuccess: (_, id) => {
             qc.invalidateQueries({ queryKey: AP_KEYS.bills });
             qc.invalidateQueries({ queryKey: AP_KEYS.bill(id) });
+            qc.invalidateQueries({ queryKey: ['assets'] });
         },
     });
 }

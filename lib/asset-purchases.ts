@@ -4,7 +4,7 @@ import type { BillInput } from '@/types/api';
 
 type Tx = Prisma.TransactionClient;
 export async function lockAssetPurchases(tx: Tx, orgId: string) {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`asset-purchases:${orgId}`}, 0))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`asset-purchases:${orgId}`}, 0))`;
 }
 
 export async function nextAssetNumber(tx: Tx, orgId: string) {

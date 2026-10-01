@@ -19,6 +19,7 @@ const DATE = new Date('2026-06-14');
 function makeTx(bill: any, jeByMemo: any = null, claimCount = 1) {
   return {
     $queryRaw: vi.fn(async () => []),
+    $executeRaw: vi.fn(async () => 1),
     billLine: { count: vi.fn(async () => 0) },
     bill: {
       findFirst: vi.fn(async () => bill),
