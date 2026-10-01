@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import FormPage from '../../components/Layout/FormPage';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
-import { useAllItems, useCreateItem, useUpdateItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
+import { useCreateItem, useUpdateItem, useItem, useItemCategories, useNextItemSku } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
@@ -129,7 +129,7 @@ const buildItemState = (
         description:        item.description || '',
         barcode:            item.barcode     || '',
         weight:             item.weight      || '',
-        status:             item.status === 'Out of Stock' ? 'Active' : (item.status || 'Active'),
+        status:             item.isActive === false ? 'Inactive' : 'Active',
     };
 };
 
@@ -144,14 +144,13 @@ const InventoryForm = () => {
     const updateItem   = useUpdateItem();
     const nextSkuMut   = useNextItemSku();
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
-    const { data: itemsData, isLoading: itemsLoading } = useAllItems();
     const { data: itemCategories = [], isLoading: categoriesLoading } = useItemCategories();
-    const storeProducts = itemsData?.data ?? [];
 
     const itemId   = searchParams.get('itemId') || '';
     const rawMode  = searchParams.get('mode') || 'create';
     const mode     = rawMode === 'view' || rawMode === 'edit' ? rawMode : 'create';
     const isViewMode = mode === 'view';
+    const { data: fetchedItem, isLoading: itemLoading } = useItem(itemId || undefined);
 
     const isSaving = createItem.isPending || updateItem.isPending;
 
@@ -159,10 +158,10 @@ const InventoryForm = () => {
         const stateItem = location.state?.item;
         if (stateItem && (!itemId || stateItem.id === itemId)) return stateItem;
         if (!itemId) return null;
-        return storeProducts.find((p) => p.id === itemId)
+        return fetchedItem
             || INVENTORY_ITEM_SEED.find((item) => item.id === itemId)
             || null;
-    }, [itemId, location.state, storeProducts]);
+    }, [itemId, location.state, fetchedItem]);
 
     const { data: allAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
     const resolvedAccountDefaults = useMemo(
@@ -275,10 +274,18 @@ const InventoryForm = () => {
             description:        formData.description,
             barcode:            formData.barcode,
             weight:             formData.weight,
-            status:             formData.status,
+            isActive:           formData.status === 'Active',
         };
 
         try {
+            if (
+                mode === 'edit'
+                && selectedItem?.isActive !== false
+                && !payload.isActive
+                && !window.confirm(
+                    `Deactivate ${formData.name}? It will be hidden from new sales and purchasing transactions. Historical documents and remaining stock will be preserved.${Number(selectedItem?.currentStock ?? 0) !== 0 ? ` Current stock: ${Number(selectedItem?.currentStock ?? 0)} ${formData.unit}.` : ''}`,
+                )
+            ) return;
             if (mode === 'edit' && itemId) {
                 await updateItem.mutateAsync({ id: itemId, ...payload } as any);
             } else {
@@ -296,7 +303,7 @@ const InventoryForm = () => {
         ? `Edit Item${itemId ? ` — ${itemId}` : ''}`
         : 'New Inventory Item';
 
-    const isPageLoading = itemsLoading || chartOfAccountsLoading || categoriesLoading;
+    const isPageLoading = itemLoading || chartOfAccountsLoading || categoriesLoading;
 
     const selectedCategory = itemCategories.find((c) => c.id === formData.categoryId);
 
@@ -408,7 +415,7 @@ const InventoryForm = () => {
                     <div className="col-span-3">
                         <SelectField label="Status" name="status" value={formData.status} onChange={handleChange} disabled={isViewMode}>
                             <option value="Active">Active</option>
-                            <option value="Inactive">Inactive (Hidden from sales)</option>
+                            <option value="Inactive">Inactive (hidden from new sales and purchases)</option>
                         </SelectField>
                     </div>
 

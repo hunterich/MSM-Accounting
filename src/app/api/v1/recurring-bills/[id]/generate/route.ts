@@ -12,6 +12,7 @@ import { routeForApproval } from '@/lib/approval/engine';
 import { postBillToLedger } from '@/lib/bill-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { withPermission } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -78,6 +79,7 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
     if (template.status !== 'ACTIVE') {
       throw new ApiError(`Cannot generate bill: template status is ${template.status}`, 422);
     }
+    await assertItemsActive(tx, orgId, template.lines.map((line) => line.itemId));
 
     // 3. Generate sequential bill number with advisory lock
     const lockKey = fnv1aHash(`bill-seq:${orgId}`);

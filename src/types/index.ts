@@ -1048,6 +1048,7 @@ export interface RawInventoryItem {
   inventoryAccountId?: string | null;
   revenueAccountId?: string | null;
   cogsAccountId?: string | null;
+  isActive?: boolean | null;
 }
 
 export interface InventoryItem {
@@ -1077,6 +1078,7 @@ export interface InventoryItem {
   inventoryAccountId: string;
   revenueAccountId: string;
   cogsAccountId: string;
+  isActive: boolean;
   status: ItemStockStatus;
 }
 

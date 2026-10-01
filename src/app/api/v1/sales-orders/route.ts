@@ -6,6 +6,7 @@ import { withPermission } from '@/lib/authz';
 import { calculateSalesOrderTotal, enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { salesOrderInputSchema } from '@/types/api';
 import { routeForApproval } from '@/lib/approval/engine';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -75,6 +76,8 @@ export const POST = withPermission({ module: 'AR_SALES_ORDERS', action: 'create'
         documentAmount: calculateSalesOrderTotal(items),
       });
     }
+
+    await assertItemsActive(tx, orgId, items.map((item) => item.productId));
 
     const created = await tx.salesOrder.create({
       data: {

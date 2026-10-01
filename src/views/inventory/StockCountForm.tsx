@@ -196,7 +196,8 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
     const { canCreate, canEdit } = useModulePermissions('inv_adj');
 
     const { data: count, isLoading } = useStockCount(id);
-    const { data: itemsData }        = useAllItems();
+    // Counts may need to reconcile residual stock on an inactive item.
+    const { data: itemsData }        = useAllItems({ isActive: 'all' });
     const { data: categories = [] }  = useItemCategories();
     const { data: warehouses = [] }  = useWarehouses();
 
@@ -239,7 +240,11 @@ function CountWorksheet({ id, viewMode }: WorksheetProps) {
         () =>
             allItems
                 .filter((i) => !rowItemIds.has(i.id))
-                .map((i) => ({ value: i.id, label: i.name, subLabel: i.sku })),
+                .map((i) => ({
+                    value: i.id,
+                    label: `${i.name}${i.isActive ? '' : ' (Inactive)'}`,
+                    subLabel: i.sku,
+                })),
         [allItems, rowItemIds]
     );
 

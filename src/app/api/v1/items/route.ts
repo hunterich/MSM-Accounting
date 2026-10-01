@@ -29,7 +29,10 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const search = searchParams.get('search');
   const isActive = searchParams.get('isActive');
   const categoryId = searchParams.get('categoryId');
-  const where: any = { organizationId: orgId, isActive: isActive ? isActive === 'true' : true };
+  const where: any = { organizationId: orgId };
+  // Transaction pickers omit this parameter and receive active items only. The
+  // item master explicitly requests `all` so archived items remain manageable.
+  if (isActive !== 'all') where.isActive = isActive ? isActive === 'true' : true;
   if (type) where.type = type;
   if (categoryId) where.categoryId = categoryId;
   if (search) where.OR = [

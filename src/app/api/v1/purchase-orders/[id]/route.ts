@@ -5,6 +5,7 @@ import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updatePurchaseOrderInputSchema } from '@/types/api';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -46,8 +47,16 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
     const { lines, charges, ...header } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true } });
+      const existing = await tx.purchaseOrder.findFirst({
+        where: { id, organizationId: orgId },
+        select: { id: true, status: true, lines: { select: { itemId: true } } },
+      });
       if (!existing) return null;
+      if (lines) {
+        await assertItemsActive(tx, orgId, lines.map((line) => line.itemId), {
+          allowItemIds: existing.lines.flatMap((line) => line.itemId ? [line.itemId] : []),
+        });
+      }
       if (header.vendorId) {
         await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
       }

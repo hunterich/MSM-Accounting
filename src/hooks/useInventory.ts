@@ -62,6 +62,7 @@ function normalizeItem(raw: RawInventoryItem): InventoryItem {
         inventoryAccountId: raw.inventoryAccountId || '',
         revenueAccountId:   raw.revenueAccountId   || '',
         cogsAccountId:      raw.cogsAccountId      || '',
+        isActive:           raw.isActive !== false,
         status: currentStock === 0 ? 'Out of Stock' : currentStock < 5 ? 'Low Stock' : 'In Stock',
     };
 }

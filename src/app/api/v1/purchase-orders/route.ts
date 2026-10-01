@@ -8,6 +8,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
 import { purchaseOrderInputSchema } from '@/types/api';
 import { withPermission } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -64,6 +65,7 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
 
   const po = await prisma.$transaction(async (tx) => {
     await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
+    await assertItemsActive(tx, orgId, (lines ?? []).map((line) => line.itemId));
     // Allocate the number INSIDE the transaction with `tx` so its advisory lock
     // stays held until the insert commits (calling it on the base `prisma`
     // client releases the lock before the insert → spurious 409s under load).

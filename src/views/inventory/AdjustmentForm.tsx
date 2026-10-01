@@ -110,7 +110,8 @@ const AdjustmentForm = () => {
     const updateAdjustmentMutation = useUpdateStockAdjustment();
     const { data: adjustmentsData, isLoading: adjustmentsLoading } = useStockAdjustments();
     const adjustments = adjustmentsData?.data ?? [];
-    const { data: itemsData, isLoading: itemsLoading } = useAllItems();
+    // Inventory cleanup remains available after an item is deactivated.
+    const { data: itemsData, isLoading: itemsLoading } = useAllItems({ isActive: 'all' });
     const products = itemsData?.data ?? [];
     const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
 
@@ -377,7 +378,7 @@ const AdjustmentForm = () => {
                                                     <option value="">Select Item...</option>
                                                     {products.map((p) => (
                                                         <option key={p.id} value={p.id}>
-                                                            {p.name}
+                                                            {p.name}{p.isActive ? '' : ' (Inactive)'}
                                                         </option>
                                                     ))}
                                                 </select>

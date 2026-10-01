@@ -12,6 +12,7 @@ import { resolveRequesterId } from '@/lib/approval/requester';
 import { postBillToLedger } from '@/lib/bill-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { withPermission } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -72,6 +73,7 @@ async function generateFromTemplate(
 
       if (!template) throw new Error('Template not found');
       if (template.status !== 'ACTIVE') throw new Error(`Template status is ${template.status}`);
+      await assertItemsActive(tx, orgId, template.lines.map((line) => line.itemId));
 
       // Acquire advisory lock scoped to this org's bill sequence
       const lockKey = fnv1aHash(`bill-seq:${orgId}`);

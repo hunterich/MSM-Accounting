@@ -45,7 +45,8 @@ export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (
       }
       if (lines) {
         for (const line of lines) {
-          await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId, isActive: true }, 'Item not found in organization');
+          // Inactive items remain adjustable so residual stock can be written down.
+          await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId }, 'Item not found in organization');
         }
       }
       await tx.stockAdjustment.update({

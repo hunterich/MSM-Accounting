@@ -31,12 +31,17 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
 
   const groups = await prisma.modifierGroup.findMany({
     where: { organizationId: orgId, isActive: true },
-    include: { options: true, attachments: { select: { itemId: true, itemCategoryId: true } } },
+    include: {
+      options: { include: { item: { select: { isActive: true } } } },
+      attachments: { select: { itemId: true, itemCategoryId: true } },
+    },
   });
   const groupData: GroupWithAttach[] = groups.map((g) => ({
     id: g.id, name: g.name, selectionType: g.selectionType, isRequired: g.isRequired,
     sortOrder: g.sortOrder, isActive: g.isActive,
-    options: g.options.map((o) => ({ id: o.id, name: o.name, priceDelta: Number(o.priceDelta), itemId: o.itemId, sortOrder: o.sortOrder, isActive: o.isActive })),
+    options: g.options
+      .filter((o) => !o.itemId || o.item?.isActive)
+      .map((o) => ({ id: o.id, name: o.name, priceDelta: Number(o.priceDelta), itemId: o.itemId, sortOrder: o.sortOrder, isActive: o.isActive })),
     attachedItemIds: g.attachments.filter((a) => a.itemId).map((a) => a.itemId!),
     attachedCategoryIds: g.attachments.filter((a) => a.itemCategoryId).map((a) => a.itemCategoryId!),
   }));

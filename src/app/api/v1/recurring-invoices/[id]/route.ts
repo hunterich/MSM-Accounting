@@ -10,6 +10,7 @@ import {
   withHandler,
 } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -61,7 +62,10 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
   // Check existence
   const existing = await prisma.recurringInvoice.findFirst({
     where: { id, organizationId: orgId },
-    select: { id: true, startDate: true, frequency: true, dayOfMonth: true, nextRunDate: true },
+    select: {
+      id: true, startDate: true, frequency: true, dayOfMonth: true, nextRunDate: true,
+      lines: { select: { itemId: true } },
+    },
   });
   if (!existing) throw new ApiError('Recurring invoice not found', 404);
 
@@ -111,6 +115,11 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
   if (nextRunDate) headerData.nextRunDate = nextRunDate;
 
   const updated = await prisma.$transaction(async (tx) => {
+    if (lines && Array.isArray(lines)) {
+      await assertItemsActive(tx, orgId, lines.map((line: any) => line.itemId), {
+        allowItemIds: existing.lines.flatMap((line) => line.itemId ? [line.itemId] : []),
+      });
+    }
     await tx.recurringInvoice.update({
       where: { id, organizationId: orgId },
       data: { ...headerData, updatedAt: new Date() },

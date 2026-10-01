@@ -1321,7 +1321,8 @@ const Reports: React.FC<ReportsProps> = ({
   const company = useSettingsStore((s) => s.companyInfo);
   const { data: customersData } = useCustomers({ limit: 100 });
   const { data: vendorsData } = useVendors({ limit: 200 });
-  const { data: itemsData } = useAllItems();
+  // Historical reports must remain filterable by archived master items.
+  const { data: itemsData } = useAllItems({ isActive: 'all' });
   const { data: accountsData } = useChartOfAccounts();
   const { data: warehousesData } = useWarehouses();
   const { data: categoriesData } = useItemCategories();

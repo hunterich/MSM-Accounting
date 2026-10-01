@@ -7,6 +7,7 @@ import { withPermission } from '@/lib/authz';
 import { calculateSalesOrderTotal, CreditLimitError, enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { updateSalesOrderInputSchema } from '@/types/api';
 import { routeForApproval } from '@/lib/approval/engine';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -51,8 +52,16 @@ export const PUT = withPermission({ module: 'AR_SALES_ORDERS', action: 'edit' },
     const { customerName, customerId, issueDate, expiryDate, number, notes, status, items } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.salesOrder.findFirst({ where: { id, organizationId: orgId } });
+      const existing = await tx.salesOrder.findFirst({
+        where: { id, organizationId: orgId },
+        include: { items: { select: { productId: true } } },
+      });
       if (!existing) return null;
+      if (items) {
+        await assertItemsActive(tx, orgId, items.map((item) => item.productId), {
+          allowItemIds: existing.items.flatMap((item) => item.productId ? [item.productId] : []),
+        });
+      }
       const resolvedCustomerId = customerId === undefined ? existing.customerId : (customerId || null);
       const resolvedCustomerName = customerName ?? existing.customerName;
 

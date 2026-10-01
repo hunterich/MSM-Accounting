@@ -44,7 +44,15 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
 
     // Seed: in-scope active items + on-hand snapshot + cost.
     const items = await tx.item.findMany({
-      where: { organizationId: orgId, isActive: true, type: 'PRODUCT', ...(categoryId ? { categoryId } : {}) },
+      where: {
+        organizationId: orgId,
+        type: 'PRODUCT',
+        ...(categoryId ? { categoryId } : {}),
+        OR: [
+          { isActive: true },
+          { inventoryLots: { some: { qtyBalance: { not: 0 } } } },
+        ],
+      },
       select: { id: true, costPrice: true },
       orderBy: { name: 'asc' },
     });

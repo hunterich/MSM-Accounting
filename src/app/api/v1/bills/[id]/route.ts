@@ -10,6 +10,7 @@ import { assertPeriodOpen } from '@/lib/period-guard';
 import { reverseBillPosting } from '@/lib/repost';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 function isFakturDuplicate(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
@@ -69,10 +70,20 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
         select: {
           id: true, status: true, vendorInvoiceNo: true, poId: true,
           number: true, issueDate: true, journalEntryId: true,
+          lines: { select: { itemId: true } },
           _count: { select: { paymentAllocations: true, purchaseReturns: true, debitNotes: true } },
         },
       });
       if (!existing) return null;
+
+      if (lines) {
+        await assertItemsActive(
+          tx,
+          orgId,
+          lines.filter((line) => !line.purchaseOrderLineId).map((line) => line.itemId),
+          { allowItemIds: existing.lines.flatMap((line) => line.itemId ? [line.itemId] : []) },
+        );
+      }
 
       // DRAFT → edit freely (no GL yet). OPEN/OVERDUE → edit-after-post: reverse
       // the posting, apply the edit, re-post — all here so the GL stays in sync,

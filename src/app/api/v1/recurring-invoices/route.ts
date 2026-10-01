@@ -12,6 +12,7 @@ import {
   withHandler,
 } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -80,6 +81,7 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
     select: { id: true },
   });
   if (!customer) throw new ApiError('Customer not found in organization', 404);
+  await assertItemsActive(prisma, orgId, lines.map((line: any) => line.itemId));
 
   const parsedStartDate = new Date(startDate);
   if (Number.isNaN(parsedStartDate.getTime())) {

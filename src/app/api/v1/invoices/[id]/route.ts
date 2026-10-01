@@ -8,6 +8,7 @@ import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { reverseInvoicePosting } from '@/lib/repost';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
+import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
 
@@ -93,6 +94,12 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
 
       if (!existing) {
         throw new AccessError('Invoice not found', 404);
+      }
+
+      if (lines) {
+        await assertItemsActive(tx, orgId, lines.map((line: any) => line.itemId), {
+          allowItemIds: existing.lines.flatMap((line) => line.itemId ? [line.itemId] : []),
+        });
       }
 
       // DRAFT → edit freely. SENT/OVERDUE field edit → edit-after-post: reverse the

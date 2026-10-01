@@ -111,6 +111,10 @@
     @apply grid grid-cols-[1fr_200px_200px] items-center;
   }
 
+  .filter-bar--4col {
+    @apply grid grid-cols-[1fr_180px_180px_180px] items-center;
+  }
+
   .filter-bar__search {
     @apply relative flex items-center;
   }

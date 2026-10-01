@@ -22,6 +22,7 @@ interface InventoryItem {
     cost: number;
     price: number;
     status: string;
+    isActive: boolean;
 }
 
 const PAGE_SIZE = 50;
@@ -42,6 +43,7 @@ const Inventory = () => {
     const [debouncedSearch, setDebouncedSearch] = useState<string>('');
     const [categoryFilter, setCategoryFilter] = useState<string>('');
     const [statusFilter, setStatusFilter] = useState<string>('');
+    const [activationFilter, setActivationFilter] = useState<string>('true');
     const [page, setPage] = useState<number>(1);
 
     useEffect(() => {
@@ -49,7 +51,7 @@ const Inventory = () => {
         return () => clearTimeout(t);
     }, [searchTerm]);
 
-    useEffect(() => { setPage(1); }, [debouncedSearch, categoryFilter, statusFilter]);
+    useEffect(() => { setPage(1); }, [debouncedSearch, categoryFilter, statusFilter, activationFilter]);
 
     // Search, category, status, and paging all run server-side — the API pages
     // results, so filtering only the loaded page would hide most of the catalog.
@@ -58,8 +60,9 @@ const Inventory = () => {
         if (debouncedSearch) f.search = debouncedSearch;
         if (categoryFilter) f.categoryId = categoryFilter;
         if (statusFilter) f.stockStatus = STOCK_STATUS_PARAM[statusFilter];
+        f.isActive = activationFilter;
         return f;
-    }, [debouncedSearch, categoryFilter, statusFilter]);
+    }, [debouncedSearch, categoryFilter, statusFilter, activationFilter]);
     const { data: itemsResult, isLoading } = useItems({ ...listFilters, page, limit: PAGE_SIZE });
     const { data: itemCategories = [] } = useItemCategories();
     // API normalizer already computes stock, cost, price, and status
@@ -117,7 +120,8 @@ const Inventory = () => {
         },
         { key: 'cost', label: 'Cost', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
         { key: 'price', label: 'Price', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
-        { key: 'status', label: 'Status', render: (val: unknown) => <StatusTag status={val as string} /> },
+        { key: 'status', label: 'Stock', render: (val: unknown) => <StatusTag status={val as string} /> },
+        { key: 'isActive', label: 'Item Status', render: (val: unknown) => <StatusTag status={(val as boolean) ? 'Active' : 'Inactive'} /> },
         {
             key: 'actions',
             label: '',
@@ -156,7 +160,7 @@ const Inventory = () => {
                 </div>
             }
         >
-            <div className="filter-bar filter-bar--3col">
+            <div className="filter-bar filter-bar--4col">
                 <div className="filter-bar__search">
                     <Search size={18} />
                     <input
@@ -178,6 +182,19 @@ const Inventory = () => {
                         {(itemCategories as Array<{ id: string; name: string }>).map((cat) => (
                             <option key={cat.id} value={cat.id}>{cat.name}</option>
                         ))}
+                    </select>
+                </div>
+
+                <div className="filter-bar__field">
+                    <select
+                        aria-label="Item activation status"
+                        className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
+                        value={activationFilter}
+                        onChange={(e) => setActivationFilter(e.target.value)}
+                    >
+                        <option value="true">Active Items</option>
+                        <option value="false">Inactive Items</option>
+                        <option value="all">All Items</option>
                     </select>
                 </div>
 

@@ -105,7 +105,8 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     const salesReturns = srData?.data ?? [];
     const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
-    const { data: productsData, isLoading: productsLoading } = useAllItems();
+    // A deactivated item can still be returned against an historical sale.
+    const { data: productsData, isLoading: productsLoading } = useAllItems({ isActive: 'all' });
     const products = productsData?.data ?? [];
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
@@ -226,7 +227,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     }));
     const itemOptions = products.map((product) => ({
         value: product.id,
-        label: `${product.sku || product.code || product.name} • ${product.name}`
+        label: `${product.sku || product.code || product.name} • ${product.name}${product.isActive ? '' : ' (Inactive)'}`
     }));
 
     const accountMap = useMemo<Record<string, any>>(() => {
