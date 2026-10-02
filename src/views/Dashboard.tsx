@@ -19,8 +19,10 @@ import RecentPaymentsWidget   from '../components/dashboard/widgets/RecentPaymen
 import RecentBillsWidget          from '../components/dashboard/widgets/RecentBillsWidget';
 import PendingApprovalsWidget     from '../components/dashboard/widgets/PendingApprovalsWidget';
 import TopSellingProductsWidget    from '../components/dashboard/widgets/TopSellingProductsWidget';
+import ProductsToReorderWidget from '../components/dashboard/widgets/ProductsToReorderWidget';
 
 const WIDGET_COMPONENTS: Record<string, React.ComponentType> = {
+    products_to_reorder: ProductsToReorderWidget,
     cash_on_hand:         CashOnHandWidget,
     overdue_invoices:     OverdueInvoicesWidget,
     net_cash_flow:        NetCashFlowWidget,

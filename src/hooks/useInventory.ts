@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import { stockStatusOf } from '../utils/inventoryStock';
 import type {
   ListResponse,
   InventoryItem, RawInventoryItem,
@@ -35,6 +36,7 @@ const ADJ_STATUS_UP:   Record<string, string>    = { Draft: 'DRAFT', Approved: '
 function normalizeItem(raw: RawInventoryItem): InventoryItem {
     const stock = Number(raw.openingStock ?? raw.stockQty ?? raw.stock ?? 0);
     const currentStock = Number(raw.currentStock ?? stock);
+    const reorderPoint = Number(raw.reorderPoint ?? 0);
     return {
         id:                       raw.id,
         sku:                      raw.sku      || '',
@@ -58,12 +60,12 @@ function normalizeItem(raw: RawInventoryItem): InventoryItem {
         barcode:     raw.barcode || '',
         weight:      raw.weight != null ? Number(raw.weight) : '',
         openingStock: stock,
-        reorderPoint: Number(raw.reorderPoint ?? 0),
+        reorderPoint,
         inventoryAccountId: raw.inventoryAccountId || '',
         revenueAccountId:   raw.revenueAccountId   || '',
         cogsAccountId:      raw.cogsAccountId      || '',
         isActive:           raw.isActive !== false,
-        status: currentStock === 0 ? 'Out of Stock' : currentStock < 5 ? 'Low Stock' : 'In Stock',
+        status: ({ out: 'Out of Stock', low: 'Low Stock', in: 'In Stock' } as const)[stockStatusOf(currentStock, reorderPoint)],
     };
 }
 

@@ -6,16 +6,11 @@ import { ApiError, err, ok, listResponse, logAudit, parsePaginationParams, valid
 import { withPermission } from '@/lib/authz';
 import { createItemInputSchema } from '@/types/api';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
+import { stockStatusOf } from '@/src/utils/inventoryStock';
 
 export const runtime = 'nodejs';
 
 const STOCK_STATUSES = new Set(['in', 'low', 'out']);
-
-/** Mirrors the status rule in useInventory's normalizeItem. */
-function stockStatusOf(qty: number): 'in' | 'low' | 'out' {
-  if (qty === 0) return 'out';
-  return qty < 5 ? 'low' : 'in';
-}
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -43,7 +38,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   // across the whole filtered catalog before paginating.
   const stockStatus = searchParams.get('stockStatus');
   if (stockStatus && STOCK_STATUSES.has(stockStatus)) {
-    const candidates = await prisma.item.findMany({ where, select: { id: true } });
+    const candidates = await prisma.item.findMany({ where, select: { id: true, reorderPoint: true } });
     const candidateIds = candidates.map((i) => i.id);
     const balances = candidateIds.length
       ? await prisma.inventoryLot.groupBy({
@@ -53,7 +48,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
         })
       : [];
     const balanceMap = new Map(balances.map((r) => [r.itemId, Number(r._sum.qtyBalance ?? 0)]));
-    where.id = { in: candidateIds.filter((id) => stockStatusOf(balanceMap.get(id) ?? 0) === stockStatus) };
+    where.id = { in: candidates.filter((item) => stockStatusOf(balanceMap.get(item.id) ?? 0, Number(item.reorderPoint)) === stockStatus).map((item) => item.id) };
   }
   const [data, total] = await Promise.all([
     prisma.item.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { name: 'asc' }, include: { category: { select: { id: true, name: true, code: true } } } }),

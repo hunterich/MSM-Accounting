@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     openTab, closeTab, closeOthers, closeAll, closeToRight,
-    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed, capBlock, isPinnedTab,
+    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed, capBlock, isPinnedTab, ensureDashboard,
 } from '../reducers';
 import { makeTabId, TAB_CAP, MODULE_CAP, type WorkspaceState, type TabTarget } from '../types';
 
@@ -209,6 +209,15 @@ describe('isAtCap', () => {
 });
 
 describe('the dashboard tab is permanent', () => {
+    it('adds home to a direct document visit without switching the active document or duplicating home', () => {
+        const state = openTab(empty, tab('invoice', 'INV-1'));
+        const next = ensureDashboard(state);
+        expect(next.tabs[0].path).toBe('/');
+        expect(isPinnedTab(next.tabs[0])).toBe(true);
+        expect(next.activeTabId).toBe(state.activeTabId);
+        expect(ensureDashboard(next)).toBe(next);
+        expect(closeAll(next).tabs).toEqual([next.tabs[0]]);
+    });
     // Accurate keeps its home tab always open; ours does the same. Hiding the
     // close button is not enough — the bulk closes have to respect it too, or
     // "Close all" leaves the workspace with no tabs and an empty shell.

@@ -38,6 +38,16 @@ export function isPinnedTab(tab: WorkspaceTab): boolean {
     return tab.target.module === 'page' && tab.target.recordId === 'dashboard';
 }
 
+/** Keep home available even when the first URL opens another module. */
+export function ensureDashboard(state: WorkspaceState): WorkspaceState {
+    if (state.tabs.some(isPinnedTab)) return state;
+    const dashboard: WorkspaceTab = {
+        id: 'page:dashboard', kind: 'list', title: 'Dashboard', path: '/', status: 'clean',
+        target: { module: 'page', entity: 'route', recordId: 'dashboard', mode: 'view' },
+    };
+    return { ...state, tabs: [dashboard, ...state.tabs] };
+}
+
 export function activateTab(state: WorkspaceState, id: string): WorkspaceState {
     if (!state.tabs.some((t) => t.id === id)) return state;
     return { ...state, activeTabId: id };

@@ -6,6 +6,7 @@ import TabContentHost from './TabContentHost';
 import TabCapPrompt from './TabCapPrompt';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
+import { ensureDashboard } from '../../stores/workspace/reducers';
 import { pageModuleForPath, moduleKeyOf, pendingNoteRecordId, pendingNotePath, newDocumentTabForPath, isTablessPath } from '../../stores/workspace/modules';
 
 const WorkspaceShell = (): React.ReactElement => {
@@ -17,6 +18,12 @@ const WorkspaceShell = (): React.ReactElement => {
     const tabs = useWorkspaceStore((s) => s.tabs);
     const activeTabId = useWorkspaceStore((s) => s.activeTabId);
     const activePath = tabs.find((t) => t.id === activeTabId)?.path;
+
+    useEffect(() => {
+        const state = useWorkspaceStore.getState();
+        const next = ensureDashboard(state);
+        if (next !== state) useWorkspaceStore.setState(next);
+    }, [tabs]);
 
     // Ctrl/Cmd+Shift+T reopens the most-recently-closed tab (browser-style).
     useEffect(() => {

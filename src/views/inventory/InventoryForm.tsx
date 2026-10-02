@@ -529,7 +529,8 @@ const InventoryForm = () => {
                         <Input label="Opening Stock" name="openingStock" type="number" value={formData.openingStock} onChange={handleChange} placeholder="0" error={errors.openingStock} disabled={isViewMode} />
                     </div>
                     <div className="col-span-2">
-                        <Input label="Reorder Point" name="reorderPoint" type="number" value={formData.reorderPoint} onChange={handleChange} placeholder="5" error={errors.reorderPoint} disabled={isViewMode} />
+                        <Input label="Reorder Point (Minimum Stock)" name="reorderPoint" type="number" value={formData.reorderPoint} onChange={handleChange} placeholder="5" error={errors.reorderPoint} disabled={isViewMode} />
+                        <p className="text-xs text-neutral-500 mt-1">In the base unit. Stock below this quantity needs reordering; 0 disables the threshold.</p>
                     </div>
                 </div>
             </div>

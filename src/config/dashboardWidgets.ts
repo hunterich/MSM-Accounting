@@ -8,6 +8,7 @@ export interface WidgetDefinition {
 }
 
 export const WIDGET_REGISTRY: WidgetDefinition[] = [
+    { id: 'products_to_reorder', label: 'Products to Reorder', description: 'Products below minimum stock, grouped by stock percentage', permission: 'inv_items', size: 'sm' },
     { id: 'cash_on_hand',      label: 'Cash on Hand',             description: 'Total balance across all bank accounts', permission: 'banking',     size: 'sm' },
     { id: 'overdue_invoices',  label: 'Overdue Invoices',         description: 'Total overdue AR amount',                permission: 'ar_invoices', size: 'sm' },
     { id: 'net_cash_flow',     label: 'Net Cash Flow (YTD)',      description: 'Year-to-date net cash flow',             permission: 'banking',     size: 'sm' },
@@ -20,5 +21,5 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
 ];
 
 export const DEFAULT_WIDGET_IDS: string[] = [
-    'cash_on_hand', 'overdue_invoices', 'net_cash_flow', 'recent_invoices', 'pending_approvals',
+    'cash_on_hand', 'overdue_invoices', 'net_cash_flow', 'products_to_reorder', 'recent_invoices', 'pending_approvals',
 ];
