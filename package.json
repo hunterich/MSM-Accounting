@@ -29,6 +29,7 @@
     "test:watch": "vitest",
     "test:int": "vitest run --config vitest.integration.config.ts",
     "test:int:setup": "tsx scripts/test-db-setup.mjs",
+    "bench:capacity": "tsx scripts/benchmark-capacity.ts",
     "test:e2e:setup": "node scripts/e2e-db-setup.mjs",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:pos": "playwright test --project=pos",

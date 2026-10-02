@@ -13,14 +13,7 @@
 import type { Prisma } from '@prisma/client';
 import { toNumber, asMoney } from './money';
 
-type LedgerReader = {
-  inventoryLedgerEntry: {
-    findMany: (args: {
-      where: Prisma.InventoryLedgerEntryWhereInput;
-      select: { itemId: true; qtyIn: true; qtyOut: true; valueChange: true };
-    }) => Promise<Array<{ itemId: string; qtyIn: unknown; qtyOut: unknown; valueChange: unknown }>>;
-  };
-};
+type LedgerReader = Pick<Prisma.TransactionClient, 'inventoryLedgerEntry'>;
 
 export interface ItemValuation {
   itemId: string;
@@ -46,21 +39,19 @@ export async function computeLedgerValuation(
   if (opts?.itemIds?.length) where.itemId = { in: opts.itemIds };
   if (opts?.warehouseId) where.warehouseId = opts.warehouseId;
 
-  const rows = await db.inventoryLedgerEntry.findMany({
+  const rows = await db.inventoryLedgerEntry.groupBy({
+    by: ['itemId'],
     where,
-    select: { itemId: true, qtyIn: true, qtyOut: true, valueChange: true },
+    _sum: { qtyIn: true, qtyOut: true, valueChange: true },
   });
 
   const map = new Map<string, ItemValuation>();
   for (const r of rows) {
-    const prev = map.get(r.itemId) ?? { itemId: r.itemId, totalQty: 0, totalValue: 0 };
-    prev.totalQty += toNumber(r.qtyIn) - toNumber(r.qtyOut);
-    prev.totalValue += toNumber(r.valueChange);
-    map.set(r.itemId, prev);
-  }
-  for (const v of map.values()) {
-    v.totalQty = Math.round(v.totalQty * 10000) / 10000;
-    v.totalValue = asMoney(v.totalValue);
+    map.set(r.itemId, {
+      itemId: r.itemId,
+      totalQty: Math.round((toNumber(r._sum.qtyIn) - toNumber(r._sum.qtyOut)) * 10000) / 10000,
+      totalValue: asMoney(toNumber(r._sum.valueChange)),
+    });
   }
   return map;
 }

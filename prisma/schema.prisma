@@ -305,6 +305,7 @@ model JournalEntry {
   @@unique([organizationId, entryNo])
   @@index([organizationId, date, status])
   @@index([organizationId, periodId])
+  @@index([organizationId, status, date])
   @@index([migrationBatchId])
 }
 
@@ -594,6 +595,8 @@ model SalesInvoice {
   @@index([organizationId, createdById, issueDate])
   @@index([organizationId, issueDate])
   @@index([organizationId, status])
+  @@index([organizationId, status, issueDate])
+  @@index([organizationId, poNumber])
   @@index([customerId, status])
   @@index([migrationBatchId])
   @@index([salesTypeId])
