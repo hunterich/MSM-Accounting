@@ -84,6 +84,21 @@ test.describe('sales return → credit note → ledger', () => {
     const notesBefore = await idsOf(page.request, '/api/v1/credit-notes?limit=100')
     const returnsBefore = await idsOf(page.request, '/api/v1/sales-returns?limit=100')
 
+    // The demo source is DRAFT. Returns now correctly require a posted source
+    // invoice, so finalize it through the real API before exercising the return.
+    // Keep that accounting guard intact rather than returning against a draft.
+    const invoices = await apiJson(page.request, '/api/v1/invoices?limit=100')
+    const sourceInvoice = invoices.find((inv: { number: string }) => inv.number === 'INV-0004')
+    expect(sourceInvoice, 'missing demo source invoice').toBeTruthy()
+    if (sourceInvoice.status === 'DRAFT') {
+      const posted = await page.request.put(`http://localhost:3100/api/v1/invoices/${sourceInvoice.id}`, {
+        data: { status: 'SENT' },
+      })
+      expect(posted.ok(), `post source invoice: ${await posted.text()}`).toBeTruthy()
+    }
+    const postedSource = await apiJson(page.request, `/api/v1/invoices/${sourceInvoice.id}`)
+    expect(['SENT', 'PAID', 'OVERDUE']).toContain(postedSource.status)
+
     await page.goto('/ar/credits')
     await page.locator('.workbench-doc-tab-new').click()
 
