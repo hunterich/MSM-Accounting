@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { readJournalTotals } from '@/lib/journal-totals';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
@@ -66,18 +67,11 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
 
     if (type === 'trial-balance' || type === 'balance-sheet') {
       const asOfDate = endOfDay(searchParams.get('asOfDate'));
-      const lines = await prisma.journalLine.findMany({
-        where: {
-          entry: {
-            organizationId: orgId,
-            status: 'POSTED',
-            date: { lte: asOfDate },
-          },
-        },
-        select: {
-          accountId: true,
-          debit: true,
-          credit: true,
+      const lines = await readJournalTotals(prisma, {
+        entry: {
+          organizationId: orgId,
+          status: 'POSTED',
+          date: { lte: asOfDate },
         },
       });
 
@@ -97,32 +91,18 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       const compareAsOfDate = endOfDay(searchParams.get('compareAsOfDate'));
 
       const [currentLines, compareLines] = await Promise.all([
-        prisma.journalLine.findMany({
-          where: {
-            entry: {
-              organizationId: orgId,
-              status: 'POSTED',
-              date: { lte: asOfDate },
-            },
-          },
-          select: {
-            accountId: true,
-            debit: true,
-            credit: true,
+        readJournalTotals(prisma, {
+          entry: {
+            organizationId: orgId,
+            status: 'POSTED',
+            date: { lte: asOfDate },
           },
         }),
-        prisma.journalLine.findMany({
-          where: {
-            entry: {
-              organizationId: orgId,
-              status: 'POSTED',
-              date: { lte: compareAsOfDate },
-            },
-          },
-          select: {
-            accountId: true,
-            debit: true,
-            credit: true,
+        readJournalTotals(prisma, {
+          entry: {
+            organizationId: orgId,
+            status: 'POSTED',
+            date: { lte: compareAsOfDate },
           },
         }),
       ]);
@@ -145,21 +125,14 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         return err('dateFrom must be before or equal to dateTo', 400);
       }
 
-      const lines = await prisma.journalLine.findMany({
-        where: {
-          entry: {
-            organizationId: orgId,
-            status: 'POSTED',
-            date: {
-              gte: dateFrom,
-              lte: dateTo,
-            },
+      const lines = await readJournalTotals(prisma, {
+        entry: {
+          organizationId: orgId,
+          status: 'POSTED',
+          date: {
+            gte: dateFrom,
+            lte: dateTo,
           },
-        },
-        select: {
-          accountId: true,
-          debit: true,
-          credit: true,
         },
       });
 
@@ -184,32 +157,20 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         return err('compareDateFrom must be before or equal to compareDateTo', 400);
       }
 
-      const lineSelect = {
-        accountId: true as const,
-        debit: true as const,
-        credit: true as const,
-      };
-
       const [currentLines, compareLines] = await Promise.all([
-        prisma.journalLine.findMany({
-          where: {
-            entry: {
-              organizationId: orgId,
-              status: 'POSTED',
-              date: { gte: dateFrom, lte: dateTo },
-            },
+        readJournalTotals(prisma, {
+          entry: {
+            organizationId: orgId,
+            status: 'POSTED',
+            date: { gte: dateFrom, lte: dateTo },
           },
-          select: lineSelect,
         }),
-        prisma.journalLine.findMany({
-          where: {
-            entry: {
-              organizationId: orgId,
-              status: 'POSTED',
-              date: { gte: compareDateFrom, lte: compareDateTo },
-            },
+        readJournalTotals(prisma, {
+          entry: {
+            organizationId: orgId,
+            status: 'POSTED',
+            date: { gte: compareDateFrom, lte: compareDateTo },
           },
-          select: lineSelect,
         }),
       ]);
 
@@ -249,19 +210,12 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       }
 
       const [openingLines, periodLines] = await Promise.all([
-        prisma.journalLine.findMany({
-          where: {
-            accountId,
-            entry: {
-              organizationId: orgId,
-              status: 'POSTED',
-              date: { lt: dateFrom },
-            },
-          },
-          select: {
-            accountId: true,
-            debit: true,
-            credit: true,
+        readJournalTotals(prisma, {
+          accountId,
+          entry: {
+            organizationId: orgId,
+            status: 'POSTED',
+            date: { lt: dateFrom },
           },
         }),
         prisma.journalLine.findMany({
@@ -315,32 +269,20 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         return err('dateFrom must be before or equal to dateTo', 400);
       }
 
-      const lineSelect = {
-        accountId: true as const,
-        debit: true as const,
-        credit: true as const,
-      };
-
       const [beginningLines, periodLines] = await Promise.all([
-        prisma.journalLine.findMany({
-          where: {
-            entry: {
-              organizationId: orgId,
-              status: 'POSTED',
-              date: { lt: dateFrom },
-            },
+        readJournalTotals(prisma, {
+          entry: {
+            organizationId: orgId,
+            status: 'POSTED',
+            date: { lt: dateFrom },
           },
-          select: lineSelect,
         }),
-        prisma.journalLine.findMany({
-          where: {
-            entry: {
-              organizationId: orgId,
-              status: 'POSTED',
-              date: { gte: dateFrom, lte: dateTo },
-            },
+        readJournalTotals(prisma, {
+          entry: {
+            organizationId: orgId,
+            status: 'POSTED',
+            date: { gte: dateFrom, lte: dateTo },
           },
-          select: lineSelect,
         }),
       ]);
 

@@ -46,6 +46,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     journalLine: {
       findMany: vi.fn(),
+      groupBy: vi.fn(),
     },
     bankTransaction: {
       findMany: vi.fn(),
@@ -116,6 +117,7 @@ beforeEach(() => {
   vi.mocked(prisma.vendor.findFirst).mockResolvedValue(null);
   vi.mocked(prisma.account.findMany).mockResolvedValue([]);
   vi.mocked(prisma.journalLine.findMany).mockResolvedValue([]);
+  vi.mocked(prisma.journalLine.groupBy).mockResolvedValue([]);
   vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([]);
   vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([]);
   vi.mocked(prisma.inventoryLedgerEntry.findMany).mockResolvedValue([]);

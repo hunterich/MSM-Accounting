@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { readCustomerSales, readItemSales, readTopProducts, readItemCustomerSales, readSalesCalendar } from '@/lib/sales-summary';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
@@ -7,7 +8,8 @@ import { withPermission } from '@/lib/authz';
 export const runtime = 'nodejs';
 export async function OPTIONS() { return corsPreflightResponse(); }
 
-// Safety bound for the in-memory aggregation branches below. These load matching
+// Safety bound for transaction-detail reports. Summary reports aggregate in SQL.
+// These load matching
 // rows and aggregate in JS; without a cap an all-time query on a large dataset
 // can exhaust memory. We over-fetch by one and reject rather than silently
 // truncate (a truncated set would produce wrong totals). Normal date-scoped
@@ -42,28 +44,15 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     dateFilter.issueDate = { ...dateFilter.issueDate, lte: end };
   }
 
+  const summaryFilter = {
+    organizationId: orgId,
+    dateFrom: dateFilter.issueDate?.gte,
+    dateTo: dateFilter.issueDate?.lte,
+  };
+
   /* ── Sales by Customer ── */
   if (type === 'by-customer') {
-    const customerWhere: any = { ...dateFilter };
-    if (customerSearch) {
-      customerWhere.customer = { name: { contains: customerSearch, mode: 'insensitive' } };
-    }
-    const invoices = await prisma.salesInvoice.findMany({
-      where: customerWhere,
-      include: { customer: { select: { id: true, name: true } } },
-      take: ROW_CAP + 1,
-    });
-    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
-    const map = new Map();
-    for (const inv of invoices) {
-      const key  = inv.customerId || 'unknown';
-      const name = inv.customer?.name || 'Unknown';
-      if (!map.has(key)) map.set(key, { customerId: key, customerName: name, total: 0, invoiceCount: 0 });
-      const row = map.get(key);
-      row.total += Number(inv.totalAmount || 0);
-      row.invoiceCount += 1;
-    }
-    let rows = Array.from(map.values()).sort((a, b) => b.total - a.total);
+    let rows = await readCustomerSales(prisma, { ...summaryFilter, customerSearch });
     if (topN && topN > 0) rows = rows.slice(0, topN);
     return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
@@ -72,42 +61,14 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   if (type === 'by-customer-daily') {
     const customerId = searchParams.get('customerId');
     if (!customerId) return err('customerId is required', 400);
-    const invoices = await prisma.salesInvoice.findMany({
-      where: { ...dateFilter, customerId: customerId === 'unknown' ? null : customerId },
-      select: { issueDate: true, totalAmount: true },
-      orderBy: { issueDate: 'asc' },
-      take: ROW_CAP + 1,
-    });
-    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
-    const map = new Map<string, { date: string; invoiceCount: number; total: number }>();
-    for (const inv of invoices) {
-      const d   = new Date(inv.issueDate);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const row = map.get(key) ?? { date: key, invoiceCount: 0, total: 0 };
-      row.invoiceCount += 1;
-      row.total += Number(inv.totalAmount || 0);
-      map.set(key, row);
-    }
-    const rows = Array.from(map.values());
+    const rows = (await readSalesCalendar(prisma, summaryFilter, 'day', customerId))
+      .map(({ bucket, ...row }) => ({ date: bucket, ...row }));
     return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Sales by Item ── */
   if (type === 'by-item') {
-    const lines = await prisma.salesInvoiceLine.findMany({
-      where: { invoice: dateFilter },
-      take: ROW_CAP + 1,
-    });
-    if (lines.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
-    const map = new Map();
-    for (const line of lines) {
-      const key = line.description;
-      if (!map.has(key)) map.set(key, { description: key, code: line.code, qty: 0, total: 0 });
-      const row = map.get(key);
-      row.qty   += Number(line.quantity || 0);
-      row.total += Number(line.lineSubtotal || 0);
-    }
-    let rows = Array.from(map.values());
+    let rows = await readItemSales(prisma, summaryFilter);
     // Apply item search filter
     if (itemSearch) {
       const q = itemSearch.toLowerCase();
@@ -125,27 +86,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   // so the same product always rolls up to one row. Master-only: lines without
   // an `itemId` are excluded. Used by the Best Selling Products dashboard widget.
   if (type === 'top-products') {
-    const lines = await prisma.salesInvoiceLine.findMany({
-      where: { invoice: dateFilter, itemId: { not: null } },
-      include: { item: { select: { id: true, sku: true, name: true } } },
-    });
-    const map = new Map();
-    for (const line of lines) {
-      const key = line.itemId as string;
-      if (!map.has(key)) {
-        map.set(key, {
-          itemId: key,
-          sku:    line.item?.sku || line.code || '',
-          name:   line.item?.name || line.description,
-          qty:    0,
-          total:  0,
-        });
-      }
-      const row = map.get(key);
-      row.qty   += Number(line.quantity || 0);
-      row.total += Number(line.lineSubtotal || 0);
-    }
-    let rows = Array.from(map.values());
+    let rows = await readTopProducts(prisma, summaryFilter);
     // Default ranking is by units sold (qty); `sortBy=total` ranks by revenue.
     rows = rows.sort((a, b) => sortBy === 'total' ? b.total - a.total : b.qty - a.qty);
     if (topN && topN > 0) rows = rows.slice(0, topN);
@@ -154,22 +95,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
 
   /* ── Sales Item × Customer ── */
   if (type === 'by-item-customer') {
-    const lines = await prisma.salesInvoiceLine.findMany({
-      where: { invoice: dateFilter },
-      include: { invoice: { select: { customerId: true, customer: { select: { name: true } } } } },
-      take: ROW_CAP + 1,
-    });
-    if (lines.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
-    const map = new Map();
-    for (const line of lines) {
-      const key          = `${line.invoice.customerId}||${line.description}`;
-      const customerName = line.invoice.customer?.name || 'Unknown';
-      if (!map.has(key)) map.set(key, { customerName, description: line.description, qty: 0, total: 0 });
-      const row = map.get(key);
-      row.qty   += Number(line.quantity || 0);
-      row.total += Number(line.lineSubtotal || 0);
-    }
-    let rows = Array.from(map.values());
+    let rows = await readItemCustomerSales(prisma, summaryFilter);
     if (customerSearch) {
       const q = customerSearch.toLowerCase();
       rows = rows.filter((row) => row.customerName?.toLowerCase().includes(q));
@@ -241,41 +167,15 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
 
   /* ── Monthly Sales Chart ── */
   if (type === 'monthly-chart') {
-    const invoices = await prisma.salesInvoice.findMany({
-      where: dateFilter,
-      select: { issueDate: true, totalAmount: true },
-      orderBy: { issueDate: 'asc' },
-      take: ROW_CAP + 1,
-    });
-    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
-    const map = new Map();
-    for (const inv of invoices) {
-      const d   = new Date(inv.issueDate);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      map.set(key, (map.get(key) || 0) + Number(inv.totalAmount || 0));
-    }
-    const rows = Array.from(map.entries()).map(([month, total]) => ({ month, total }));
+    const rows = (await readSalesCalendar(prisma, summaryFilter, 'month'))
+      .map(({ bucket, total }) => ({ month: bucket, total }));
     return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Share by Customer ── */
   if (type === 'share-by-customer') {
-    const invoices = await prisma.salesInvoice.findMany({
-      where: dateFilter,
-      include: { customer: { select: { name: true } } },
-      take: ROW_CAP + 1,
-    });
-    if (invoices.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
-    const map = new Map();
-    for (const inv of invoices) {
-      const key  = inv.customerId || 'unknown';
-      const name = inv.customer?.name || 'Unknown';
-      if (!map.has(key)) map.set(key, { customerName: name, total: 0 });
-      map.get(key).total += Number(inv.totalAmount || 0);
-    }
-    const sorted = Array.from(map.values())
-      .map((r: { customerName: string; total: number }) => ({ ...r, isOthers: false }))
-      .sort((a, b) => b.total - a.total);
+    const sorted = (await readCustomerSales(prisma, summaryFilter))
+      .map(({ customerName, total }) => ({ customerName, total, isOthers: false }));
     const keep = topN && topN > 0 ? topN : 5;
     const rows = sorted.slice(0, keep);
     const othersTotal = sorted.slice(keep).reduce((s, r) => s + r.total, 0);
@@ -285,19 +185,8 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
 
   /* ── Portion of Sales per Item (top N + Others) ── */
   if (type === 'share-by-item') {
-    const lines = await prisma.salesInvoiceLine.findMany({
-      where: { invoice: dateFilter },
-      select: { description: true, lineSubtotal: true },
-      take: ROW_CAP + 1,
-    });
-    if (lines.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
-    const map = new Map<string, number>();
-    for (const line of lines) {
-      map.set(line.description, (map.get(line.description) || 0) + Number(line.lineSubtotal || 0));
-    }
-    const sorted = Array.from(map.entries())
-      .map(([description, total]) => ({ description, total, isOthers: false }))
-      .sort((a, b) => b.total - a.total);
+    const sorted = (await readItemSales(prisma, summaryFilter))
+      .map(({ description, total }) => ({ description, total, isOthers: false }));
     const keep = topN && topN > 0 ? topN : 5;
     const rows = sorted.slice(0, keep);
     const othersTotal = sorted.slice(keep).reduce((s, r) => s + r.total, 0);
