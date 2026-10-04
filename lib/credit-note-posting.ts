@@ -3,7 +3,8 @@
  *
  * Mirrors `lib/sales-return-posting.ts` — covers the AR side only (notes
  * have no inventory leg). Books DR Sales-Return (net) / DR Output-Tax
- * (taxAmount, when applyTax) / CR AR (gross) for the credit-note amount.
+ * (taxAmount, when applyTax) / CR AR (gross) for invoice credits, or CR the
+ * selected cash/bank asset account for monetary refunds. Notes do not restock goods.
  *
  * Idempotency: short-circuits when `creditNote.journalEntryId` is already
  * set (DB-token, parity with sales-return-posting). The PUT handler
@@ -54,6 +55,8 @@ export async function postCreditNoteOnApply(
       applyTax: true,
       returnAccountId: true,
       arAccountId: true,
+      settlementType: true,
+      settlementAccountId: true,
       taxAccountId: true,
       journalEntryId: true,
     },
@@ -90,8 +93,13 @@ export async function postCreditNoteOnApply(
     cn.returnAccountId ?? resolveAccountDefaultId(accounts, settings, 'arReturn');
   const arAccountId =
     cn.arAccountId ?? resolveAccountDefaultId(accounts, settings, 'arControl');
+  const isRefund = cn.settlementType === 'REFUND';
+  const settlementAccountId = isRefund ? cn.settlementAccountId : arAccountId;
+  if (isRefund && !accounts.some(a => a.id === settlementAccountId && a.isPostable && a.type === 'ASSET')) {
+    throw new ApiError('Choose an active, postable refund asset account in this organization', 422);
+  }
 
-  if (!returnAccountId || !arAccountId) {
+  if (!returnAccountId || !settlementAccountId) {
     throw new Error(
       `CreditNote ${cn.number}: missing arReturn/arControl account defaults`,
     );
@@ -127,8 +135,8 @@ export async function postCreditNoteOnApply(
           }]
         : []),
       {
-        accountId: arAccountId,
-        description: `AR reduction - ${cn.number}`,
+        accountId: settlementAccountId,
+        description: `${isRefund ? 'Customer refund' : 'AR reduction'} - ${cn.number}`,
         debit: 0,
         credit: amount,
       },

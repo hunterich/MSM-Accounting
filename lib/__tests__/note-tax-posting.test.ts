@@ -84,6 +84,27 @@ beforeEach(() => {
 });
 
 describe('postCreditNoteOnApply tax split', () => {
+  it('refund credits the selected cash account and preserves the net/tax split', async () => {
+    const tx = makeTx({ ...baseCN, settlementType: 'REFUND', settlementAccountId: 'ACC-CASH' }, 'creditNote');
+    (tx.account as { findMany: ReturnType<typeof vi.fn> }).findMany.mockResolvedValue([
+      { id: 'ACC-CASH', type: 'ASSET', isActive: true, isPostable: true },
+    ]);
+    await postCreditNoteOnApply(tx as never, 'CN-1');
+    const lines = postJE.mock.calls[0][1].lines;
+    expect(lines).toEqual([
+      expect.objectContaining({ accountId: 'ACC-RETURN', debit: 100000, credit: 0 }),
+      expect.objectContaining({ accountId: 'ACC-OUTPUT-TAX', debit: 11000, credit: 0 }),
+      expect.objectContaining({ accountId: 'ACC-CASH', debit: 0, credit: 111000 }),
+    ]);
+    assertLinesBalanced(lines);
+  });
+
+  it.each([null, 'OTHER-ORG', 'ACC-AR'])('rejects invalid refund account %s before posting', async (settlementAccountId) => {
+    const tx = makeTx({ ...baseCN, settlementType: 'REFUND', settlementAccountId }, 'creditNote');
+    await expect(postCreditNoteOnApply(tx as never, 'CN-1')).rejects.toThrow(/refund asset account/);
+    expect(postJE).not.toHaveBeenCalled();
+  });
+
   it('books net to sales-return, tax to output-tax, gross to AR', async () => {
     const tx = makeTx({ ...baseCN }, 'creditNote');
     await postCreditNoteOnApply(tx as never, 'CN-1');

@@ -172,7 +172,7 @@ jobs:
       # Playwright starts the backend and web server itself (see
       # playwright.config.ts); CI needs no separate server step.
       - name: Run end-to-end tests
-        run: npm run test:e2e
+        run: npm run test:e2e:all
 
       - name: Upload report on failure
         if: failure()

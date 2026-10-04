@@ -23,8 +23,31 @@ calculation helpers. Figures illustrate test cases, not tax-rate guidance.
 | Sales return → credit note | Existing `e2e/returns-to-ledger.spec.ts` verifies persisted links and amounts, and now checks the exact account, debit and credit on every journal line, including the tax reversal. |
 
 The PO receipt step is an API action, rather than an automated receipt modal.
-The network-retry test aborts before the server receives the first request; it
-does not claim that every possible mid-transaction failure is covered.
+The original network-retry test aborts before the server receives the request.
+The edge-case suite also loses the response after the server commits and proves
+that retrying the supplier reference cannot duplicate the bill, journal or stock.
+
+`e2e/accounting-edge-cases.spec.ts` adds eight checks: partial PO receipts with
+exact GR/IR clearing and over-receipt rollback; partial AP and AR settlement
+followed by payment through the form and void through the list; bill and invoice
+voids with exact reversed journal lines and restored stock; duplicate submission
+after a lost response; inclusive VAT with decimal quantities, discounts and
+penny rounding; closed-period rejection, view-only posting rejection and forged
+company-header rejection. Partial initial payments and PO receipts use the API;
+the remainder payment and void actions use the browser. The inclusive-tax case
+posts through the API and reopens the saved form.
+
+The three POS checks create their own stocked company and register. They verify
+online cash checkout, replay protection and shift reconciliation; offline shift
+and checkout syncing exactly once after reconnect and reload; and a back-office
+refund of a paid POS invoice, including VAT, cash credit and UI void reversal.
+The refund is a monetary credit note: it does not restock returned goods or prove
+a cashier-side merchandise-return journey.
+
+`lib/__tests__/integration/backup-restore.int.test.ts` creates accounting records,
+dumps the disposable test database, restores into a fresh database and compares
+accounts, bills, payments, allocations and every journal line. It also proves
+the restored copy stays independent of later source changes, then removes it.
 
 ## Where to put and update tests
 
@@ -70,6 +93,9 @@ npm run test:e2e:setup
 npm run test:accounting
 # All default browser tests:
 npm run test:e2e
+# POS alone, or both browser projects as run in CI:
+npm run test:e2e:pos
+npm run test:e2e:all
 ```
 
 Setup scripts **recreate** the sibling databases `<base>_test` and `<base>_e2e`.
@@ -89,11 +115,18 @@ but no npm/pnpm command, the installed test CLIs can run directly:
 node node_modules/typescript/bin/tsc --noEmit --project tsconfig.e2e.json
 node node_modules/vitest/vitest.mjs run --configLoader runner
 node scripts/e2e-db-setup.mjs
-node node_modules/@playwright/test/cli.js test e2e/accounting-journeys.spec.ts e2e/returns-to-ledger.spec.ts --project=chromium
+node node_modules/@playwright/test/cli.js test e2e/accounting-journeys.spec.ts e2e/accounting-edge-cases.spec.ts e2e/returns-to-ledger.spec.ts --project=chromium
 ```
 
 Generate Prisma before browser testing; the portable Playwright server commands
 invoke the Next/Vite CLIs directly and do not run npm's pre-start hook.
+
+Restore integration tests require PostgreSQL client tools matching the server's
+major version (`pg_dump` and `pg_restore`). CI installs PostgreSQL 16 tools.
+For the dedicated local container named `msm-accounting-qa-db`, the new restore
+test can alternatively use its installed tools: set `QA_POSTGRES_CONTAINER` to
+that exact name and `QA_DOCKER_PATH` to your Docker executable, then run this
+specific test. This option does not replace native tools for other backup tests.
 
 ## Reading results
 
@@ -111,19 +144,29 @@ automated accounting tests should not be run against their production company.
 
 ## Remaining coverage to extend
 
-The new journeys are representative, not exhaustive. Future work includes
-the receipt modal itself, more partial receipts/payments and tax-inclusive
-rounding through forms, browser rejection/void/permission flows, and network
-loss after a request has already committed. POS browser tests are in a separate
-`pos` project and still require stock fixtures; default CI runs Chromium's
-back-office project. Existing backend tests already cover many approval,
-period-lock, isolation, settlement and concurrency cases.
+The journeys are representative, not exhaustive. Remaining browser coverage
+includes the PO receipt modal, choosing an initial partial amount in a payment
+form, tax-inclusive penny rounding entered entirely through a form, cashier
+merchandise returns with batch restocking, and multi-user approval workflows.
+Bank imports/reconciliation, recurring transactions, payroll and assets have
+backend checks but could use full browser journeys. The restore check proves
+database fidelity; restoring a full deployed system, attachments and starting
+the restored app still needs a staging recovery drill. Both browser projects
+now run in CI; existing backend tests cover additional approval, period-lock,
+isolation, settlement and concurrency cases.
 
 ## Verified locally — 2026-10-04
 
-All five focused Chromium journeys passed together on a fresh PostgreSQL 16
-test database. Both application and browser-test TypeScript checks passed,
-and the bill-posting / invoice-send-posting unit suites passed all 21 tests.
-The browser checks exposed invoice draft-loading, tax recovery and inventory
-item-link defects; the fixes are covered by the reload-to-approval journey.
+All 16 focused browser journeys passed together on a fresh PostgreSQL 16
+test database: 13 back-office checks and three POS checks. Both application and
+browser-test TypeScript checks passed. Five real-database suites passed all 15
+tests covering restore, payment settlement, invoice and note reversal, and
+original return costs. The note-tax posting unit suite passed all 12 tests,
+including refund account selection and invalid-account rejection. The earlier
+bill-posting / invoice-send-posting unit suites passed all 21 tests.
+
+The checks exposed invoice draft-loading, tax recovery and inventory item-link
+defects in the first round, then partial-payment form balances, the invoice
+detail's inactive Void action and refund notes posting to AR in this round.
+Regression tests cover the corrected behavior.
 This records the focused checks performed, not a full-suite certification.

@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { api } from '../api/apiClient';
 
 export type SettlementKind = 'invoice' | 'bill';
@@ -33,4 +34,24 @@ export function useDocumentSettlement(kind: SettlementKind, id: string | undefin
         queryFn: () => api.get<DocumentSettlement>(PATHS[kind](id as string)),
         enabled: !!id,
     });
+}
+
+/** Payment forms must apply the remaining balance, not the document's original total. */
+export function useOutstandingDocuments<T extends { id: string; _id?: string; amount: number }>(
+    kind: SettlementKind, documents: T[], enabled: boolean,
+) {
+    const combine = useCallback((queries: UseQueryResult<DocumentSettlement>[]) => ({
+        documents: enabled ? documents.flatMap((document, i) => {
+            const settlement = queries[i]?.data;
+            return settlement && settlement.owing > 0 && !['DRAFT', 'VOID'].includes(settlement.state)
+                ? [{ ...document, amount: settlement.owing }] : [];
+        }) : documents,
+        isLoading: queries.some(q => q.isPending || q.isFetching),
+        isError: queries.some(q => q.isError),
+    }), [enabled, documents]);
+    return useQueries({ queries: enabled ? documents.map(document => ({
+        queryKey: ['documentSettlement', kind, document._id || document.id],
+        queryFn: () => api.get<DocumentSettlement>(PATHS[kind](document._id || document.id)),
+        refetchOnMount: 'always' as const,
+    })) : [], combine });
 }
