@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
-import { computeStatement, computeAging, type StatementTxn, type OpenDocument } from '@/lib/statement-reporting';
+import { computeStatement, computeAging, type OpenDocument } from '@/lib/statement-reporting';
+import { readSubledgerHistory, reportDate } from '@/lib/subledger-history';
 import type { InvoiceStatus } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -12,7 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-const OPEN_INVOICE_STATUSES: InvoiceStatus[] = ['SENT', 'OVERDUE', 'PAID'];
+const OPEN_INVOICE_STATUSES: InvoiceStatus[] = ['SENT', 'OVERDUE', 'PAID', 'VOID'];
 const OVERDUE_STATUSES = new Set(['SENT', 'OVERDUE', 'PAID']);
 
 const toNumber = (value: unknown): number => {
@@ -26,21 +27,11 @@ const asMoney = (value: number): number => {
 };
 
 const endOfDay = (value: string | null): Date => {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    throw new ApiError(`Invalid date: ${value}`, 400);
-  }
-  date.setHours(23, 59, 59, 999);
-  return date;
+  try { return reportDate(value, true); } catch { throw new ApiError(`Invalid date: ${value}`, 400); }
 };
 
 const startOfDay = (value: string | null): Date => {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    throw new ApiError(`Invalid date: ${value}`, 400);
-  }
-  date.setHours(0, 0, 0, 0);
-  return date;
+  try { return reportDate(value, false); } catch { throw new ApiError(`Invalid date: ${value}`, 400); }
 };
 
 const daysOverdue = (dueDate: Date | null, asOf: Date): number => {
@@ -65,36 +56,7 @@ const sortByOverdue = (a: any, b: any) => {
   return String(a.customerName || '').localeCompare(String(b.customerName || ''));
 };
 
-const emptySummaryByType = (type: string) => {
-  if (type === 'aging') {
-    return {
-      current: 0,
-      d1To30: 0,
-      d31To60: 0,
-      d61To90: 0,
-      d90Plus: 0,
-      totalOutstanding: 0,
-    };
-  }
 
-  if (type === 'customer-balance') {
-    return {
-      customerCount: 0,
-      totalInvoiced: 0,
-      totalPaid: 0,
-      totalOutstanding: 0,
-    };
-  }
-
-  if (type === 'overdue-list') {
-    return {
-      overdueInvoiceCount: 0,
-      overdueAmount: 0,
-    };
-  }
-
-  return {};
-};
 
 export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
@@ -118,62 +80,12 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       });
       if (!customer) return err('Customer not found', 404);
 
-      const [invoices, payments, creditNotes] = await Promise.all([
-        prisma.salesInvoice.findMany({
-          where: {
-            organizationId: orgId,
-            customerId,
-            status: { in: OPEN_INVOICE_STATUSES },
-            issueDate: { lte: periodEnd },
-          },
-          select: { id: true, number: true, issueDate: true, dueDate: true, totalAmount: true },
-        }),
-        prisma.aRPayment.findMany({
-          where: {
-            organizationId: orgId,
-            customerId,
-            status: 'COMPLETED',
-            date: { lte: periodEnd },
-          },
-          select: { number: true, date: true, totalAmount: true },
-        }),
-        prisma.creditNote.findMany({
-          where: {
-            organizationId: orgId,
-            customerId,
-            status: 'APPLIED',
-            date: { lte: periodEnd },
-          },
-          select: { number: true, date: true, amount: true, taxAmount: true },
-        }),
-      ]);
-
-      const txns: StatementTxn[] = [
-        ...invoices.map((inv) => ({
-          date: inv.issueDate,
-          type: 'Invoice',
-          number: inv.number,
-          debit: asMoney(toNumber(inv.totalAmount)),
-          credit: 0,
-          order: 0,
-        })),
-        ...creditNotes.map((cn) => ({
-          date: cn.date,
-          type: 'Credit Note',
-          number: cn.number,
-          debit: 0,
-          credit: asMoney(toNumber(cn.amount) + toNumber(cn.taxAmount)),
-          order: 1,
-        })),
-        ...payments.map((pay) => ({
-          date: pay.date,
-          type: 'Payment',
-          number: pay.number,
-          debit: 0,
-          credit: asMoney(toNumber(pay.totalAmount)),
-          order: 2,
-        })),
-      ];
+      const invoices = await prisma.salesInvoice.findMany({
+        where: { organizationId: orgId, customerId, status: { in: OPEN_INVOICE_STATUSES }, issueDate: { lte: periodEnd } },
+        select: { id: true, number: true, issueDate: true, dueDate: true, totalAmount: true, status: true },
+      });
+      const history = await readSubledgerHistory(prisma, 'ar', orgId, invoices, periodEnd, customerId);
+      const txns = history.txns;
 
       const stmt = computeStatement({
         openingSeed: asMoney(toNumber(customer.openingBalance)),
@@ -183,40 +95,27 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       });
 
       // Aging of still-open invoice balances as of the period end.
-      const allocations = invoices.length
-        ? await prisma.aRPaymentAllocation.groupBy({
-            by: ['invoiceId'],
-            where: {
-              invoiceId: { in: invoices.map((inv) => inv.id) },
-              payment: { organizationId: orgId, status: 'COMPLETED', date: { lte: periodEnd } },
-            },
-            _sum: { amountApplied: true, discountAmount: true },
-          })
-        : [];
-      const clearedByInvoice = new Map(
-        allocations.map((row) => [
-          row.invoiceId,
-          asMoney(toNumber(row._sum.amountApplied) + toNumber(row._sum.discountAmount)),
-        ]),
-      );
-      const openDocs: OpenDocument[] = invoices.map((inv) => {
-        const original = asMoney(toNumber(inv.totalAmount));
-        const cleared = Math.min(original, clearedByInvoice.get(inv.id) ?? 0);
-        return { dueDate: inv.dueDate, balance: asMoney(Math.max(original - cleared, 0)) };
-      });
+      const openDocs: OpenDocument[] = history.documents.map((inv) => ({
+        dueDate: inv.dueDate, balance: asMoney(Math.max(toNumber(inv.totalAmount) - (history.cleared.get(inv.id) ?? 0), 0)),
+      }));
+      openDocs.push({ dueDate: null, balance: toNumber(customer.openingBalance) });
       const aging = computeAging(openDocs, periodEnd);
+      const unallocatedCredit = asMoney((history.unallocated.get(customerId) ?? 0) + history.documents.reduce((sum, d) => sum + Math.max((history.cleared.get(d.id) ?? 0) - toNumber(d.totalAmount), 0), 0));
 
       return ok({
         type,
         party: { id: customer.id, code: customer.code, name: customer.name },
         period: { dateFrom: periodStart.toISOString(), dateTo: periodEnd.toISOString() },
         openingBalance: stmt.openingBalance,
+        warnings: history.warnings,
         rows: stmt.rows,
         summary: {
           totalDebits: stmt.totalDebits,
           totalCredits: stmt.totalCredits,
           closingBalance: stmt.closingBalance,
           aging,
+          unallocatedCredit,
+          netOutstanding: stmt.closingBalance,
         },
       });
     }
@@ -237,7 +136,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       invoiceWhere.status = status;
     }
 
-    const invoices = await prisma.salesInvoice.findMany({
+    const fetchedDocuments = await prisma.salesInvoice.findMany({
       where: invoiceWhere,
       select: {
         id: true,
@@ -260,37 +159,14 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       ],
     });
 
-    if (invoices.length === 0) {
-      return ok({ type, rows: [], summary: emptySummaryByType(type) });
-    }
-
-    const allocations = await prisma.aRPaymentAllocation.groupBy({
-      by: ['invoiceId'],
-      where: {
-        invoiceId: { in: invoices.map((invoice) => invoice.id) },
-        payment: {
-          organizationId: orgId,
-          status: 'COMPLETED',
-          date: { lte: asOfDate },
-        },
-      },
-      _sum: {
-        amountApplied: true,
-        discountAmount: true,
-      },
-    });
-
-    const clearedByInvoice = new Map(
-      allocations.map((row) => {
-        const cleared = toNumber(row._sum.amountApplied) + toNumber(row._sum.discountAmount);
-        return [row.invoiceId, asMoney(cleared)];
-      }),
-    );
+    const history = await readSubledgerHistory(prisma, 'ar', orgId, fetchedDocuments, asOfDate);
+    const invoices = history.documents;
+    const clearedByInvoice = history.cleared;
 
     const invoiceRows = invoices.map((invoice) => {
       const originalAmount = asMoney(toNumber(invoice.totalAmount));
-      const clearedAmount = Math.min(originalAmount, clearedByInvoice.get(invoice.id) ?? 0);
-      const balance = asMoney(Math.max(originalAmount - clearedAmount, 0));
+      const clearedAmount = clearedByInvoice.get(invoice.id) ?? 0;
+      const balance = asMoney(originalAmount - clearedAmount);
       const overdueDays = daysOverdue(invoice.dueDate, asOfDate);
       const buckets = getBucketValues(balance, overdueDays);
 
@@ -302,7 +178,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         customerId: invoice.customerId,
         customerCode: invoice.customer?.code || null,
         customerName: invoice.customer?.name || 'Unknown',
-        status: invoice.status,
+        status: String(invoice.status),
         daysOverdue: overdueDays,
         originalAmount,
         clearedAmount,
@@ -311,6 +187,22 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       };
     });
 
+    const parties = await prisma.customer.findMany({
+      where: { organizationId: orgId, ...(customerSearch ? { name: { contains: customerSearch, mode: 'insensitive' } } : {}) },
+      select: { id: true, code: true, name: true, openingBalance: true },
+    });
+    for (const party of parties) {
+      const opening = toNumber(party.openingBalance);
+      const credit = history.unallocated.get(party.id) ?? 0;
+      if (opening === 0 && credit === 0) continue;
+      const balance = asMoney(opening - credit);
+      invoiceRows.push({
+        invoiceId: `opening:${party.id}`, invoiceNumber: 'Opening balance / unapplied credit',
+        invoiceDate: asOfDate, dueDate: null, customerId: party.id,
+        customerCode: party.code, customerName: party.name, status: 'OPENING_BALANCE', daysOverdue: 0,
+        originalAmount: opening, clearedAmount: credit, balance, ...getBucketValues(balance, 0),
+      });
+    }
     const openInvoices = invoiceRows.filter((row) => row.balance > 0);
 
     if (type === 'aging') {
@@ -331,7 +223,8 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         totalOutstanding: 0,
       });
 
-      return ok({ type, rows, summary });
+      const unappliedCredits = asMoney(invoiceRows.reduce((s, r) => s + Math.max(-r.balance, 0), 0));
+      return ok({ type, rows, summary: { ...summary, unappliedCredits, netOutstanding: asMoney(summary.totalOutstanding - unappliedCredits) }, warnings: history.warnings });
     }
 
     if (type === 'customer-balance') {
@@ -354,7 +247,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       }
 
       const rows = Array.from(byCustomer.values())
-        .filter((row) => row.outstandingAmount > 0)
+        .filter((row) => row.outstandingAmount !== 0)
         .sort((a, b) => b.outstandingAmount - a.outstandingAmount);
 
       const summary = rows.reduce((acc, row) => ({
@@ -369,7 +262,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         totalOutstanding: 0,
       });
 
-      return ok({ type, rows, summary });
+      return ok({ type, rows, summary, warnings: history.warnings });
     }
 
     if (type === 'overdue-list') {
@@ -385,7 +278,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         overdueAmount: 0,
       });
 
-      return ok({ type, rows, summary });
+      return ok({ type, rows, summary, warnings: history.warnings });
     }
 
   return err('Unknown report type', 400);

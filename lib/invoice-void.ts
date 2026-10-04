@@ -37,7 +37,8 @@ export async function voidInvoice(
       id: true,
       number: true,
       status: true,
-      paymentAllocations: { select: { id: true } },
+      paymentAllocations: { where: { payment: { status: { not: 'VOID' } } }, select: { id: true } },
+      creditNotes: { where: { status: 'APPLIED', settlementType: 'APPLY_TO_INVOICE' }, select: { id: true } },
     },
   });
 
@@ -56,6 +57,7 @@ export async function voidInvoice(
   if (inv.paymentAllocations.length > 0) {
     throw new ApiError('Cannot void an invoice with receipts applied — unallocate them first', 422);
   }
+  if (inv.creditNotes?.length) throw new ApiError('Void the applied credit notes before voiding this invoice', 422);
   if (!VOIDABLE_STATUSES.has(inv.status)) {
     throw new ApiError(`Cannot void an invoice in status ${inv.status}`, 422);
   }

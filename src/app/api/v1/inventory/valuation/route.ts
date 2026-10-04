@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { requireOrg, ok } from '@/lib/api-utils';
+import { requireOrg, ok, ApiError } from '@/lib/api-utils';
+import { reportDate } from '@/lib/subledger-history';
 import { withPermission } from '@/lib/authz';
 import { computeLedgerValuation } from '@/lib/inventory-valuation';
 
@@ -16,6 +17,11 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const { searchParams } = new URL(req.url);
   const categoryId = searchParams.get('categoryId');
   const warehouseId = searchParams.get('warehouseId');
+  const asOfInput = searchParams.get('asOfDate');
+  let asOfDate: Date | undefined;
+  if (asOfInput) {
+    try { asOfDate = reportDate(asOfInput, true); } catch { throw new ApiError(`Invalid date: ${asOfInput}`, 400); }
+  }
 
   // Fetch all items for the org (optionally filtered by category)
   // Deactivation is an operational selection rule, not an accounting write-off.
@@ -25,6 +31,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     OR: [
       { isActive: true },
       { inventoryLots: { some: { qtyBalance: { not: 0 } } } },
+      ...(asOfDate ? [{ ledgerEntries: { some: { date: { lte: asOfDate } } } }] : []),
     ],
   };
   if (categoryId) itemWhere.categoryId = categoryId;
@@ -58,6 +65,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const valuationByItem = await computeLedgerValuation(prisma, orgId, {
     itemIds,
     warehouseId: warehouseId ?? null,
+    asOfDate,
   });
 
   let summaryTotalValue = 0;

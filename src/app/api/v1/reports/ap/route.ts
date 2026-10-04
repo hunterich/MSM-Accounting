@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
-import { computeStatement, computeAging, type StatementTxn, type OpenDocument } from '@/lib/statement-reporting';
+import { computeStatement, computeAging, type OpenDocument } from '@/lib/statement-reporting';
+import { readSubledgerHistory, reportDate } from '@/lib/subledger-history';
 import type { BillStatus } from '@prisma/client';
 
 export const runtime = 'nodejs';
@@ -12,8 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-const OPEN_BILL_STATUSES = ['OPEN', 'PENDING', 'OVERDUE'];
-const PAID_STATUSES = new Set(['PAID', 'VOID']);
+const OPEN_BILL_STATUSES = ['OPEN', 'PENDING', 'OVERDUE', 'PAID', 'VOID'];
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined) return 0;
@@ -26,24 +26,14 @@ const asMoney = (value: number): number => {
 };
 
 const endOfDay = (value: string | null): Date => {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    throw new ApiError(`Invalid date: ${value}`, 400);
-  }
-  date.setHours(23, 59, 59, 999);
-  return date;
+  try { return reportDate(value, true); } catch { throw new ApiError(`Invalid date: ${value}`, 400); }
 };
 
 const startOfDay = (value: string | null): Date => {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    throw new ApiError(`Invalid date: ${value}`, 400);
-  }
-  date.setHours(0, 0, 0, 0);
-  return date;
+  try { return reportDate(value, false); } catch { throw new ApiError(`Invalid date: ${value}`, 400); }
 };
 
-const STATEMENT_BILL_STATUSES: BillStatus[] = ['OPEN', 'PENDING', 'OVERDUE', 'PAID'];
+const STATEMENT_BILL_STATUSES: BillStatus[] = ['OPEN', 'PENDING', 'OVERDUE', 'PAID', 'VOID'];
 
 const daysOverdue = (dueDate: Date | null, asOf: Date): number => {
   if (!dueDate) return 0;
@@ -67,36 +57,7 @@ const sortByOverdue = (a: any, b: any) => {
   return String(a.vendorName || '').localeCompare(String(b.vendorName || ''));
 };
 
-const emptySummaryByType = (type: string) => {
-  if (type === 'aging') {
-    return {
-      current: 0,
-      d1To30: 0,
-      d31To60: 0,
-      d61To90: 0,
-      d90Plus: 0,
-      totalOutstanding: 0,
-    };
-  }
 
-  if (type === 'vendor-balance') {
-    return {
-      vendorCount: 0,
-      totalBilled: 0,
-      totalPaid: 0,
-      totalOutstanding: 0,
-    };
-  }
-
-  if (type === 'overdue-list') {
-    return {
-      overdueBillCount: 0,
-      overdueAmount: 0,
-    };
-  }
-
-  return {};
-};
 
 export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
@@ -119,64 +80,14 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     });
     if (!vendor) return err('Vendor not found', 404);
 
-    const [bills, payments, debitNotes] = await Promise.all([
-      prisma.bill.findMany({
-        where: {
-          organizationId: orgId,
-          vendorId,
-          status: { in: STATEMENT_BILL_STATUSES },
-          issueDate: { lte: periodEnd },
-        },
-        select: { id: true, number: true, issueDate: true, dueDate: true, totalAmount: true },
-      }),
-      prisma.aPPayment.findMany({
-        where: {
-          organizationId: orgId,
-          vendorId,
-          status: 'COMPLETED',
-          date: { lte: periodEnd },
-        },
-        select: { number: true, date: true, totalAmount: true },
-      }),
-      prisma.debitNote.findMany({
-        where: {
-          organizationId: orgId,
-          vendorId,
-          status: 'APPLIED',
-          date: { lte: periodEnd },
-        },
-        select: { number: true, date: true, amount: true, taxAmount: true },
-      }),
-    ]);
+    const bills = await prisma.bill.findMany({
+        where: { organizationId: orgId, vendorId, status: { in: STATEMENT_BILL_STATUSES }, issueDate: { lte: periodEnd } },
+        select: { id: true, number: true, issueDate: true, dueDate: true, totalAmount: true, status: true },
+      });
+      const history = await readSubledgerHistory(prisma, 'ap', orgId, bills, periodEnd, vendorId);
+      const txns = history.txns;
 
-    const txns: StatementTxn[] = [
-      ...bills.map((bill) => ({
-        date: bill.issueDate,
-        type: 'Bill',
-        number: bill.number,
-        debit: asMoney(toNumber(bill.totalAmount)),
-        credit: 0,
-        order: 0,
-      })),
-      ...debitNotes.map((dn) => ({
-        date: dn.date,
-        type: 'Debit Note',
-        number: dn.number,
-        debit: 0,
-        credit: asMoney(toNumber(dn.amount) + toNumber(dn.taxAmount)),
-        order: 1,
-      })),
-      ...payments.map((pay) => ({
-        date: pay.date,
-        type: 'Payment',
-        number: pay.number,
-        debit: 0,
-        credit: asMoney(toNumber(pay.totalAmount)),
-        order: 2,
-      })),
-    ];
-
-    const stmt = computeStatement({
+      const stmt = computeStatement({
       openingSeed: asMoney(toNumber(vendor.openingBalance)),
       txns,
       periodStart,
@@ -184,40 +95,27 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     });
 
     // Aging of still-open bill balances as of the period end.
-    const allocations = bills.length
-      ? await prisma.aPPaymentAllocation.groupBy({
-          by: ['billId'],
-          where: {
-            billId: { in: bills.map((bill) => bill.id) },
-            payment: { organizationId: orgId, status: 'COMPLETED', date: { lte: periodEnd } },
-          },
-          _sum: { amountApplied: true, discountAmount: true },
-        })
-      : [];
-    const clearedByBill = new Map(
-      allocations.map((row) => [
-        row.billId,
-        asMoney(toNumber(row._sum.amountApplied) + toNumber(row._sum.discountAmount)),
-      ]),
-    );
-    const openDocs: OpenDocument[] = bills.map((bill) => {
-      const original = asMoney(toNumber(bill.totalAmount));
-      const cleared = Math.min(original, clearedByBill.get(bill.id) ?? 0);
-      return { dueDate: bill.dueDate, balance: asMoney(Math.max(original - cleared, 0)) };
-    });
-    const aging = computeAging(openDocs, periodEnd);
+    const openDocs: OpenDocument[] = history.documents.map((bill) => ({
+        dueDate: bill.dueDate, balance: asMoney(Math.max(toNumber(bill.totalAmount) - (history.cleared.get(bill.id) ?? 0), 0)),
+      }));
+      openDocs.push({ dueDate: null, balance: toNumber(vendor.openingBalance) });
+      const aging = computeAging(openDocs, periodEnd);
+      const unallocatedCredit = asMoney((history.unallocated.get(vendorId) ?? 0) + history.documents.reduce((sum, d) => sum + Math.max((history.cleared.get(d.id) ?? 0) - toNumber(d.totalAmount), 0), 0));
 
     return ok({
       type,
       party: { id: vendor.id, code: vendor.code, name: vendor.name },
       period: { dateFrom: periodStart.toISOString(), dateTo: periodEnd.toISOString() },
       openingBalance: stmt.openingBalance,
+        warnings: history.warnings,
       rows: stmt.rows,
       summary: {
         totalDebits: stmt.totalDebits,
         totalCredits: stmt.totalCredits,
         closingBalance: stmt.closingBalance,
         aging,
+        unallocatedCredit,
+        netOutstanding: stmt.closingBalance,
       },
     });
   }
@@ -234,7 +132,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     };
   }
 
-  const bills = await prisma.bill.findMany({
+  const fetchedDocuments = await prisma.bill.findMany({
     where: billWhere,
     select: {
       id: true,
@@ -256,37 +154,14 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     ],
   });
 
-  if (bills.length === 0) {
-    return ok({ type, rows: [], summary: emptySummaryByType(type), asOfDate });
-  }
+  const history = await readSubledgerHistory(prisma, 'ap', orgId, fetchedDocuments, asOfDate);
+    const bills = history.documents;
+    const clearedByBill = history.cleared;
 
-  const allocations = await prisma.aPPaymentAllocation.groupBy({
-    by: ['billId'],
-    where: {
-      billId: { in: bills.map((b) => b.id) },
-      payment: {
-        organizationId: orgId,
-        status: 'COMPLETED',
-        date: { lte: asOfDate },
-      },
-    },
-    _sum: {
-      amountApplied: true,
-      discountAmount: true,
-    },
-  });
-
-  const clearedByBill = new Map(
-    allocations.map((row) => {
-      const cleared = toNumber(row._sum.amountApplied) + toNumber(row._sum.discountAmount);
-      return [row.billId, asMoney(cleared)];
-    }),
-  );
-
-  const billRows = bills.map((bill) => {
+    const billRows = bills.map((bill) => {
     const originalAmount = asMoney(toNumber(bill.totalAmount));
-    const clearedAmount = Math.min(originalAmount, clearedByBill.get(bill.id) ?? 0);
-    const balance = asMoney(Math.max(originalAmount - clearedAmount, 0));
+    const clearedAmount = clearedByBill.get(bill.id) ?? 0;
+    const balance = asMoney(originalAmount - clearedAmount);
     const overdueDays = daysOverdue(bill.dueDate, asOfDate);
     const buckets = getBucketValues(balance, overdueDays);
 
@@ -297,7 +172,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       dueDate: bill.dueDate,
       vendorId: bill.vendorId,
       vendorName: bill.vendor?.name || 'Unknown',
-      status: bill.status,
+      status: String(bill.status),
       daysOverdue: overdueDays,
       originalAmount,
       clearedAmount,
@@ -306,7 +181,23 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     };
   });
 
-  const openBills = billRows.filter((row) => row.balance > 0);
+  const parties = await prisma.vendor.findMany({
+      where: { organizationId: orgId, ...(vendorSearch ? { name: { contains: vendorSearch, mode: 'insensitive' } } : {}) },
+      select: { id: true, code: true, name: true, openingBalance: true },
+    });
+    for (const party of parties) {
+      const opening = toNumber(party.openingBalance);
+      const credit = history.unallocated.get(party.id) ?? 0;
+      if (opening === 0 && credit === 0) continue;
+      const balance = asMoney(opening - credit);
+      billRows.push({
+        billId: `opening:${party.id}`, billNumber: 'Opening balance / unapplied credit',
+        billDate: asOfDate, dueDate: null, vendorId: party.id,
+         vendorName: party.name, status: 'OPENING_BALANCE', daysOverdue: 0,
+        originalAmount: opening, clearedAmount: credit, balance, ...getBucketValues(balance, 0),
+      });
+    }
+    const openBills = billRows.filter((row) => row.balance > 0);
 
   if (type === 'aging') {
     const rows = [...openBills].sort(sortByOverdue);
@@ -329,7 +220,8 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       },
     );
 
-    return ok({ type, rows, summary, asOfDate });
+    const unappliedCredits = asMoney(billRows.reduce((s, r) => s + Math.max(-r.balance, 0), 0));
+      return ok({ type, rows, summary: { ...summary, unappliedCredits, netOutstanding: asMoney(summary.totalOutstanding - unappliedCredits) }, asOfDate, warnings: history.warnings });
   }
 
   if (type === 'vendor-balance') {
@@ -357,7 +249,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     }
 
     const rows = Array.from(byVendor.values())
-      .filter((row) => row.outstandingAmount > 0)
+      .filter((row) => row.outstandingAmount !== 0)
       .sort((a, b) => b.outstandingAmount - a.outstandingAmount);
 
     const summary = rows.reduce(
@@ -375,15 +267,12 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       },
     );
 
-    return ok({ type, rows, summary, asOfDate });
+    return ok({ type, rows, summary, asOfDate, warnings: history.warnings });
   }
 
   if (type === 'overdue-list') {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     const rows = openBills
-      .filter((row) => row.dueDate !== null && new Date(row.dueDate) < today && !PAID_STATUSES.has(row.status))
+      .filter((row) => row.daysOverdue > 0)
       .sort(sortByOverdue);
 
     const summary = rows.reduce(
@@ -397,7 +286,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       },
     );
 
-    return ok({ type, rows, summary, asOfDate });
+    return ok({ type, rows, summary, asOfDate, warnings: history.warnings });
   }
 
   return err('Unknown report type', 400);

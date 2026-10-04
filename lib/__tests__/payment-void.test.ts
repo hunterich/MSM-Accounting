@@ -50,7 +50,7 @@ describe('voidApPayment', () => {
       data: { status: 'VOID' },
     });
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
-    expect(tx.aPPaymentAllocation.deleteMany).toHaveBeenCalledWith({ where: { paymentId: 'pay-1' } });
+    expect(tx.aPPaymentAllocation.deleteMany).not.toHaveBeenCalled();
   });
 
   it('rejects 409 if a concurrent void already claimed VOID (claim count 0)', async () => {
@@ -92,6 +92,6 @@ describe('voidArPayment', () => {
       data: { status: 'VOID' },
     });
     expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-2', expect.objectContaining({ date: DATE }));
-    expect(tx.aRPaymentAllocation.deleteMany).toHaveBeenCalledWith({ where: { paymentId: 'rcpt-1' } });
+    expect(tx.aRPaymentAllocation.deleteMany).not.toHaveBeenCalled();
   });
 });

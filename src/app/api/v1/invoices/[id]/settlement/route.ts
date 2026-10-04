@@ -60,7 +60,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         date: a.payment.date,
         amount: num(a.amountApplied) + num(a.discountAmount),
       })),
-      returns: creditNotes.map((c) => ({ id: c.id, number: c.number, date: c.date, amount: num(c.amount) + num(c.taxAmount) })),
+      returns: creditNotes.map((c) => ({ id: c.id, number: c.number, date: c.date, amount: num(c.amount) })),
     })));
   } catch (error) {
     if (error instanceof AccessError) {

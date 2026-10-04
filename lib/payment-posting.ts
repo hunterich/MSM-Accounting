@@ -12,6 +12,7 @@ import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { assertPeriodOpen } from './period-guard';
 import { toNumber } from './money';
+import { ApiError } from './errors';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
 type Tx = Prisma.TransactionClient;
@@ -27,6 +28,7 @@ export async function postArPaymentIfNeeded(
 ): Promise<void> {
   const payment = await tx.aRPayment.findFirst({
     where: { id: paymentId, organizationId: orgId },
+    include: { allocations: true },
   });
   if (!payment || payment.journalEntryId || UNPOSTABLE_STATUSES.has(payment.status)) return;
 
@@ -48,6 +50,13 @@ export async function postArPaymentIfNeeded(
     ?? resolveAccountDefaultId(accounts, settings, 'arControl');
 
   if (!bankAccountId || !arAccountId) return;
+  const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);
+  const penalty = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.penaltyAmount), 0);
+  const discountAccountId = payment.discountAccountId ?? resolveAccountDefaultId(accounts, settings, 'arDiscount');
+  const penaltyAccountId = payment.penaltyAccountId ?? resolveAccountDefaultId(accounts, settings, 'arPenalty');
+  if ((discount > 0 && !discountAccountId) || (penalty > 0 && !penaltyAccountId) || amount + discount - penalty <= 0) {
+    throw new ApiError('Payment requires valid discount/penalty accounts and a positive settlement amount', 422);
+  }
 
   const je = await postJournalEntry(tx, {
     organizationId: orgId,
@@ -64,8 +73,10 @@ export async function postArPaymentIfNeeded(
         accountId: arAccountId,
         description: `AR settlement - ${payment.number}`,
         debit: 0,
-        credit: amount,
+        credit: amount + discount - penalty,
       },
+      ...(discount > 0 && discountAccountId ? [{ accountId: discountAccountId, description: `Payment discount - ${payment.number}`, debit: discount, credit: 0 }] : []),
+      ...(penalty > 0 && penaltyAccountId ? [{ accountId: penaltyAccountId, description: `Late fee - ${payment.number}`, debit: 0, credit: penalty }] : []),
     ],
   });
 
@@ -84,6 +95,7 @@ export async function postApPaymentIfNeeded(
 ): Promise<void> {
   const payment = await tx.aPPayment.findFirst({
     where: { id: paymentId, organizationId: orgId },
+    include: { allocations: true },
   });
   if (!payment || payment.journalEntryId || UNPOSTABLE_STATUSES.has(payment.status)) return;
 
@@ -105,6 +117,13 @@ export async function postApPaymentIfNeeded(
     ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
 
   if (!apAccountId || !bankAccountId) return;
+  const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);
+  const penalty = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.penaltyAmount), 0);
+  const discountAccountId = payment.discountAccountId ?? resolveAccountDefaultId(accounts, settings, 'apDiscount');
+  const penaltyAccountId = payment.penaltyAccountId ?? resolveAccountDefaultId(accounts, settings, 'apPenalty');
+  if ((discount > 0 && !discountAccountId) || (penalty > 0 && !penaltyAccountId) || amount + discount - penalty <= 0) {
+    throw new ApiError('Payment requires valid discount/penalty accounts and a positive settlement amount', 422);
+  }
 
   const je = await postJournalEntry(tx, {
     organizationId: orgId,
@@ -114,7 +133,7 @@ export async function postApPaymentIfNeeded(
       {
         accountId: apAccountId,
         description: `AP settlement - ${payment.number}`,
-        debit: amount,
+        debit: amount + discount - penalty,
         credit: 0,
       },
       {
@@ -123,6 +142,8 @@ export async function postApPaymentIfNeeded(
         debit: 0,
         credit: amount,
       },
+      ...(discount > 0 && discountAccountId ? [{ accountId: discountAccountId, description: `Payment discount - ${payment.number}`, debit: 0, credit: discount }] : []),
+      ...(penalty > 0 && penaltyAccountId ? [{ accountId: penaltyAccountId, description: `Late fee - ${payment.number}`, debit: penalty, credit: 0 }] : []),
     ],
   });
 

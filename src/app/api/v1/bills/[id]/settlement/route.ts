@@ -53,7 +53,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         date: a.payment.date,
         amount: num(a.amountApplied) + num(a.discountAmount),
       })),
-      returns: debitNotes.map((d) => ({ id: d.id, number: d.number, date: d.date, amount: num(d.amount) + num(d.taxAmount) })),
+      returns: debitNotes.map((d) => ({ id: d.id, number: d.number, date: d.date, amount: num(d.amount) })),
     })));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
