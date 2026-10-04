@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import InvoiceDetailTabs from './InvoiceDetailTabs';
 import InvoicePrintPreview from './InvoicePrintPreview';
-import { useInvoice } from '../../../hooks/useAR';
+import { useInvoice, useVoidInvoice } from '../../../hooks/useAR';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePermissions';
 
@@ -14,6 +14,16 @@ const InvoiceDetailPane = ({ invoiceId }: Props): React.ReactElement => {
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const { open } = useWorkspaceNav();
     const { data: invoice, isLoading, error } = useInvoice(invoiceId);
+    const voidInvoice = useVoidInvoice();
+
+    const handleVoid = async () => {
+        if (!canDelete || voidInvoice.isPending || !window.confirm('Void this invoice and reverse its journal and stock?')) return;
+        try {
+            await voidInvoice.mutateAsync(invoiceId);
+        } catch (error) {
+            window.alert(error instanceof Error ? error.message : 'Could not void invoice.');
+        }
+    };
 
     if (!invoice) return <div className="invoice-workbench-card"><div className="empty-detail">
         {isLoading ? 'Loading invoice...' : error ? `Could not load invoice: ${error.message}` : 'Invoice not found.'}
@@ -32,11 +42,12 @@ const InvoiceDetailPane = ({ invoiceId }: Props): React.ReactElement => {
                 invoice={invoice as unknown as { id: string; [key: string]: unknown }}
                 onEdit={openEdit}
                 onPrint={() => setIsPrintOpen(true)}
-                onVoid={() => {}}
+                onVoid={handleVoid}
                 canEdit={canEdit}
                 canDelete={canDelete}
                 canPrint={canReprint}
-                canVoid={canEdit}
+                canVoid={canDelete}
+                voidPending={voidInvoice.isPending}
             />
             <InvoicePrintPreview invoiceId={isPrintOpen ? invoiceId : null} onClose={() => setIsPrintOpen(false)} />
         </>

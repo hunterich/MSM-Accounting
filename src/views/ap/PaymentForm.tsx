@@ -57,6 +57,7 @@ import StatusTag from '../../components/UI/StatusTag';
 import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import { Calendar, CreditCard, FileText, Hash } from 'lucide-react';
 import { useVendors, useBills, useAPPayments, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';
+import { useOutstandingDocuments } from '../../hooks/useDocumentSettlement';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
@@ -90,7 +91,6 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
     const vendors = vendorsData?.data || [];
 
     const { data: billsData, isLoading: billsLoading } = useBills();
-    const bills = billsData?.data || [];
 
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
 
@@ -121,6 +121,12 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
         adjustments: {},
         totalAmount: 0
     });
+
+    const candidates = useMemo(() => (billsData?.data || []).filter(b =>
+        mode !== 'create' || (b.vendorId === paymentData.vendorId && ['Unpaid', 'Overdue'].includes(b.status))),
+        [billsData?.data, mode, paymentData.vendorId]);
+    const outstanding = useOutstandingDocuments('bill', candidates, mode === 'create');
+    const bills = outstanding.documents;
 
     const [paymentTab, setPaymentTab] = useState('details');
     const [paymentNumberingMode, setPaymentNumberingMode] = useState('auto');
@@ -479,7 +485,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
         }
     };
 
-    const isPending = createAPPayment.isPending || updateAPPayment.isPending;
+    const isPending = createAPPayment.isPending || updateAPPayment.isPending || outstanding.isLoading || outstanding.isError;
     const isPageLoading =
         vendorsLoading ||
         billsLoading ||
@@ -520,6 +526,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
             </div>
 
             {mode !== 'view' && <ClosedPeriodBanner date={paymentData.date} className="mb-4" />}
+            {outstanding.isError && <p role="alert">Could not load outstanding balances. Reload before saving a payment.</p>}
 
             <div className="invoice-tabs module-tabs module-tabs-spaced">
                 <button className={`invoice-tab ${paymentTab === 'details' ? 'active' : ''}`} onClick={() => setPaymentTab('details')}>Payment Details</button>

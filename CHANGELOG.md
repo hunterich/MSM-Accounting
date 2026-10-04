@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — accounting edge cases, POS and restore verification
+- Browser tests verify partial PO receipts and GR/IR clearing, over-receipt rollback, partial AP/AR payments, exact debit/credit reversals and restored stock, duplicate submission after a lost response, tax-inclusive decimal rounding, period locks, view-only permissions and company isolation.
+- POS browser tests now create their own stock and register fixtures. Online checkout checks revenue, VAT, COGS, cash and shift reconciliation; offline checkout checks queued transactions sync exactly once. Both POS and back-office projects run in CI.
+- A real PostgreSQL backup/restore test restores into a separate disposable database and compares accounts, documents, allocations and journal lines. Testing commands and coverage are documented in `docs/TESTING.md`.
+
+### Fixed — partial-payment balances and invoice void action
+- AP and AR payment forms fetch the document's current outstanding balance, so a partially paid document applies only its remainder. Saving waits for settlement data and stops if it cannot be loaded.
+- The invoice detail Void button now confirms and submits the reversal, requires delete permission, prevents repeated clicks while saving and displays API errors.
+- Customer credit notes settled as Refund now credit the selected refund asset account instead of Accounts Receivable. Invalid or foreign-company refund accounts are rejected before posting; tests cover tax splitting and reversal. Existing posted entries are not rewritten.
+
 ### Added — transaction form and accounting regression tests
 - Purchasing and sales browser journeys verify the records actually stored in PostgreSQL, exact journal accounts and debit/credit amounts, stock movements, payment allocations and settlement status, and trial balance / profit-and-loss / balance-sheet totals. The PO journey uses the real goods-receipt API between the PO and bill forms and checks GR/IR clears without booking stock twice.
 - Expense-bill coverage checks a failed network submission followed by retry, draft reopening, selected expense accounts, discounts, tax, withholding, additional costs, and duplicate supplier-invoice rejection. Sales coverage checks that drafts do not post and repeated approval does not duplicate journals or stock consumption.

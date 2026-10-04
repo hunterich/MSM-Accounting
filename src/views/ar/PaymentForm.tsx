@@ -34,6 +34,7 @@ import { Check, FileText, User, Calendar, CreditCard, Hash } from 'lucide-react'
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useCustomers, useInvoices, useARPayments, useCreateARPayment, useUpdateARPayment } from '../../hooks/useAR';
+import { useOutstandingDocuments } from '../../hooks/useDocumentSettlement';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -53,7 +54,6 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
     const { data: customersData, isLoading: customersLoading } = useCustomers();
     const customers = (customersData?.data || []) as any[];
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
-    const invoices = (invoicesData?.data || []) as any[];
     const { data: paymentsData, isLoading: paymentsLoading } = useARPayments();
     const payments = (paymentsData?.data || []) as any[];
     const { data: bankAccountsData, isLoading: bankAccountsLoading } = useBankAccounts();
@@ -81,6 +81,12 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
         adjustments: {},
         totalAmount: 0
     });
+
+    const candidates = useMemo(() => (invoicesData?.data || []).filter(inv =>
+        mode !== 'create' || (inv.customerId === paymentData.customerId && ['Sent', 'Overdue'].includes(inv.status))),
+        [invoicesData?.data, mode, paymentData.customerId]);
+    const outstanding = useOutstandingDocuments('invoice', candidates, mode === 'create');
+    const invoices = outstanding.documents;
 
     const [paymentNumberingMode, setPaymentNumberingMode] = useState<'auto' | 'manual'>('auto');
     const [paymentSeqByBank, setPaymentSeqByBank] = useState<Record<string, number>>({
@@ -352,7 +358,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
         }));
     };
 
-    const isSaving = createARPayment.isPending || updateARPayment.isPending;
+    const isSaving = createARPayment.isPending || updateARPayment.isPending || outstanding.isLoading || outstanding.isError;
     const isPageLoading =
         customersLoading ||
         invoicesLoading ||
@@ -492,6 +498,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
             </div>
 
             {mode !== 'view' && <ClosedPeriodBanner date={paymentData.date} className="mb-4" />}
+            {outstanding.isError && <p role="alert">Could not load outstanding balances. Reload before saving a payment.</p>}
 
             <div className="invoice-tabs module-tabs module-tabs-spaced">
                 <button type="button" className={`invoice-tab ${paymentTab === 'details' ? 'active' : ''}`} onClick={() => setPaymentTab('details')}>

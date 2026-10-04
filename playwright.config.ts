@@ -55,12 +55,8 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      // The POS specs declare their own prerequisites in their headers — they
-      // need an active PRODUCT with a non-expired StockBatch on REG-1's
-      // warehouse, which the seed does not create — and say they are not part of
-      // the default run. They were being included anyway and failing every time.
-      // Honour the contract: excluded here, runnable on demand with
-      // `npm run test:e2e:pos` once the fixture has POS stock.
+      // Keep POS selectable separately for local runs. Its specs create their
+      // own company, register and stock; CI runs both projects with test:e2e:all.
       testIgnore: /pos-.*\.spec\.ts/,
     },
     {
