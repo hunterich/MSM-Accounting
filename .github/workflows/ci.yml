@@ -163,6 +163,9 @@ jobs:
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Type-check browser tests
+        run: npm run typecheck:e2e
+
       - name: Build the e2e database
         run: npm run test:e2e:setup
 

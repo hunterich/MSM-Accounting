@@ -147,8 +147,10 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
 
     // Recover an autosaved draft for this workspace tab (workspace mode only).
-    const draftSeed = useWorkspaceStore((s) =>
-        (workspaceTabId ? s.tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
+    // Only drafts recovered at mount should bypass loading the saved invoice.
+    // A fresh autosave during loading must not become the recovery source.
+    const [draftSeed] = useState(() =>
+        (workspaceTabId ? useWorkspaceStore.getState().tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
             | Partial<InvoiceDraft>
             | undefined,
     );
@@ -243,13 +245,27 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                 setFormData(prev => ({
                     ...prev,
                     customerId: exists.customerId || '',
+                    email: exists.email || '',
+                    billingAddress: exists.billingAddress || '',
+                    shippingAddress: exists.shippingAddress || '',
+                    poNumber: exists.poNumber || '',
                     issueDate: exists.issueDate || prev.issueDate,
                     dueDate: exists.dueDate || '',
+                    shippingDate: exists.shippingDate || '',
                     number: exists.number || '',
+                    discount: Number(exists.discountPct || 0),
                     notes: exists.notes || '',
+                    invoiceType: exists.invoiceType || 'Sales Invoice',
                     salesTypeId: (exists as { salesTypeId?: string | null }).salesTypeId || '',
-                    items: (exists.items || []) as InvoiceLineItem[],
+                    items: (exists.items || []).map((line: InvoiceLineItem & { itemId?: string }) => ({
+                        ...line, productId: line.itemId || line.productId,
+                    })),
                 }));
+                setTaxSettings({
+                    enabled: Boolean(exists.taxEnabled),
+                    inclusive: Boolean(exists.taxInclusive),
+                    rate: Number(exists.taxRate ?? 0),
+                });
                 setActiveTab('items');
             }
         }
@@ -437,7 +453,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         taxSettings,
     }), [formData, taxSettings]);
 
-    useDraftAutosave(workspaceTabId, snapshot);
+    useDraftAutosave(resolvedEditId && !editingInvoiceId ? undefined : workspaceTabId, snapshot);
 
     const dirty = formData.items.length > 0 || !!formData.customerId
         || !!formData.poNumber || !!formData.notes || formData.discount > 0;
