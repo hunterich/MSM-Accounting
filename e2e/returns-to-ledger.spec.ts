@@ -73,6 +73,10 @@ test.describe('sales return → credit note → ledger', () => {
     page,
   }) => {
     await login(page)
+    const orgId = await page.evaluate(() => sessionStorage.getItem('msm-active-org'))
+    // APIRequestContext does not execute the app's request-header interceptor.
+    // Explicit company context is required when the admin has multiple companies.
+    await page.context().setExtraHTTPHeaders({ 'x-active-org': orgId! })
 
     // Every assertion below is about what THIS run created, not what the whole
     // database holds. An applied credit note is deliberately immutable — void
@@ -106,7 +110,7 @@ test.describe('sales return → credit note → ledger', () => {
     await choose(page, 'Select Invoice...', /INV-0004/)
 
     // Return 2 of the 5 units on the invoice line (Rp 100.000 each).
-    const qtyReturn = page.locator('main input[type="number"]').nth(1)
+    const qtyReturn = page.getByRole('row').filter({ hasText: 'Widget A x5' }).locator('input[type="number"]')
     await qtyReturn.fill('2')
     // Assert on the form's own total, not the first Rp 222.000,00 anywhere on
     // the page: the same figure also appears in the sticky status bar, and
@@ -122,7 +126,7 @@ test.describe('sales return → credit note → ledger', () => {
 
     // The return really was persisted, with a server-assigned number — the step
     // that silently failed for every auto-numbered return.
-    const salesReturn = theNewOne(
+    const salesReturn = theNewOne<{ id: string; number: string; status: string }>(
       await apiJson(page.request, '/api/v1/sales-returns?limit=100'),
       returnsBefore,
       'sales return',
@@ -147,7 +151,10 @@ test.describe('sales return → credit note → ledger', () => {
 
     // What the API actually stored: linked to the return, the customer and the
     // source invoice — the three fields the client used to get wrong.
-    const note = theNewOne(
+    const note = theNewOne<{
+      id: string; number: string; status: string; salesReturnId: string;
+      customerId: string; sourceInvoiceId: string; amount: unknown; taxAmount: unknown;
+    }>(
       await apiJson(page.request, '/api/v1/credit-notes?limit=100'),
       notesBefore,
       'credit note',
@@ -177,5 +184,13 @@ test.describe('sales return → credit note → ledger', () => {
     expect(codes, 'the return must debit a sales-returns account').toContain('5-2000')
     expect(codes, 'and credit A/R').toContain('1-1200')
     expect(codes, 'never Cash and Bank — nothing moved through a bank').not.toContain('1-1000')
+    // A balanced entry with the sides swapped is still wrong. Pin every line,
+    // including the tax reversal, rather than only checking account presence.
+    expect(lines.map(l => [l.account?.code, money(l.debit), money(l.credit)])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))).toEqual([
+        ['1-1200', 0, 222_000],
+        ['2-1100', 22_000, 0],
+        ['5-2000', 200_000, 0],
+      ])
   })
 })

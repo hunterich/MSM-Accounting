@@ -81,6 +81,14 @@ Seed default login:
 - `npm run db:migration -- <name>` - Create a new migration from a schema change
 - `npm run db:seed` - Seed demo data
 
+## Testing
+
+GitHub CI runs unit tests, real PostgreSQL integration tests, and browser tests.
+For purchasing and sales form-to-ledger checks, run `npm run test:e2e:setup`
+then `npm run test:accounting` against a dedicated local QA database.
+See [the testing guide](docs/TESTING.md) for setup, expected journal entries,
+test locations, failure reports, and how to add tests when fixing bugs.
+
 ## Database migrations
 
 Schema changes are versioned with **Prisma Migrate** (not `prisma db push`), so

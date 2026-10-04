@@ -71,7 +71,9 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `npm run backend:dev -- --port ${API_PORT}`,
+      // Invoke the installed CLIs through this Node executable. This also works
+      // on Windows when Node is available but npm.cmd is not on PATH.
+      command: `"${process.execPath}" "${resolve(projectRoot, 'node_modules/next/dist/bin/next')}" dev --port ${API_PORT}`,
       url: `${API_ORIGIN}/api/v1/auth/me`,
       // /auth/me answers 401 when signed out; that is still proof the API is up.
       ignoreHTTPSErrors: true,
@@ -88,7 +90,7 @@ export default defineConfig({
       },
     },
     {
-      command: `npm run dev -- --port ${WEB_PORT} --strictPort`,
+      command: `"${process.execPath}" "${resolve(projectRoot, 'node_modules/vite/bin/vite.js')}" --port ${WEB_PORT} --strictPort`,
       url: WEB_ORIGIN,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

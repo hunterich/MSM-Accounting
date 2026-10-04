@@ -32,6 +32,8 @@
     "bench:capacity": "tsx scripts/benchmark-capacity.ts",
     "test:e2e:setup": "node scripts/e2e-db-setup.mjs",
     "test:e2e": "playwright test --project=chromium",
+    "test:accounting": "playwright test e2e/accounting-journeys.spec.ts e2e/returns-to-ledger.spec.ts --project=chromium",
+    "typecheck:e2e": "tsc --noEmit --project tsconfig.e2e.json",
     "test:e2e:pos": "playwright test --project=pos",
     "test:e2e:ui": "playwright test --ui"
   },

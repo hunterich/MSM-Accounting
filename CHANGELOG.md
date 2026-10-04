@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — transaction form and accounting regression tests
+- Purchasing and sales browser journeys verify the records actually stored in PostgreSQL, exact journal accounts and debit/credit amounts, stock movements, payment allocations and settlement status, and trial balance / profit-and-loss / balance-sheet totals. The PO journey uses the real goods-receipt API between the PO and bill forms and checks GR/IR clears without booking stock twice.
+- Expense-bill coverage checks a failed network submission followed by retry, draft reopening, selected expense accounts, discounts, tax, withholding, additional costs, and duplicate supplier-invoice rejection. Sales coverage checks that drafts do not post and repeated approval does not duplicate journals or stock consumption.
+- Browser tests are now type-checked in CI. `npm run test:accounting` runs the focused accounting journeys; [the testing guide](docs/TESTING.md) explains where tests belong, how to run them, and how to maintain them with changes.
+
+### Changed — stronger browser-test verification
+- The sales-return / credit-note journey checks every journal line's exact debit and credit, including tax, rather than only checking account presence and a balanced total.
+- Playwright starts the installed Next.js and Vite CLIs using the current Node executable, supporting Windows shells where npm is not on PATH.
+
+### Fixed — reopening draft invoices retains accounting details
+- Opening or reloading a draft invoice now waits for the saved record before autosaving, so an empty loading form cannot replace it. Editing retains the inventory item link and saved tax settings; approving the reopened invoice posts its inventory reduction and cost of goods sold correctly. Saved addresses, PO reference, invoice type and document discount are also restored.
+
+
 ### 🚑 Fixed — stale deployments no longer break lazy-loaded pages
 - **A tab left open during an upgrade could fail with "Failed to fetch dynamically imported module"** when its old app shell requested a hashed page chunk already replaced by the new container. The back-office entry now refreshes once on Vite preload failures, the error screen's retry performs a real reload for chunk errors, and Caddy revalidates HTML/service-worker metadata while caching hashed assets immutably.
 - **The offline POS worker no longer controls the accounting application.** Its scope is narrowed from `/` to `/pos.html`; both entries remove the legacy root-scoped registration, and Workbox immediately claims the corrected worker while cleaning obsolete precaches.
