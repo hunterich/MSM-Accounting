@@ -958,7 +958,7 @@ const INVENTORY_REPORTS: ReportDefinition[] = [
     category: 'inventory',
     apiPath: '/api/v1/inventory/valuation',
     name: 'Stock Valuation',
-    description: 'Current inventory value (qty × average cost) per item, filterable by category and warehouse.',
+    description: 'Inventory value per item at the selected date, filterable by category and warehouse.',
     type: 'table',
     filterMode: 'inventory-snapshot',
   },
@@ -1754,7 +1754,7 @@ const Reports: React.FC<ReportsProps> = ({
     }
 
     if (report.id === 'stock-valuation') {
-      const params: ReportParams = { type: report.id };
+      const params: ReportParams = { type: report.id, asOfDate };
       if (valuationCategoryId) params.categoryId = valuationCategoryId;
       if (valuationWarehouseId) params.warehouseId = valuationWarehouseId;
       return params;
@@ -1819,7 +1819,7 @@ const Reports: React.FC<ReportsProps> = ({
         params,
         dateFrom: (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateFrom : null,
         dateTo:   (reportToRun.filterMode === 'date-range' || reportToRun.filterMode === 'statement' || reportToRun.filterMode === 'bank-period') ? dateTo   : null,
-        asOfDate: reportToRun.filterMode === 'as-of'      ? asOfDate : null,
+        asOfDate: params.asOfDate ?? null,
       };
 
       setOpenReports((prev) => {
@@ -2071,7 +2071,10 @@ const Reports: React.FC<ReportsProps> = ({
     if (!activeReport) return;
 
     const { report, data } = activeReport;
-    const csv = buildActiveReportCsv(report, data as Record<string, unknown>);
+    let csv = buildActiveReportCsv(report, data as Record<string, unknown>);
+    const credit = data?.summary?.unappliedCredits ?? data?.summary?.unallocatedCredit ?? 0;
+    if (credit > 0) csv += `\nUnapplied credits / credit balances,${credit}\nNet balance,${data.summary.netOutstanding}`;
+    if (Array.isArray(data?.warnings)) for (const warning of data.warnings) csv += `\nWarning,"${String(warning).replaceAll('"', '""')}"`;
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -3728,7 +3731,7 @@ const Reports: React.FC<ReportsProps> = ({
     ? activeReport.report.filterMode === 'statement'
       ? `${(activeReport.data as StatementData)?.party?.name ?? ''} · ${formatDateID(activeReport.dateFrom ?? '')} s/d ${formatDateID(activeReport.dateTo ?? '')}`
       : activeReport.report.id === 'stock-valuation'
-      ? `Snapshot saat ini · ${valuationFilterLabel}`
+      ? `Per ${formatDateID(activeReport.params.asOfDate ?? '')} · ${valuationFilterLabel}`
       : activeReport.report.id === 'balance-sheet-multi-period'
       ? `${formatDateID(activeReport.asOfDate ?? '')} vs ${formatDateID(activeReport.params.compareAsOfDate ?? '')}`
       : activeReport.report.filterMode === 'as-of'
@@ -3914,6 +3917,17 @@ const Reports: React.FC<ReportsProps> = ({
                   </div>
 
                   <div className="overflow-x-auto print:overflow-visible">
+                    {Number(activeReport.data?.summary?.unappliedCredits ?? activeReport.data?.summary?.unallocatedCredit ?? 0) > 0 && (
+                      <p className="p-3 mb-4 border border-neutral-300">
+                        Unapplied credits / credit balances: {formatIDR(activeReport.data.summary.unappliedCredits ?? activeReport.data.summary.unallocatedCredit)}.
+                        {' '}Net balance: {formatIDR(activeReport.data.summary.netOutstanding)}.
+                      </p>
+                    )}
+                    {Array.isArray(activeReport.data?.warnings) && activeReport.data.warnings.length > 0 && (
+                      <div role="alert" className="p-3 mb-4 border border-warning-300 text-warning-800">
+                        {activeReport.data.warnings.map((warning: string) => <p key={warning}>{warning}</p>)}
+                      </div>
+                    )}
                     {renderReportResult()}
                   </div>
                 </div>
@@ -4000,6 +4014,10 @@ const Reports: React.FC<ReportsProps> = ({
               <div>
                 <div className="text-sm font-semibold text-neutral-700 mb-3 pb-2 border-b">Filter Persediaan</div>
                 <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-neutral-600 mb-1">As of Date</label>
+                    <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)} className="block w-full px-3 h-10 border border-neutral-300 rounded-md" />
+                  </div>
                   <div>
                     <label className="block text-sm text-neutral-600 mb-1">Kategori</label>
                     <select

@@ -47,6 +47,8 @@ export async function postDebitNoteOnApply(
       taxAmount: true,
       applyTax: true,
       apAccountId: true,
+      settlementType: true,
+      settlementAccountId: true,
       returnAccountId: true,
       taxAccountId: true,
       journalEntryId: true,
@@ -82,10 +84,15 @@ export async function postDebitNoteOnApply(
   const settings = await loadOrgAccountDefaults(tx, dn.organizationId);
   const apAccountId =
     dn.apAccountId ?? resolveAccountDefaultId(accounts, settings, 'apControl');
+  const isRefund = dn.settlementType === 'REFUND_FROM_VENDOR';
+  const settlementAccountId = isRefund ? dn.settlementAccountId : apAccountId;
+  if (isRefund && !accounts.some(a => a.id === settlementAccountId && a.isPostable && a.type === 'ASSET')) {
+    throw new ApiError('Choose an active, postable refund asset account in this organization', 422);
+  }
   const returnAccountId =
     dn.returnAccountId ?? resolveAccountDefaultId(accounts, settings, 'apReturn');
 
-  if (!apAccountId || !returnAccountId) {
+  if (!settlementAccountId || !returnAccountId) {
     throw new Error(
       `DebitNote ${dn.number}: missing apControl/apReturn account defaults`,
     );
@@ -107,8 +114,8 @@ export async function postDebitNoteOnApply(
     memo: `Debit note: ${dn.number}`,
     lines: [
       {
-        accountId: apAccountId,
-        description: `AP reduction - ${dn.number}`,
+        accountId: settlementAccountId,
+        description: `${isRefund ? 'Supplier refund' : 'AP reduction'} - ${dn.number}`,
         debit: amount,
         credit: 0,
       },

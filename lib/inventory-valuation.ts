@@ -33,11 +33,12 @@ export interface ItemValuation {
 export async function computeLedgerValuation(
   db: LedgerReader,
   orgId: string,
-  opts?: { itemIds?: string[]; warehouseId?: string | null },
+  opts?: { itemIds?: string[]; warehouseId?: string | null; asOfDate?: Date },
 ): Promise<Map<string, ItemValuation>> {
   const where: Prisma.InventoryLedgerEntryWhereInput = { organizationId: orgId };
   if (opts?.itemIds?.length) where.itemId = { in: opts.itemIds };
   if (opts?.warehouseId) where.warehouseId = opts.warehouseId;
+  if (opts?.asOfDate) where.date = { lte: opts.asOfDate };
 
   const rows = await db.inventoryLedgerEntry.groupBy({
     by: ['itemId'],

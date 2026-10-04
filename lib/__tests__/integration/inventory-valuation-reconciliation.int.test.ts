@@ -69,6 +69,31 @@ function makeGet(orgId: string): NextRequest {
 }
 
 describe('inventory valuation reconciles to GL (weighted-average)', () => {
+  for (const costingMethod of ['FIFO', 'WEIGHTED_AVERAGE'] as const) {
+    it(`${costingMethod}: historical valuation matches the dated GL after stock is exhausted and item deactivated`, async () => {
+      const org = await createTestOrg({ costingMethod });
+      try {
+        const itemId = await createItem(org.orgId, 1000);
+        await receiveStock(org, itemId, 5, 1000, DATE_A);
+        await receiveStock(org, itemId, 5, 1200, DATE_B);
+        await prisma.$transaction(tx => postStockAdjustmentToLedger(tx, org.orgId, {
+          id: `adj-${randomUUID()}`, number: 'EXHAUST', date: DATE_C, warehouseId: null,
+          lines: [{ itemId, oldQty: 10, newQty: 0, unitCost: 9999 }],
+        }));
+        await prisma.item.update({ where: { id: itemId }, data: { isActive: false } });
+        for (const [day, expected] of [['2026-03-18', 5000], ['2026-03-19', 11000], ['2026-03-20', 0]] as const) {
+          const req = makeGet(org.orgId);
+          const url = new URL(req.url);
+          url.searchParams.set('asOfDate', day);
+          const body = await (await getValuation(new NextRequest(url, { headers: req.headers }))).json();
+          expect(body.summary.totalValue).toBe(expected);
+          const gl = await prisma.journalLine.aggregate({ where: { accountId: org.accounts.inventoryAsset,
+            entry: { organizationId: org.orgId, status: 'POSTED', date: { lte: new Date(`${day}T16:59:59.999Z`) } } }, _sum: { debit: true, credit: true } });
+          expect(Number(gl._sum.debit) - Number(gl._sum.credit)).toBe(expected);
+        }
+      } finally { await cleanupOrg(org.orgId); }
+    });
+  }
   it('ledger-derived valuation equals the GL inventory account after a WA decrease', async () => {
     const org = await createTestOrg({ costingMethod: 'WEIGHTED_AVERAGE' });
     const itemId = await createItem(org.orgId, 1000);

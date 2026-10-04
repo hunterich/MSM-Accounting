@@ -142,6 +142,44 @@ a release with transaction changes. Staff can verify a small sample of draft,
 posted and paid documents there, including the journal detail and reports;
 automated accounting tests should not be run against their production company.
 
+## Report reconciliation checks
+
+`lib/__tests__/integration/report-reconciliation.int.test.ts` compares real
+statement, aging and party-balance endpoints with posted control-account journal
+lines at the same cutoff. It covers gross/tax note amounts, monetary refunds,
+payment discounts and penalties, opening debt, unapplied payments and credit
+balances, documents paid after the cutoff, and later-month reversals of payments,
+notes and source documents. It also checks Jakarta midnight against trial balance.
+
+`inventory-valuation-reconciliation.int.test.ts` checks both FIFO and
+weighted-average snapshots, including items exhausted and deactivated after the
+selected date. Stock Valuation's As of Date, AR/AP reports and GL reports use
+the same Jakarta business-day boundary, independent of the server timezone.
+
+Run these focused database checks with:
+
+```powershell
+npm run test:int -- lib/__tests__/integration/report-reconciliation.int.test.ts lib/__tests__/integration/inventory-valuation-reconciliation.int.test.ts
+```
+
+For a monthly review, compare the party-balance net total with the relevant GL
+control account and compare stock valuation with the inventory GL account using
+the same company, date and filters. Aging lists gross positive debt separately
+from credit balances; compare its **net** position when credits exist.
+
+Historical data limits are explicit: previous versions deleted allocations when
+voiding payments, so those document links cannot be recovered automatically.
+Reports show and export warnings for this case and for detected inconsistent
+legacy payment/refund postings. Review the original documents and backup/audit
+evidence before correcting them through approved reversal/reissue procedures.
+This change does not automatically amend existing posted journals.
+
+Manual control-account journals without a customer/vendor link, imported
+opening balances without matching GL entries, and custom control-account
+configuration still require reconciliation review. These checks are regression
+coverage for the supported source-document paths, not a blanket certification
+of all historical or imported accounting data.
+
 ## Remaining coverage to extend
 
 The journeys are representative, not exhaustive. Remaining browser coverage
@@ -170,3 +208,8 @@ defects in the first round, then partial-payment form balances, the invoice
 detail's inactive Void action and refund notes posting to AR in this round.
 Regression tests cover the corrected behavior.
 This records the focused checks performed, not a full-suite certification.
+
+The subsequent reporting pass also passed 37 database tests across ten suites,
+including the new reconciliation cases, all 1,134 local unit tests, both
+TypeScript checks, and the same 16 accounting/POS browser journeys. Existing
+posted-data problems are flagged for review rather than rewritten automatically.

@@ -25,6 +25,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     customer: {
       findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     bill: {
       findMany: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     vendor: {
       findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     account: {
       findMany: vi.fn(),
@@ -48,6 +50,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn(),
       groupBy: vi.fn(),
     },
+    journalEntry: { findMany: vi.fn() },
     bankTransaction: {
       findMany: vi.fn(),
     },
@@ -110,14 +113,17 @@ beforeEach(() => {
   vi.mocked(prisma.aRPayment.findMany).mockResolvedValue([]);
   vi.mocked(prisma.creditNote.findMany).mockResolvedValue([]);
   vi.mocked(prisma.customer.findFirst).mockResolvedValue(null);
+  vi.mocked(prisma.customer.findMany).mockResolvedValue([]);
   vi.mocked(prisma.bill.findMany).mockResolvedValue([]);
   vi.mocked(prisma.aPPaymentAllocation.groupBy).mockResolvedValue([]);
   vi.mocked(prisma.aPPayment.findMany).mockResolvedValue([]);
   vi.mocked(prisma.debitNote.findMany).mockResolvedValue([]);
   vi.mocked(prisma.vendor.findFirst).mockResolvedValue(null);
+  vi.mocked(prisma.vendor.findMany).mockResolvedValue([]);
   vi.mocked(prisma.account.findMany).mockResolvedValue([]);
   vi.mocked(prisma.journalLine.findMany).mockResolvedValue([]);
   vi.mocked(prisma.journalLine.groupBy).mockResolvedValue([]);
+  vi.mocked(prisma.journalEntry.findMany).mockResolvedValue([]);
   vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([]);
   vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([]);
   vi.mocked(prisma.inventoryLedgerEntry.findMany).mockResolvedValue([]);
@@ -189,7 +195,8 @@ describe('GET /api/v1/reports/ar?type=statement', () => {
       { id: 'i1', number: 'INV-1', issueDate: new Date('2026-01-05'), dueDate: new Date('2026-01-20'), totalAmount: 1_000_000 },
     ] as never);
     vi.mocked(prisma.aRPayment.findMany).mockResolvedValue([
-      { number: 'PAY-1', date: new Date('2026-01-25'), totalAmount: 400_000 },
+      { number: 'PAY-1', date: new Date('2026-01-25'), status: 'COMPLETED', totalAmount: 400_000,
+        allocations: [{ invoiceId: 'i1', amountApplied: 400_000, discountAmount: 0, penaltyAmount: 0 }] },
     ] as never);
     vi.mocked(prisma.aRPaymentAllocation.groupBy).mockResolvedValue([
       { invoiceId: 'i1', _sum: { amountApplied: 400_000, discountAmount: 0 } },
@@ -251,7 +258,8 @@ describe('GET /api/v1/reports/ap?type=statement', () => {
       { id: 'b1', number: 'BILL-1', issueDate: new Date('2026-01-10'), dueDate: new Date('2026-02-09'), totalAmount: 2_000_000 },
     ] as never);
     vi.mocked(prisma.aPPayment.findMany).mockResolvedValue([
-      { number: 'APPAY-1', date: new Date('2026-01-28'), totalAmount: 500_000 },
+      { number: 'APPAY-1', date: new Date('2026-01-28'), status: 'COMPLETED', totalAmount: 500_000,
+        allocations: [{ billId: 'b1', amountApplied: 500_000, discountAmount: 0, penaltyAmount: 0 }] },
     ] as never);
     vi.mocked(prisma.aPPaymentAllocation.groupBy).mockResolvedValue([
       { billId: 'b1', _sum: { amountApplied: 500_000, discountAmount: 0 } },
@@ -267,8 +275,8 @@ describe('GET /api/v1/reports/ap?type=statement', () => {
     expect(body.openingBalance).toBe(500_000);
     expect(body.rows.map((r: { number: string }) => r.number)).toEqual(['BILL-1', 'APPAY-1']);
     expect(body.summary.closingBalance).toBe(2_000_000);
-    // bill due 2026-02-09 (after statement end) → not yet due → current bucket
-    expect(body.summary.aging.current).toBe(1_500_000);
+    // Include the 500,000 opening debt alongside the 1,500,000 remaining bill.
+    expect(body.summary.aging.current).toBe(2_000_000);
   });
 });
 

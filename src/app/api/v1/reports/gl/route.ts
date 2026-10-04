@@ -4,6 +4,7 @@ import { readJournalTotals } from '@/lib/journal-totals';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { reportDate } from '@/lib/subledger-history';
 import {
   buildBalanceSheetReport,
   buildBalanceSheetMultiPeriodReport,
@@ -21,21 +22,11 @@ export async function OPTIONS() {
 }
 
 const startOfDay = (value: string | null): Date => {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    throw new ApiError(`Invalid date: ${value}`, 400);
-  }
-  date.setHours(0, 0, 0, 0);
-  return date;
+  try { return reportDate(value, false); } catch { throw new ApiError(`Invalid date: ${value}`, 400); }
 };
 
 const endOfDay = (value: string | null): Date => {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    throw new ApiError(`Invalid date: ${value}`, 400);
-  }
-  date.setHours(23, 59, 59, 999);
-  return date;
+  try { return reportDate(value, true); } catch { throw new ApiError(`Invalid date: ${value}`, 400); }
 };
 
 const baseAccountSelect = {

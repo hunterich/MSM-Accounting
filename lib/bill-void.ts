@@ -39,7 +39,8 @@ export async function voidBill(
       journalEntryId: true,
       voidedAt: true,
       deletedAt: true,
-      paymentAllocations: { select: { id: true } },
+      paymentAllocations: { where: { payment: { status: { not: 'VOID' } } }, select: { id: true } },
+      debitNotes: { where: { status: 'APPLIED', settlementType: 'APPLY_TO_BILL' }, select: { id: true } },
     },
   });
 
@@ -58,6 +59,7 @@ export async function voidBill(
   if (bill.paymentAllocations.length > 0) {
     throw new ApiError('Cannot void a bill with payments applied — unallocate its payments first', 422);
   }
+  if (bill.debitNotes?.length) throw new ApiError('Void the applied debit notes before voiding this bill', 422);
   if (!VOIDABLE_STATUSES.has(bill.status)) {
     throw new ApiError(`Cannot void a bill in status ${bill.status}`, 422);
   }

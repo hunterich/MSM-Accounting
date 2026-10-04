@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — debt reports reconcile with dated accounting entries
+- Credit/debit note amounts are treated as gross totals: VAT is no longer added twice in settlement screens or statements. Applied notes now reduce aging balances; cash refunds stay separate from invoice/bill credits.
+- Supplier refund notes debit the selected cash/bank asset account instead of AP, with account ownership and validity checked before posting. Payment discounts and penalties now post separately so the control-account movement agrees with the amount settled.
+- AR/AP reports retain historical invoices, bills, payments and notes when their reversals occur after the selected cutoff. Payment voids preserve allocation history while current settlement ignores VOID payments; documents with applied notes must have those notes voided first.
+- Opening debt and unapplied payments are included in party balances. Aging distinguishes gross debt, credit balances and the net position; print/CSV output includes credits and historical-data warnings. Older deleted allocations or inconsistent original postings are flagged for review, without rewriting posted journals.
+- AR, AP, GL and dated stock valuation use explicit Jakarta business-day boundaries. Stock Valuation now accepts an As of Date and retains historical stock for items that have since been exhausted or deactivated.
+
+### Added — report-to-ledger reconciliation regression tests
+- Real PostgreSQL tests compare statements, aging, party balances and dated AR/AP journals across tax notes, refunds, discounts, penalties, opening balances, unapplied credits, later-month voids, and midnight cutoffs. FIFO and weighted-average inventory snapshots are compared with the same-date inventory GL balance.
+
 ### Added — accounting edge cases, POS and restore verification
 - Browser tests verify partial PO receipts and GR/IR clearing, over-receipt rollback, partial AP/AR payments, exact debit/credit reversals and restored stock, duplicate submission after a lost response, tax-inclusive decimal rounding, period locks, view-only permissions and company isolation.
 - POS browser tests now create their own stock and register fixtures. Online checkout checks revenue, VAT, COGS, cash and shift reconciliation; offline checkout checks queued transactions sync exactly once. Both POS and back-office projects run in CI.
