@@ -46,6 +46,10 @@ export async function GET(req: NextRequest) {
       return withCors(NextResponse.json({ error: 'User not found' }, { status: 404 }));
     }
 
+    if (user.status !== 'ACTIVE') {
+      return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+    }
+
     const membershipsOut = user.memberships.map((m) => ({
       orgId: m.organizationId,
       name: m.organization.displayName,

@@ -95,6 +95,10 @@ export async function POST(req: NextRequest) {
     }
     loginThrottle.recordSuccess(email);
 
+    if (user.status !== 'ACTIVE') {
+      return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+    }
+
     const memberships = user.memberships; // all active
 
     // No company yet: sign the user in with an empty membership list and hand
@@ -102,9 +106,6 @@ export async function POST(req: NextRequest) {
     // `resolveActiveOrg` still fails closed on that token, so every
     // tenant-scoped route stays shut until a company exists and is selected.
     if (memberships.length === 0) {
-      if (user.status !== 'ACTIVE') {
-        return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
-      }
       return withCors(await emptySessionResponse(user));
     }
 
