@@ -7,6 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — account access and dependency security
+- API access checks the current active account and company memberships, including current roles, on every request. Removed memberships and downgraded administrators cannot retain access through an older login token. Approval authorization checks current membership, account status and role before applying permissions or self-approval exceptions.
+- Password and Google sign-in reject inactive accounts even when a company membership remains active; the session endpoint also rejects inactive accounts.
+- Generated temporary passwords use 192 bits of cryptographic randomness instead of an email-derived value. Business APIs require the temporary password to be changed first; the password-change endpoint remains available.
+- Updated vulnerable framework, spreadsheet, PDF, image, routing and build dependencies, with patched transitive dependencies pinned through overrides. Spreadsheet imports use SheetJS CE 0.20.3 from the maintainer's distribution. CI checks dependency advisories at high severity or above.
+
+### Added — account security regression tests
+- Tests cover removed and downgraded administrators with existing tokens, spoofed identity headers, inactive accounts, Google/password sign-in, temporary-password gating and current-role approval rules. Browser tests exercise the real password-change form and verify immediate revocation against PostgreSQL.
+
 ### Fixed — debt reports reconcile with dated accounting entries
 - Credit/debit note amounts are treated as gross totals: VAT is no longer added twice in settlement screens or statements. Applied notes now reduce aging balances; cash refunds stay separate from invoice/bill credits.
 - Supplier refund notes debit the selected cash/bank asset account instead of AP, with account ownership and validity checked before posting. Payment discounts and penalties now post separately so the control-account movement agrees with the amount settled.

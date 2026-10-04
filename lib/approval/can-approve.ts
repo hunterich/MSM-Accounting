@@ -6,20 +6,23 @@ import { isApprovalAllowed } from './policy';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
+function currentMembership(db: Db, orgId: string, userId: string, moduleKey: ModuleKey) {
+  return db.userOrganization.findFirst({
+    where: { userId, organizationId: orgId, isActive: true, user: { status: 'ACTIVE' } },
+    select: { role: { select: { roleType: true, permissions: { where: { moduleKey }, select: { canApprove: true } } } } },
+  });
+}
+
 /** True if the user may approve documents in `moduleKey`. Admins approve everything. */
 export async function userCanApprove(
   db: Db,
   orgId: string,
   userId: string,
-  roleType: string,
+  _roleType: string,
   moduleKey: ModuleKey,
 ): Promise<boolean> {
-  if (roleType === 'ADMIN') return true;
-  const membership = await db.userOrganization.findFirst({
-    where: { userId, organizationId: orgId },
-    select: { role: { select: { permissions: { where: { moduleKey }, select: { canApprove: true } } } } },
-  });
-  return membership?.role.permissions[0]?.canApprove ?? false;
+  const membership = await currentMembership(db, orgId, userId, moduleKey);
+  return membership?.role.roleType === 'ADMIN' || (membership?.role.permissions[0]?.canApprove ?? false);
 }
 
 /** Throws ApiError(403) if the (user, document submitter) pair may not approve. */
@@ -34,11 +37,13 @@ export async function assertApprovalAuthorized(
     requireDistinctApproverForAdmins: boolean;
   },
 ): Promise<void> {
-  const hasCanApprove = await userCanApprove(db, args.orgId, args.userId, args.roleType, args.moduleKey);
+  const membership = await currentMembership(db, args.orgId, args.userId, args.moduleKey);
+  const roleType = membership?.role.roleType ?? '';
+  const hasCanApprove = roleType === 'ADMIN' || (membership?.role.permissions[0]?.canApprove ?? false);
   const decision = isApprovalAllowed({
     hasCanApprove,
     isSelf: args.requestedById === args.userId,
-    roleType: args.roleType,
+    roleType,
     requireDistinctApproverForAdmins: args.requireDistinctApproverForAdmins,
   });
   if (decision.allowed) return;

@@ -93,14 +93,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (user.status !== 'ACTIVE') {
+      return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+    }
+
     const memberships = user.memberships; // all active
 
     // No company yet — same as password login: identity-only session, the
     // client's company picker offers to create the first company.
     if (memberships.length === 0) {
-      if (user.status !== 'ACTIVE') {
-        return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
-      }
       return withCors(await emptySessionResponse(user));
     }
 
@@ -127,6 +128,7 @@ export async function POST(req: NextRequest) {
         costingMethodEffectiveDate: organization.costingMethodEffectiveDate,
       },
       needsInventoryValuationSetup: !organization.costingMethod,
+      mustChangePassword: user.mustChangePassword === true,
       role: {
         type: membership.role.roleType,
         permissions: membership.role.permissions,

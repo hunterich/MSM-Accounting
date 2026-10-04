@@ -1,5 +1,31 @@
 # Testing transactions and accounting
 
+## Account security
+
+Run `npm run test:security` for database-free regression tests of current session
+roles, removed memberships, inactive password/Google accounts, unpredictable
+temporary passwords, forced password changes, and current-role approval rules.
+
+After preparing the disposable browser database as described below, run
+`npm run test:e2e -- e2e/security-access.spec.ts e2e/auth.spec.ts`.
+These tests reuse a signed-in administrator's cookie after removing or
+downgrading membership, and verify the API immediately refuses old privileges.
+They also create a user through the API, sign in with its temporary password,
+verify business APIs are blocked, fill the real password-change form, and check
+PostgreSQL and API access before disabling the account.
+
+Run `npm audit` after dependency changes. CI rejects high/critical dependency
+advisories. The lockfile is reviewed and committed with package.json; patched
+transitive overrides must be checked against the frontend/backend builds.
+SheetJS is pinned to the maintainer's CE 0.20.3 tarball because npm's old `xlsx`
+release is vulnerable. A clean audit covers known dependency advisories, not
+every possible application or deployment vulnerability.
+
+Existing accounts that still require a password change must complete it after
+upgrading. Administrators should reset any unused temporary credentials issued
+by the old email-derived generator: upgrading does not rewrite existing password
+hashes. These fixes take effect in the running app only after deployment.
+
 Staff use the app normally. Developers and maintainers run the automated tests
 before releasing changes; GitHub runs them on pull requests targeting `main`
 and pushes to `main` or `develop`. See `.github/workflows/ci.yml`.

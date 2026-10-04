@@ -6,6 +6,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { createUserInputSchema } from '@/types/api';
 import { hashPassword } from '@/lib/password';
 import { roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
+import { generateTemporaryPassword } from '@/lib/temporary-password';
 
 export const runtime = 'nodejs';
 
@@ -65,7 +66,7 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, asy
 
   // Generate a readable, policy-compliant temp password when none supplied
   // (>=8 chars, has a letter and a digit). User must change it on first login.
-  const tempPassword = d.password ?? `Msm-${tempSeed(email)}a1`;
+  const tempPassword = d.password ?? generateTemporaryPassword();
   const passwordHash = await hashPassword(tempPassword);
 
   const created = await prisma.$transaction(async (tx) => {
@@ -76,6 +77,3 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, asy
   logAudit({ orgId, actorId, entityType: 'User', entityId: created.id, action: 'CREATE', payload: { email: created.email } });
   return ok({ id: created.id, email: created.email, fullName: created.fullName, temporaryPassword: d.password ? undefined : tempPassword }, 201);
 });
-
-// Deterministic readable seed for a temp password; the user must change it anyway.
-function tempSeed(s: string): string { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h).toString(36).slice(0, 6); }

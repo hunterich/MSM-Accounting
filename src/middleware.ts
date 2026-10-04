@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, resolveActiveOrg, isOrgOptionalPath, COOKIE_NAME } from '../lib/auth';
 import { CORS_HEADERS } from '../lib/cors';
+import { prisma } from '../lib/prisma';
+
+const AUTH_PATHS = new Set([
+  '/api/v1/auth/login', '/api/v1/auth/google', '/api/v1/auth/me',
+  '/api/v1/auth/refresh', '/api/v1/auth/logout',
+]);
 
 const withCors = (response: NextResponse) => {
   Object.entries(CORS_HEADERS).forEach(([key, value]) => {
@@ -10,13 +16,13 @@ const withCors = (response: NextResponse) => {
 };
 
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const pathname = req.nextUrl.pathname.replace(/\/+$/, '');
 
   if (req.method === 'OPTIONS') {
     return withCors(new NextResponse(null, { status: 204 }));
   }
 
-  if (pathname.startsWith('/api/v1/auth')) {
+  if (AUTH_PATHS.has(pathname)) {
     return withCors(NextResponse.next());
   }
 
@@ -30,7 +36,29 @@ export async function middleware(req: NextRequest) {
     return withCors(NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 }));
   }
 
-  const resolution = resolveActiveOrg(payload, req.headers.get('x-active-org'));
+  // Tokens identify the user; current database state decides access. Never let
+  // an old ADMIN claim survive membership removal or a role downgrade.
+  const user = await prisma.user.findUnique({
+    where: { id: payload.userId },
+    select: {
+      status: true,
+      mustChangePassword: true,
+      memberships: {
+        where: { isActive: true },
+        select: { organizationId: true, role: { select: { roleType: true } } },
+      },
+    },
+  });
+  if (!user || user.status !== 'ACTIVE') {
+    return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+  }
+  if (user.mustChangePassword && pathname !== '/api/v1/users/me/password') {
+    return withCors(NextResponse.json({ error: 'Change your password before continuing', code: 'PASSWORD_CHANGE_REQUIRED' }, { status: 403 }));
+  }
+  const resolution = resolveActiveOrg({
+    ...payload,
+    memberships: user.memberships.map((m) => ({ orgId: m.organizationId, roleType: m.role.roleType })),
+  }, req.headers.get('x-active-org'));
   if (!resolution.ok && !isOrgOptionalPath(pathname)) {
     return withCors(NextResponse.json(
       { error: resolution.error, code: resolution.code },
@@ -55,5 +83,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
+  runtime: 'nodejs',
   matcher: ['/api/v1/:path*'],
 };
