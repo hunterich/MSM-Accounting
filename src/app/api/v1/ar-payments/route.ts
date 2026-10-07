@@ -10,6 +10,7 @@ import { arPaymentInputSchema } from '@/types/api';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
 import { syncArPaymentSettlement } from '@/lib/settlement-status';
 import { routeForApproval } from '@/lib/approval/engine';
+import { normalizeArPaymentAccount } from '@/lib/ar-payment-input';
 
 export const runtime = 'nodejs';
 
@@ -55,7 +56,7 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
   if (!parsed.success) {
     throw new ApiError(parsed.error.issues[0]?.message || 'Invalid AR payment payload', 400);
   }
-  const { allocations, ...payload } = parsed.data;
+  const { allocations, ...payload } = normalizeArPaymentAccount(parsed.data);
   const payment = await prisma.$transaction(async (tx) => {
     await validateForeignKey(tx.customer, { id: payload.customerId, organizationId: orgId, status: 'ACTIVE' }, 'Customer not found in organization');
     // Allocate the number INSIDE the transaction with `tx` so its advisory lock

@@ -2,6 +2,11 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { prisma, createTestOrg, assertTrialBalanced, accountBalance, cleanupOrg, disconnect, TOLERANCE, type TestOrg } from './harness';
 import { receiveBatch } from '@/lib/pos/batch-stock-in';
 import { postPosSale, type PosSaleInput } from '@/lib/pos/sale-posting';
+import { nextNumber } from '@/lib/api-utils';
+import { postArPaymentIfNeeded } from '@/lib/payment-posting';
+import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { syncArPaymentSettlement } from '@/lib/settlement-status';
+import type { Prisma } from '@prisma/client';
 
 afterAll(async () => {
   await disconnect();
@@ -59,6 +64,44 @@ function saleInput(itemId: string, registerId: string, shiftId: string, clientSa
 }
 
 describe('postPosSale', () => {
+  it('does not deadlock with a receipt holding the payment sequence lock', async () => {
+    const { org, itemId, registerId, shiftId } = await setup();
+    const customer = await prisma.customer.findFirstOrThrow({ where: { organizationId: org.orgId } });
+    const invoice = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId: customer.id, number: 'LOCK-INVOICE', issueDate: new Date('2026-07-03'), status: 'SENT', subtotal: 100, totalAmount: 100 } });
+    await prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, invoice.id));
+    let paymentKey: unknown;
+    let ready!: () => void, waiting!: () => void;
+    const arReady = new Promise<void>(resolve => { ready = resolve; });
+    const posWaiting = new Promise<void>(resolve => { waiting = resolve; });
+    const wrap = (tx: Prisma.TransactionClient, onLock: (key: unknown) => void) => new Proxy(tx, {
+      get(target, key) {
+        const value = Reflect.get(target, key);
+        if (key === '$executeRaw') return (...args: unknown[]) => {
+          if (String(args[0]).includes('pg_advisory_xact_lock')) onLock(args[1]);
+          return Reflect.apply(value, target, args);
+        };
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const receipt = prisma.$transaction(async tx => {
+      const number = await nextNumber(wrap(tx, key => { paymentKey = key; }), 'ARPayment', 'number', 'ARP');
+      ready();
+      await posWaiting;
+      const payment = await tx.aRPayment.create({ data: { organizationId: org.orgId, customerId: customer.id, number, date: new Date('2026-07-03'), method: 'CASH', status: 'COMPLETED', totalAmount: 100, allocations: { create: { invoiceId: invoice.id, amountApplied: 100 } } } });
+      await postArPaymentIfNeeded(tx, org.orgId, payment.id);
+      await syncArPaymentSettlement(tx, org.orgId, payment.id);
+    }, { timeout: 10000 });
+    await arReady;
+    const checkout = prisma.$transaction(tx => postPosSale(wrap(tx, key => { if (key === paymentKey) waiting(); }), org.orgId, saleInput(itemId, registerId, shiftId, 'client-lock-order')), { timeout: 10000 });
+    // If checkout fails before reaching its payment lock, release the barrier.
+    checkout.catch(() => waiting());
+    try {
+      const outcomes = await Promise.allSettled([receipt, checkout]);
+      expect(outcomes.map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
+      await assertTrialBalanced(org.orgId, 'mixed POS and AR lock order');
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('PAID');
+    } finally { await cleanupOrg(org.orgId); }
+  });
   it('posts a balanced cash sale, settles AR to zero, and decrements FEFO batches', async () => {
     const { org, itemId, registerId, shiftId } = await setup();
     const result = await prisma.$transaction((tx) => postPosSale(tx, org.orgId, saleInput(itemId, registerId, shiftId, 'client-1')));

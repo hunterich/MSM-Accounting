@@ -63,8 +63,34 @@ Initial acceptance targets (to validate on deployment hardware):
 
 Successful execution saves timings and correctness status to
 `docs/capacity-benchmark.latest.json` and exits unsuccessfully if a target is
-missed. No successful capacity result has been recorded in this work session:
-there is no configured test database or reachable local PostgreSQL server.
+missed. The October 6, 2026 isolated production-build run passed these read
+targets at both 350,000 and 500,000 orders. The latest saved benchmark is the
+500,000-order scenario. Evidence and workload assumptions are in
+`artifacts/performance-test/report.html` and its README.
+
+Those results required increasing the disposable PostgreSQL container's shared
+memory from 64 MiB to 1 GiB: the default failed the eight-reader test with
+PostgreSQL 53100. Sustained mixed posting at 5, 10 and 20 authenticated users
+produced transaction deadlocks in every ten-minute stage. These results do not
+establish reliable concurrent posting. The observed payment/journal sequence
+lock-order inversion, deployment shared-memory configuration, and dashboard's
+unbounded invoice fetch were addressed in the October 7 fixes. Live services
+were not changed.
+
+The October 7 production-build retest passed both large read benchmarks and
+ten-minute stages with 5, 10 and 20 authenticated HTTP users, with zero failed
+requests or transaction timeouts. The 20-user stage completed 23,496 requests
+at request p95 195 ms. Journals, settlements, stock and control accounts
+reconciled without unfinished documents. Dashboard warm response time at
+500,000 orders decreased from 3.20 seconds to 0.50 seconds; highest sampled
+backend RAM decreased from 2.81 GiB to 1.26 GiB. PostgreSQL's highest sampled
+RAM was 3.03 GiB in the retest. See `artifacts/performance-fix/report.html`.
+
+These are independent-fixture HTTP users with two-second think time; writes
+use a separate small posting company while reads use the 500,000-order company.
+Posting into the historical large company, shared-item contention and
+simultaneous duplicate races remain unmeasured. The application fixes and
+1 GiB deployment shared-memory setting still require live deployment.
 
 ## Remaining release validation
 
@@ -82,4 +108,4 @@ system at this volume, run the benchmark on the intended server and measure:
   connection limits, cold-cache behavior, backups, and restore time.
 
 Production readiness must be based on those measurements. The pending index
-migration has not been applied to any deployment in this session.
+migration has not been applied to the live deployment in this session.
