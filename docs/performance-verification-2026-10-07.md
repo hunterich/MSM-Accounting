@@ -52,7 +52,9 @@ image ID `sha256:8c88024daf187ae1d43da55525ca5a2905d7bb0846a67627717fcfb9bab6134
 That workspace also included separate, unmerged pagination changes. Browser
 invoice navigation and the workspace unit count include that pagination work;
 they are not verification of the performance-only Git revision. Product fix
-source hashes match the tested build. Raw evidence remains local under
+source hashes match the tested build. An isolated checkout of the performance
+commit passed TypeScript checking and all 1,139 unit tests in 152 files without
+the pending pagination changes. Raw evidence remains local under
 `artifacts/performance-test` and `artifacts/performance-fix`; it is excluded from
 Git and Docker contexts alongside local database backups.
 
