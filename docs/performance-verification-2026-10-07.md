@@ -83,3 +83,11 @@ results. Cleanup removes only the known disposable test services and database
 volume. The application build and updated Compose configuration still require
 live deployment. Recreating the database container is needed to adopt its new
 shared-memory setting; no new migration is introduced by these fixes.
+
+## Merge validation
+
+GitHub CI identified GHSA-68fv-2mgg-jv7q in the existing `source-map-js` 1.2.1
+dependency. The lockfile entry was updated to the compatible patched 1.2.2;
+no other dependency versions were changed. The patched lockfile passes
+`npm audit --audit-level=high`. The long performance measurements above used
+the earlier lockfile; GitHub CI validates builds and tests with this patch.
