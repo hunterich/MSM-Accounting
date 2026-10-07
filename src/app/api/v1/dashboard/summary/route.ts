@@ -6,6 +6,7 @@ import {
 } from '@/types/api';
 import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { ledgerCashOnHand } from '@/lib/cash-accounts';
+import { dashboardAging } from '@/lib/dashboard-aging';
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined) return 0;
@@ -15,12 +16,6 @@ const toNumber = (value: unknown): number => {
 
 const asMoney = (value: number): number => {
   return Math.round((value + Number.EPSILON) * 100) / 100;
-};
-
-const daysOverdue = (dueDate: Date | null, now: Date): number => {
-  if (!dueDate) return 0;
-  const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.floor((now.getTime() - dueDate.getTime()) / msPerDay);
 };
 
 export const GET = withHandler(async function GET(request: NextRequest) {
@@ -48,8 +43,7 @@ export const GET = withHandler(async function GET(request: NextRequest) {
       cashOnHand,
       invoiceTotalsByCustomer,
       paymentTotalsByCustomer,
-      paidByInvoice,
-      invoicesForAging,
+      agingSummary,
       customers,
     ] = await Promise.all([
       // From the ledger, not the Banking register's cached balance: receipts
@@ -77,33 +71,7 @@ export const GET = withHandler(async function GET(request: NextRequest) {
           totalAmount: true,
         },
       }),
-      prisma.aRPaymentAllocation.groupBy({
-        by: ['invoiceId'],
-        where: {
-          payment: {
-            organizationId,
-            status: 'COMPLETED',
-          },
-        },
-        _sum: {
-          amountApplied: true,
-          discountAmount: true,
-        },
-      }),
-      prisma.salesInvoice.findMany({
-        where: {
-          organizationId,
-          status: {
-            in: ['SENT', 'OVERDUE', 'PAID'],
-          },
-        },
-        select: {
-          id: true,
-          customerId: true,
-          dueDate: true,
-          totalAmount: true,
-        },
-      }),
+      dashboardAging(prisma, organizationId, now),
       prisma.customer.findMany({
         where: {
           organizationId,
@@ -149,54 +117,7 @@ export const GET = withHandler(async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.outstandingAmount - a.outstandingAmount);
 
-    const paidByInvoiceMap = new Map(
-      paidByInvoice.map((row) => {
-        const clearedAmount = toNumber(row._sum.amountApplied) + toNumber(row._sum.discountAmount);
-        return [row.invoiceId, asMoney(clearedAmount)];
-      }),
-    );
-
-    const aging = {
-      current: 0,
-      d1To30: 0,
-      d31To60: 0,
-      d61To90: 0,
-      d90Plus: 0,
-      totalOutstanding: 0,
-    };
-
-    let overdueInvoiceCount = 0;
-    let overdueAmount = 0;
-
-    for (const invoice of invoicesForAging) {
-      const invoiceTotal = toNumber(invoice.totalAmount);
-      const cleared = paidByInvoiceMap.get(invoice.id) ?? 0;
-      const outstanding = asMoney(invoiceTotal - cleared);
-
-      if (outstanding <= 0) {
-        continue;
-      }
-
-      aging.totalOutstanding = asMoney(aging.totalOutstanding + outstanding);
-      const overdueDays = daysOverdue(invoice.dueDate, now);
-
-      if (overdueDays <= 0) {
-        aging.current = asMoney(aging.current + outstanding);
-      } else if (overdueDays <= 30) {
-        aging.d1To30 = asMoney(aging.d1To30 + outstanding);
-      } else if (overdueDays <= 60) {
-        aging.d31To60 = asMoney(aging.d31To60 + outstanding);
-      } else if (overdueDays <= 90) {
-        aging.d61To90 = asMoney(aging.d61To90 + outstanding);
-      } else {
-        aging.d90Plus = asMoney(aging.d90Plus + outstanding);
-      }
-
-      if (overdueDays > 0) {
-        overdueInvoiceCount += 1;
-        overdueAmount = asMoney(overdueAmount + outstanding);
-      }
-    }
+    const { aging, overdueInvoiceCount, overdueAmount } = agingSummary;
 
     const invoiceReceivable = asMoney(
       customerBalances.reduce((sum, row) => sum + Math.max(row.outstandingAmount, 0), 0),

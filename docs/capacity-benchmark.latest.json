@@ -1,0 +1,93 @@
+{
+  "measuredAt": "2026-10-07T03:42:58.981Z",
+  "orders": 500000,
+  "syntheticTransactionRows": 5000103,
+  "passed": true,
+  "metrics": [
+    {
+      "name": "annual customer sales",
+      "samplesMs": [
+        66.52,
+        65.91,
+        79.27,
+        73.52,
+        85.93
+      ],
+      "p95Ms": 85.93,
+      "targetMs": 5000
+    },
+    {
+      "name": "monthly sales chart",
+      "samplesMs": [
+        120.28,
+        124.28,
+        120.19,
+        125.75,
+        127.95
+      ],
+      "p95Ms": 127.95,
+      "targetMs": 5000
+    },
+    {
+      "name": "top products",
+      "samplesMs": [
+        308.44,
+        322.43,
+        310.2,
+        303.21,
+        314.36
+      ],
+      "p95Ms": 322.43,
+      "targetMs": 5000
+    },
+    {
+      "name": "trial balance",
+      "samplesMs": [
+        372.03,
+        341.02,
+        341.24,
+        331.25,
+        396.63
+      ],
+      "p95Ms": 396.63,
+      "targetMs": 5000
+    },
+    {
+      "name": "inventory valuation",
+      "samplesMs": [
+        93.43,
+        92.53,
+        97.42,
+        93.51,
+        106.29
+      ],
+      "p95Ms": 106.29,
+      "targetMs": 5000
+    },
+    {
+      "name": "invoice first page with count and lines",
+      "samplesMs": [
+        19.47,
+        18.93,
+        18.54,
+        21.7,
+        18.59
+      ],
+      "p95Ms": 21.7,
+      "targetMs": 2000
+    },
+    {
+      "name": "8 concurrent sales/GL readers",
+      "samplesMs": [
+        1064.33,
+        1041.38,
+        1115.22,
+        1081.47,
+        1128.35
+      ],
+      "p95Ms": 1128.35,
+      "targetMs": 10000
+    }
+  ],
+  "scope": "Warm database reads and aggregate correctness only; excludes HTTP, UI, imports, posting throughput and backups."
+}

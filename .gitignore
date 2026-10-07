@@ -40,3 +40,8 @@ data/backups/
 # Playwright run artifacts
 playwright-report/
 test-results/
+
+# Disposable benchmark builds, raw results and local database backups
+artifacts/
+deploy/backups/
+deploy/backup-before-upgrade.sql

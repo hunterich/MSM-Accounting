@@ -238,6 +238,9 @@ export async function postPosSale(
   //    id is not guaranteed to be a User row (the cashier lives on
   //    PosSale.cashierId instead).
   const invoiceNumber = await nextPosInvoiceNumber(tx, orgId);
+  // Match normal AR receipts: payment sequence before journal sequence.
+  // Posting the invoice first inverted that order and deadlocked mixed traffic.
+  const paymentNumber = await nextNumber(tx, 'ARPayment', 'number', 'POS-PAY');
   const invoice = await tx.salesInvoice.create({
     data: {
       organizationId: orgId,
@@ -294,7 +297,6 @@ export async function postPosSale(
 
   // 9. Settle a cash ARPayment (DR cash / CR AR) fully allocated to the invoice.
   //    COMPLETED is a postable status (UNPOSTABLE_STATUSES = DRAFT/VOID/PENDING_APPROVAL).
-  const paymentNumber = await nextNumber(tx, 'ARPayment', 'number', 'POS-PAY');
   const payment = await tx.aRPayment.create({
     data: {
       organizationId: orgId,

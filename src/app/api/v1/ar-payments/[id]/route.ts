@@ -7,6 +7,7 @@ import { updateArPaymentInputSchema } from '@/types/api';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
 import { syncArPaymentSettlement } from '@/lib/settlement-status';
 import { routeForApproval } from '@/lib/approval/engine';
+import { normalizeArPaymentAccount } from '@/lib/ar-payment-input';
 
 export const runtime = 'nodejs';
 
@@ -47,7 +48,7 @@ export const PUT = withPermission({ module: 'AR_PAYMENTS', action: 'edit' }, asy
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid AR payment payload', issues: parsed.error.issues }, { status: 400 }));
     }
-    const { allocations, ...data } = parsed.data;
+    const { allocations, ...data } = normalizeArPaymentAccount(parsed.data);
     const payment = await prisma.$transaction(async (tx) => {
       const existing = await tx.aRPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true, journalEntryId: true } });
       if (!existing) return null;

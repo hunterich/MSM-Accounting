@@ -6,6 +6,10 @@ dist
 build
 test-results
 playwright-report
+artifacts
+deploy/backups
+deploy/backup-before-upgrade.sql
+context-menu-settings
 e2e
 
 # Local secrets / env — the container gets its env from docker-compose instead
