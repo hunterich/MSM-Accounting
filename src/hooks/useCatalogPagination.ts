@@ -5,6 +5,7 @@ export function useCatalogPagination<T extends Record<string, string | number | 
     const key = JSON.stringify(filters);
     const [position, setPosition] = useState({ key, page: 1 });
     const [limit, setLimit] = useState(20);
+    if (position.key !== key) setPosition({ key, page: 1 });
     const page = position.key === key ? position.page : 1;
     const onPageChange = (next: number) => setPosition({ key, page: Math.max(1, next) });
     const onLimitChange = (next: number) => {

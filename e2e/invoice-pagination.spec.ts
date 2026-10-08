@@ -46,7 +46,7 @@ test('invoice catalog pages, filters the whole dataset, and scrolls within the t
     await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     await expect(paging).toBeInViewport();
     await page.getByLabel('Go to invoice page').fill('2');
-    await paging.getByRole('button', { name: 'Go', exact: true }).click();
+    await page.getByLabel('Go to invoice page').press('Enter');
     await expect(paging).toContainText('Showing 51–65 of 65 invoices');
     await expect(page.getByRole('button', { name: 'Next invoice page' })).toBeDisabled();
 });
