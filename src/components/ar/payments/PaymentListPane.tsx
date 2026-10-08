@@ -1,5 +1,6 @@
 // src/components/ar/payments/PaymentListPane.tsx
 // AR payments catalog. The only such list — the pre-workspace duplicate is gone.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useState, useMemo } from 'react';
 import { Download } from 'lucide-react';
 import Card from '../../UI/Card';
@@ -23,11 +24,12 @@ const PaymentListPane = (): React.ReactElement => {
     const [searchTerm, setSearchTerm] = useState('');
     const [status, setStatus] = useState('');
     const [dateRange, setDateRange] = useState<{ from: string; to: string }>({ from: '', to: '' });
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: catalogStatus(status), dateFrom: dateRange.from, dateTo: dateRange.to });
+    const { data: paymentsResult, isLoading, isFetching, error } = useARPayments(paging.query);
+    const payments = useMemo(() => paymentsResult?.data ?? [], [paymentsResult?.data]);
 
-    const { data: paymentsResult, isLoading } = useARPayments();
     const updateARPayment = useUpdateARPayment();
     const voidARPayment = useVoidARPayment();
-    const payments = useMemo(() => paymentsResult?.data ?? [], [paymentsResult?.data]);
 
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -45,15 +47,7 @@ const PaymentListPane = (): React.ReactElement => {
     const openEdit = (id: string) => open({ kind: 'doc-form', target: { module: 'ar', entity: 'payment', recordId: id, mode: 'edit' }, title: `Edit ${id}`, path: `/ar/payments/edit?paymentId=${id}` });
     const openNew = () => open({ kind: 'doc-form', target: { module: 'ar', entity: 'payment', recordId: null, mode: 'create' }, title: 'Record payment', path: '/ar/payments/new', unique: true });
 
-    const filteredData = useMemo(() => payments.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        const matchesSearch = item.customerName.toLowerCase().includes(kw) || item.invoiceId.toLowerCase().includes(kw) || item.id.toLowerCase().includes(kw);
-        const matchesStatus = status ? item.status === status : true;
-        let matchesDate = true;
-        if (dateRange.from) matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
-        if (dateRange.to) matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
-        return matchesSearch && matchesStatus && matchesDate;
-    }), [searchTerm, status, payments, dateRange]);
+    const filteredData = payments;
 
     const columns = [
         { key: 'id', label: 'Payment #' },
@@ -89,7 +83,7 @@ const PaymentListPane = (): React.ReactElement => {
                 subtitle="Record and track incoming payments against invoices."
                 actions={
                     <div className="flex gap-2">
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="Record Payment" size="small" onClick={openNew} />}
                     </div>
                 }
@@ -125,7 +119,7 @@ const PaymentListPane = (): React.ReactElement => {
                 }
             />
             <Card padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: paymentsResult?.total, busy: isFetching || !!error }}
                     columns={columns as TableColumn<Record<string, unknown>>[]}
                     data={filteredData as unknown as Record<string, unknown>[]}
                     onRowClick={(row) => openView(row['id'] as string)}

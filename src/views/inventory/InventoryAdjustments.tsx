@@ -1,3 +1,4 @@
+import { useCatalogPagination, catalogStatus } from '../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../../components/UI/Card';
@@ -23,8 +24,6 @@ interface DateRange {
 const InventoryAdjustments = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('inv_adj');
-    const { data: adjResult, isLoading } = useStockAdjustments();
-    const adjustments = adjResult?.data ?? [];
     const voidStockAdjustment = useVoidStockAdjustment();
 
     const handleVoid = (id: string) => {
@@ -39,26 +38,11 @@ const InventoryAdjustments = () => {
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<AdjFilters>({ status: '', type: '' });
     const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: catalogStatus(filters.status), type: catalogStatus(filters.type), dateFrom: dateRange.from, dateTo: dateRange.to });
+    const { data: adjResult, isLoading, isFetching, error } = useStockAdjustments(paging.query);
+    const adjustments = adjResult?.data ?? [];
 
-    const filteredData = useMemo(() => {
-        return adjustments.filter((item) => {
-            const matchesSearch =
-                item.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.reason.toLowerCase().includes(searchTerm.toLowerCase());
-            const matchesStatus = filters.status ? item.status === filters.status : true;
-            const matchesType = filters.type ? item.type === filters.type : true;
-
-            let matchesDate = true;
-            if (dateRange.from) {
-                matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
-            }
-            if (dateRange.to) {
-                matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
-            }
-
-            return matchesSearch && matchesStatus && matchesType && matchesDate;
-        });
-    }, [adjustments, searchTerm, filters.status, filters.type, dateRange.from, dateRange.to]);
+    const filteredData = adjustments;
 
     const columns = [
         { key: 'id', label: 'Reference No.', sortable: true },
@@ -104,7 +88,7 @@ const InventoryAdjustments = () => {
                     </button>
                     <button
                         className="btn btn-secondary flex items-center gap-1"
-                        title="Export CSV"
+                        title="Export current page as CSV"
                         onClick={() => {
                             const rows = filteredData.map((adj) => ({
                                 id: adj.id,
@@ -189,7 +173,7 @@ const InventoryAdjustments = () => {
             </div>
 
             <Card padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: adjResult?.total, busy: isFetching || !!error }}
                     columns={columns}
                     data={filteredData}
                     onRowClick={(row) => navigate(`/inventory/adjustments/edit?id=${row.id}&mode=view`)}

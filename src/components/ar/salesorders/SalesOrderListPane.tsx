@@ -1,4 +1,6 @@
 // src/components/ar/salesorders/SalesOrderListPane.tsx
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
+import ListPagination from '../../UI/ListPagination';
 import React, { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import SOCatalogPanel from './SOCatalogPanel';
@@ -17,13 +19,14 @@ const SalesOrderListPane = (): React.ReactElement => {
     // The sales orders API — the same source `SOFormV2` saves to. This pane used
     // to read a browser-local store seeded with three fixtures, so a saved order
     // never showed up in its own list.
-    const { data: result } = useSalesOrders({ limit: 200 });
+    const [filters, setFilters] = useState<SOFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
+    const paging = useCatalogPagination({ search: filters.searchTerm.trim(), status: catalogStatus(filters.status), dateFrom: filters.dateFrom, dateTo: filters.dateTo });
+    const { data: result, isFetching, error } = useSalesOrders(paging.query);
     const salesOrders = useMemo(
         () => (result?.data ?? []).map(toSalesOrderView),
         [result?.data],
     );
 
-    const [filters, setFilters] = useState<SOFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
 
     const openNew = () => open({
         kind: 'doc-form',
@@ -33,15 +36,7 @@ const SalesOrderListPane = (): React.ReactElement => {
         unique: true,
     });
 
-    const filteredData = useMemo(() => salesOrders.filter((item) => {
-        const keyword = filters.searchTerm.toLowerCase();
-        const matchesSearch = item.customerName.toLowerCase().includes(keyword) || item.no.toLowerCase().includes(keyword);
-        const matchesStatus = filters.status ? item.status === filters.status : true;
-        // The panel has always offered these two inputs; nothing read them.
-        const matchesFrom = filters.dateFrom ? item.date >= filters.dateFrom : true;
-        const matchesTo = filters.dateTo ? item.date <= filters.dateTo : true;
-        return matchesSearch && matchesStatus && matchesFrom && matchesTo;
-    }), [filters, salesOrders]);
+    const filteredData = salesOrders;
 
     // Tabs are titled by the document number; `soId` is the cuid every lookup keys off.
     const labelFor = (soId: string) => salesOrders.find((so) => so.id === soId)?.no ?? soId;
@@ -73,6 +68,7 @@ const SalesOrderListPane = (): React.ReactElement => {
                     <Button text="New Sales Order" size="small" icon={<Plus size={16} />} onClick={openNew} />
                 ) : undefined}
             />
+            {error ? <div role="alert" className="p-2 text-red-700">{error instanceof Error ? error.message : 'Unable to load sales orders'}</div> : null}
             <SOCatalogPanel
                 data={filteredData as unknown as { id: string; [key: string]: unknown }[]}
                 selectedId=""
@@ -86,6 +82,7 @@ const SalesOrderListPane = (): React.ReactElement => {
                 onEditSalesOrder={openEdit}
                 onPrintSalesOrder={() => {}}
             />
+            <ListPagination {...paging} total={result?.total} busy={isFetching || !!error} label="sales orders" />
         </div>
     );
 };

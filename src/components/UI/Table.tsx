@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import ListPagination, { type ListPaginationProps } from './ListPagination';
 import RecordCount from './RecordCount';
 import { TableSkeleton } from './LoadingSkeleton';
 
@@ -19,6 +20,8 @@ interface SortConfig {
 }
 
 interface TableProps<T = Record<string, unknown>> {
+    error?: unknown;
+    pagination?: ListPaginationProps;
     columns: TableColumn<T>[];
     data: T[];
     onRowClick?: (row: T) => void;
@@ -34,6 +37,8 @@ interface TableProps<T = Record<string, unknown>> {
 }
 
 const Table = <T extends Record<string, unknown>>({
+    error,
+    pagination,
     columns,
     data,
     onRowClick,
@@ -49,6 +54,9 @@ const Table = <T extends Record<string, unknown>>({
 }: TableProps<T>): React.ReactElement => {
     const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
     const scrollElementRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (pagination && scrollElementRef.current) scrollElementRef.current.scrollTop = 0;
+    }, [pagination?.page, pagination?.limit, data]);
 
     const rows = Array.isArray(data) ? data : [];
 
@@ -150,11 +158,12 @@ const Table = <T extends Record<string, unknown>>({
         );
     }
 
-    if (sortedData.length === 0) {
+    if (error || sortedData.length === 0) {
         return (
             <div className={`acc-grid-wrap ${className}`}>
-                <div className="p-4 text-center text-neutral-600">No data available</div>
-                {showCount ? <RecordCount count={0} label={countLabel} /> : null}
+                {error ? <div role="alert" className="p-4 text-center text-red-700">{error instanceof Error ? error.message : 'Unable to load records. Please try again.'}</div>
+                    : <div className="p-4 text-center text-neutral-600">No data available</div>}
+                {pagination ? <ListPagination {...pagination} label={countLabel} /> : showCount ? <RecordCount count={sortedData.length} label={countLabel} /> : null}
             </div>
         );
     }
@@ -162,7 +171,7 @@ const Table = <T extends Record<string, unknown>>({
     if (!shouldVirtualize) {
         return (
             <div className={`acc-grid-wrap ${className}`}>
-                <div className="w-full overflow-x-auto">
+                <div ref={scrollElementRef} tabIndex={0} aria-label={`${countLabel} table`} className="w-full overflow-auto" style={{ maxHeight }}>
                     <table className="acc-grid">
                         <thead>
                             {renderHeaderCells()}
@@ -181,7 +190,7 @@ const Table = <T extends Record<string, unknown>>({
                         </tbody>
                     </table>
                 </div>
-                {showCount ? <RecordCount count={sortedData.length} label={countLabel} /> : null}
+                {pagination ? <ListPagination {...pagination} label={countLabel} /> : showCount ? <RecordCount count={sortedData.length} label={countLabel} /> : null}
             </div>
         );
     }
@@ -244,7 +253,7 @@ const Table = <T extends Record<string, unknown>>({
                 </div>
             </div>
 
-            {showCount ? <RecordCount count={sortedData.length} label={countLabel} /> : null}
+            {pagination ? <ListPagination {...pagination} label={countLabel} /> : showCount ? <RecordCount count={sortedData.length} label={countLabel} /> : null}
         </div>
     );
 };

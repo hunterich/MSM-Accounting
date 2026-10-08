@@ -35,7 +35,10 @@ export async function passCompanyPicker(page: Page): Promise<void> {
     PICKER,
     { timeout: 30_000 },
   )
-  if ((await settled.jsonValue()) === 'app') return
+  if ((await settled.jsonValue()) === 'app') {
+    await dismissAppUpdates(page)
+    return
+  }
 
   // Selecting hard-reloads through the ?org= handshake. Tag this document
   // first: its absence is unambiguous proof that the wait below is polling the
@@ -59,6 +62,16 @@ export async function passCompanyPicker(page: Page): Promise<void> {
     PICKER,
     { timeout: 30_000 },
   )
+  await dismissAppUpdates(page)
+}
+
+/** Exercise the release board before starting a business journey. */
+async function dismissAppUpdates(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'What’s new', exact: true }).click({ force: true })
+  const board = page.getByRole('dialog', { name: 'What’s new' })
+  await expect(board).toBeVisible()
+  await board.getByRole('button', { name: 'Got it', exact: true }).click()
+  await expect(board).not.toBeVisible()
 }
 
 /**

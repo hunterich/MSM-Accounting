@@ -1,6 +1,9 @@
 // src/components/ap/debits/APDebitNoteListPane.tsx
 // Returns & Debits catalog. The only such list — the pre-workspace duplicate is gone.
 // Records open as doc-view tabs keyed by a composite recordId: `debit:ID` | `return:ID`.
+import { useCatalogPagination } from '../../../hooks/useCatalogPagination';
+import { api } from '../../../api/apiClient';
+import { normalizePurchaseReturn } from '../../../hooks/useReturns';
 import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import Card from '../../UI/Card';
@@ -32,10 +35,6 @@ const getReturnTotal = (r: Record<string, unknown>) => {
 const APDebitNoteListPane = (): React.ReactElement => {
     const { canCreate, canEdit } = useModulePermissions('ap_debits');
     const { open } = useWorkspaceNav();
-    const { data: dnData } = useDebitNotes();
-    const debitNotes = useMemo(() => dnData?.data ?? [], [dnData?.data]);
-    const { data: prData } = usePurchaseReturns();
-    const purchaseReturns = useMemo(() => prData?.data ?? [], [prData?.data]);
     const voidDebitNote = useVoidDebitNote();
     const voidPurchaseReturn = useVoidPurchaseReturn();
     const company = useSettingsStore((s) => s.companyInfo);
@@ -44,6 +43,12 @@ const APDebitNoteListPane = (): React.ReactElement => {
     const [searchTerm, setSearchTerm] = useState('');
     const [settlementType, setSettlementType] = useState('');
     const [activeCatalogTab, setActiveCatalogTab] = useState('debits');
+    const paging = useCatalogPagination({ search: searchTerm.trim(), settlementType, catalog: activeCatalogTab });
+    const { catalog: _catalog, settlementType: _settlement, ...pageQuery } = paging.query;
+    const { data: dnData, isFetching: notesFetching, error: notesError } = useDebitNotes({ ...pageQuery, settlementType: settlementType ? (settlementType === 'Refund from Vendor' ? 'REFUND_FROM_VENDOR' : 'APPLY_TO_BILL') : '' });
+    const { data: prData, isFetching: returnsFetching, error: returnsError } = usePurchaseReturns(pageQuery);
+    const debitNotes = useMemo(() => dnData?.data ?? [], [dnData?.data]);
+    const purchaseReturns = useMemo(() => prData?.data ?? [], [prData?.data]);
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const [printDoc, setPrintDoc] = useState<{ title: string; partyLabel: string; partyName?: string; document: Record<string, unknown>; lineItems: ReturnLine[]; subtotal: number; taxAmount: number; total: number } | null>(null);
 
@@ -55,24 +60,25 @@ const APDebitNoteListPane = (): React.ReactElement => {
     const editDebit = (id: string) => open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `debit:${id}`, mode: 'edit' }, title: `Edit ${id}`, path: `/ap/debits/edit?debitId=${id}` });
     const newReturn = () => open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: null, mode: 'create' }, title: 'New purchase return', path: '/ap/returns/new', unique: true });
 
-    const queuePrintDebit = (id: string) => {
+    const queuePrintDebit = async (id: string) => {
         const debit = debitNotes.find((d) => d.id === id); if (!debit) return;
-        const lines = ((purchaseReturns.find((r) => r.id === debit.returnId)?.lines) as ReturnLine[] | undefined) || [];
+        let lines: ReturnLine[] = [];
+        if (debit.returnId) {
+            try {
+                const linkedReturn = await api.get<Parameters<typeof normalizePurchaseReturn>[0]>(`/api/v1/purchase-returns/${debit.returnId}`);
+                lines = normalizePurchaseReturn(linkedReturn).lines as ReturnLine[];
+            } catch (error) {
+                window.alert(error instanceof Error ? error.message : 'Unable to load return for printing');
+                return;
+            }
+        }
         const subtotal = lineSubtotal(lines); const total = Number(debit.amount || 0);
         setPrintDoc({ title: 'DEBIT NOTE', partyLabel: 'Vendor', partyName: debit.vendorName, document: { number: debit.number, date: debit.date, status: debit.status, reference: debit.sourceBillNumber }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total });
         setIsPrintOpen(true);
     };
 
-    const filteredDebits = useMemo(() => debitNotes.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        const matchesSearch = item.vendorName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw)
-            || item.sourceBillNumber.toLowerCase().includes(kw) || item.returnNumber.toLowerCase().includes(kw);
-        return matchesSearch && (settlementType ? item.settlementType === settlementType : true);
-    }), [searchTerm, settlementType, debitNotes]);
-    const filteredReturns = useMemo(() => purchaseReturns.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        return item.vendorName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw) || item.billNumber.toLowerCase().includes(kw);
-    }), [searchTerm, purchaseReturns]);
+    const filteredDebits = debitNotes;
+    const filteredReturns = purchaseReturns;
 
     const debitColumns = [
         { key: 'number', label: 'Debit Note #' },
@@ -121,7 +127,7 @@ const APDebitNoteListPane = (): React.ReactElement => {
                 subtitle="Debit notes and purchase returns issued to vendors."
                 actions={
                     <div className="flex gap-2">
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="New Purchase Return" size="small" onClick={newReturn} />}
                     </div>
                 }
@@ -139,9 +145,9 @@ const APDebitNoteListPane = (): React.ReactElement => {
             />
             <Card padding={false}>
                 {activeCatalogTab === 'debits' ? (
-                    <Table columns={debitColumns as TableColumn<Record<string, unknown>>[]} data={filteredDebits as unknown as Record<string, unknown>[]} onRowClick={(row) => openDebit(row['id'] as string)} showCount countLabel="debit notes" />
+                    <Table error={activeCatalogTab === 'debits' ? notesError : returnsError} pagination={{ ...paging, total: activeCatalogTab === 'debits' ? dnData?.total : prData?.total, busy: activeCatalogTab === 'debits' ? notesFetching || !!notesError : returnsFetching || !!returnsError }} columns={debitColumns as TableColumn<Record<string, unknown>>[]} data={filteredDebits as unknown as Record<string, unknown>[]} onRowClick={(row) => openDebit(row['id'] as string)} showCount countLabel="debit notes" />
                 ) : (
-                    <Table columns={returnColumns as TableColumn<Record<string, unknown>>[]} data={filteredReturns as unknown as Record<string, unknown>[]} onRowClick={(row) => openReturn(row['id'] as string)} showCount countLabel="purchase returns" />
+                    <Table error={activeCatalogTab === 'debits' ? notesError : returnsError} pagination={{ ...paging, total: activeCatalogTab === 'debits' ? dnData?.total : prData?.total, busy: activeCatalogTab === 'debits' ? notesFetching || !!notesError : returnsFetching || !!returnsError }} columns={returnColumns as TableColumn<Record<string, unknown>>[]} data={filteredReturns as unknown as Record<string, unknown>[]} onRowClick={(row) => openReturn(row['id'] as string)} showCount countLabel="purchase returns" />
                 )}
             </Card>
 

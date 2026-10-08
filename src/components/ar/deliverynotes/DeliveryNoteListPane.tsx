@@ -1,5 +1,6 @@
 // src/components/ar/deliverynotes/DeliveryNoteListPane.tsx
 // Delivery Notes catalog. The only such list — the pre-workspace duplicate is gone.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import FilterBar from '../../UI/FilterBar';
 import Card from '../../UI/Card';
@@ -24,7 +25,8 @@ const DeliveryNoteListPane = (): React.ReactElement => {
     const { open } = useWorkspaceNav();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
-    const { data: dnResult, isLoading } = useDeliveryNotes({});
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: catalogStatus(statusFilter) });
+    const { data: dnResult, isLoading, isFetching, error } = useDeliveryNotes(paging.query);
     const notes = useMemo<DeliveryNote[]>(() => dnResult?.data ?? [], [dnResult?.data]);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -34,14 +36,7 @@ const DeliveryNoteListPane = (): React.ReactElement => {
 
     const openNew = () => open({ kind: 'doc-form', target: { module: 'ar', entity: 'delivery-note', recordId: null, mode: 'create' }, title: 'New delivery note', path: '/ar/delivery-notes/new', unique: true });
 
-    const filtered = useMemo(() => {
-        const kw = searchTerm.toLowerCase();
-        return notes.filter((n) => {
-            const matchesSearch = (n.id || '').toLowerCase().includes(kw) || (n.salesOrderNumber || '').toLowerCase().includes(kw) || (n.customerName || '').toLowerCase().includes(kw);
-            const matchesStatus = statusFilter ? n.status === statusFilter : true;
-            return matchesSearch && matchesStatus;
-        });
-    }, [notes, searchTerm, statusFilter]);
+    const filtered = notes;
 
     const columns: TableColumn<Record<string, unknown>>[] = [
         { key: 'id', label: 'Number', sortable: true },
@@ -68,7 +63,7 @@ const DeliveryNoteListPane = (): React.ReactElement => {
             subtitle="Track goods dispatched to customers."
             actions={
                 <div className="flex items-center gap-2">
-                    <button className="btn btn-secondary flex items-center gap-1" title="Export CSV" onClick={handleExportCsv}><Download size={16} /><span className="hidden sm:inline">Export</span></button>
+                    <button className="btn btn-secondary flex items-center gap-1" title="Export current page as CSV" onClick={handleExportCsv}><Download size={16} /><span className="hidden sm:inline">Export</span></button>
                     <Button text="New Delivery Note" variant="primary" icon={<Plus size={16} />} disabled={!canCreate} onClick={openNew} />
                 </div>
             }
@@ -90,7 +85,7 @@ const DeliveryNoteListPane = (): React.ReactElement => {
             />
 
             <Card padding={false}>
-                <Table columns={columns} data={filtered as unknown as Record<string, unknown>[]} isLoading={isLoading} loadingLabel="Loading delivery notes..." showCount countLabel="delivery notes" />
+                <Table error={error} pagination={{ ...paging, total: dnResult?.total, busy: isFetching || !!error }} columns={columns} data={filtered as unknown as Record<string, unknown>[]} isLoading={isLoading} loadingLabel="Loading delivery notes..." showCount countLabel="delivery notes" />
             </Card>
 
             <PrintPreviewModal isOpen={isPrintOpen} onClose={() => setIsPrintOpen(false)} title="Delivery Note Print Preview" documentTitle={`DeliveryNote_${activePrintNote?.number || activePrintNote?.id || ''}`} defaultPaperSize={printSettings.defaultPaperSize}>

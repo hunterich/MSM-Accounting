@@ -180,7 +180,7 @@ export function usePositions() {
 export function useAttendance(filters: Record<string, unknown> = {}) {
     return useQuery({
         queryKey: [...HR_KEYS.attendance, filters],
-        queryFn: () => api.get<ListResponse<any>>('/api/v1/attendance', filters),
+        queryFn: () => api.get<ListResponse<any> & { summary?: { total: number; present: number; absent: number; late: number; sick: number; leave: number }; dates?: Record<string, number> }>('/api/v1/attendance', filters),
         staleTime: 30_000,
     });
 }

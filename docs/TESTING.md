@@ -239,3 +239,32 @@ The subsequent reporting pass also passed 37 database tests across ten suites,
 including the new reconciliation cases, all 1,134 local unit tests, both
 TypeScript checks, and the same 16 accounting/POS browser journeys. Existing
 posted-data problems are flagged for review rather than rewritten automatically.
+
+## Automatic billing and finance notifications — 2026-10-08
+
+The isolated PostgreSQL billing/notification pass covered concurrent recurring
+generation, repeated-run de-duplication, draft posting safety, inactive administrator
+rejection, expired templates, recurring/subscription approval regressions,
+settlement-adjusted reminders, finance routing, checkpoint catch-up, concurrent
+outbox leases, failure/retry idempotency, disabled-setting cancellation, missing
+provider configuration and uncertain old delivery suppression. Email tests inject
+a mock sender; no real emails were sent. Calendar/scheduler unit tests cover
+Jakarta midnight, month-end/leap-day clamping, explicit opt-in, build suppression,
+company feature toggles and isolated job failures.
+
+Run the focused suites:
+
+```powershell
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts business-billing finance-notifications recurring-approval subscription-approval --configLoader runner
+node node_modules/vitest/vitest.mjs run lib/__tests__/billing-calendar.test.ts lib/__tests__/business-automation-scheduler.test.ts --configLoader runner
+```
+
+Full browser billing/approval journeys and actual provider delivery remain release
+checks. Enablement/monitoring: `docs/BUSINESS-AUTOMATION.md`. Isolated whole-system
+restore remains pending: `docs/RECOVERY-DRILL.md`.
+
+Final source verification: 1,154 unit tests and 19 focused PostgreSQL tests passed;
+both TypeScript projects and frontend/backend production builds passed. The
+frontend build reports existing static/dynamic import chunking warnings. The
+database migration was applied only to a disposable QA container. No production
+migrations, scheduler enablement, real email sends or recovery restore were performed.

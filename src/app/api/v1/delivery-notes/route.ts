@@ -50,6 +50,12 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   if (salesOrderId) where.salesOrderId = salesOrderId;
   if (status) where.status = status.toUpperCase();
 
+  const search = searchParams.get('search');
+  if (search) where.OR = [
+    { number: { contains: search, mode: 'insensitive' } },
+    { salesOrder: { number: { contains: search, mode: 'insensitive' } } },
+    { salesOrder: { customerName: { contains: search, mode: 'insensitive' } } },
+  ];
   const [data, total] = await Promise.all([
     prisma.deliveryNote.findMany({
       where,
@@ -64,7 +70,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
         warehouse: { select: { id: true, name: true } },
         _count: { select: { lines: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * limit,
       take: limit,
     }),

@@ -57,7 +57,7 @@ const DN_STATUS_UP:   Record<string, string>           = { Draft: 'DRAFT', Appli
 
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
-function normalizeSalesReturn(raw: RawSalesReturn): SalesReturn {
+export function normalizeSalesReturn(raw: RawSalesReturn): SalesReturn {
   return {
     id:              raw.id,
     number:          raw.number || '',
@@ -95,7 +95,7 @@ function normalizeSalesReturn(raw: RawSalesReturn): SalesReturn {
   };
 }
 
-function normalizePurchaseReturn(raw: RawPurchaseReturn): PurchaseReturn {
+export function normalizePurchaseReturn(raw: RawPurchaseReturn): PurchaseReturn {
   return {
     id:              raw.id,
     number:          raw.number || '',

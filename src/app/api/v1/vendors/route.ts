@@ -67,7 +67,9 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const categoryId = searchParams.get('categoryId');
 
   const where: any = { organizationId: orgId };
-  where.status = status || 'ACTIVE';
+  if (status !== 'ALL') where.status = status || 'ACTIVE';
+  const category = searchParams.get('category');
+  if (category) where.AND = [{ OR: [{ category }, { vendorCategory: { name: category } }] }];
   if (categoryId) where.categoryId = categoryId;
   if (search) where.OR = [
     { name:  { contains: search, mode: 'insensitive' } },
@@ -80,7 +82,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const [data, total] = await Promise.all([
     prisma.vendor.findMany({
       where, skip: (page - 1) * limit, take: limit,
-      orderBy: { name: 'asc' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
       include: {
         vendorCategory: {
           select: { id: true, name: true, code: true, defaultPaymentTerms: true, defaultApAccountId: true },

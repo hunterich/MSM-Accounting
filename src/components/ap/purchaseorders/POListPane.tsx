@@ -2,6 +2,7 @@
 // Purchase Orders catalog. views/ap/PurchaseOrders.tsx still exists but only
 // serves /ap/receiving (Receive goods), which is a page module.
 // POs have no separate detail — View/Edit open POFormV2 as a tab.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
@@ -27,14 +28,15 @@ const POListPane = (): React.ReactElement => {
     const queryClient = useQueryClient();
     const { canCreate, canEdit } = useModulePermissions('ap_pos');
     const { open } = useWorkspaceNav();
-    const { data: posResult, isLoading } = usePurchaseOrders();
-    const purchaseOrders = useMemo(() => posResult?.data ?? [], [posResult?.data]);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [status, setStatus] = useState('');
     const [dateRange, setDateRange] = useState<{ from: string; to: string }>({ from: '', to: '' });
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: catalogStatus(status), dateFrom: dateRange.from, dateTo: dateRange.to });
+    const { data: posResult, isLoading, isFetching, error } = usePurchaseOrders(paging.query);
+    const purchaseOrders = useMemo(() => posResult?.data ?? [], [posResult?.data]);
     const [printPoId, setPrintPoId] = useState('');
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [toast, setToast] = useState('');
@@ -48,15 +50,7 @@ const POListPane = (): React.ReactElement => {
     const openForm = (id: string) => open({ kind: 'doc-form', target: { module: 'ap', entity: 'purchase-order', recordId: id, mode: 'edit' }, title: id, path: `/ap/pos/edit?poId=${id}&mode=view` });
     const openNew = () => open({ kind: 'doc-form', target: { module: 'ap', entity: 'purchase-order', recordId: null, mode: 'create' }, title: 'New PO', path: '/ap/pos/new', unique: true });
 
-    const filteredData = useMemo(() => purchaseOrders.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        const matchesSearch = (item.id || '').toLowerCase().includes(kw) || (item.vendorName || '').toLowerCase().includes(kw);
-        const matchesStatus = status ? item.status === status : true;
-        let matchesDate = true;
-        if (dateRange.from) matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
-        if (dateRange.to) matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
-        return matchesSearch && matchesStatus && matchesDate;
-    }), [purchaseOrders, searchTerm, status, dateRange]);
+    const filteredData = purchaseOrders;
 
     const activePrintPo = purchaseOrders.find((po) => po.id === printPoId) || null;
     // The purchase orders list already includes its lines, so the printout is
@@ -173,7 +167,7 @@ const POListPane = (): React.ReactElement => {
                 subtitle="Vendor orders, receipts, and approval status."
                 actions={
                     <div className="flex gap-2">
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="New PO" size="small" onClick={openNew} />}
                     </div>
                 }
@@ -213,7 +207,7 @@ const POListPane = (): React.ReactElement => {
             />
 
             <Card padding={false}>
-                <Table columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openForm(row['id'] as string)} showCount countLabel="orders" isLoading={isLoading} loadingLabel="Loading purchase orders..." />
+                <Table error={error} pagination={{ ...paging, total: posResult?.total, busy: isFetching || !!error }} columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openForm(row['id'] as string)} showCount countLabel="orders" isLoading={isLoading} loadingLabel="Loading purchase orders..." />
             </Card>
 
             <PrintPreviewModal isOpen={isPreviewOpen} onClose={() => setIsPreviewOpen(false)} title="Purchase Order Print Preview" documentTitle={`PurchaseOrder_${activePrintPo?.id || ''}`} defaultPaperSize={printSettings.defaultPaperSize}>

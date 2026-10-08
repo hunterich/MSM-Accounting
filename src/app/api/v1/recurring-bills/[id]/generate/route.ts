@@ -1,3 +1,6 @@
+import { nextNumber } from '@/lib/api-utils';
+import { advisoryLockKey } from '@/lib/advisory-lock';
+import { nextRecurringDate } from '@/lib/billing-calendar';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
@@ -22,35 +25,7 @@ export async function OPTIONS() {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function calcNextRunDate(current: Date, frequency: string, dayOfMonth?: number | null): Date {
-  const d = new Date(current);
-  switch (frequency) {
-    case 'DAILY':   d.setDate(d.getDate() + 1); break;
-    case 'WEEKLY':  d.setDate(d.getDate() + 7); break;
-    case 'MONTHLY': {
-      d.setMonth(d.getMonth() + 1);
-      if (dayOfMonth) {
-        const dom = Math.min(dayOfMonth, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate());
-        d.setDate(dom);
-      }
-      break;
-    }
-    case 'QUARTERLY': d.setMonth(d.getMonth() + 3); break;
-    case 'ANNUAL':    d.setFullYear(d.getFullYear() + 1); break;
-  }
-  return d;
-}
-
 // FNV-1a 32-bit hash for advisory lock IDs
-function fnv1aHash(input: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = (hash * 0x01000193) >>> 0;
-  }
-  return hash || 1;
-}
-
 // ─── Route ───────────────────────────────────────────────────────────────────
 
 export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
@@ -64,6 +39,7 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
   const { id } = await ctx.params;
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey('recurring-bill:' + id)})`;
     // 1. Load template with lines and vendor
     const template = await tx.recurringBill.findFirst({
       where: { id, organizationId: orgId },
@@ -81,17 +57,7 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
     }
     await assertItemsActive(tx, orgId, template.lines.map((line) => line.itemId));
 
-    // 3. Generate sequential bill number with advisory lock
-    const lockKey = fnv1aHash(`bill-seq:${orgId}`);
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-
-    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-      SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max
-      FROM "Bill"
-      WHERE "organizationId" = ${orgId}
-    `;
-    const nextSeq = (Number(rows[0]?.max ?? 0)) + 1;
-    const billNumber = `BILL-${String(nextSeq).padStart(5, '0')}`;
+    const billNumber = await nextNumber(tx, 'Bill', 'number', 'BILL');
 
     // 4. Compute totals
     const taxRate = Number(template.taxRate);
@@ -200,7 +166,7 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
     }
 
     // 7. Calculate next nextRunDate
-    const newNextRunDate = calcNextRunDate(
+    const newNextRunDate = nextRecurringDate(
       new Date(template.nextRunDate),
       template.frequency,
       template.dayOfMonth,

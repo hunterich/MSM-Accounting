@@ -1,5 +1,6 @@
 // src/components/banking/BankingListPane.tsx
 // Banking catalog. The only Banking list — the pre-workspace duplicate is gone.
+import { useCatalogPagination, catalogStatus } from '../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, ArrowRightLeft, TrendingDown, TrendingUp, Download } from 'lucide-react';
@@ -29,24 +30,14 @@ const BankingListPane = (): React.ReactElement => {
     const [statusFilter, setStatusFilter] = useState('');
     const [dateRange, setDateRange] = useState<{ from: string; to: string }>({ from: '', to: '' });
 
-    const txnFilters = useMemo(() => (selectedAccountId ? { bankAccountId: selectedAccountId } : {}), [selectedAccountId]);
-    const { data: txnResult, isLoading: txnsLoading } = useBankTransactions(txnFilters);
+    const paging = useCatalogPagination({ bankAccountId: selectedAccountId, search: searchTerm.trim(), status: catalogStatus(statusFilter), dateFrom: dateRange.from, dateTo: dateRange.to });
+    const { data: txnResult, isLoading: txnsLoading, isFetching, error } = useBankTransactions(paging.query);
     const allTransactions = useMemo(() => (txnResult?.data ?? []) as BankTransaction[], [txnResult?.data]);
 
     const selectedAccount = useMemo(() => bankAccounts.find((a) => a.id === selectedAccountId) || null, [bankAccounts, selectedAccountId]);
     const totalBalance = useMemo(() => bankAccounts.reduce((s, a) => s + (a.balance || 0), 0), [bankAccounts]);
 
-    const filteredTransactions = useMemo(() => {
-        const kw = searchTerm.toLowerCase();
-        return allTransactions.filter((txn) => {
-            const matchesSearch = txn.description.toLowerCase().includes(kw) || txn.id.toLowerCase().includes(kw) || (txn.reference || '').toLowerCase().includes(kw);
-            const matchesStatus = statusFilter ? txn.status === statusFilter : true;
-            let matchesDate = true;
-            if (dateRange.from) matchesDate = matchesDate && new Date(txn.date) >= new Date(dateRange.from);
-            if (dateRange.to) matchesDate = matchesDate && new Date(txn.date) <= new Date(dateRange.to);
-            return matchesSearch && matchesStatus && matchesDate;
-        });
-    }, [allTransactions, searchTerm, statusFilter, dateRange]);
+    const filteredTransactions = allTransactions;
     const unmatchedCount = useMemo(() => filteredTransactions.filter((t) => t.status === 'Unmatched').length, [filteredTransactions]);
 
     const openView = (id: string) => { const t = allTransactions.find((x) => x.id === id); open({ kind: 'doc-view', target: { module: 'banking', entity: 'transaction', recordId: id, mode: 'view' }, title: t ? (t.reference || t.id) : id, path: `/banking?txnId=${id}` }); };
@@ -83,7 +74,7 @@ const BankingListPane = (): React.ReactElement => {
                 subtitle="Manage bank accounts, transactions, and reconciliation."
                 actions={
                     <div className="flex gap-2">
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <>
                             <Button text="Payment" size="small" variant="secondary" icon={<TrendingDown size={15} />} onClick={() => openNew('expense', 'New payment', '/banking/payment')} />
                             <Button text="Receive" size="small" variant="secondary" icon={<TrendingUp size={15} />} onClick={() => openNew('income', 'New receipt', '/banking/receive')} />
@@ -127,7 +118,7 @@ const BankingListPane = (): React.ReactElement => {
 
             {unmatchedCount > 0 && (
                 <div className="banking-reconcile-banner">
-                    <strong>{unmatchedCount} unmatched transaction{unmatchedCount > 1 ? 's' : ''}</strong>{' '}need to be reviewed{selectedAccount ? ` in ${selectedAccount.name}` : ''}.{' '}
+                    <strong>{unmatchedCount} unmatched transaction{unmatchedCount > 1 ? 's' : ''}</strong>{' '}on this page need to be reviewed{selectedAccount ? ` in ${selectedAccount.name}` : ''}.{' '}
                     <Link to="/banking/reconciliation" className="font-semibold text-warning-900 underline">Review in Reconciliation →</Link>
                 </div>
             )}
@@ -163,7 +154,7 @@ const BankingListPane = (): React.ReactElement => {
             />
 
             <Card padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: txnResult?.total, busy: isFetching || !!error }}
                     columns={transactionColumns as TableColumn<Record<string, unknown>>[]}
                     data={filteredTransactions as unknown as Record<string, unknown>[]}
                     onRowClick={(row) => openView(row['id'] as string)}

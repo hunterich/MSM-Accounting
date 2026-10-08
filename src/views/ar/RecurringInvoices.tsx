@@ -1,3 +1,4 @@
+import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, RefreshCw, Pause, Play, Edit2, StopCircle, Trash2, X, Download } from 'lucide-react';
@@ -107,9 +108,10 @@ const RecurringInvoices: React.FC = () => {
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
-    const { data: listData, isLoading } = useQuery<{ data: RecurringInvoice[] }>({
-        queryKey: ['recurringInvoices'],
-        queryFn: () => api.get('/api/v1/recurring-invoices'),
+    const paging = useCatalogPagination({});
+    const { data: listData, isLoading, isFetching, error } = useQuery<{ data: RecurringInvoice[]; total: number }>({
+        queryKey: ['recurringInvoices', paging.query],
+        queryFn: () => api.get('/api/v1/recurring-invoices', paging.query),
     });
 
     const { data: customersData } = useQuery<{ data: CustomerOption[] }>({
@@ -356,7 +358,7 @@ const RecurringInvoices: React.FC = () => {
             {/* Toolbar */}
             <div className="flex items-center justify-end gap-2 mb-4">
                 <Button
-                    text="Export CSV"
+                    text="Export page CSV"
                     size="small"
                     variant="secondary"
                     icon={<Download size={16} />}
@@ -385,7 +387,7 @@ const RecurringInvoices: React.FC = () => {
 
             {/* List table */}
             <Card padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: listData?.total, busy: isFetching || !!error }}
                     columns={columns}
                     data={recurringInvoices as unknown as Record<string, unknown>[]}
                     isLoading={isLoading}

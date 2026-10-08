@@ -28,10 +28,22 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   if (status)   where.status   = status;
   if (vendorId) where.vendorId = vendorId;
 
+  const search = searchParams.get('search');
+  if (search) where.OR = [
+    { number: { contains: search, mode: 'insensitive' } },
+    { vendor: { name: { contains: search, mode: 'insensitive' } } },
+    { allocations: { some: { bill: { number: { contains: search, mode: 'insensitive' } } } } },
+  ];
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  if (dateFrom || dateTo) where.date = {
+    ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+    ...(dateTo ? { lt: new Date(new Date(dateTo).getTime() + 86400000) } : {}),
+  };
   const [data, total] = await Promise.all([
     prisma.aPPayment.findMany({
       where, skip: (page - 1) * limit, take: limit,
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include: { vendor: { select: { id: true, name: true, code: true } } },
     }),
     prisma.aPPayment.count({ where }),

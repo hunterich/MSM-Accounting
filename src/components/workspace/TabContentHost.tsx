@@ -19,7 +19,7 @@ const TabContentHost = (): React.ReactElement => {
     // element over the (still mounted, hidden) tabs so nothing is lost.
     const tabless = isTablessPath(location.pathname);
     const tablessOutlet = tabless ? (
-        <div key="__tabless" className="h-full">
+        <div key="__tabless" className="h-full min-h-0 overflow-y-auto">
             <ErrorBoundary fallback={PageErrorFallback}><Outlet /></ErrorBoundary>
         </div>
     ) : null;
@@ -41,7 +41,7 @@ const TabContentHost = (): React.ReactElement => {
                 // one <Outlet/>, so only the active page tab renders (no keep-alive).
                 if (tab.target.module === 'page') {
                     return isActive && !tabless ? (
-                        <div key={tab.id} className="h-full">
+                        <div key={tab.id} className="h-full min-h-0 overflow-y-auto">
                             <ErrorBoundary fallback={PageErrorFallback}><Outlet /></ErrorBoundary>
                         </div>
                     ) : null;
@@ -53,7 +53,7 @@ const TabContentHost = (): React.ReactElement => {
                 const needs = tabViewPermission(tab);
                 const denied = needs !== null && !hasPermission(needs, 'view');
                 return (
-                    <div key={tab.id} hidden={!isActive || tabless} className="h-full">
+                    <div key={tab.id} hidden={!isActive || tabless} className="h-full min-h-0 overflow-y-auto">
                         <ErrorBoundary fallback={PageErrorFallback}>
                             {denied ? (
                                 <div className="p-10 text-center text-sm text-neutral-600">

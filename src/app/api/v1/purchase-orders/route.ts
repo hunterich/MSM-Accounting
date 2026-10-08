@@ -36,7 +36,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   if (dateFrom || dateTo) {
     where.date = {
       ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-      ...(dateTo   ? { lte: new Date(dateTo)   } : {}),
+      ...(dateTo   ? { lt: new Date(new Date(dateTo).getTime() + 86400000) } : {}),
     };
   }
   if (vendorId) where.vendorId = vendorId;
@@ -44,7 +44,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const [data, total] = await Promise.all([
     prisma.purchaseOrder.findMany({
       where, skip: (page - 1) * limit, take: limit,
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include: { vendor: { select: { id: true, name: true, code: true } }, lines: true },
     }),
     prisma.purchaseOrder.count({ where }),

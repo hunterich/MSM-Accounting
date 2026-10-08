@@ -1,3 +1,4 @@
+import { useCatalogPagination, catalogStatus } from '../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { List, Plus, Search, Download } from 'lucide-react';
@@ -7,7 +8,7 @@ import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import StatusTag from '../../components/UI/StatusTag';
 import { formatIDR } from '../../utils/formatters';
-import { useEmployees } from '../../hooks/useHR';
+import { useEmployees, useDepartments } from '../../hooks/useHR';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 
 interface EmployeeFilters {
@@ -18,28 +19,16 @@ interface EmployeeFilters {
 const Employees = () => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('hr_employees');
-    const { data: empResult, isLoading } = useEmployees();
-    const employeeList = empResult?.data ?? [];
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filters, setFilters] = useState<EmployeeFilters>({ department: '', status: '' });
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: filters.status ? catalogStatus(filters.status) : 'ALL', department: filters.department });
+    const { data: empResult, isLoading, isFetching, error } = useEmployees(paging.query);
+    const employeeList = empResult?.data ?? [];
 
-    // Build department list dynamically from API data (department.name already flattened)
-    const departments = useMemo(() => {
-        return Array.from(new Set(employeeList.map((e) => e.department).filter(Boolean))).sort() as string[];
-    }, [employeeList]);
+    const { data: departmentList = [] } = useDepartments();
+    const departments = departmentList.map(d => d.name).sort();
 
-    const filteredData = useMemo(() => {
-        const keyword = searchTerm.trim().toLowerCase();
-
-        return employeeList.filter((employee) => {
-            const matchesSearch =
-                employee.name.toLowerCase().includes(keyword) ||
-                (employee.employeeNo || '').toLowerCase().includes(keyword);
-            const matchesDepartment = filters.department ? employee.department === filters.department : true;
-            const matchesStatus = filters.status ? employee.status === filters.status : true;
-            return matchesSearch && matchesDepartment && matchesStatus;
-        });
-    }, [employeeList, filters, searchTerm]);
+    const filteredData = employeeList;
 
     const columns = [
         { key: 'employeeNo', label: 'Employee ID' },
@@ -101,7 +90,7 @@ const Employees = () => {
                     </button>
                     <button
                         className="btn btn-secondary flex items-center gap-1"
-                        title="Export CSV"
+                        title="Export current page as CSV"
                         onClick={() => {
                             const rows = filteredData.map((emp) => ({
                                 employeeNo: emp.employeeNo || '',
@@ -164,7 +153,7 @@ const Employees = () => {
             </div>
 
             <Card padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: empResult?.total, busy: isFetching || !!error }}
                     columns={columns as TableColumn<Record<string, unknown>>[]}
                     data={filteredData as unknown as Record<string, unknown>[]}
                     onRowClick={(row) => navigate(`/hr/employees/edit?employeeId=${row['id'] as string}&mode=view`)}

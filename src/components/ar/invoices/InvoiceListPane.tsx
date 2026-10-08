@@ -1,5 +1,5 @@
 // src/components/ar/invoices/InvoiceListPane.tsx
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Upload } from 'lucide-react';
 import InvoiceCatalogPanel from './InvoiceCatalogPanel';
 import InvoicePrintPreview from './InvoicePrintPreview';
@@ -10,7 +10,7 @@ import { useInvoices } from '../../../hooks/useAR';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePermissions';
 
-interface InvoiceFilters { searchTerm: string; status: string; dateFrom: string; dateTo: string }
+import { invoiceListQuery, type InvoiceFilters } from './invoiceListQuery';
 
 const InvoiceListPane = (): React.ReactElement => {
     const { canEdit, canCreate } = useModulePermissions('ar_invoices');
@@ -19,27 +19,22 @@ const InvoiceListPane = (): React.ReactElement => {
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [printInvoiceId, setPrintInvoiceId] = useState<string | null>(null);
     const [filters, setFilters] = useState<InvoiceFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
+    const [page, setPage] = useState(1);
+    const [limit, setLimit] = useState(20);
     // Read from the same source the form writes to (the invoices API via React
     // Query), so seeded + just-saved invoices both appear here and can be
     // opened as tabs.
-    const { data: invoicesResult, isLoading } = useInvoices(filters.searchTerm ? { search: filters.searchTerm } : {});
-    const invoices = useMemo(() => invoicesResult?.data ?? [], [invoicesResult?.data]);
-
-    const filteredData = useMemo(() => invoices.filter((item) => {
-        const keyword = filters.searchTerm.toLowerCase();
-        const dateField = item.issueDate || item.date;
-        const matchesSearch = (item.customerName || '').toLowerCase().includes(keyword)
-            || item.id.toLowerCase().includes(keyword)
-            || (item.number || '').toLowerCase().includes(keyword)
-            || (item.poNumber || '').toLowerCase().includes(keyword)
-            || (item.trackingNumber || '').toLowerCase().includes(keyword)
-            || (item.shippingCarrier || '').toLowerCase().includes(keyword);
-        const matchesStatus = filters.status ? item.status === filters.status : true;
-        let matchesDate = true;
-        if (filters.dateFrom) matchesDate = matchesDate && new Date(dateField) >= new Date(filters.dateFrom);
-        if (filters.dateTo) matchesDate = matchesDate && new Date(dateField) <= new Date(filters.dateTo);
-        return matchesSearch && matchesStatus && matchesDate;
-    }), [filters, invoices]);
+    const { data: invoicesResult, isLoading, isFetching, error, refetch } = useInvoices(invoiceListQuery(filters, page, limit));
+    const invoices = invoicesResult?.data ?? [];
+    const total = invoicesResult?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    useEffect(() => {
+        if (invoicesResult && page > totalPages) setPage(totalPages);
+    }, [invoicesResult, page, totalPages]);
+    const changeFilter = (key: keyof InvoiceFilters, value: string) => {
+        setFilters((previous) => ({ ...previous, [key]: value }));
+        setPage(1);
+    };
 
     // Invoice ids are cuids; the human-facing label is the invoice number.
     const labelFor = (invoiceId: string) => invoices.find((inv) => inv.id === invoiceId)?.number || invoiceId;
@@ -63,7 +58,8 @@ const InvoiceListPane = (): React.ReactElement => {
     };
 
     return (
-        <div className="container ar-module container-full-width">
+        <div className="container ar-module container-full-width flex h-full min-h-0 flex-col">
+            <div className="shrink-0">
             <PageHeader
                 title="Invoices"
                 subtitle="Create, send, and track customer invoices."
@@ -71,14 +67,20 @@ const InvoiceListPane = (): React.ReactElement => {
                     <Button text="Import" size="small" variant="secondary" icon={<Upload size={16} />} onClick={() => setIsImportOpen(true)} />
                 ) : undefined}
             />
+            </div>
+            {error && <div role="alert" className="shrink-0 p-2 text-sm text-danger-600">
+                Unable to load invoices. <button type="button" className="underline" onClick={() => void refetch()}>Retry</button>
+            </div>}
             <InvoiceCatalogPanel
-                data={filteredData as unknown as { id: string; [key: string]: unknown }[]}
+                data={invoices as unknown as { id: string; [key: string]: unknown }[]}
                 isLoading={isLoading}
                 selectedId=""
                 filters={filters as unknown as { searchTerm: string; status: string; dateFrom: string; dateTo: string; [key: string]: string }}
-                onSearchChange={(searchTerm) => setFilters((p) => ({ ...p, searchTerm }))}
-                onFilterChange={(key, value) => setFilters((p) => ({ ...p, [key]: value }))}
-                onDateRangeChange={(key, value) => setFilters((p) => ({ ...p, [key]: value }))}
+                onSearchChange={(value) => changeFilter('searchTerm', value)}
+                onFilterChange={(_key, value) => changeFilter('status', value)}
+                onDateRangeChange={(key, value) => changeFilter(key as 'dateFrom' | 'dateTo', value)}
+                pagination={{ page, limit, total, busy: isFetching || Boolean(error), onPageChange: setPage,
+                    onLimitChange: (value) => { setLimit(value); setPage(1); } }}
                 onSelectInvoice={openView}
                 onViewInvoice={openView}
                 canEdit={canEdit}

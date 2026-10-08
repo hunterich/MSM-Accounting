@@ -1,6 +1,9 @@
 // src/components/ar/credits/CreditNoteListPane.tsx
 // Returns & Credits catalog. The only such list — the pre-workspace duplicate is gone.
 // Records open as doc-view tabs keyed by a composite recordId: `credit:ID` | `return:ID`.
+import { useCatalogPagination } from '../../../hooks/useCatalogPagination';
+import { api } from '../../../api/apiClient';
+import { normalizeSalesReturn } from '../../../hooks/useReturns';
 import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import Card from '../../UI/Card';
@@ -32,10 +35,6 @@ const getReturnTotal = (r: Record<string, unknown>) => {
 const CreditNoteListPane = (): React.ReactElement => {
     const { canCreate, canEdit } = useModulePermissions('ar_credits');
     const { open } = useWorkspaceNav();
-    const { data: cnData } = useCreditNotes();
-    const creditNotes = useMemo(() => cnData?.data ?? [], [cnData?.data]);
-    const { data: srData } = useSalesReturns();
-    const salesReturns = useMemo(() => srData?.data ?? [], [srData?.data]);
     const voidCreditNote = useVoidCreditNote();
     const voidSalesReturn = useVoidSalesReturn();
     const company = useSettingsStore((s) => s.companyInfo);
@@ -44,6 +43,12 @@ const CreditNoteListPane = (): React.ReactElement => {
     const [searchTerm, setSearchTerm] = useState('');
     const [settlementType, setSettlementType] = useState('');
     const [activeCatalogTab, setActiveCatalogTab] = useState('credits');
+    const paging = useCatalogPagination({ search: searchTerm.trim(), settlementType, catalog: activeCatalogTab });
+    const { catalog: _catalog, settlementType: _settlement, ...pageQuery } = paging.query;
+    const { data: cnData, isFetching: notesFetching, error: notesError } = useCreditNotes({ ...pageQuery, settlementType: settlementType ? (settlementType === 'Refund' ? 'REFUND' : 'APPLY_TO_INVOICE') : '' });
+    const { data: srData, isFetching: returnsFetching, error: returnsError } = useSalesReturns(pageQuery);
+    const creditNotes = useMemo(() => cnData?.data ?? [], [cnData?.data]);
+    const salesReturns = useMemo(() => srData?.data ?? [], [srData?.data]);
     const [isPrintOpen, setIsPrintOpen] = useState(false);
     const [printDoc, setPrintDoc] = useState<{ title: string; partyLabel: string; partyName?: string; document: Record<string, unknown>; lineItems: ReturnLine[]; subtotal: number; taxAmount: number; total: number } | null>(null);
 
@@ -55,24 +60,25 @@ const CreditNoteListPane = (): React.ReactElement => {
     const editCredit = (id: string) => open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `credit:${id}`, mode: 'edit' }, title: `Edit ${id}`, path: `/ar/credits/edit?creditId=${id}` });
     const newReturn = () => open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: null, mode: 'create' }, title: 'New sales return', path: '/ar/returns/new', unique: true });
 
-    const queuePrintCredit = (id: string) => {
+    const queuePrintCredit = async (id: string) => {
         const credit = creditNotes.find((c) => c.id === id); if (!credit) return;
-        const lines = ((salesReturns.find((r) => r.id === credit.returnId)?.lines) as ReturnLine[] | undefined) || [];
+        let lines: ReturnLine[] = [];
+        if (credit.returnId) {
+            try {
+                const linkedReturn = await api.get<Parameters<typeof normalizeSalesReturn>[0]>(`/api/v1/sales-returns/${credit.returnId}`);
+                lines = normalizeSalesReturn(linkedReturn).lines as ReturnLine[];
+            } catch (error) {
+                window.alert(error instanceof Error ? error.message : 'Unable to load return for printing');
+                return;
+            }
+        }
         const subtotal = lineSubtotal(lines); const total = Number(credit.amount || 0);
         setPrintDoc({ title: 'CREDIT NOTE', partyLabel: 'Customer', partyName: credit.customerName, document: { number: credit.number, date: credit.date, status: credit.status, reference: credit.sourceInvoiceNumber }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total });
         setIsPrintOpen(true);
     };
 
-    const filteredCredits = useMemo(() => creditNotes.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        const matchesSearch = item.customerName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw)
-            || item.sourceInvoiceNumber.toLowerCase().includes(kw) || item.returnNumber.toLowerCase().includes(kw);
-        return matchesSearch && (settlementType ? item.settlementType === settlementType : true);
-    }), [searchTerm, settlementType, creditNotes]);
-    const filteredReturns = useMemo(() => salesReturns.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        return item.customerName.toLowerCase().includes(kw) || item.number.toLowerCase().includes(kw) || item.invoiceNumber.toLowerCase().includes(kw);
-    }), [searchTerm, salesReturns]);
+    const filteredCredits = creditNotes;
+    const filteredReturns = salesReturns;
 
     const creditColumns = [
         { key: 'number', label: 'Credit Note #' },
@@ -121,7 +127,7 @@ const CreditNoteListPane = (): React.ReactElement => {
                 subtitle="Credit notes and sales returns issued to customers."
                 actions={
                     <div className="flex gap-2">
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="New Sales Return" size="small" onClick={newReturn} />}
                     </div>
                 }
@@ -139,9 +145,9 @@ const CreditNoteListPane = (): React.ReactElement => {
             />
             <Card padding={false}>
                 {activeCatalogTab === 'credits' ? (
-                    <Table columns={creditColumns as TableColumn<Record<string, unknown>>[]} data={filteredCredits as unknown as Record<string, unknown>[]} onRowClick={(row) => openCredit(row['id'] as string)} showCount countLabel="credit notes" />
+                    <Table error={activeCatalogTab === 'credits' ? notesError : returnsError} pagination={{ ...paging, total: activeCatalogTab === 'credits' ? cnData?.total : srData?.total, busy: activeCatalogTab === 'credits' ? notesFetching || !!notesError : returnsFetching || !!returnsError }} columns={creditColumns as TableColumn<Record<string, unknown>>[]} data={filteredCredits as unknown as Record<string, unknown>[]} onRowClick={(row) => openCredit(row['id'] as string)} showCount countLabel="credit notes" />
                 ) : (
-                    <Table columns={returnColumns as TableColumn<Record<string, unknown>>[]} data={filteredReturns as unknown as Record<string, unknown>[]} onRowClick={(row) => openReturn(row['id'] as string)} showCount countLabel="sales returns" />
+                    <Table error={activeCatalogTab === 'credits' ? notesError : returnsError} pagination={{ ...paging, total: activeCatalogTab === 'credits' ? cnData?.total : srData?.total, busy: activeCatalogTab === 'credits' ? notesFetching || !!notesError : returnsFetching || !!returnsError }} columns={returnColumns as TableColumn<Record<string, unknown>>[]} data={filteredReturns as unknown as Record<string, unknown>[]} onRowClick={(row) => openReturn(row['id'] as string)} showCount countLabel="sales returns" />
                 )}
             </Card>
 

@@ -1,5 +1,6 @@
 // src/components/inventory/stockcounts/StockCountListPane.tsx
 // Stock-count catalog. The only such list — the pre-workspace duplicate is gone.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import Card from '../../UI/Card';
 import Table, { TableColumn } from '../../UI/Table';
@@ -16,12 +17,13 @@ import { countStatusTag } from './stockCountStatus';
 const StockCountListPane = (): React.ReactElement => {
     const { canCreate } = useModulePermissions('inv_adj');
     const { open } = useWorkspaceNav();
-    const { data: countsRes, isLoading } = useStockCounts();
-    const counts = useMemo<StockCount[]>(() => countsRes?.data ?? [], [countsRes?.data]);
     const { data: categories = [] } = useItemCategories();
     const { data: warehouses = [] } = useWarehouses();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: statusFilter });
+    const { data: countsRes, isLoading, isFetching, error } = useStockCounts(paging.query);
+    const counts = useMemo<StockCount[]>(() => countsRes?.data ?? [], [countsRes?.data]);
 
     const scopeLabel = (count: StockCount): string => {
         const parts: string[] = [];
@@ -34,10 +36,7 @@ const StockCountListPane = (): React.ReactElement => {
     const openWorksheet = (id: string) => { const c = counts.find((x) => x.id === id); open({ kind: 'doc-form', target: { module: 'stock-count', entity: 'count', recordId: id, mode: 'edit' }, title: `Worksheet ${c?.number ?? id}`, path: `/inventory/counts/edit?id=${id}` }); };
     const openNew = () => open({ kind: 'doc-form', target: { module: 'stock-count', entity: 'count', recordId: null, mode: 'create' }, title: 'New count', path: '/inventory/counts/new', unique: true });
 
-    const filteredCounts = useMemo(() => {
-        const kw = searchTerm.toLowerCase();
-        return counts.filter((c) => (!kw || c.number.toLowerCase().includes(kw)) && (!statusFilter || c.status === statusFilter));
-    }, [counts, searchTerm, statusFilter]);
+    const filteredCounts = counts;
 
     const columns = useMemo((): TableColumn<Record<string, unknown>>[] => [
         { key: 'number', label: 'Number', render: (val) => <span className="font-medium text-primary-700">{val as string}</span> },
@@ -78,7 +77,7 @@ const StockCountListPane = (): React.ReactElement => {
                 placeholder="Search by number..."
             />
             <Card padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: countsRes?.total, busy: isFetching || !!error }}
                     columns={columns}
                     data={filteredCounts as unknown as Record<string, unknown>[]}
                     onRowClick={(row) => openView((row as unknown as StockCount).id)}

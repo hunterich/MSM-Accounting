@@ -26,7 +26,7 @@ export const GET = withPermission({ module: 'HR_PAYROLL', action: 'view' }, asyn
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      orderBy: [{ year: 'desc' }, { month: 'desc' }, { id: 'desc' }],
       include: {
         _count: { select: { lines: true } },
       },

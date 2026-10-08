@@ -1,3 +1,4 @@
+import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Download } from 'lucide-react';
@@ -26,16 +27,12 @@ const AssetRegister = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
 
   const { data: categoriesData = [] } = useAssetCategories();
-  const { data: assetsResult, isLoading } = useAssets({
-    search: searchTerm || undefined,
-    status: statusFilter || undefined,
-    categoryId: categoryFilter || undefined,
-    limit: 100,
-  });
+  const paging = useCatalogPagination({ search: searchTerm.trim(), status: statusFilter, categoryId: categoryFilter });
+  const { data: assetsResult, isLoading, isFetching, error } = useAssets(paging.query);
 
   const assets = assetsResult?.data ?? [];
 
-  // Summary stats
+  // Summary of assets on the current page.
   const summary = useMemo(() => {
     const totalAssets = assets.length;
     const totalCost = assets.reduce((s, a) => s + a.acquisitionCost, 0);
@@ -125,7 +122,7 @@ const AssetRegister = () => {
       actions={
         <div className="flex gap-2">
           <Button
-            text="Export CSV"
+            text="Export page CSV"
             variant="secondary"
             icon={<Download size={16} />}
             onClick={handleExportCSV}
@@ -143,19 +140,19 @@ const AssetRegister = () => {
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4 mb-4">
         <Card>
-          <p className="text-xs text-neutral-500 uppercase tracking-wide">Total Assets</p>
+          <p className="text-xs text-neutral-500 uppercase tracking-wide">Assets on this page</p>
           <p className="text-2xl font-bold text-neutral-900 mt-1">{summary.totalAssets}</p>
         </Card>
         <Card>
-          <p className="text-xs text-neutral-500 uppercase tracking-wide">Total Cost</p>
+          <p className="text-xs text-neutral-500 uppercase tracking-wide">Cost on this page</p>
           <p className="text-2xl font-bold text-neutral-900 mt-1">{formatIDR(summary.totalCost)}</p>
         </Card>
         <Card>
-          <p className="text-xs text-neutral-500 uppercase tracking-wide">Total Book Value</p>
+          <p className="text-xs text-neutral-500 uppercase tracking-wide">Total Book value on this page</p>
           <p className="text-2xl font-bold text-primary-700 mt-1">{formatIDR(summary.totalBookValue)}</p>
         </Card>
         <Card>
-          <p className="text-xs text-neutral-500 uppercase tracking-wide">Fully Depreciated</p>
+          <p className="text-xs text-neutral-500 uppercase tracking-wide">Fully depreciated on this page</p>
           <p className="text-2xl font-bold text-neutral-900 mt-1">{summary.fullyDepreciated}</p>
         </Card>
       </div>
