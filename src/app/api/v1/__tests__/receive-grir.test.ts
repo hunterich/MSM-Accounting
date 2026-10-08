@@ -24,6 +24,29 @@ function req(body: unknown) {
 
 beforeEach(() => vi.clearAllMocks());
 
+describe('receipt request validation', () => {
+  it.each([
+    null,
+    {},
+    { lines: [] },
+    { lines: 'invalid' },
+    { lines: [null] },
+    { lines: [{ purchaseOrderLineId: '', qtyReceived: 1 }] },
+    { lines: [{ purchaseOrderLineId: 'pol-1', qtyReceived: 0 }] },
+    { lines: [{ purchaseOrderLineId: 'pol-1', qtyReceived: -1 }] },
+    { lines: [{ purchaseOrderLineId: 'pol-1', qtyReceived: '1' }] },
+    { lines: [{ purchaseOrderLineId: 'pol-1', qtyReceived: null }] },
+    { lines: [{ purchaseOrderLineId: 'pol-1', qtyReceived: 1 }, { purchaseOrderLineId: 'pol-1', qtyReceived: 1 }] },
+  ])('rejects invalid quantities, line identifiers and duplicate lines without writes: %j', async body => {
+    const res = await receive(req(body), { params: Promise.resolve({ id: 'po-1' }) });
+    expect(res.status).toBe(400);
+    expect(prisma.purchaseOrder.findFirst).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(addCostLayer).not.toHaveBeenCalled();
+    expect(postJournalEntry).not.toHaveBeenCalled();
+  });
+});
+
 it('rechecks PO status after the lock and rejects a PO auto-closed before receipt', async () => {
   vi.mocked(prisma.purchaseOrder.findFirst).mockResolvedValue({ id: 'po-1', status: 'APPROVED', taxable: false } as any);
   const tx = { $executeRaw: vi.fn(), purchaseOrder: { findFirst: vi.fn(async () => ({ status: 'CLOSED' })) }, bill: { create: vi.fn() } };

@@ -66,6 +66,9 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
     const [receivePoData, setReceivePoData] = useState<any>(null);
     const [receiveLines, setReceiveLines] = useState<ReceiveLine[]>([]);
     const [receiveLoading, setReceiveLoading] = useState(false);
+    const receiptValid = receiveLines.some(line => line.qtyReceived > 0) && receiveLines.every((line, idx) =>
+        Number.isFinite(line.qtyReceived) && line.qtyReceived >= 0 &&
+        line.qtyReceived <= Math.max(0, Number(receivePoData?.lines?.[idx]?.quantity ?? 0) - Number(receivePoData?.lines?.[idx]?.receivedQty ?? 0)));
 
     const filteredData = useMemo(() => {
         return purchaseOrders.filter((item) => {
@@ -120,7 +123,7 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
             const po = res.data ?? res;
             setReceivePoData(po);
             const lines: ReceiveLine[] = (po.lines ?? []).map((line: any) => ({
-                purchaseOrderLineId: line._id,
+                purchaseOrderLineId: line.id,
                 qtyReceived: Math.max(0, (line.quantity ?? 0) - (line.receivedQty ?? 0)),
             }));
             setReceiveLines(lines);
@@ -132,11 +135,11 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
 
     // Submit Receive Goods
     const handleReceiveSubmit = useCallback(async () => {
-        if (!receivePoData) return;
+        if (!receivePoData || !canCreate || !receiptValid || receiveLoading) return;
         setReceiveLoading(true);
         try {
-            const res = await api.post<any>(`/api/v1/purchase-orders/${receivePoData._id}/receive`, {
-                lines: receiveLines,
+            const res = await api.post<any>(`/api/v1/purchase-orders/${receivePoData.id}/receive`, {
+                lines: receiveLines.filter(line => line.qtyReceived > 0),
                 notes: '',
             });
             const billNumber = res.data?.billNumber ?? res.billNumber ?? '';
@@ -144,14 +147,14 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
             setReceivePoData(null);
             setReceiveLines([]);
             setToast(`Bill created: ${billNumber}`);
-            queryClient.invalidateQueries({ queryKey: AP_KEYS.pos });
+            queryClient.invalidateQueries();
             navigate('/ap/bills');
         } catch (err) {
-            setToast('Failed to receive goods');
+            setToast(err instanceof Error ? err.message : 'Failed to receive goods');
         } finally {
             setReceiveLoading(false);
         }
-    }, [receivePoData, receiveLines, queryClient, navigate]);
+    }, [receivePoData, receiveLines, queryClient, navigate, canCreate, receiptValid, receiveLoading]);
 
     // Close PO
     const handleClosePO = useCallback(async (row: Record<string, unknown>) => {
@@ -213,6 +216,7 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
                                 text="Receive"
                                 size="small"
                                 variant="primary"
+                                disabled={!canCreate}
                                 onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleOpenReceive(row); }}
                             />
                         )}
@@ -234,7 +238,7 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
         <div className="max-w-full mx-auto">
             {/* Toast notification */}
             {toast && (
-                <div className="fixed bottom-6 right-6 z-[100] bg-neutral-900 text-white px-5 py-3 rounded-lg shadow-lg text-sm font-medium transition-opacity duration-300">
+                <div role="status" className="fixed bottom-6 right-6 z-[100] bg-neutral-900 text-white px-5 py-3 rounded-lg shadow-lg text-sm font-medium transition-opacity duration-300">
                     {toast}
                 </div>
             )}
@@ -242,10 +246,10 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
             {/* Receive Goods Modal */}
             {receiveModalOpen && receivePoData && (
                 <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6">
-                        <h2 className="text-lg font-semibold text-neutral-900 mb-1">Receive Goods</h2>
+                    <div role="dialog" aria-modal="true" aria-labelledby="receiving-title" className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6">
+                        <h2 id="receiving-title" className="text-lg font-semibold text-neutral-900 mb-1">Receive Goods</h2>
                         <p className="text-sm text-neutral-500 mb-4">
-                            PO #{receivePoData.poNumber ?? receivePoData.id} &mdash; {receivePoData.vendorName ?? ''}
+                            PO #{receivePoData.number} &mdash; {receivePoData.vendor?.name ?? ''}
                         </p>
                         <div className="overflow-x-auto mb-4">
                             <table className="w-full text-sm border-collapse">
@@ -259,19 +263,22 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
                                 </thead>
                                 <tbody>
                                     {(receivePoData.lines ?? []).map((line: any, idx: number) => (
-                                        <tr key={line._id ?? idx} className="border-b border-neutral-100 last:border-0">
+                                        <tr key={line.id} className="border-b border-neutral-100 last:border-0">
                                             <td className="px-3 py-2 text-neutral-800">{line.description ?? line.itemName ?? '-'}</td>
                                             <td className="px-3 py-2 text-right text-neutral-700">{line.quantity ?? 0}</td>
                                             <td className="px-3 py-2 text-right text-neutral-700">{line.receivedQty ?? 0}</td>
                                             <td className="px-3 py-2 text-right">
                                                 <input
                                                     type="number"
+                                                    step="any"
+                                                    aria-label={`Quantity to receive: ${line.description ?? line.itemName ?? idx + 1}`}
+                                                    disabled={receiveLoading || Number(line.receivedQty ?? 0) >= Number(line.quantity ?? 0)}
                                                     min={0}
                                                     max={Math.max(0, (line.quantity ?? 0) - (line.receivedQty ?? 0))}
                                                     className="w-24 text-right border border-neutral-300 rounded-md px-2 py-1 text-sm focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)]"
                                                     value={receiveLines[idx]?.qtyReceived ?? 0}
                                                     onChange={(e) => {
-                                                        const val = Math.max(0, Number(e.target.value));
+                                                        const val = Number(e.target.value);
                                                         setReceiveLines((prev) => {
                                                             const updated = [...prev];
                                                             updated[idx] = { ...updated[idx], qtyReceived: val };
@@ -300,7 +307,7 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
                                 text={receiveLoading ? 'Saving...' : 'Confirm Receipt'}
                                 variant="primary"
                                 onClick={handleReceiveSubmit}
-                                disabled={receiveLoading}
+                                disabled={receiveLoading || !canCreate || !receiptValid}
                             />
                         </div>
                     </div>

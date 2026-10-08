@@ -56,7 +56,7 @@ const APPaymentListPane = (): React.ReactElement => {
                 {row['status'] === 'Draft' && <Button text="Complete" size="small" variant="primary" disabled={!canEdit || updateAPPayment.isPending} onClick={(e: React.MouseEvent) => { e.stopPropagation(); updateAPPayment.mutate({ id: (row['_id'] || row['id']) as string, status: 'Completed' }); }} />}
                 {row['status'] === 'Completed' && <Button text="Void" size="small" variant="tertiary" disabled={!canDelete || voidAPPayment.isPending} onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleVoid((row['_id'] || row['id']) as string); }} />}
                 <Button text="View" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); openView(row['id'] as string); }} />
-                <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit} onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEdit(row['id'] as string); }} />
+                    <Button text="Edit" size="small" variant="tertiary" disabled={!canEdit || row['status'] !== 'Draft'} onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEdit(row['id'] as string); }} />
                 <Button text="Print" size="small" variant="tertiary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); setPrintPaymentId(row['id'] as string); setIsPrintOpen(true); }} />
             </div>
         ) },

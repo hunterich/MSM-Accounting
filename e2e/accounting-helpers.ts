@@ -90,12 +90,17 @@ export async function expectTrialBalance(page: Page, expected: Array<[string, nu
   expect(report.summary.endingDebit).toBeCloseTo(report.summary.endingCredit, 2)
 }
 
-export async function payThroughForm(page: Page, kind: 'ap' | 'ar', party: string, number: string, date = DATE) {
+export async function payThroughForm(page: Page, kind: 'ap' | 'ar', party: string, number: string, date = DATE, adjustment?: { settlement: number; discount?: number; fee?: number }) {
   await page.goto(`/${kind}/payments/new`)
   await choose(page, kind === 'ap' ? 'Select vendor...' : 'Select Customer...', party)
   await page.locator('main input[type="date"]:visible').fill(date)
   await page.locator('button.invoice-tab:visible', { hasText: kind === 'ap' ? 'Bills' : 'Invoices' }).click()
   await page.getByRole('row').filter({ hasText: number }).getByRole('checkbox').check()
+  if (adjustment) {
+    await page.getByLabel(`Amount to settle for ${number}`, { exact: true }).filter({ visible: true }).fill(String(adjustment.settlement))
+    if (adjustment.discount !== undefined) await page.getByLabel(`Discount for ${number}`, { exact: true }).filter({ visible: true }).fill(String(adjustment.discount))
+    if (adjustment.fee !== undefined) await page.getByLabel(`Fee for ${number}`, { exact: true }).filter({ visible: true }).fill(String(adjustment.fee))
+  }
   const saved = page.waitForResponse(r => r.url().endsWith(`/api/v1/${kind}-payments`) && r.request().method() === 'POST')
   await page.getByRole('button', { name: 'Save Payment', exact: true }).click()
   const response = await saved

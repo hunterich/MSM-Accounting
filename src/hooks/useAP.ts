@@ -211,6 +211,9 @@ function normalizeBill(raw: RawBill): Bill {
 
 function normalizeAPPayment(raw: RawAPPayment): APPayment {
     return {
+        allocations: raw.allocations || [],
+        reference: raw.reference || '',
+        cashAccountId: raw.cashAccountId || '',
         id:         raw.number || raw.id,
         _id:        raw.id,
         number:     raw.number   || '',
@@ -222,7 +225,7 @@ function normalizeAPPayment(raw: RawAPPayment): APPayment {
         totalAmount: Number(raw.totalAmount ?? 0),
         status:     PAYMENT_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as PaymentStatus),
         billId:     raw.billId  || '',
-        bankId:     raw.bankId  || '',
+        bankId:     raw.bankAccountId || raw.bankId || '',
         depositAccountId: raw.depositAccountId || '',
         apAccountId: raw.apAccountId || '',
         discountAccountId: raw.discountAccountId || '',

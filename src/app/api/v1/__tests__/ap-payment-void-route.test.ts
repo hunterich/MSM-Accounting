@@ -29,7 +29,10 @@ function del() {
 }
 const params = { params: Promise.resolve({ id: 'pay-1' }) };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb({ aPPayment: prisma.aPPayment, $queryRaw: vi.fn(async () => []) }));
+});
 
 it('void route reverses and returns the payment', async () => {
   const tx = { aPPayment: { findFirst: vi.fn(async () => ({ id: 'pay-1', status: 'VOID' })) } };
@@ -48,14 +51,14 @@ it('void route maps a guard failure to its status', async () => {
 });
 
 it('DELETE refuses a posted payment (would orphan its JE)', async () => {
-  vi.mocked(prisma.aPPayment.findFirst).mockResolvedValueOnce({ id: 'pay-1', journalEntryId: 'je-1' } as any);
+  vi.mocked(prisma.aPPayment.findFirst).mockResolvedValueOnce({ id: 'pay-1', status: 'COMPLETED', journalEntryId: 'je-1' } as any);
   const res = await deletePayment(del(), params);
   expect(res.status).toBe(422);
   expect(prisma.aPPayment.delete).not.toHaveBeenCalled();
 });
 
 it('DELETE removes an unposted (draft) payment', async () => {
-  vi.mocked(prisma.aPPayment.findFirst).mockResolvedValueOnce({ id: 'pay-1', journalEntryId: null } as any);
+  vi.mocked(prisma.aPPayment.findFirst).mockResolvedValueOnce({ id: 'pay-1', status: 'DRAFT', journalEntryId: null } as any);
   vi.mocked(prisma.aPPayment.delete).mockResolvedValueOnce({} as any);
   const res = await deletePayment(del(), params);
   expect(res.status).toBe(200);

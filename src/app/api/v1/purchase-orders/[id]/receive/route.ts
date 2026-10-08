@@ -9,8 +9,20 @@ import { asMoney } from '@/lib/money';
 import { postGoodsReceiptToLedger } from '@/lib/goods-receipt-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
+import { z } from 'zod';
 
 export const runtime = 'nodejs';
+
+const receiptSchema = z.object({
+  lines: z.array(z.object({
+    purchaseOrderLineId: z.string().min(1),
+    qtyReceived: z.number().finite().positive(),
+  })).min(1).refine(
+    lines => new Set(lines.map(line => line.purchaseOrderLineId)).size === lines.length,
+    'Each purchase order line may only appear once in a receipt',
+  ),
+  notes: z.string().optional(),
+});
 
 // FNV-1a 32-bit hash for advisory lock IDs (mirrors lib/api-utils nextNumber).
 function fnv1aHash(input: string): number {
@@ -36,15 +48,9 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
   // SETTINGS/edit doubles as the right to post outside the transaction-date
   // window: it is the right that edits the window, so it cannot be withheld here.
   const dateOverride = { overrideDateRestriction: await canOverrideTransactionDate(req) };
-  const body = await req.json();
-  const { lines, notes } = body as {
-    lines: { purchaseOrderLineId: string; qtyReceived: number }[];
-    notes?: string;
-  };
-
-  if (!lines || lines.length === 0) {
-    return err('lines is required', 400);
-  }
+  const parsed = receiptSchema.safeParse(await req.json());
+  if (!parsed.success) return err(parsed.error.issues[0].message, 400);
+  const { lines, notes } = parsed.data;
 
   const po = await prisma.purchaseOrder.findFirst({
     where: { id, organizationId: orgId },
