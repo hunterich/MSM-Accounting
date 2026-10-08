@@ -19,6 +19,7 @@ import { toNumber } from './money';
 import { ApiError } from './api-utils';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
+import { validatePaymentAllocations } from './payment-validation';
 
 type Tx = Prisma.TransactionClient;
 
@@ -36,12 +37,15 @@ export async function postDebitNoteOnApply(
   debitNoteId: string,
   opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${debitNoteId} FOR UPDATE`;
   const dn = await tx.debitNote.findUnique({
     where: { id: debitNoteId },
     select: {
       id: true,
       number: true,
       organizationId: true,
+      vendorId: true,
+      sourceBillId: true,
       date: true,
       amount: true,
       taxAmount: true,
@@ -58,6 +62,12 @@ export async function postDebitNoteOnApply(
 
   // Idempotency token — already posted, nothing to do.
   if (dn.journalEntryId) return;
+  if (dn.sourceBillId && dn.settlementType === 'APPLY_TO_BILL') {
+    await validatePaymentAllocations(tx, dn.organizationId, 'ap', {
+      vendorId: dn.vendorId, totalAmount: dn.amount,
+      allocations: [{ billId: dn.sourceBillId, amountApplied: dn.amount }],
+    }, { excludeNoteId: dn.id });
+  }
 
   // Refuse to post into a closed/locked accounting period.
   await assertPeriodOpen(tx, dn.organizationId, dn.date, opts);

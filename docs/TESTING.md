@@ -91,6 +91,15 @@ Unallocated advance
 cash remains supported. These API checks do not certify concurrent note
 application versus payment or all reversal/status-transition races.
 
+`e2e/note-payment-concurrency.spec.ts` covers note/payment settlement races for
+both AR and AP: one of two competing settlements succeeds, notes do not count
+themselves twice, a completion retry posts no extra journal, void notes remain
+terminal, pending notes cannot bypass approval or be edited/deleted, and draft
+party edits cannot link another company's records. A stale approval fails with
+the note, approval request and journal count unchanged. These checks use the
+real API and PostgreSQL; broader reversal races and note-aware PAID/reopened
+document status derivation still need coverage.
+
 The three POS checks create their own stocked company and register. They verify
 online cash checkout, replay protection and shift reconciliation; offline shift
 and checkout syncing exactly once after reconnect and reload; and a back-office

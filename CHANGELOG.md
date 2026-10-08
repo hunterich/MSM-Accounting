@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — credit/debit-note settlement and lifecycle guards
+- Linked note application uses the same document locks and live debt validation as payments, excluding the note itself when its route has already marked it applied inside the transaction. Competing payments/notes and stale note approvals cannot clear more than the current balance. Refund and standalone credit paths retain their existing behavior.
+- Note row locks serialize edits, posting and draft deletion. Pending notes reject edits, deletion and direct application; void notes cannot be revived through status changes. Draft party/source edits validate company ownership before writing.
+- Added real API/PostgreSQL races for both AR and AP, unchanged application retries, void terminality, pending-note guards, cross-company edits and approval rollback. Broader reversal races and note-aware document status derivation remain on the roadmap.
+
 ### Fixed — payment posting safeguards
 - Customer and supplier payment creation, draft editing and shared approval posting validate current document balances under ordered document locks. Discounts and applied credit/debit notes reduce outstanding debt; duplicate or other-party allocations and allocated cash/fees exceeding the payment total are rejected. Excess unallocated cash remains supported as an advance.
 - Posted, pending and void payments reject financial/status edits; only unposted drafts can be deleted. Completing an already completed payment remains an unchanged retry. The list/detail Edit action is enabled only for drafts. Posting now rejects missing cash/control accounts or a nonpositive payment instead of silently leaving a completed payment without a journal.

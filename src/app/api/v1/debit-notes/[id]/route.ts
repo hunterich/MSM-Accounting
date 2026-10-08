@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { logAudit, validateForeignKey } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
 import { updateDebitNoteInputSchema } from '@/types/api';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
@@ -77,6 +77,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
     const d = parsed.data;
 
     const dn = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.debitNote.findFirst({
         where: { id, organizationId: orgId },
         select: { id: true, status: true, journalEntryId: true },
@@ -87,6 +88,9 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
 
       const nextStatus = d.status;
       const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));
+      if (prior.status !== 'DRAFT' && (!isStatusOnly || (nextStatus !== undefined && nextStatus !== prior.status))) {
+        throw Object.assign(new Error('Only draft debit notes can change; pending notes must finish approval and void notes are terminal'), { status: 422 });
+      }
 
       if (isPosted(prior) && !isStatusOnly) {
         throw Object.assign(
@@ -102,6 +106,9 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
         );
       }
 
+      if (d.vendorId) await validateForeignKey(tx.vendor, { id: d.vendorId, organizationId: orgId }, 'Vendor not found in organization');
+      if (d.sourceBillId) await validateForeignKey(tx.bill, { id: d.sourceBillId, organizationId: orgId }, 'Source bill not found in organization');
+      if (d.purchaseReturnId) await validateForeignKey(tx.purchaseReturn, { id: d.purchaseReturnId, organizationId: orgId }, 'Purchase return not found in organization');
       const updated = await tx.debitNote.update({
         where: { id, organizationId: orgId },
         data: {
@@ -150,26 +157,17 @@ export const DELETE = withPermission({ module: 'AP_DEBITS', action: 'delete' }, 
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
-    const prior = await prisma.debitNote.findFirst({
-      where: { id, organizationId: orgId },
-      select: { id: true, status: true, journalEntryId: true },
+    await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
+      const prior = await tx.debitNote.findFirst({ where: { id, organizationId: orgId } });
+      if (!prior) throw Object.assign(new Error('Not found'), { status: 404 });
+      if (prior.status !== 'DRAFT' || prior.journalEntryId) throw Object.assign(new Error('Only unposted draft debit notes can be deleted'), { status: 422 });
+      await tx.debitNote.delete({ where: { id, organizationId: orgId } });
     });
-    if (!prior) {
-      return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
-    }
-    if (isPosted(prior)) {
-      return withCors(
-        NextResponse.json(
-          { error: 'Cannot delete a posted debit note — void it instead' },
-          { status: 422 },
-        ),
-      );
-    }
-    await prisma.debitNote.delete({ where: { id, organizationId: orgId } });
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'DebitNote', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
+    return withCors(NextResponse.json({ error: message }, { status: (error as { status?: number }).status ?? 500 }));
   }
 });
