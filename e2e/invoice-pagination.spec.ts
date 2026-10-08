@@ -31,10 +31,10 @@ test('invoice catalog pages, filters the whole dataset, and scrolls within the t
     await page.getByLabel('Status', { exact: true }).selectOption('Draft');
     await expect(paging).toContainText('Showing 1–20 of 25 invoices');
     await expect(page.getByText('PAGE-041', { exact: true })).toBeVisible();
-    await page.getByLabel('Search', { exact: true }).fill('PAGE-065');
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('PAGE-065');
     await expect(paging).toContainText('Showing 1–1 of 1 invoices');
     await expect(page.getByText('PAGE-065', { exact: true })).toBeVisible();
-    await page.getByLabel('Search', { exact: true }).fill('');
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('');
     await page.getByLabel('Status', { exact: true }).selectOption('');
     await expect(paging).toContainText('Showing 1–20 of 65 invoices');
     await page.getByLabel('Invoices per page').selectOption('50');

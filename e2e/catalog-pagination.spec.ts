@@ -28,10 +28,10 @@ for (const catalog of [
         await paging.getByRole('button', { name: 'Next', exact: true }).click();
         await expect(paging).toContainText('Showing 21–40 of 65');
         await expect(page.getByText('CAT-021', { exact: true })).toBeVisible();
-        await page.getByLabel('Search', { exact: true }).fill('CAT-065');
+        await page.getByRole('textbox', { name: 'Search', exact: true }).fill('CAT-065');
         await expect(paging).toContainText('Showing 1–1 of 1');
         await expect(page.getByText('CAT-065', { exact: true })).toBeVisible();
-        await page.getByLabel('Search', { exact: true }).fill('');
+        await page.getByRole('textbox', { name: 'Search', exact: true }).fill('');
         await expect(paging).toContainText('Showing 1–20 of 65');
         await paging.getByLabel(`${catalog.label} per page`).selectOption('50');
         await expect(paging).toContainText('Showing 1–50 of 65');
