@@ -68,6 +68,11 @@ const txStub = () => ({
       return { id: 'cn-1', ...data };
     }),
     findFirst: vi.fn(async () => (creditNoteRow ? { ...creditNoteRow } : null)),
+    delete: vi.fn(async () => {
+      deleteCalls.creditNote++;
+      creditNoteRow = null;
+      return { id: 'cn-1' };
+    }),
     findUnique: vi.fn(async () => ({
       id: 'cn-1',
       number: 'CRN-0001',
@@ -100,6 +105,11 @@ const txStub = () => ({
       return { id: 'dn-1', ...data };
     }),
     findFirst: vi.fn(async () => (debitNoteRow ? { ...debitNoteRow } : null)),
+    delete: vi.fn(async () => {
+      deleteCalls.debitNote++;
+      debitNoteRow = null;
+      return { id: 'dn-1' };
+    }),
     findUnique: vi.fn(async () => ({
       id: 'dn-1',
       number: 'DBN-0001',
@@ -405,7 +415,7 @@ describe('credit notes — DB-token idempotency and edit/delete guards', () => {
 
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/posted credit note/i);
+    expect(body.error).toMatch(/Only draft credit notes/i);
   });
 
   it('PUT VOID → DRAFT is rejected (closes the VOID → DRAFT → APPLIED double-post gap)', async () => {

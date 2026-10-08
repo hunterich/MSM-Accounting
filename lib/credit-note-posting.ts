@@ -12,12 +12,9 @@
  * DRAFT, so a voided note can't be re-DRAFTed and re-applied. Belt and
  * suspenders.
  *
- * Concurrent-apply race: if two DRAFT → APPLIED requests both pass the
- * up-front `journalEntryId` check, the second writer's `update` trips
- * the `@unique` constraint on `journalEntryId` (P2002). We catch that
- * specific case and rethrow as `ApiError(409)` so the route returns a
- * clean 409 instead of a generic 500. The transaction rolls back the
- * second writer's JE.create, so no duplicate entry persists.
+ * Note row locks serialize the journal token check. Linked invoice settlement
+ * uses the same document lock and current-balance validation as payments,
+ * including when the approval engine posts a pending note.
  */
 import { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
@@ -26,6 +23,7 @@ import { toNumber } from './money';
 import { ApiError } from './api-utils';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
+import { validatePaymentAllocations } from './payment-validation';
 
 type Tx = Prisma.TransactionClient;
 
@@ -43,12 +41,15 @@ export async function postCreditNoteOnApply(
   creditNoteId: string,
   opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${creditNoteId} FOR UPDATE`;
   const cn = await tx.creditNote.findUnique({
     where: { id: creditNoteId },
     select: {
       id: true,
       number: true,
       organizationId: true,
+      customerId: true,
+      sourceInvoiceId: true,
       date: true,
       amount: true,
       taxAmount: true,
@@ -65,6 +66,12 @@ export async function postCreditNoteOnApply(
 
   // Idempotency token — already posted, nothing to do.
   if (cn.journalEntryId) return;
+  if (cn.sourceInvoiceId && cn.settlementType === 'APPLY_TO_INVOICE') {
+    await validatePaymentAllocations(tx, cn.organizationId, 'ar', {
+      customerId: cn.customerId, totalAmount: cn.amount,
+      allocations: [{ invoiceId: cn.sourceInvoiceId, amountApplied: cn.amount }],
+    }, { excludeNoteId: cn.id });
+  }
 
   // Refuse to post into a closed/locked accounting period.
   await assertPeriodOpen(tx, cn.organizationId, cn.date, opts);

@@ -32,7 +32,7 @@ export function assertPaymentEditable(existing: { status: string; journalEntryId
 /** Validate against current balances under ordered document locks, also at approval. */
 export async function validatePaymentAllocations(tx: Tx, orgId: string, kind: PaymentKind, payment: {
   id?: string; customerId?: string; vendorId?: string; totalAmount: unknown; allocations?: Allocation[];
-}) {
+}, options: { excludeNoteId?: string } = {}) {
   const total = cents(payment.totalAmount);
   const allocations = payment.allocations ?? [];
   const ids = allocations.map(a => kind === 'ar' ? a.invoiceId : a.billId);
@@ -61,8 +61,8 @@ export async function validatePaymentAllocations(tx: Tx, orgId: string, kind: Pa
       ? await tx.aRPaymentAllocation.aggregate({ where: { ...filter, invoiceId: id }, _sum: { amountApplied: true, discountAmount: true } })
       : await tx.aPPaymentAllocation.aggregate({ where: { ...filter, billId: id }, _sum: { amountApplied: true, discountAmount: true } });
     const notes = kind === 'ar'
-      ? await tx.creditNote.findMany({ where: { organizationId: orgId, sourceInvoiceId: id, status: 'APPLIED', settlementType: 'APPLY_TO_INVOICE' }, select: { amount: true } })
-      : await tx.debitNote.findMany({ where: { organizationId: orgId, sourceBillId: id, status: 'APPLIED', settlementType: 'APPLY_TO_BILL' }, select: { amount: true } });
+      ? await tx.creditNote.findMany({ where: { organizationId: orgId, sourceInvoiceId: id, status: 'APPLIED', settlementType: 'APPLY_TO_INVOICE', ...(options.excludeNoteId ? { id: { not: options.excludeNoteId } } : {}) }, select: { amount: true } })
+      : await tx.debitNote.findMany({ where: { organizationId: orgId, sourceBillId: id, status: 'APPLIED', settlementType: 'APPLY_TO_BILL', ...(options.excludeNoteId ? { id: { not: options.excludeNoteId } } : {}) }, select: { amount: true } });
     // Note.amount is gross (its taxAmount is already included).
     const outstanding = cents(doc.totalAmount) - cents(paid._sum.amountApplied) - cents(paid._sum.discountAmount) - notes.reduce((sum, note) => sum + cents(note.amount), 0);
     if (cleared > outstanding) throw new ApiError(`Over-allocation: remaining balance is ${(Math.max(0, outstanding) / 100).toFixed(2)}`, 422);

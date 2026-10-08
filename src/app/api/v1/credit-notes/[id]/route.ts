@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { logAudit, validateForeignKey } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { updateCreditNoteInputSchema } from '@/types/api';
@@ -85,6 +85,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
     const d = parsed.data;
 
     const cn = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.creditNote.findFirst({
         where: { id, organizationId: orgId },
         select: { id: true, status: true, journalEntryId: true },
@@ -95,6 +96,9 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
 
       const nextStatus = d.status;
       const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));
+      if (prior.status !== 'DRAFT' && (!isStatusOnly || (nextStatus !== undefined && nextStatus !== prior.status))) {
+        throw Object.assign(new Error('Only draft credit notes can change; pending notes must finish approval and void notes are terminal'), { status: 422 });
+      }
 
       if (isPosted(prior) && !isStatusOnly) {
         throw Object.assign(
@@ -110,6 +114,9 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         );
       }
 
+      if (d.customerId) await validateForeignKey(tx.customer, { id: d.customerId, organizationId: orgId }, 'Customer not found in organization');
+      if (d.sourceInvoiceId) await validateForeignKey(tx.salesInvoice, { id: d.sourceInvoiceId, organizationId: orgId }, 'Source invoice not found in organization');
+      if (d.salesReturnId) await validateForeignKey(tx.salesReturn, { id: d.salesReturnId, organizationId: orgId }, 'Sales return not found in organization');
       const updated = await tx.creditNote.update({
         where: { id, organizationId: orgId },
         data: {
@@ -152,32 +159,22 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
   }
 });
 
-// DELETE only allowed on DRAFT (or a never-posted note). A posted note must
-// be voided through PUT — deleting it would orphan its journal entry.
+// DELETE only allows unposted drafts, under the same note lock as posting.
 export const DELETE = withPermission({ module: 'AR_CREDITS', action: 'delete' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
-    const prior = await prisma.creditNote.findFirst({
-      where: { id, organizationId: orgId },
-      select: { id: true, status: true, journalEntryId: true },
+    await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
+      const prior = await tx.creditNote.findFirst({ where: { id, organizationId: orgId } });
+      if (!prior) throw Object.assign(new Error('Not found'), { status: 404 });
+      if (prior.status !== 'DRAFT' || prior.journalEntryId) throw Object.assign(new Error('Only unposted draft credit notes can be deleted'), { status: 422 });
+      await tx.creditNote.delete({ where: { id, organizationId: orgId } });
     });
-    if (!prior) {
-      return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
-    }
-    if (isPosted(prior)) {
-      return withCors(
-        NextResponse.json(
-          { error: 'Cannot delete a posted credit note — void it instead' },
-          { status: 422 },
-        ),
-      );
-    }
-    await prisma.creditNote.delete({ where: { id, organizationId: orgId } });
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
+    return withCors(NextResponse.json({ error: message }, { status: (error as { status?: number }).status ?? 500 }));
   }
 });
