@@ -1,7 +1,11 @@
 # Automatic billing and finance notifications
 
 Implemented on 2026-10-08 for the long-lived Next.js API container. This is an
-application scheduler, not a Codex reminder. Source changes are not deployed yet.
+application scheduler, not a Codex reminder. Release `sha-3be13ca` was deployed
+to Windows and homelab on 2026-10-08; see `docs/DEPLOYMENT-20261008.md`.
+Windows scheduling is enabled. Homelab background jobs stay disabled for recovery
+testing. Finance emails are disabled on both installations at the operator's
+request until provider credentials and a verified sender are configured.
 
 ## Enable on the server
 
@@ -17,8 +21,9 @@ application scheduler, not a Codex reminder. Source changes are not deployed yet
    address on 2026-10-08. Automatic messages go to finance; customer email stays
    manual. Reminders include outstanding amounts after completed allocations,
    payment discounts and applied gross credit notes.
-4. Set `BUSINESS_AUTOMATION_ENABLED=true` in `deploy/.env`, supply
-   `RESEND_API_KEY` and a verified `EMAIL_FROM_ADDRESS`, then recreate the backend.
+4. For billing, set `BUSINESS_AUTOMATION_ENABLED=true` in `deploy/.env` and
+   recreate the backend. Email additionally requires `RESEND_API_KEY`, a verified
+   `EMAIL_FROM_ADDRESS`, and the company's desired notification toggles.
    Keep secrets in the server environment. Set `BACKGROUND_JOBS_ENABLED=false`
    to suppress every startup scheduler on restore/QA copies. No live email was
    sent while developing; tests inject a fake sender.

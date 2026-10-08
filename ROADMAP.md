@@ -7,15 +7,16 @@
 
 ## Release validation still required
 
-- [x] **Dismissible app update board** — What’s new opens for unseen release notes and can be closed or reopened from the bell; remembers each user's dismissal on the browser, with mobile and Indonesian support. Notes are bundled with the frontend version (`src/lib/appUpdates.ts`). Browser behavior passed locally; publish with matching application images to make it available on Windows/homelab.
+- [x] **Dismissible app update board** — What’s new opens for unseen release notes and can be closed or reopened from the bell; remembers each user's dismissal on the browser, with mobile and Indonesian support. Notes are bundled with the frontend version (`src/lib/appUpdates.ts`). Deployed dismissal/refresh/reopen checks passed on Windows and homelab.
+- [x] **Release deployment and migration** — PR #146 merged; matching backend/web images `sha-3be13ca` deployed to Windows and homelab. Five migrations, login/session, catalogs/reports, security headers and service restart passed; ledger totals/counts are unchanged. Windows billing startup/restart verified. See `docs/DEPLOYMENT-20261008.md`.
 - [x] **Recovery host preparation** — authorized installation on `haely-linux@192.168.68.102`; Docker/Compose/Buildx, PostgreSQL 16 tools and Caddy verified. Blank staging database uses its own volume and localhost-only port. Evidence: `artifacts/recovery-drill/host-setup.md`.
 
 - [x] **Windows Docker → homelab recovery drill** — fresh consistent snapshot restored on `haely-linux`; all 93 tables / 56,383 rows match source fingerprints before QA changes. Exact deployed backend/web images, HTTPS login/company selection, existing documents, financial reports, direct-ledger/trial-balance totals, tenant isolation, view-only and locked-period rejection, test posting/compensating reversal and container restart passed. Recovered app: `https://192.168.68.102:8446`. Evidence and scope: `docs/RECOVERY-DRILL.md`.
 - [ ] **P1 — extend recovery coverage** with a backup containing actual attachments and download/print verification; independently reconcile AR/AP and inventory control accounts to subledgers. This source snapshot has zero attachment/import records and no deployed file-storage directory. Recovery preserves the existing data; a balanced trial balance alone does not certify its accounting correctness. Retest a multi-company snapshot when available (this one contains one company).
 - [ ] **P1 — complete browser journeys** for the PO receipt modal, initial partial-payment input, tax-inclusive penny rounding through forms, multi-user approvals, POS merchandise returns with batch restocking, bank imports/reconciliation, recurring billing, payroll and assets. Backend coverage exists; see `docs/TESTING.md`.
-- [ ] **P1 — production capacity validation**: posting into the large historical company, shared-item contention, concurrent marketplace duplicate/retry races, campaign-peak imports, deep pages and detail exports. October 7 isolated load/read retests passed; live server deployment and migration remain unverified. See `docs/capacity-target.md`.
-- [ ] **P1 — deployment smoke**: security headers/CSP, Google sign-in under the deployed CSP, old-tab recovery after upgrade and POS worker scope.
-- [ ] **P1 — enable and verify scheduled billing and finance notifications** after deployment, with due templates, approval holds, locked-period failures and restart replay. Source implementation and mocked-provider/PostgreSQL tests pass; live migration/enablement, verified sender/provider delivery and restart catch-up remain unverified.
+- [ ] **P1 — production capacity validation**: posting into the large historical company, shared-item contention, concurrent marketplace duplicate/retry races, campaign-peak imports, deep pages and detail exports. October 7 isolated load/read retests passed; deployment/migration is complete, but production capacity remains unverified. See `docs/capacity-target.md`.
+- [ ] **P1 — remaining deployment smoke**: Google sign-in under the deployed CSP, old-tab recovery after upgrade and POS worker scope. Security headers and ordinary authenticated browser journeys passed on both servers.
+- [ ] **P1 — live billing document and finance delivery validation**: due templates, approval holds, locked-period failures and duplicate-free document catch-up after restart. Migration and Windows billing startup/restart passed, but the company currently has no recurring templates/subscriptions. Finance emails are intentionally disabled on both servers at the operator's request; provider credentials, verified sender, desired company toggles and real delivery verification remain deferred. Source and PostgreSQL/mocked-provider tests pass.
 - [ ] **P2 — accounting defaults expansion**: `stockVariance`, `purchaseDiscount`, `incomeTaxExpense`, settings sub-tabs and exact posting-account regressions.
 
 ## Legend
@@ -195,7 +196,7 @@
 ### 2.5 Email Integration
 - [x] Send invoice PDF to customer via email — `/api/v1/invoices/[id]/send-email`; updates status to SENT + audit log
 - [x] Finance due reminders — scheduled once after 08:00 in the company timezone, with completed payments/discounts/applied credits deducted; customer reminders remain available through the manual endpoint. Deploy/provider verification remains open.
-- [x] Finance notification settings drive automatic payment alerts, due reminders and daily digests to the saved finance email; persistent outbox, lease/retry/provider idempotency and recipient/toggle rechecks. Detailed contents/destination authorized on 2026-10-08. Deployment enablement and live delivery remain open; see `docs/BUSINESS-AUTOMATION.md`.
+- [x] Finance notification settings drive automatic payment alerts, due reminders and daily digests to the saved company finance email; persistent outbox, lease/retry/provider idempotency and recipient/toggle rechecks. Implementation/migration deployed; email toggles intentionally disabled until provider setup and live delivery verification. See `docs/BUSINESS-AUTOMATION.md`.
 - [x] Send PO to vendor via email — `/api/v1/purchase-orders/[id]/send-email`
 - [x] Email templates (customizable) — `EmailTemplate` model + CRUD API; `EmailTemplates.tsx` in Settings; `lib/email.ts` renders templates with `{{variable}}` substitution; fallback to hardcoded HTML; 3 default templates (Invoice, Reminder, PO)
 
@@ -441,8 +442,8 @@
 | Loading states & skeleton screens | [~] `LoadingSkeleton.jsx` (`SkeletonBlock`, `TableSkeleton`) added; not yet applied to all pages | Medium |
 | Mobile responsive layout | [x] Mobile top nav bar (hamburger + slide-over); sidebar hidden on mobile; dashboard widgets responsive grid; tables overflow-x-auto; filter bars flex-wrap | Medium |
 | Accessibility (a11y) audit | Not started | Low |
-| Virtual scrolling / lazy-load for large lists (Accurate pattern) | [~] Virtualized tables plus server pagination/search work in current workspace; deploy/QA the uncommitted catalog changes and remaining detail/export limits | **Critical** |
-| Performance optimization (large datasets) | [~] PostgreSQL report aggregation/indexes and large read/mixed-load retests implemented; live deployment and shared-stock/large-history posting validation pending | High |
+| Virtual scrolling / lazy-load for large lists (Accurate pattern) | [~] Virtualized tables and server pagination/search deployed; catalog browser regression checks pass. Remaining custom filter combinations and detail/export limits need validation | **Critical** |
+| Performance optimization (large datasets) | [~] PostgreSQL report aggregation/indexes deployed and large read/mixed-load retests passed; shared-stock/large-history posting validation pending | High |
 | App language switching (English / Bahasa Indonesia) | Deferred until core workflows stabilize; no partial-language selector release | Low |
 | CI/CD pipeline | [x] `.github/workflows/ci.yml` — GitHub Actions: tsc + vitest + prisma db push on every push/PR; Vercel deploy via GitHub integration | Medium |
 | Backup & restore functionality | [x] In-app Backup & Restore (PR #45) — automatic twice-daily `pg_dump --format=custom`, manual "Back up now", synced-folder cloud/external destinations, guarded admin-only restore (safety backup + type-RESTORE), backup history, `node-cron` scheduler via `instrumentation.ts`, `SYSTEM_BACKUP` RBAC | High |
@@ -486,10 +487,10 @@
 - [ ] **Lazy-load on scroll** — optional infinite-scroll UX remains; server-backed page navigation exists in current catalog work.
 - [~] **Total record count** — implemented as table footer count bar (`RecordCount.jsx`) on all 13 list pages; not positioned next to search bar like Accurate
 - [~] **Sticky column headers** — shared Table and current workspace updates support sticky headers; verify every custom catalog panel.
-- [~] **Server-side filtering** — invoice and catalog API/query changes and browser tests exist in the working tree; validate remaining filter combinations and deploy.
+- [~] **Server-side filtering** — invoice and catalog API/query changes deployed and catalog browser regression tests passed; validate remaining filter combinations.
 - [~] **Server-side search** — supported by current invoice/catalog pagination work; verify coverage across all lists.
 - [~] **Skeleton rows** — loading components exist; consistent application across paginated lists remains to verify.
-- [~] Adopt for all catalogs — shared tables and pagination components exist; verify remaining custom panels and filter combinations before deployment.
+- [~] Adopt for all catalogs — shared tables and pagination components deployed; verify remaining custom panels and filter combinations.
 
 ### Tabbed Document Workspace
 - [x] **Tab bar** at top for open documents (like browser tabs)
