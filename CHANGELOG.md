@@ -7,9 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Deployed — Windows and homelab, 2026-10-08
+- Merged PR #146 and deployed matching backend/web images pinned to `sha-3be13ca` on Windows and homelab. All five pending migrations applied successfully. CI and deployed login/session, catalogs, reports, security headers, update-board dismissal/reopen and service-restart checks passed. Posted ledger counts and debit/credit totals match each server's pre-upgrade baseline. Evidence and remaining checks: `docs/DEPLOYMENT-20261008.md`.
+- Windows automatic billing is enabled; its startup checkpoint advanced again after restart. No recurring templates or subscriptions currently exist, so a real due-template run remains to be verified. Homelab background jobs remain disabled as a recovery copy.
+- At the operator's request, payment alerts, invoice reminders and daily summaries are disabled on both installations until email-provider setup is ready. Finance recipients belong in company Settings → Notifications, rather than individual user accounts. No finance notifications were queued or sent.
+
 ### Added — dismissible app update board
 - The notification bell opens a What’s new board showing user-facing updates bundled with the frontend version. New notes open automatically after company selection; Close, Got it and Escape remember dismissal per user on the current browser. The bell can reopen the board, including on mobile. English and Indonesian labels and notes are supported.
-- Notes distinguish supported automatic billing/finance email from administrator enablement. Maintain entries and unique version IDs in `src/lib/appUpdates.ts` when publishing matching application images; an older deployed frontend cannot announce newer Git changes. Desktop/mobile dismissal, refresh persistence, per-user isolation, keyboard behavior and damaged preference recovery passed browser checks. Source implementation is not yet deployed to the Windows or homelab containers.
+- Notes distinguish supported automatic billing/finance email from administrator enablement. Maintain entries and unique version IDs in `src/lib/appUpdates.ts` when publishing matching application images; an older deployed frontend cannot announce newer Git changes. Desktop/mobile dismissal, refresh persistence, per-user isolation, keyboard behavior and damaged preference recovery passed browser checks. Deployed dismissal and reopening passed on Windows and homelab.
 
 ### Added — homelab recovery environment
 - Installed and verified Docker, Compose and Buildx on the operator-authorized `haely-linux` homelab. PostgreSQL 16 dump/restore tools and a cached Caddy image passed runtime checks. Docker is enabled on boot and available to the SSH user.
@@ -27,10 +32,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - A PostgreSQL outbox/checkpoint migration supports restart catch-up, unique message keys, worker leases, bounded retries, Resend idempotency and current-recipient/toggle checks. Uncertain deliveries beyond the provider idempotency window stop for review. First setup skips historical payment alerts; daily digests do not backfill outage days. Deployment examples now pass automation/email settings to the backend. See `docs/BUSINESS-AUTOMATION.md` for enablement, monitoring and remaining UI/retention work.
 
 ### Remaining — release and recovery checks
-- Deploy/apply the outbox migration and enable billing on the intended long-lived API container; verify due templates, approval holds, locked-period failure/retry, restart behavior and logs. Supply a Resend API key and verified sender, configure finance routing/toggles, and verify actual delivery. No live scheduler or email was enabled in this session.
+- Verify live due templates, approval holds, locked-period failure/retry and duplicate-free document catch-up after restart; migration and Windows scheduler startup/restart are verified. Email is intentionally deferred: supply a Resend API key and verified sender, re-enable desired company finance toggles, and verify actual delivery.
 - Extend the completed Windows-to-homelab recovery with actual attachment/download/print fixtures and a multi-company dataset; independently reconcile AR/AP and inventory control accounts. The tested snapshot has one company and zero attachments; baseline equality and balanced ledger totals passed, but these additional checks remain open.
 - Complete browser coverage for PO receipt inputs, initial partial payments, tax-inclusive rounding, multi-user approvals and POS merchandise returns/batch restocking; extend bank/recurring/payroll/assets journeys.
-- Validate deployed CSP/headers and upgrade/worker behavior, live server migrations/settings, campaign-peak imports, shared-item contention and posting into the large historical company. Keep account-default expansion and posted inventory/PO-bill editing as explicit remaining work.
+- Deployed security headers and migrations passed. Still validate Google sign-in under CSP, old-tab recovery and POS worker scope, campaign-peak imports, shared-item contention and posting into the large historical company. Keep account-default expansion and posted inventory/PO-bill editing as explicit remaining work.
 
 ### Fixed — account access and dependency security
 - API access checks the current active account and company memberships, including current roles, on every request. Removed memberships and downgraded administrators cannot retain access through an older login token. Approval authorization checks current membership, account status and role before applying permissions or self-approval exceptions.
