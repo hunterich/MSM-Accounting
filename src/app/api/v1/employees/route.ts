@@ -95,7 +95,10 @@ export const GET = withPermission({ module: 'HR_EMPLOYEES', action: 'view' }, as
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const search = searchParams.get('search');
   const status = searchParams.get('status');
-  const where: any = { organizationId: orgId, status: status || 'ACTIVE' };
+  const where: any = { organizationId: orgId };
+  if (status !== 'ALL') where.status = status || 'ACTIVE';
+  const department = searchParams.get('department');
+  if (department) where.department = { name: department };
   if (search) where.OR = [
     { name: { contains: search, mode: 'insensitive' } },
     { employeeNo: { contains: search, mode: 'insensitive' } },
@@ -106,7 +109,7 @@ export const GET = withPermission({ module: 'HR_EMPLOYEES', action: 'view' }, as
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { name: 'asc' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
       include: {
         department: { select: { id: true, name: true } },
         position: { select: { id: true, name: true } },

@@ -1,5 +1,6 @@
 // src/components/ap/payments/APPaymentListPane.tsx
 // AP payments catalog. The only such list — the pre-workspace duplicate is gone.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import Card from '../../UI/Card';
@@ -23,10 +24,11 @@ const APPaymentListPane = (): React.ReactElement => {
     const [searchTerm, setSearchTerm] = useState('');
     const [status, setStatus] = useState('');
     const [dateRange, setDateRange] = useState<{ from: string; to: string }>({ from: '', to: '' });
-    const { data: paymentsResult, isLoading } = useAPPayments();
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: catalogStatus(status), dateFrom: dateRange.from, dateTo: dateRange.to });
+    const { data: paymentsResult, isLoading, isFetching, error } = useAPPayments(paging.query);
+    const payments = useMemo(() => paymentsResult?.data ?? [], [paymentsResult?.data]);
     const updateAPPayment = useUpdateAPPayment();
     const voidAPPayment = useVoidAPPayment();
-    const payments = useMemo(() => paymentsResult?.data ?? [], [paymentsResult?.data]);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
     const [printPaymentId, setPrintPaymentId] = useState('');
@@ -39,15 +41,7 @@ const APPaymentListPane = (): React.ReactElement => {
 
     const handleVoid = (id: string) => { if (!window.confirm('Void this payment? Its journal entry will be reversed and its allocations removed. This cannot be undone.')) return; voidAPPayment.mutate(id, { onError: (e: unknown) => window.alert(e instanceof Error ? e.message : 'Failed to void payment') }); };
 
-    const filteredData = useMemo(() => payments.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        const matchesSearch = (item.id || '').toLowerCase().includes(kw) || (item.vendorName || '').toLowerCase().includes(kw) || (item.billId || '').toLowerCase().includes(kw);
-        const matchesStatus = status ? item.status === status : true;
-        let matchesDate = true;
-        if (dateRange.from) matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
-        if (dateRange.to) matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
-        return matchesSearch && matchesStatus && matchesDate;
-    }), [searchTerm, status, payments, dateRange]);
+    const filteredData = payments;
 
     const columns = [
         { key: 'id', label: 'Payment #' },
@@ -83,7 +77,7 @@ const APPaymentListPane = (): React.ReactElement => {
                 subtitle="Pay vendor bills and track outgoing payments."
                 actions={
                     <div className="flex gap-2">
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="Pay Bills" size="small" onClick={openNew} />}
                     </div>
                 }
@@ -119,7 +113,7 @@ const APPaymentListPane = (): React.ReactElement => {
                 }
             />
             <Card padding={false}>
-                <Table columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openView(row['id'] as string)} showCount countLabel="payments" isLoading={isLoading} loadingLabel="Loading payments..." />
+                <Table error={error} pagination={{ ...paging, total: paymentsResult?.total, busy: isFetching || !!error }} columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openView(row['id'] as string)} showCount countLabel="payments" isLoading={isLoading} loadingLabel="Loading payments..." />
             </Card>
 
             <PrintPreviewModal isOpen={isPrintOpen} onClose={() => setIsPrintOpen(false)} title="Payment Receipt Preview" documentTitle={`Receipt_${activePrintPayment?.number || activePrintPayment?.id || ''}`} defaultPaperSize={printSettings.defaultPaperSize}>

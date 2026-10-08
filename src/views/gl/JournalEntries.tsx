@@ -1,3 +1,4 @@
+import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../../components/UI/Card';
@@ -64,22 +65,13 @@ const JournalEntries = () => {
     const [periodFilter, setPeriodFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
 
-    // Fetch from API; pass status filter server-side, period is client-side only
+    // Search and period filters apply to the full catalog.
     const apiStatusFilter = statusFilter === 'Posted' ? 'POSTED' : statusFilter === 'Draft' ? 'DRAFT' : undefined;
-    const { data: jeResult, isLoading } = useJournalEntries(apiStatusFilter ? { status: apiStatusFilter } : {});
+    const paging = useCatalogPagination({ status: apiStatusFilter, search: searchTerm.trim(), period: periodFilter });
+    const { data: jeResult, isLoading, isFetching, error } = useJournalEntries(paging.query);
     const entries: JournalEntry[] = jeResult?.data ?? [];
 
-    const filteredEntries = useMemo(() => {
-        const keyword = searchTerm.toLowerCase();
-        return entries.filter((entry) => {
-            const matchesSearch =
-                entry.entryNo.toLowerCase().includes(keyword) ||
-                entry.memo.toLowerCase().includes(keyword);
-            const matchesPeriod = periodFilter ? entry.periodId === periodFilter : true;
-            const matchesStatus = statusFilter ? entry.status === statusFilter : true;
-            return matchesSearch && matchesPeriod && matchesStatus;
-        });
-    }, [entries, searchTerm, periodFilter, statusFilter]);
+    const filteredEntries = entries;
 
     return (
         <ListPage
@@ -90,7 +82,7 @@ const JournalEntries = () => {
                 <div className="flex items-center gap-2">
                     <button
                         className="btn btn-secondary flex items-center gap-1"
-                        title="Export CSV"
+                        title="Export current page as CSV"
                         onClick={() => {
                             const rows = filteredEntries.map((je) => ({
                                 entryNo: je.entryNo,
@@ -161,7 +153,7 @@ const JournalEntries = () => {
             </div>
 
             <Card title="All Journal Entries" padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: jeResult?.total, busy: isFetching || !!error }}
                     columns={columns as TableColumn<Record<string, unknown>>[]}
                     data={filteredEntries as unknown as Record<string, unknown>[]}
                     showCount

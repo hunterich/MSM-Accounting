@@ -15,14 +15,29 @@ export async function OPTIONS() {
 
 export const GET = withHandler(async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
-  const { page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
+  const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const where: any = { organizationId: orgId };
+  const search = searchParams.get('search');
+  const status = searchParams.get('status');
+  const type = searchParams.get('type');
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  if (status) where.status = status;
+  if (type) where.type = type;
+  if (search) where.OR = [
+    { number: { contains: search, mode: 'insensitive' } },
+    { reason: { contains: search, mode: 'insensitive' } },
+  ];
+  if (dateFrom || dateTo) where.date = {
+    ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+    ...(dateTo ? { lt: new Date(new Date(dateTo).getTime() + 86400000) } : {}),
+  };
   const [data, total] = await Promise.all([
     prisma.stockAdjustment.findMany({
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include: {
         lines: {
           include: { item: { select: { id: true, name: true, sku: true } } },

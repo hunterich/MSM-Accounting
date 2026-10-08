@@ -20,10 +20,19 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const where: any = { organizationId: orgId };
   if (status) where.status = status;
 
+  const search = searchParams.get('search');
+  if (search) where.OR = [
+    { number: { contains: search, mode: 'insensitive' } },
+    { vendor: { name: { contains: search, mode: 'insensitive' } } },
+    { sourceBill: { number: { contains: search, mode: 'insensitive' } } },
+    { purchaseReturn: { number: { contains: search, mode: 'insensitive' } } },
+  ];
+  const settlementType = searchParams.get('settlementType');
+  if (settlementType) where.settlementType = settlementType;
   const [data, total] = await Promise.all([
     prisma.debitNote.findMany({
       where, skip: (page - 1) * limit, take: limit,
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include: {
         vendor: { select: { id: true, name: true, code: true } },
         purchaseReturn: { select: { id: true, number: true } },

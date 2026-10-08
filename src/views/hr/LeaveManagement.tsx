@@ -1,3 +1,4 @@
+import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useState, useMemo } from 'react';
 import { Plus, Check, X, RefreshCw, Download } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
@@ -88,7 +89,8 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
     const filters: Record<string, unknown> = {};
     if (statusFilter) filters.status = statusFilter;
 
-    const { data: result, isLoading } = useLeaveRequests(filters);
+    const paging = useCatalogPagination({ status: statusFilter });
+    const { data: result, isLoading, isFetching, error } = useLeaveRequests(paging.query);
     const requests = result?.data ?? [];
     const { data: empResult } = useEmployees();
     const employees = empResult?.data ?? [];
@@ -226,7 +228,7 @@ function LeaveRequestsTab({ canCreate, canEdit }: { canCreate: boolean; canEdit:
             </div>
 
             <Card>
-                <Table columns={columns} data={requests} isLoading={isLoading} showCount countLabel="requests" />
+                <Table error={error} pagination={{ ...paging, total: result?.total, busy: isFetching || !!error }} columns={columns} data={requests} isLoading={isLoading} showCount countLabel="requests" />
             </Card>
 
             <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Submit Leave Request" size="md">

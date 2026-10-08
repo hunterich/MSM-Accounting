@@ -1,6 +1,7 @@
 // src/components/ap/vendors/VendorListPane.tsx
 // Vendors catalog. The only Vendors list — the pre-workspace duplicate is gone.
 // Vendors have no separate detail — View/Edit open VendorForm as a tab.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Tags, Download } from 'lucide-react';
@@ -20,11 +21,12 @@ const VendorListPane = (): React.ReactElement => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('ap_vendors');
     const { open } = useWorkspaceNav();
-    const { data: vendorsResult, isLoading } = useVendors();
     const { data: vendorCategories = [] } = useVendorCategories();
-    const vendorList = useMemo(() => vendorsResult?.data ?? [], [vendorsResult?.data]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState<{ status: string; category: string }>({ status: '', category: '' });
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: filters.status ? catalogStatus(filters.status) : 'ALL', category: filters.category });
+    const { data: vendorsResult, isLoading, isFetching, error } = useVendors(paging.query);
+    const vendorList = useMemo(() => vendorsResult?.data ?? [], [vendorsResult?.data]);
 
     const labelFor = (id: string) => vendorList.find((v) => v.id === id)?.name || id;
     const openView = (id: string) => open({ kind: 'doc-form', target: { module: 'ap', entity: 'vendor', recordId: id, mode: 'view' }, title: labelFor(id), path: `/ap/vendors/new?vendorId=${id}&mode=view` });
@@ -37,13 +39,7 @@ const VendorListPane = (): React.ReactElement => {
         return Array.from(names).sort((a, b) => a.localeCompare(b));
     }, [vendorCategories, vendorList]);
 
-    const filteredData = useMemo(() => vendorList.filter((v) => {
-        const kw = searchTerm.toLowerCase();
-        const matchesSearch = v.name.toLowerCase().includes(kw) || v.code.toLowerCase().includes(kw) || v.category.toLowerCase().includes(kw);
-        const matchesStatus = filters.status ? v.status === filters.status : true;
-        const matchesCategory = filters.category ? v.category === filters.category : true;
-        return matchesSearch && matchesStatus && matchesCategory;
-    }), [filters, searchTerm, vendorList]);
+    const filteredData = vendorList;
 
     const columns = [
         { key: 'code', label: 'Vendor #', sortable: true },
@@ -76,7 +72,7 @@ const VendorListPane = (): React.ReactElement => {
                 actions={
                     <div className="flex gap-2">
                         <Button text="Vendor Categories" size="small" variant="tertiary" icon={<Tags size={16} />} onClick={() => navigate('/ap/vendor-categories')} />
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="Add Vendor" size="small" onClick={openNew} />}
                     </div>
                 }
@@ -94,7 +90,7 @@ const VendorListPane = (): React.ReactElement => {
             />
 
             <Card padding={false}>
-                <Table columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openView(row['id'] as string)} showCount countLabel="vendors" isLoading={isLoading} loadingLabel="Loading vendors..." />
+                <Table error={error} pagination={{ ...paging, total: vendorsResult?.total, busy: isFetching || !!error }} columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openView(row['id'] as string)} showCount countLabel="vendors" isLoading={isLoading} loadingLabel="Loading vendors..." />
             </Card>
         </div>
     );

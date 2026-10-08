@@ -1,9 +1,22 @@
 # MSM Accounting Software — Improvement Roadmap
 
 > Benchmarked against ERPNext (open-source ERP).
-> Created 2026-02-27 | Current version: v1.0.0
+> Created 2026-02-27 | Latest released changelog version: v1.1.0 | Reconciled with code/tests: 2026-10-08
 
 ---
+
+## Release validation still required
+
+- [x] **Dismissible app update board** — What’s new opens for unseen release notes and can be closed or reopened from the bell; remembers each user's dismissal on the browser, with mobile and Indonesian support. Notes are bundled with the frontend version (`src/lib/appUpdates.ts`). Browser behavior passed locally; publish with matching application images to make it available on Windows/homelab.
+- [x] **Recovery host preparation** — authorized installation on `haely-linux@192.168.68.102`; Docker/Compose/Buildx, PostgreSQL 16 tools and Caddy verified. Blank staging database uses its own volume and localhost-only port. Evidence: `artifacts/recovery-drill/host-setup.md`.
+
+- [x] **Windows Docker → homelab recovery drill** — fresh consistent snapshot restored on `haely-linux`; all 93 tables / 56,383 rows match source fingerprints before QA changes. Exact deployed backend/web images, HTTPS login/company selection, existing documents, financial reports, direct-ledger/trial-balance totals, tenant isolation, view-only and locked-period rejection, test posting/compensating reversal and container restart passed. Recovered app: `https://192.168.68.102:8446`. Evidence and scope: `docs/RECOVERY-DRILL.md`.
+- [ ] **P1 — extend recovery coverage** with a backup containing actual attachments and download/print verification; independently reconcile AR/AP and inventory control accounts to subledgers. This source snapshot has zero attachment/import records and no deployed file-storage directory. Recovery preserves the existing data; a balanced trial balance alone does not certify its accounting correctness. Retest a multi-company snapshot when available (this one contains one company).
+- [ ] **P1 — complete browser journeys** for the PO receipt modal, initial partial-payment input, tax-inclusive penny rounding through forms, multi-user approvals, POS merchandise returns with batch restocking, bank imports/reconciliation, recurring billing, payroll and assets. Backend coverage exists; see `docs/TESTING.md`.
+- [ ] **P1 — production capacity validation**: posting into the large historical company, shared-item contention, concurrent marketplace duplicate/retry races, campaign-peak imports, deep pages and detail exports. October 7 isolated load/read retests passed; live server deployment and migration remain unverified. See `docs/capacity-target.md`.
+- [ ] **P1 — deployment smoke**: security headers/CSP, Google sign-in under the deployed CSP, old-tab recovery after upgrade and POS worker scope.
+- [ ] **P1 — enable and verify scheduled billing and finance notifications** after deployment, with due templates, approval holds, locked-period failures and restart replay. Source implementation and mocked-provider/PostgreSQL tests pass; live migration/enablement, verified sender/provider delivery and restart catch-up remain unverified.
+- [ ] **P2 — accounting defaults expansion**: `stockVariance`, `purchaseDiscount`, `incomeTaxExpense`, settings sub-tabs and exact posting-account regressions.
 
 ## Legend
 
@@ -102,12 +115,12 @@
 - [~] Bulk invoice import from marketplace exports — Shopee + TikTok Shop done via the shared 6-step wizard (`ImportInvoicesModal.tsx` + multi-platform parser in `shopeeImport.ts`); Tokopedia / Lazada not started
 - [x] PDF bill import — upload supplier invoice PDF → extract text → auto-match vendor + items → review → create bill (`lib/bill-imports.ts` + `/api/v1/bill-imports/` routes)
 - [~] Faktur (purchase invoice) image import — OCR-based extraction from scanned faktur images to Accurate-style purchase invoice import format
-  - [ ] Image upload endpoint (JPEG/PNG/TIFF) with size validation
-  - [ ] OCR text extraction (Tesseract.js or cloud OCR API)
-  - [ ] Indonesian faktur field parser (nomor faktur, NPWP, DPP, PPN, tanggal)
-  - [ ] Auto-match vendor by NPWP or name
-  - [ ] Auto-match items by supplier SKU / description
-  - [ ] Review UI with line-item editing before import
+  - [x] Image upload endpoint (JPEG/PNG/TIFF and additional supported formats) with type/size validation — `bill-imports` API
+  - [x] OCR text extraction — Tesseract in `lib/faktur-ocr.ts`
+  - [x] Indonesian faktur field parser (nomor faktur, NPWP, DPP, PPN, tanggal) — implemented; representative scanned-document accuracy validation remains
+  - [~] Auto-match vendor by name in bill analysis; extracted NPWP available — verify reliable NPWP matching with real samples
+  - [x] Auto-match items by SKU/description and saved vendor mappings
+  - [x] Review UI with editable extracted lines before creating the bill
   - [ ] Export to Accurate-compatible Excel format (optional)
   - [ ] Batch upload support (multiple faktur images at once)
 
@@ -147,20 +160,20 @@
 > Note: POS and pharmacy/cosmetics batch-expiry are now tracked as optional add-on modules so the core accounting roadmap stays focused.
 
 ### 2.1 POS (Point of Sale) — Moved to Add-On Module
-- [ ] Retail / cashier workspace to be delivered as an optional add-on
-- [ ] Covers barcode sales flow, receipt printing, payment capture, and end-of-day closing
+- [x] Optional browser POS add-on implemented in `src/pos` and `/api/v1/pos`.
+- [x] Product/barcode flow, receipts, payment capture and shift closing; online/offline checkout browser tests exist. Hardware printing and merchandise-return drill remain to verify.
 
 ### 2.2 Batch & Expiry Tracking — Moved to Add-On Module
-- [ ] Pharmacy / cosmetics inventory add-on for batch, expiry, FEFO, and compliance fields
-- [ ] Includes batch-level stock visibility, expiry alerts, and controlled picking on stock movements
+- [~] Batch/expiry stock and POS FEFO picking exist; full pharmacy compliance and coverage of all stock movement forms remain incomplete.
+- [~] Batch-level stock/expiry APIs exist; expiry alert delivery and consistent picking across back-office movements require validation.
 
 ### 2.3 Recurring Invoices / Subscriptions
 - [x] Recurring invoice templates (monthly, quarterly, annual) — `RecurringInvoices.tsx` + `/api/v1/recurring-invoices` CRUD
-- [x] Auto-generation schedule — `/api/v1/recurring-invoices/run` batch endpoint + per-template `Generate Now`
+- [x] Automatic recurring invoice/bill generation — shared generation services, startup sweep and 15-minute schedule when `BUSINESS_AUTOMATION_ENABLED=true`; manual batch/Generate Now remains available. Active-admin attribution, approval/period guards, template locks, bounded batches and month-end clamping; deployment enablement remains above.
 - [x] Subscription plans with trial period — `SubscriptionPlan` model + CRUD API; trial days configurable per plan
 - [x] Subscription status lifecycle (Trialing, Active, Past Due, Cancelled, Expired) — `Subscription` model + status transitions
 - [x] Pro-rata billing on cancellation — `lib/subscription.ts` calculates refund based on days remaining in period
-- [x] Subscription invoice auto-generation — `/api/v1/subscriptions/generate-invoices` batch endpoint
+- [x] Subscription invoice auto-generation — shared service used by the batch API and business scheduler; per-subscription atomic claims and isolated errors.
 - [x] Subscriptions UI — `Subscriptions.tsx` with tab layout (Subscriptions | Plans), full CRUD, cancel with refund display
 
 ### 2.4 Multi-User & Role-Based Permissions
@@ -181,8 +194,8 @@
 
 ### 2.5 Email Integration
 - [x] Send invoice PDF to customer via email — `/api/v1/invoices/[id]/send-email`; updates status to SENT + audit log
-- [x] Automated payment reminders (overdue invoices) — `/api/v1/email/reminders` batch endpoint
-- [~] Notification toggle exists in settings but not wired
+- [x] Finance due reminders — scheduled once after 08:00 in the company timezone, with completed payments/discounts/applied credits deducted; customer reminders remain available through the manual endpoint. Deploy/provider verification remains open.
+- [x] Finance notification settings drive automatic payment alerts, due reminders and daily digests to the saved finance email; persistent outbox, lease/retry/provider idempotency and recipient/toggle rechecks. Detailed contents/destination authorized on 2026-10-08. Deployment enablement and live delivery remain open; see `docs/BUSINESS-AUTOMATION.md`.
 - [x] Send PO to vendor via email — `/api/v1/purchase-orders/[id]/send-email`
 - [x] Email templates (customizable) — `EmailTemplate` model + CRUD API; `EmailTemplates.tsx` in Settings; `lib/email.ts` renders templates with `{{variable}}` substitution; fallback to hardcoded HTML; 3 default templates (Invoice, Reminder, PO)
 
@@ -195,7 +208,7 @@
 - [x] Settings IA: Features / Restrictions / Approval Rules tabs (Accurate-style)
   - **Features tab** — org-wide on/off toggles for whole modules (Sales Orders, Sales Returns, Recurring, Subscriptions, Delivery Notes, Customer/Vendor Categories, Approvals, Shop Integrations, Purchase Orders, Item Categories, Fixed Assets, HR & Payroll, Tax). Disabled modules disappear from the sidebar for everyone. `useSettingsStore.features` + `SUBITEM_FEATURE_MAP` in `Sidebar.tsx`
   - **Restrictions tab** — single home for org-wide rules (`enforceLimit`, `blockSellBelowCost`, `requireSalesOrder`); moved out of Customers & Sales tab so policies don't mix with master defaults
-  - **Approval Rules tab** — per-module require-approval toggles (10 modules across AR/AP/Inv/HR). Phase 1 = configuration persists; save-time enforcement per form is a follow-up
+  - **Approval Rules tab** — per-module require-approval toggles (10 modules across AR/AP/Inv/HR). server-side approval routing and finalizers enforce live document transitions; backend tests cover all three approval phases
 - [x] Credit limit enforcement using outstanding AR balance + new document amount
 - [x] Approval workflow for invoices / purchase orders — `ApprovalInbox.tsx`; submit/approve/reject routes for invoices + POs; `ApprovalRequest` model; `PENDING_APPROVAL` status on invoice/PO
 - [x] Payment reconciliation against bank transactions — `/api/v1/reconciliation/payments` auto-match + manual match; `PaymentReconciliation.tsx`
@@ -208,7 +221,7 @@
 - [ ] **Edit-after-post: PO-sourced bills** — reconcile the PO `receivedQty` + GR/IR clearing on reverse/re-post (today these couple to the PO receiving state machine, so PO-sourced bills stay void-first).
 - [x] **Transaction-date restriction (Accurate "Pembatasan Tanggal Transaksi")** — Settings → Restrictions configures a window of N days before/after today, per organization, in WARN (banner, save allowed) or BLOCK (422) mode. Enforced inside `assertPeriodOpen`, so it inherits that guard's coverage of every journal-writing path; scope is journaled documents only. The override is SETTINGS/edit — the right that edits the window — rather than a new permission or a per-user list; automated paths have no actor and stay held to the window. `lib/transaction-date-policy.ts` is the single definition, read by the screen, the API and the guard alike.
 - [ ] **Dedicated "edit posted transaction" permission** — edit-after-post currently reuses the module `edit` permission; optionally split posted-edit rights from draft-edit rights (Accurate Security & Roles style).
-- [ ] Save-time enforcement of `approvalRequirements` toggles in each form (current Phase 1 only persists the config; forms still create records directly without checking the require-approval flag)
+- [x] Server-side enforcement of `approvalRequirements` on supported posting/finalization paths, including recurring and subscription billing; browser multi-user approval coverage remains open above.
 
 ---
 
@@ -268,9 +281,9 @@
 - [~] Shop connections + per-shop settings in `useIntegrationStore.js`; Integrations.jsx manages shop list
 - [~] Auto-import orders: Shopee + TikTok Shop done (shared 6-step wizard, Excel parse, item mapping, upsert by Order ID); Tokopedia / Lazada not started
 - [ ] Auto-create invoices from marketplace orders
-- [ ] Marketplace fee auto-posting (commission, shipping subsidy, voucher)
+- [~] Shopee/TikTok settlement import posts mapped fees; live automatic platform ingestion and remaining marketplaces are not implemented.
 - [ ] Platform wallet balance tracking
-- [ ] Settlement reconciliation (platform payout vs bank deposit)
+- [~] Settlement import/account mapping exists; complete platform-payout to bank reconciliation browser coverage remains.
 - [ ] Sales channel dimension in reports
 
 ### 3.6 Procurement Improvements
@@ -320,9 +333,9 @@
 - [x] Company-specific user permissions — roles and permission matrices are per-membership, so the same login can hold different rights in each company
 
 ### 4.4 Workflow / Approval Engine
-- [ ] Configurable approval chains per document type
-- [ ] Multi-level approval (Manager -> Director -> Finance)
-- [ ] Status transitions (Draft -> Pending Approval -> Approved -> Posted)
+- [x] Configurable approval chains per supported document type — `lib/approval` engine.
+- [x] Multi-level approval steps, quorum, rejection/finalization and concurrency backend checks.
+- [x] Approval holds and document-specific finalization/status transitions.
 - [ ] Email notifications on pending approvals
 - [ ] Approval delegation
 
@@ -348,15 +361,15 @@
 > Optional modules that extend MSM for specialized operating models without bloating the core accounting workspace.
 
 ### A1. Retail POS Add-On
-- [ ] Browser-based POS interface
-- [ ] Product search + barcode scanning
-- [ ] Cart with qty adjustment, discount per line
-- [ ] Multiple payment methods (cash, card, QRIS, split payment)
-- [ ] Cash change calculation
-- [ ] Receipt printing (thermal printer support)
-- [ ] POS closing / end-of-day summary
-- [ ] Offline mode with sync (localStorage fallback)
-- [ ] POS Profile per user / warehouse
+- [x] Browser-based POS interface
+- [x] Product search + barcode scanning
+- [x] Cart with qty adjustment, discount per line
+- [x] Multiple tender methods and split-tender posting — `lib/pos/tender.ts`; verify physical provider/device flows separately.
+- [x] Cash change calculation
+- [~] Receipt view/printing exists; real thermal-printer compatibility requires hardware validation.
+- [x] POS closing / end-of-day summary
+- [x] IndexedDB outbox and offline sync; browser replay and exact-once posting checks.
+- [~] Company/register/warehouse and cashier attribution exist; verify the intended per-user profile workflow.
 
 ### A2. Pharmacy & Cosmetics Compliance Add-On
 - [ ] Batch number field on inventory items
@@ -371,12 +384,12 @@
 > Mimics the "Kasir" module group from Accurate POS. Core Outlet POS / register / shift / offline flow is already delivered (`src/pos/`, `PosRegister`/`PosShift`/`PosSale`). These are the remaining cashier-facing features, prioritized. Manufacturing group (Pekerjaan Pesanan / Bahan Baku) is explicitly **out of scope**.
 
 **High priority**
-- [ ] **Tipe Penjualan (Sales Type)** — categorize each sale by channel (offline storefront vs online/e-commerce). A sales type carries: name, sales category (Umum / Online), optional service-charge rule, and tax on/off. At checkout the cashier picks a type; the system applies its price category, auto-calculates any service charge, and tags the `PosSale` so reporting can split online vs offline. Ref: [Accurate — Tipe Penjualan](https://help.accurate.id/product/accurate-pos/pengaturan-utama/kasir/tipe-penjualan/melakukan-transaksi-dengan-tipe-penjualan/)
-- [ ] **Modifier** — per-item add-ons / option groups (esp. for salon services and configurable products) applied in the POS cart, adjusting price and line description. *(brainstorm in progress → spec to follow)*
+- [x] **Tipe Penjualan (Sales Type)** — categorize each sale by channel (offline storefront vs online/e-commerce). A sales type carries: name, sales category (Umum / Online), optional service-charge rule, and tax on/off. At checkout the cashier picks a type; the system applies its price category, auto-calculates any service charge, and tags the `PosSale` so reporting can split online vs offline. Ref: [Accurate — Tipe Penjualan](https://help.accurate.id/product/accurate-pos/pengaturan-utama/kasir/tipe-penjualan/melakukan-transaksi-dengan-tipe-penjualan/)
+- [x] **Modifier** — per-item add-ons / option groups (esp. for salon services and configurable products) applied in the POS cart, adjusting price and line description. Implemented cart/API pricing and modifier stock handling; backend tests exist.
 
 **Medium priority**
 - [ ] **Promo** — discount-rule engine (item / cart / time-bound promos) applied automatically or by code at checkout
-- [ ] **Biaya (POS service charge)** — expose invoice-level charges as POS-cart-level fees (feeds Tipe Penjualan service charge)
+- [x] **Biaya (POS service charge)** — expose invoice-level charges as POS-cart-level fees (feeds Tipe Penjualan service charge)
 
 **Low priority**
 - [ ] **Customer Display** — second-screen display mirroring the cart for the customer
@@ -420,16 +433,16 @@
 
 | Item | Status | Priority |
 |------|--------|----------|
-| Migrate to real database (Phase 1.1) | Done — PostgreSQL + Prisma (43 tables); auth + API routes; all 6 modules wired (reads + writes); 4 sub-modules pending backend routes (credit/debit notes, sales/purchase returns) | Critical |
+| Migrate to real database (Phase 1.1) | Done — PostgreSQL + Prisma; auth + API routes; core modules and credit/debit notes plus sales/purchase returns wired | Critical |
 | Add TypeScript | [x] Full-stack TypeScript — all 96 frontend JS/JSX files migrated to TS/TSX; `src/types/index.ts` shared frontend interfaces created; `@types/xlsx`, `@types/jspdf`, `@types/file-saver`, `@types/pdf-parse` installed; 0 tsc errors, 88/88 tests passing | Medium |
-| Unit tests for stores & utils | [x] 104 tests across 17 files; AR/AP validation + reports + route isolation tests added | High |
-| E2E tests (Playwright/Cypress) | [x] Playwright installed; `e2e/auth.spec.ts`, `e2e/dashboard.spec.ts`, `e2e/invoices.spec.ts`; `npm run test:e2e` | Medium |
+| Unit tests for stores & utils | [x] Broad unit and real-PostgreSQL suites; current verified counts/evidence tracked in `docs/TESTING.md` | High |
+| E2E tests (Playwright/Cypress) | [~] Both back-office and POS Playwright projects run in CI; representative accounting/security journeys exist; full-browser gaps listed above | Medium |
 | Error boundaries & error handling | [x] ErrorBoundary component with page/widget variants; wraps App, Dashboard, and each widget | High |
 | Loading states & skeleton screens | [~] `LoadingSkeleton.jsx` (`SkeletonBlock`, `TableSkeleton`) added; not yet applied to all pages | Medium |
 | Mobile responsive layout | [x] Mobile top nav bar (hamburger + slide-over); sidebar hidden on mobile; dashboard widgets responsive grid; tables overflow-x-auto; filter bars flex-wrap | Medium |
 | Accessibility (a11y) audit | Not started | Low |
-| Virtual scrolling / lazy-load for large lists (Accurate pattern) | [~] Table.jsx supports @tanstack/react-virtual (auto >50 rows), record count footer on all list pages | **Critical** |
-| Performance optimization (large datasets) | Not started | Medium |
+| Virtual scrolling / lazy-load for large lists (Accurate pattern) | [~] Virtualized tables plus server pagination/search work in current workspace; deploy/QA the uncommitted catalog changes and remaining detail/export limits | **Critical** |
+| Performance optimization (large datasets) | [~] PostgreSQL report aggregation/indexes and large read/mixed-load retests implemented; live deployment and shared-stock/large-history posting validation pending | High |
 | App language switching (English / Bahasa Indonesia) | Deferred until core workflows stabilize; no partial-language selector release | Low |
 | CI/CD pipeline | [x] `.github/workflows/ci.yml` — GitHub Actions: tsc + vitest + prisma db push on every push/PR; Vercel deploy via GitHub integration | Medium |
 | Backup & restore functionality | [x] In-app Backup & Restore (PR #45) — automatic twice-daily `pg_dump --format=custom`, manual "Back up now", synced-folder cloud/external destinations, guarded admin-only restore (safety backup + type-RESTORE), backup history, `node-cron` scheduler via `instrumentation.ts`, `SYSTEM_BACKUP` RBAC | High |
@@ -470,13 +483,13 @@
 
 ### Catalog / List View Pattern
 - [x] **Virtual scrolling** — `Table.jsx` supports `@tanstack/react-virtual`, auto-activates when data > 50 rows, per-row `<table>` layout with `colgroup` sync
-- [ ] **Lazy-load on scroll** — fetch next batch from server as user scrolls near bottom (requires backend)
+- [ ] **Lazy-load on scroll** — optional infinite-scroll UX remains; server-backed page navigation exists in current catalog work.
 - [~] **Total record count** — implemented as table footer count bar (`RecordCount.jsx`) on all 13 list pages; not positioned next to search bar like Accurate
-- [~] **Sticky column headers** — achieved in virtualized table mode (split header table + scrollable body); not uniformly sticky in non-virtualized mode
-- [ ] **Server-side filtering** — date range, customer, status dropdowns filter via API (requires backend)
-- [ ] **Server-side search** — search queries sent to backend (requires backend)
-- [ ] **Skeleton rows** — show placeholder rows while next batch loads
-- [~] Adopt for all catalogs — shared `Table` component applies to 13 pages; `InvoiceCatalogPanel` uses custom table (not yet migrated)
+- [~] **Sticky column headers** — shared Table and current workspace updates support sticky headers; verify every custom catalog panel.
+- [~] **Server-side filtering** — invoice and catalog API/query changes and browser tests exist in the working tree; validate remaining filter combinations and deploy.
+- [~] **Server-side search** — supported by current invoice/catalog pagination work; verify coverage across all lists.
+- [~] **Skeleton rows** — loading components exist; consistent application across paginated lists remains to verify.
+- [~] Adopt for all catalogs — shared tables and pagination components exist; verify remaining custom panels and filter combinations before deployment.
 
 ### Tabbed Document Workspace
 - [x] **Tab bar** at top for open documents (like browser tabs)
@@ -521,17 +534,17 @@
 | Print / PDF | Yes (Invoice, Bill, PO, SO — A4 templates + CSV export) | Yes | Low |
 | Inventory Valuation | Yes (FIFO/WA, cost layers, stock valuation report) | Yes (FIFO/WA/LIFO) | Low |
 | Bank Statement Import | Yes (CSV/OFX, auto-match, reconciliation report) | Yes | Low |
-| POS | No | Yes | **Critical** |
+| POS | Yes (optional add-on; online/offline checkout and shifts) | Yes | Low; hardware/return validation pending |
 | CRM | No | Yes | High |
 | HR & Payroll | Yes (Employee + Attendance + Leave + Payroll with PPh 21 + BPJS + GL posting) | Yes | Low |
 | Asset Management | Yes (Register + Categories + Depreciation SL/DB/DDB + Disposal + GL) | Yes | Low |
 | Manufacturing / BOM | Separate project (MSM Manufacturing) | Yes | N/A |
 | Project Management | No | Yes | Medium |
 | Multi-Company | Partial (per-company COA/roles/data, post-login company picker, self-service company creation; no inter-company transactions or consolidated statements) | Yes | Medium |
-| Workflow Engine | No | Yes | Medium |
+| Workflow Engine | Yes (supported document types; approval chains/finalizers) | Yes | Medium; delegation/notifications pending |
 | REST API | Partial (internal Next.js API routes live for core modules; no public API key/docs yet) | Yes | Medium |
 | Multi-User Auth | Yes (JWT + httpOnly session + API middleware + RBAC route enforcement + document-level perms + audit log) | Yes | Low |
-| Faktur Import (OCR) | Planned (image → OCR → bill) | N/A (Accurate feature) | High |
+| Faktur Import (OCR) | Partial (image upload/OCR/parse/review → bill) | N/A (Accurate feature) | Medium; batch/accuracy validation pending |
 | Budget Controls | No | Yes | Medium |
 | Subscriptions | Yes (Plans + Lifecycle + Pro-rata + Invoice Generation) | Yes | Low |
 | Quality Management | No | Yes | Low |
@@ -567,7 +580,7 @@ v0.8   — Complete API Routes — all CRUD for all modules (Phase 1.1 cont.)
 
 v0.9   — Frontend → Backend Connection (Phase 1.1 complete) ✓
           All 6 modules wired (reads + writes): Banking ✓ GL ✓ AR ✓ AP ✓ Inventory ✓ HR ✓
-          13 list pages + 10 form pages on React Query; 4 sub-forms pending backend routes
+          Core list/form pages and return/note submodules connected to backend
 
 v1.0   — Multi-User Auth live + all data in PostgreSQL ✓
           ↑ First production-ready release (Phase 1.1 + 2.4 complete)
@@ -620,7 +633,7 @@ v1.6   — Payment Reconciliation (Phase 2.7 cont.) ✓
           Auto-match suggestions + manual match/unmatch
 
 v1.7   — Batch/Expiry Tracking (Phase 2.2)
-v1.8   — POS Module (Phase 2.1)
+v1.8   — POS add-on implemented; hardware and cashier-return validation pending
 v1.9   — CRM (Phase 3.1)
 v2.0   — E-Commerce Auto-Posting + Budget Controls (Phase 3.4, 3.5)
 v3.0   — Multi-Company + REST API + Workflow Engine (Phase 4)

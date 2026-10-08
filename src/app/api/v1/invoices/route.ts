@@ -43,7 +43,7 @@ export const GET = withHandler(async (req: NextRequest) => {
   if (dateFrom || dateTo) {
     where.issueDate = {
       ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-      ...(dateTo   ? { lte: new Date(dateTo)   } : {}),
+      ...(dateTo   ? { lt: new Date(new Date(dateTo).getTime() + 86400000) } : {}),
     };
   }
   if (customerId) where.customerId = customerId;
@@ -51,7 +51,7 @@ export const GET = withHandler(async (req: NextRequest) => {
   const [data, total] = await Promise.all([
     prisma.salesInvoice.findMany({
       where, skip: (page - 1) * limit, take: limit,
-      orderBy: { issueDate: 'desc' },
+      orderBy: [{ issueDate: 'desc' }, { id: 'desc' }],
       include: {
         customer: { select: { id: true, name: true, code: true } },
         createdBy: { select: { id: true, fullName: true, email: true } },

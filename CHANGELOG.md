@@ -7,6 +7,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — dismissible app update board
+- The notification bell opens a What’s new board showing user-facing updates bundled with the frontend version. New notes open automatically after company selection; Close, Got it and Escape remember dismissal per user on the current browser. The bell can reopen the board, including on mobile. English and Indonesian labels and notes are supported.
+- Notes distinguish supported automatic billing/finance email from administrator enablement. Maintain entries and unique version IDs in `src/lib/appUpdates.ts` when publishing matching application images; an older deployed frontend cannot announce newer Git changes. Desktop/mobile dismissal, refresh persistence, per-user isolation, keyboard behavior and damaged preference recovery passed browser checks. Source implementation is not yet deployed to the Windows or homelab containers.
+
+### Added — homelab recovery environment
+- Installed and verified Docker, Compose and Buildx on the operator-authorized `haely-linux` homelab. PostgreSQL 16 dump/restore tools and a cached Caddy image passed runtime checks. Docker is enabled on boot and available to the SSH user.
+- Restored the actual Windows Docker deployment to a private homelab Compose project with independent PostgreSQL/Caddy volumes and staging secrets. Fresh exported-snapshot dump and exact deployed backend/web images (revision `6d0c89d638713802ce3ea4b6856d994efcde846f`) passed transfer checksums. All 93 tables and 56,383 rows match before staging-only QA changes. Added capture/browser verification scripts under `scripts/recovery/`.
+- Recovered HTTPS app at `https://192.168.68.102:8446` passed login/company selection, existing invoice/bill retrieval, payments/items/journals, financial reports, tenant isolation, view-only/locked-period posting rejection and restart persistence. Direct posted-ledger sums match the pre-test trial balance: debit = credit = 502,788,116.26. A 123.45 test posting and compensating reversal preserve every account net balance. Original Windows accounts and business data were not changed.
+- The recovered September 30 application predates the new scheduler-disable flag; its restored `BackupSettings` was disabled before startup. Recovery uses no outbound email credentials, staging backup paths and separate TLS CA. No attachment content existed in this deployment, so positive file recovery remains unproven. Detailed evidence and limits: `docs/RECOVERY-DRILL.md`.
+
+### Added — automatic business billing and release validation tracking
+- Shared recurring invoice/bill and subscription generation services now support an opt-in backend startup sweep and 15-minute scheduler. Company feature toggles, active-admin approval attribution, approval holds and accounting-period/date guards remain enforced. Dev/build imports do not enable business automation; `BACKGROUND_JOBS_ENABLED=false` suspends all startup schedulers for recovery/QA.
+- Recurring generation serializes each template and rechecks the selected due occurrence to prevent overlapping batch runs from generating it twice. Batches are bounded; failed documents retain their due date for retry. Calendar advancement clamps month-end/leap-day dates, and recurring invoices use the organization's canonical invoice-number allocator.
+- Reconciled stale roadmap entries for POS, OCR, approval enforcement, note/return APIs, settlement imports and current pagination/capacity work. Added an isolated full-system recovery procedure in `docs/RECOVERY-DRILL.md`. Existing catalog/pagination changes were already present in this working tree.
+
+### Added — scheduled finance notifications
+- Finance settings now control payment-posted alerts every 15 minutes and daily due/overdue reminder plus prior-day activity digests after 08:00 in the company timezone. Messages go to the saved finance email; customer email remains manual. The operator authorized the detailed finance contents and destination on 2026-10-08. Reminder balances deduct completed allocations, discounts and applied gross credit notes.
+- A PostgreSQL outbox/checkpoint migration supports restart catch-up, unique message keys, worker leases, bounded retries, Resend idempotency and current-recipient/toggle checks. Uncertain deliveries beyond the provider idempotency window stop for review. First setup skips historical payment alerts; daily digests do not backfill outage days. Deployment examples now pass automation/email settings to the backend. See `docs/BUSINESS-AUTOMATION.md` for enablement, monitoring and remaining UI/retention work.
+
+### Remaining — release and recovery checks
+- Deploy/apply the outbox migration and enable billing on the intended long-lived API container; verify due templates, approval holds, locked-period failure/retry, restart behavior and logs. Supply a Resend API key and verified sender, configure finance routing/toggles, and verify actual delivery. No live scheduler or email was enabled in this session.
+- Extend the completed Windows-to-homelab recovery with actual attachment/download/print fixtures and a multi-company dataset; independently reconcile AR/AP and inventory control accounts. The tested snapshot has one company and zero attachments; baseline equality and balanced ledger totals passed, but these additional checks remain open.
+- Complete browser coverage for PO receipt inputs, initial partial payments, tax-inclusive rounding, multi-user approvals and POS merchandise returns/batch restocking; extend bank/recurring/payroll/assets journeys.
+- Validate deployed CSP/headers and upgrade/worker behavior, live server migrations/settings, campaign-peak imports, shared-item contention and posting into the large historical company. Keep account-default expansion and posted inventory/PO-bill editing as explicit remaining work.
+
 ### Fixed — account access and dependency security
 - API access checks the current active account and company memberships, including current roles, on every request. Removed memberships and downgraded administrators cannot retain access through an older login token. Approval authorization checks current membership, account status and role before applying permissions or self-approval exceptions.
 - Password and Google sign-in reject inactive accounts even when a company membership remains active; the session endpoint also rejects inactive accounts.
@@ -232,11 +257,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Features planned for upcoming releases.
 
-### 🔴 Critical (All Businesses)
-- **Inventory Valuation** — FIFO / Weighted Average costing, COGS auto-calculation
-- **Bank Statement Import** — CSV/OFX import + auto-matching + reconciliation
-- ~~**Backend routes for remaining sub-modules**~~ ✅ Done in v0.9.0
-- **Vendor Categories** — group vendors by type (like Customer Categories)
+### Core items from the original plan — implemented
+- Inventory valuation (FIFO/weighted average/COGS), bank statement import/reconciliation, note/return backend routes and vendor categories are implemented. This historical list no longer represents release blockers; use the current Unreleased section and ROADMAP release-validation checklist.
 
 ### 🟡 Beauty Clinic
 - Service packages — bundle multiple treatments at one price

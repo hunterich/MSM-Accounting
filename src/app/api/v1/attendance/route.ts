@@ -25,15 +25,32 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   if (startDate || endDate) {
     where.date = {};
     if (startDate) where.date.gte = new Date(startDate);
-    if (endDate) where.date.lte = new Date(endDate);
+    if (endDate) where.date.lt = new Date(new Date(endDate).getTime() + 86400000);
   }
 
+  if (searchParams.get('summaryOnly') === 'true') {
+    const groups = await prisma.attendanceRecord.groupBy({ by: ['date', 'status'], where, _count: { _all: true } });
+    const summary = { total: 0, present: 0, absent: 0, late: 0, sick: 0, leave: 0 };
+    const dates: Record<string, number> = {};
+    for (const group of groups) {
+      const count = group._count._all;
+      const date = group.date.toISOString().slice(0, 10);
+      dates[date] = (dates[date] || 0) + count;
+      summary.total += count;
+      if (group.status === 'PRESENT' || group.status === 'LATE') summary.present += count;
+      if (group.status === 'ABSENT') summary.absent += count;
+      if (group.status === 'LATE') summary.late += count;
+      if (group.status === 'SICK') summary.sick += count;
+      if (group.status === 'LEAVE') summary.leave += count;
+    }
+    return ok({ data: [], total: summary.total, page: 1, limit, summary, dates });
+  }
   const [data, total] = await Promise.all([
     prisma.attendanceRecord.findMany({
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: [{ date: 'desc' }, { employee: { name: 'asc' } }],
+      orderBy: [{ date: 'desc' }, { employee: { name: 'asc' } }, { id: 'asc' }],
       include: {
         employee: { select: { id: true, name: true, employeeNo: true, department: { select: { name: true } } } },
       },

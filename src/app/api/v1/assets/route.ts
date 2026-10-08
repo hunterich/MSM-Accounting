@@ -35,7 +35,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: { category: { select: { id: true, name: true } }, purchaseLine: { select: { billId: true, bill: { select: { id: true, number: true, status: true } } } } },
     }),
     prisma.asset.count({ where }),

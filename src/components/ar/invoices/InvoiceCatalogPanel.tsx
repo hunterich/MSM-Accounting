@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import FilterBar from '../../UI/FilterBar';
 import StatusTag from '../../UI/StatusTag';
 import { formatDateID, formatIDR } from '../../../utils/formatters';
@@ -38,6 +38,11 @@ interface InvoiceCatalogPanelProps {
     onViewInvoice: (id: string) => void;
     onEditInvoice: (id: string) => void;
     onPrintInvoice: (id: string) => void;
+    pagination?: {
+        page: number; limit: number; total: number; busy: boolean;
+        onPageChange: (page: number) => void;
+        onLimitChange: (limit: number) => void;
+    };
 }
 
 const getAgeDays = (row: InvoiceRow): number | null => {
@@ -71,9 +76,19 @@ const InvoiceCatalogPanel: React.FC<InvoiceCatalogPanelProps> = ({
     onViewInvoice,
     onEditInvoice,
     onPrintInvoice,
+    pagination,
 }) => {
+    const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.limit)) : 1;
+    const [pageInput, setPageInput] = useState(String(pagination?.page ?? 1));
+    const scrollArea = useRef<HTMLDivElement>(null);
+    useEffect(() => setPageInput(String(pagination?.page ?? 1)), [pagination?.page]);
+    useEffect(() => {
+        if (scrollArea.current) scrollArea.current.scrollTop = 0;
+    }, [pagination?.page, pagination?.limit, filters.searchTerm, filters.status, filters.dateFrom, filters.dateTo]);
+    const pagingButton = 'rounded border border-neutral-300 px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neutral-100';
     return (
-        <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden">
+        <div className="bg-neutral-0 border border-neutral-200 rounded-lg overflow-hidden flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0">
             <FilterBar
                 onSearch={onSearchChange}
                 filters={[{
@@ -84,6 +99,8 @@ const InvoiceCatalogPanel: React.FC<InvoiceCatalogPanelProps> = ({
                         { value: 'Overdue', label: 'Overdue' },
                         { value: 'Sent', label: 'Sent' },
                         { value: 'Draft', label: 'Draft' },
+                        { value: 'Pending Approval', label: 'Pending approval' },
+                        { value: 'Void', label: 'Void' },
                     ],
                 }]}
                 activeFilters={{ status: filters.status }}
@@ -102,8 +119,9 @@ const InvoiceCatalogPanel: React.FC<InvoiceCatalogPanelProps> = ({
                     </>
                 }
             />
+            </div>
 
-            <div className="max-h-[calc(100vh-300px)] overflow-auto">
+            <div ref={scrollArea} className="min-h-0 flex-1 overflow-auto" data-testid="invoice-table-scroll" tabIndex={0} aria-label="Invoice table">
                 <table className="w-full border-collapse text-[0.9rem]">
                     <thead>
                         <tr>
@@ -165,6 +183,31 @@ const InvoiceCatalogPanel: React.FC<InvoiceCatalogPanelProps> = ({
                     </tbody>
                 </table>
             </div>
+            {pagination && <nav aria-label="Invoice pagination" className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-200 px-3 py-2 text-sm">
+                <span aria-live="polite">
+                    {pagination.busy ? 'Loading invoices…' : `Showing ${pagination.total ? (pagination.page - 1) * pagination.limit + 1 : 0}–${Math.min(pagination.page * pagination.limit, pagination.total)} of ${pagination.total.toLocaleString()} invoices`}
+                </span>
+                <label className="flex items-center gap-1">Rows per page
+                    <select aria-label="Invoices per page" value={pagination.limit} disabled={pagination.busy} onChange={(e) => pagination.onLimitChange(Number(e.target.value))}>
+                        {[20, 50, 100].map((value) => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                </label>
+                <div className="flex flex-wrap items-center gap-1">
+                    <button type="button" className={pagingButton} aria-label="First invoice page" disabled={pagination.busy || pagination.page <= 1} onClick={() => pagination.onPageChange(1)}>First</button>
+                    <button type="button" className={pagingButton} aria-label="Previous invoice page" disabled={pagination.busy || pagination.page <= 1} onClick={() => pagination.onPageChange(pagination.page - 1)}>Previous</button>
+                    <span className="px-2">Page {pagination.page} of {totalPages.toLocaleString()}</span>
+                    <button type="button" className={pagingButton} aria-label="Next invoice page" disabled={pagination.busy || pagination.page >= totalPages} onClick={() => pagination.onPageChange(pagination.page + 1)}>Next</button>
+                    <button type="button" className={pagingButton} aria-label="Last invoice page" disabled={pagination.busy || pagination.page >= totalPages} onClick={() => pagination.onPageChange(totalPages)}>Last</button>
+                    <form className="flex items-center gap-1" onSubmit={(e) => {
+                        e.preventDefault();
+                        const requested = Number(pageInput);
+                        if (Number.isInteger(requested) && requested >= 1 && requested <= totalPages) pagination.onPageChange(requested);
+                    }}>
+                        <input aria-label="Go to invoice page" className="w-16 rounded border border-neutral-300 px-1" type="number" min={1} max={totalPages} step={1} value={pageInput} disabled={pagination.busy} onChange={(e) => setPageInput(e.target.value)} />
+                        <button type="submit" className={pagingButton} disabled={pagination.busy}>Go</button>
+                    </form>
+                </div>
+            </nav>}
         </div>
     );
 };

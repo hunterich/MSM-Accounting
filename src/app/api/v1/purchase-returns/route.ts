@@ -22,10 +22,16 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const where: any = { organizationId: orgId };
   if (status) where.status = status;
 
+  const search = searchParams.get('search');
+  if (search) where.OR = [
+    { number: { contains: search, mode: 'insensitive' } },
+    { vendor: { name: { contains: search, mode: 'insensitive' } } },
+    { bill: { number: { contains: search, mode: 'insensitive' } } },
+  ];
   const [data, total] = await Promise.all([
     prisma.purchaseReturn.findMany({
       where, skip: (page - 1) * limit, take: limit,
-      orderBy: { returnDate: 'desc' },
+      orderBy: [{ returnDate: 'desc' }, { id: 'desc' }],
       include: {
         vendor: { select: { id: true, name: true, code: true } },
         bill: { select: { id: true, number: true } },

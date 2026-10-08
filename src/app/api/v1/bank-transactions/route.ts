@@ -20,12 +20,22 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const where: any = { organizationId: orgId };
   if (bankAccountId) where.bankAccountId = bankAccountId;
   if (type) where.type = type;
+  const search = searchParams.get('search');
+  const status = searchParams.get('status');
+  if (status) where.status = status;
+  if (search) where.OR = ['number', 'description', 'reference'].map(field => ({ [field]: { contains: search, mode: 'insensitive' } }));
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  if (dateFrom || dateTo) where.date = {
+    ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+    ...(dateTo ? { lt: new Date(new Date(dateTo).getTime() + 86400000) } : {}),
+  };
   const [data, total] = await Promise.all([
     prisma.bankTransaction.findMany({
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include: { bankAccount: { select: { id: true, name: true } } },
     }),
     prisma.bankTransaction.count({ where }),

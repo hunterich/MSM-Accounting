@@ -32,7 +32,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   if (dateFrom || dateTo) {
     where.issueDate = {
       ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-      ...(dateTo   ? { lte: new Date(dateTo)   } : {}),
+      ...(dateTo   ? { lt: new Date(new Date(dateTo).getTime() + 86400000) } : {}),
     };
   }
   if (customerId) where.customerId = customerId;
@@ -41,7 +41,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     prisma.salesOrder.findMany({
       where,
       include: { items: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * limit,
       take: limit,
     }),

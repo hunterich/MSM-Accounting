@@ -3,6 +3,7 @@
 // Workspace-native customer catalog. Mirrors InvoiceListPane: the table opens a
 // per-customer doc-view tab, "New" opens a doc-form tab. This is the only
 // Customers list — the pre-workspace duplicate is gone.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import { exportToCsv } from '../../../utils/exportCsv';
@@ -22,18 +23,13 @@ interface CustomerFilters { category: string; status: string }
 const CustomerListPane = (): React.ReactElement => {
     const { canCreate, canEdit } = useModulePermissions('ar_customers');
     const { open } = useWorkspaceNav();
-    const { data: cuResult, isLoading } = useCustomers();
-    const customerList = useMemo(() => cuResult?.data ?? [], [cuResult?.data]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filters, setFilters] = useState<CustomerFilters>({ category: '', status: '' });
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: filters.status ? catalogStatus(filters.status) : 'ALL', category: filters.category });
+    const { data: cuResult, isLoading, isFetching, error } = useCustomers(paging.query);
+    const customerList = useMemo(() => cuResult?.data ?? [], [cuResult?.data]);
 
-    const filteredData = useMemo(() => customerList.filter((item) => {
-        const keyword = searchTerm.toLowerCase();
-        const matchesSearch = item.name.toLowerCase().includes(keyword) || item.email.toLowerCase().includes(keyword);
-        const matchesCategory = filters.category ? item.category === filters.category : true;
-        const matchesStatus = filters.status ? item.status === filters.status : true;
-        return matchesSearch && matchesCategory && matchesStatus;
-    }), [customerList, searchTerm, filters]);
+    const filteredData = customerList;
 
     const labelFor = (id: string) => customerList.find((c) => c.id === id)?.name || id;
 
@@ -96,7 +92,7 @@ const CustomerListPane = (): React.ReactElement => {
                 subtitle="Customer master data, credit terms, and balances."
                 actions={
                     <div className="flex gap-2">
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="New Customer" size="small" onClick={openNew} />}
                     </div>
                 }
@@ -109,7 +105,7 @@ const CustomerListPane = (): React.ReactElement => {
                 placeholder="Search by name or email..."
             />
             <Card padding={false}>
-                <Table
+                <Table error={error} pagination={{ ...paging, total: cuResult?.total, busy: isFetching || !!error }}
                     columns={columns as TableColumn<Record<string, unknown>>[]}
                     data={filteredData as unknown as Record<string, unknown>[]}
                     onRowClick={(row) => openView(row['id'] as string)}

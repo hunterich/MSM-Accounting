@@ -1053,7 +1053,7 @@ const Settings = () => {
 
                 {activeTab === 'notifications' && (
                     <Card title="Notifications">
-                        <p className="settings-muted">Configure finance-related alerts and email routing.</p>
+                        <p className="settings-muted">Send alerts to the finance email below. Payment alerts run every 15 minutes; invoice reminders and the previous day's activity digest run after 08:00 in the company timezone when server automation is enabled.</p>
                         <div className="mb-4">
                             <label className="form-label">Finance Notification Email</label>
                             <Input
@@ -1070,7 +1070,7 @@ const Settings = () => {
                                     onChange={(e) => setNotificationSettings((prev) => ({ ...prev, invoiceReminders: e.target.checked }))}
                                     className="settings-checkbox-input"
                                 />
-                                <span className="settings-label-strong">Send invoice due reminders</span>
+                                <span className="settings-label-strong">Send invoice due reminders to finance</span>
                             </label>
                         </div>
                         <div className="mb-4">
@@ -1081,7 +1081,7 @@ const Settings = () => {
                                     onChange={(e) => setNotificationSettings((prev) => ({ ...prev, paymentAlerts: e.target.checked }))}
                                     className="settings-checkbox-input"
                                 />
-                                <span className="settings-label-strong">Send payment posted alerts</span>
+                                <span className="settings-label-strong">Send payment posted alerts to finance</span>
                             </label>
                         </div>
                         <div className="mb-4">

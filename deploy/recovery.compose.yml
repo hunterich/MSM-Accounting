@@ -1,0 +1,23 @@
+# Isolated homelab database for the recovery drill. Never use production volumes.
+name: msm-recovery-drill
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    shm_size: 1gb
+    mem_limit: 2g
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set the private staging .env}
+      POSTGRES_DB: msm_recovery_drill
+    ports:
+      - "127.0.0.1:5546:5432"
+    volumes:
+      - recovery_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d msm_recovery_drill"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  recovery_pgdata:

@@ -26,7 +26,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
         employee: { select: { id: true, name: true, employeeNo: true } },
         leaveType: { select: { id: true, name: true, category: true } },

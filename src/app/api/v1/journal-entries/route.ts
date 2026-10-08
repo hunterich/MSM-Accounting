@@ -111,12 +111,22 @@ export const GET = withHandler(async (req: NextRequest) => {
   const status = searchParams.get('status');
   const where: any = { organizationId: orgId };
   if (status) where.status = status;
+  const search = searchParams.get('search');
+  if (search) where.OR = [
+    { entryNo: { contains: search, mode: 'insensitive' } },
+    { memo: { contains: search, mode: 'insensitive' } },
+  ];
+  const period = searchParams.get('period');
+  if (period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    const [year, month] = period.split('-').map(Number);
+    where.date = { gte: new Date(Date.UTC(year, month - 1, 1)), lt: new Date(Date.UTC(year, month, 1)) };
+  }
   const [data, total] = await Promise.all([
     prisma.journalEntry.findMany({
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include: {
         lines: {
           include: { account: { select: { code: true, name: true } } },

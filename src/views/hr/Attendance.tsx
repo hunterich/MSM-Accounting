@@ -1,3 +1,4 @@
+import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
 import { Calendar, Users, Clock, AlertTriangle, Download, Plus, Check } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
@@ -63,39 +64,18 @@ const Attendance = () => {
     const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
 
     const { start, end } = getMonthDateRange(selectedYear, selectedMonth);
-    const filters: Record<string, unknown> = {
-        startDate: start,
-        endDate: end,
-        limit: 200,
-    };
-    if (statusFilter) filters.status = statusFilter;
-
-    const { data: attendanceResult, isLoading } = useAttendance(filters);
+    const paging = useCatalogPagination({ startDate: selectedDate || start, endDate: selectedDate || end, status: statusFilter });
+    const { data: attendanceResult, isLoading, isFetching, error } = useAttendance(paging.query);
+    const { data: monthlyResult } = useAttendance({ startDate: start, endDate: end, status: statusFilter, summaryOnly: 'true' });
     const attendanceList = attendanceResult?.data ?? [];
     const { data: empResult } = useEmployees();
     const employeeList = empResult?.data ?? [];
     const createAttendance = useCreateAttendance();
     const deleteAttendance = useDeleteAttendance();
 
-    // Filter by selected date within the month view
-    const filteredData = useMemo(() => {
-        if (!selectedDate) return attendanceList;
-        return attendanceList.filter((a: any) => {
-            const dateStr = a.date ? new Date(a.date).toISOString().slice(0, 10) : '';
-            return dateStr === selectedDate;
-        });
-    }, [attendanceList, selectedDate]);
+    const filteredData = attendanceList;
 
-    // Monthly summary stats
-    const monthlySummary = useMemo(() => {
-        const total = attendanceList.length;
-        const present = attendanceList.filter((a: any) => a.status === 'PRESENT' || a.status === 'LATE').length;
-        const absent = attendanceList.filter((a: any) => a.status === 'ABSENT').length;
-        const late = attendanceList.filter((a: any) => a.status === 'LATE').length;
-        const sick = attendanceList.filter((a: any) => a.status === 'SICK').length;
-        const leave = attendanceList.filter((a: any) => a.status === 'LEAVE').length;
-        return { total, present, absent, late, sick, leave };
-    }, [attendanceList]);
+    const monthlySummary = monthlyResult?.summary ?? { total: 0, present: 0, absent: 0, late: 0, sick: 0, leave: 0 };
 
     // Generate calendar dates for the month
     const calendarDates = useMemo(() => {
@@ -107,15 +87,7 @@ const Attendance = () => {
         return dates;
     }, [selectedYear, selectedMonth]);
 
-    // Count attendance per date for calendar highlighting
-    const dateCountMap = useMemo(() => {
-        const map: Record<string, number> = {};
-        for (const a of attendanceList) {
-            const dateStr = a.date ? new Date(a.date).toISOString().slice(0, 10) : '';
-            map[dateStr] = (map[dateStr] || 0) + 1;
-        }
-        return map;
-    }, [attendanceList]);
+    const dateCountMap = monthlyResult?.dates ?? {};
 
     const handleBulkCreate = async () => {
         const employeeIds = selectedEmployeeIds.size > 0
@@ -241,7 +213,7 @@ const Attendance = () => {
                         variant="secondary"
                         size="small"
                         icon={<Download size={16} />}
-                        text="Export CSV"
+                        text="Export page CSV"
                         onClick={handleExport}
                     />
                     {canCreate && (
@@ -371,7 +343,7 @@ const Attendance = () => {
             {/* Attendance table */}
             <div className="mt-4">
                 <Card>
-                    <Table
+                    <Table error={error} pagination={{ ...paging, total: attendanceResult?.total, busy: isFetching || !!error }}
                         columns={columns}
                         data={filteredData}
                         isLoading={isLoading}

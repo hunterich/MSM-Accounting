@@ -1,6 +1,7 @@
 // src/components/ap/bills/BillListPane.tsx
 // Bills catalog. The only Bills list — the pre-workspace duplicate is gone.
 // Bills have no separate detail — View/Edit open BillFormV2 as a tab.
+import { useCatalogPagination, catalogStatus } from '../../../hooks/useCatalogPagination';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, FileUp } from 'lucide-react';
@@ -23,17 +24,18 @@ const BillListPane = (): React.ReactElement => {
     const navigate = useNavigate();
     const { canCreate, canEdit } = useModulePermissions('ap_bills');
     const { open } = useWorkspaceNav();
-    const { data: billsResult, isLoading } = useBills();
     const updateBill = useUpdateBill();
     const voidBill = useVoidBill();
     const unreceiveBill = useUnreceiveBill();
-    const bills = useMemo(() => billsResult?.data ?? [], [billsResult?.data]);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [status, setStatus] = useState('');
     const [dateRange, setDateRange] = useState<{ from: string; to: string }>({ from: '', to: '' });
+    const paging = useCatalogPagination({ search: searchTerm.trim(), status: catalogStatus(status), dateFrom: dateRange.from, dateTo: dateRange.to });
+    const { data: billsResult, isLoading, isFetching, error } = useBills(paging.query);
+    const bills = useMemo(() => billsResult?.data ?? [], [billsResult?.data]);
     const [printBillId, setPrintBillId] = useState('');
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
@@ -45,15 +47,7 @@ const BillListPane = (): React.ReactElement => {
     const handleVoid = (billId: string) => { if (!window.confirm('Void this bill? Its journal entry will be reversed. This cannot be undone.')) return; voidBill.mutate(billId, { onError: (e: unknown) => window.alert(e instanceof Error ? e.message : 'Failed to void bill') }); };
     const handleUnreceive = (billId: string) => { if (!window.confirm('Un-receive this goods receipt? The received stock will be removed and the PO reopened. This cannot be undone.')) return; unreceiveBill.mutate(billId, { onError: (e: unknown) => window.alert(e instanceof Error ? e.message : 'Failed to un-receive') }); };
 
-    const filteredData = useMemo(() => bills.filter((item) => {
-        const kw = searchTerm.toLowerCase();
-        const matchesSearch = item.id.toLowerCase().includes(kw) || item.vendor.toLowerCase().includes(kw);
-        const matchesStatus = status ? item.status === status : true;
-        let matchesDate = true;
-        if (dateRange.from) matchesDate = matchesDate && new Date(item.date) >= new Date(dateRange.from);
-        if (dateRange.to) matchesDate = matchesDate && new Date(item.date) <= new Date(dateRange.to);
-        return matchesSearch && matchesStatus && matchesDate;
-    }), [bills, searchTerm, status, dateRange]);
+    const filteredData = bills;
 
     const activePrintBill = bills.find((b) => b.id === printBillId) || null;
     // The bills list already includes its lines, so the printout is the real
@@ -99,7 +93,7 @@ const BillListPane = (): React.ReactElement => {
                 actions={
                     <div className="flex gap-2">
                         <Button text="Import PDF" size="small" variant="secondary" icon={<FileUp size={16} />} onClick={() => navigate('/ap/bills/import')} disabled={!canCreate} />
-                        <Button text="Export CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
+                        <Button text="Export page CSV" size="small" variant="secondary" icon={<Download size={16} />} onClick={handleExportCsv} />
                         {canCreate && <Button text="New Bill" size="small" onClick={openNew} />}
                     </div>
                 }
@@ -138,7 +132,7 @@ const BillListPane = (): React.ReactElement => {
             />
 
             <Card padding={false}>
-                <Table columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openForm(row['id'] as string)} showCount countLabel="bills" isLoading={isLoading} loadingLabel="Loading bills..." />
+                <Table error={error} pagination={{ ...paging, total: billsResult?.total, busy: isFetching || !!error }} columns={columns as TableColumn<Record<string, unknown>>[]} data={filteredData as unknown as Record<string, unknown>[]} onRowClick={(row) => openForm(row['id'] as string)} showCount countLabel="bills" isLoading={isLoading} loadingLabel="Loading bills..." />
             </Card>
 
             <PrintPreviewModal isOpen={isPreviewOpen} onClose={() => setIsPreviewOpen(false)} title="Bill Print Preview" documentTitle={`Bill_${activePrintBill?.id || ''}`} defaultPaperSize={printSettings.defaultPaperSize}>

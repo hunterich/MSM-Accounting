@@ -1,3 +1,4 @@
+import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useState, useMemo } from 'react';
 import { Plus, Calculator, Send, Eye, Trash2, Download, ArrowLeft } from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
@@ -42,7 +43,8 @@ const PayrollRun = () => {
     const [createYear, setCreateYear] = useState(new Date().getFullYear());
     const [createNotes, setCreateNotes] = useState('');
 
-    const { data: runsResult, isLoading: runsLoading } = usePayrollRuns();
+    const paging = useCatalogPagination({});
+    const { data: runsResult, isLoading: runsLoading, isFetching, error } = usePayrollRuns(paging.query);
     const payrollRuns = runsResult?.data ?? [];
     const { data: selectedRun, isLoading: runLoading } = usePayrollRun(selectedRunId ?? undefined);
     const createPayrollRun = useCreatePayrollRun();
@@ -350,7 +352,7 @@ const PayrollRun = () => {
             <Card>
                 <Table
                     columns={listColumns}
-                    data={payrollRuns}
+                    data={payrollRuns} error={error} pagination={{ ...paging, total: runsResult?.total, busy: isFetching || !!error }}
                     isLoading={runsLoading}
                     onRowClick={(row: any) => setSelectedRunId(row.id)}
                     showCount

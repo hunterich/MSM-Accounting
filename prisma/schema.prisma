@@ -53,6 +53,8 @@ model Organization {
   updatedAt              DateTime @updatedAt
 
   memberships            UserOrganization[]
+  notificationDeliveries NotificationDelivery[]
+  automationCheckpoints  AutomationCheckpoint[]
   roles                  Role[]
   accounts               Account[]
   periods                AccountingPeriod[]
@@ -113,6 +115,39 @@ model Organization {
   modifierGroups      ModifierGroup[]
   modifierAttachments ModifierAttachment[]
   salesTypes          SalesType[]
+}
+
+model NotificationDelivery {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  kind           String
+  recipient      String
+  subject        String
+  bodyText       String
+  status         String   @default("PENDING")
+  attempts       Int      @default(0)
+  firstAttemptAt DateTime?
+  availableAt    DateTime @default(now())
+  leaseUntil     DateTime?
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([status, availableAt])
+}
+
+model AutomationCheckpoint {
+  id             String   @id @default(cuid())
+  organizationId String
+  job            String
+  lastRunAt      DateTime
+  startedAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, job])
 }
 
 model User {

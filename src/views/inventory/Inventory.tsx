@@ -143,7 +143,7 @@ const Inventory = () => {
                 <div className="flex items-center gap-2">
                     <button
                         className="btn btn-secondary flex items-center gap-1"
-                        title="Export CSV"
+                        title="Export current page as CSV"
                         disabled={exporting}
                         onClick={() => { void handleExport(); }}
                     >

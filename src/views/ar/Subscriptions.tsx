@@ -1,3 +1,4 @@
+import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useState, useMemo } from 'react';
 import { Plus, XCircle, RefreshCw, Edit2, Trash2 } from 'lucide-react';
 import Card from '../../components/UI/Card';
@@ -67,7 +68,8 @@ const SubscriptionsPage: React.FC<SubscriptionsPageProps> = ({ tab: activeTab = 
 
   // ── Subscriptions ──────────────────────────────────────────────────────────
   const [statusFilter, setStatusFilter] = useState('');
-  const { data: subsData, isLoading: subsLoading } = useSubscriptions(statusFilter ? { status: statusFilter } : {});
+  const paging = useCatalogPagination({ status: statusFilter });
+  const { data: subsData, isLoading: subsLoading, isFetching, error } = useSubscriptions(paging.query);
   const createSub = useCreateSubscription();
   const cancelSub = useCancelSubscription();
   const generateInvoices = useGenerateSubscriptionInvoices();
@@ -275,7 +277,7 @@ const SubscriptionsPage: React.FC<SubscriptionsPageProps> = ({ tab: activeTab = 
             ) : subscriptions.length === 0 ? (
               <div className="p-8 text-center text-neutral-500">No subscriptions found.</div>
             ) : (
-              <Table columns={subColumns} data={subscriptions} />
+              <Table countLabel="subscriptions" error={error} pagination={{ ...paging, total: subsData?.total, busy: isFetching || !!error }} columns={subColumns} data={subscriptions} />
             )}
           </Card>
         </>

@@ -16,6 +16,16 @@ const resend = new Proxy({} as Resend, {
 
 const FROM = process.env.EMAIL_FROM_ADDRESS ?? 'noreply@msm-accounting.app'
 
+/** Outbox key also protects provider retries after a response is lost. */
+export async function sendFinanceNotification(opts: {
+  to: string; subject: string; text: string; emailFromName?: string | null; idempotencyKey: string;
+}): Promise<void> {
+  const result = await resend.emails.send({
+    from: formatFrom(opts.emailFromName), to: opts.to, subject: opts.subject, text: opts.text,
+  }, { idempotencyKey: opts.idempotencyKey });
+  if (result.error) throw new Error(`Resend error: ${result.error.message}`);
+}
+
 function formatFrom(name?: string | null): string {
   return name ? `${name} <${FROM}>` : FROM
 }

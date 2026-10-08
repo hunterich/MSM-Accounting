@@ -7,9 +7,8 @@ import { ApiError } from '@/lib/errors';
  *
  * Batch endpoints (recurring invoices/bills "run all due", subscription
  * invoice generation) can be triggered by a user (admin) via the UI OR, in
- * principle, by a scheduler with no user header (today nothing schedules them —
- * instrumentation.ts only boots the backup scheduler — but we must not assume
- * that forever). These templates/subscriptions carry no createdById, so the
+ * the business automation scheduler with no user header. These
+ * templates/subscriptions carry no createdById, so the
  * deterministic fallback is the org's ADMIN user (UserOrganization → Role with
  * roleType 'ADMIN'). ApprovalRequest.requestedById is a required FK, so we MUST
  * resolve a real user before routing — never skip gating for lack of one, which
@@ -25,7 +24,7 @@ export async function resolveRequesterId(
 ): Promise<string> {
   if (headerUserId) return headerUserId;
   const adminMembership = await prisma.userOrganization.findFirst({
-    where: { organizationId: orgId, role: { roleType: 'ADMIN' } },
+    where: { organizationId: orgId, isActive: true, user: { status: 'ACTIVE' }, role: { roleType: 'ADMIN', isActive: true } },
     orderBy: { joinedAt: 'asc' },
     select: { userId: true },
   });

@@ -48,6 +48,10 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
       BACKUP_DIR: /data/backups
+      BACKGROUND_JOBS_ENABLED: ${BACKGROUND_JOBS_ENABLED:-true}
+      BUSINESS_AUTOMATION_ENABLED: ${BUSINESS_AUTOMATION_ENABLED:-false}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-noreply@msm-accounting.app}
     volumes:
       # In-app Backup & Restore writes here → mapped to a real host folder so
       # dumps survive and can be synced to OneDrive/Drive.

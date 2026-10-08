@@ -16,12 +16,14 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const status = searchParams.get('status');
   const where: any = { organizationId: orgId, ...(status ? { status } : {}) };
+  const search = searchParams.get('search');
+  if (search) where.number = { contains: search, mode: 'insensitive' };
   const [data, total] = await Promise.all([
     prisma.stockCount.findMany({
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include: { _count: { select: { lines: true } } },
     }),
     prisma.stockCount.count({ where }),

@@ -1,9 +1,10 @@
 import React from 'react';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, HelpCircle, Bell, KeyRound, LogOut, ChevronDown } from 'lucide-react';
+import { Search, HelpCircle, KeyRound, LogOut, ChevronDown } from 'lucide-react';
 import Sidebar from './Sidebar';
 import CompanySwitcher from './CompanySwitcher';
+import AppUpdateNotifications from './AppUpdateNotifications';
 import Toaster from '../UI/Toaster';
 import { useAuthStore } from '../../stores/useAuthStore';
 import ChangePasswordModal from '../auth/ChangePasswordModal';
@@ -61,23 +62,21 @@ const Layout = (): React.ReactElement => {
         <div className="flex h-screen w-screen overflow-hidden">
             <Sidebar />
             <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden">
-                <header className="acc-topbar hidden md:flex">
-                    <div className="acc-topbar-brand">
+                <header className="acc-topbar flex max-md:h-0 max-md:min-h-0 max-md:p-0 max-md:border-0">
+                    <div className="acc-topbar-brand hidden md:block">
                         MSM <small>accounting</small>
                     </div>
 
                     <div className="acc-topbar-tools">
-                        <button type="button" className="acc-topbar-icon" aria-label={t('Search')} title={t('Search')}>
+                        <button type="button" className="acc-topbar-icon max-md:hidden" aria-label={t('Search')} title={t('Search')}>
                             <Search size={15} />
                         </button>
-                        <button type="button" className="acc-topbar-icon" aria-label={t('Help')} title={t('Help')}>
+                        <button type="button" className="acc-topbar-icon max-md:hidden" aria-label={t('Help')} title={t('Help')}>
                             <HelpCircle size={15} />
                         </button>
-                        <button type="button" className="acc-topbar-icon" aria-label={t('Notifications')} title={t('Notifications')}>
-                            <Bell size={15} />
-                        </button>
+                        <AppUpdateNotifications />
 
-                        <div className="acc-topbar-identity" ref={menuRef}>
+                        <div className="acc-topbar-identity max-md:hidden" ref={menuRef}>
                             <div className="acc-topbar-identity-text">
                                 <span className="acc-topbar-company"><CompanySwitcher /></span>
                                 <span className="acc-topbar-username">{user?.fullName || user?.email || 'User'}</span>
