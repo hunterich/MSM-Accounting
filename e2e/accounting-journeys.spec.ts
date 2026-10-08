@@ -92,14 +92,19 @@ test('expense bill retry and reload preserve accounts, tax, withholding and char
   await page.route('**/api/v1/bills', async route => {
     if (route.request().method() === 'POST') {
       await route.abort('failed')
-      await page.unroute('**/api/v1/bills')
     } else await route.continue()
   })
-  const failed = page.waitForEvent('dialog')
-  await page.getByRole('button', { name: 'Save draft', exact: true }).click()
-  const dialog = await failed
-  expect(dialog.message()).toContain('Failed to save bill')
-  await dialog.dismiss()
+  // Dismiss while the click is in flight: Playwright waits for an open dialog
+  // before resolving click(), so handling it afterwards deadlocks the test.
+  const failed = page.waitForEvent('dialog').then(async dialog => {
+    expect(dialog.message()).toContain('Failed to save bill')
+    await dialog.dismiss()
+  })
+  await Promise.all([
+    failed,
+    page.getByRole('button', { name: 'Save draft', exact: true }).click(),
+  ])
+  await page.unroute('**/api/v1/bills')
   expect(await db.bill.count({ where: { organizationId: orgId } })).toBe(0)
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(0)
   await page.getByRole('button', { name: 'Save draft', exact: true }).click()
