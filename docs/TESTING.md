@@ -85,7 +85,9 @@ discount-aware overpayment are rejected without writes. Posted payments reject
 edits/deletion and allow an unchanged completion retry. Applied credit/debit
 notes reduce the available balance. Two concurrent payments for the remaining
 balance produce exactly one success; an older pending approval subsequently
-fails without changing the approval, payment or journal. Unallocated advance
+fails without changing the approval, payment or journal. A processing payment
+creates no journal and only its status-only completion can finalize it.
+Unallocated advance
 cash remains supported. These API checks do not certify concurrent note
 application versus payment or all reversal/status-transition races.
 
@@ -235,8 +237,7 @@ of all historical or imported accounting data.
 ## Remaining coverage to extend
 
 The journeys are representative, not exhaustive. Remaining browser coverage
-includes the PO receipt modal, choosing an initial partial amount in a payment
-form, tax-inclusive penny rounding entered entirely through a form, cashier
+includes tax-inclusive penny rounding entered entirely through a form, cashier
 merchandise returns with batch restocking, and multi-user approval workflows.
 Bank imports/reconciliation, recurring transactions, payroll and assets have
 backend checks but could use full browser journeys. The restore check proves
