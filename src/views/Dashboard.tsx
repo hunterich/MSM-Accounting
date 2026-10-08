@@ -20,8 +20,12 @@ import RecentBillsWidget          from '../components/dashboard/widgets/RecentBi
 import PendingApprovalsWidget     from '../components/dashboard/widgets/PendingApprovalsWidget';
 import TopSellingProductsWidget    from '../components/dashboard/widgets/TopSellingProductsWidget';
 import ProductsToReorderWidget from '../components/dashboard/widgets/ProductsToReorderWidget';
+import { MonthlySalesWidget, YearlyProfitLossWidget, CustomerSalesWidget } from '../components/dashboard/widgets/FinancialOverviewWidgets';
 
 const WIDGET_COMPONENTS: Record<string, React.ComponentType> = {
+    monthly_sales: MonthlySalesWidget,
+    yearly_profit_loss: YearlyProfitLossWidget,
+    customer_sales: CustomerSalesWidget,
     products_to_reorder: ProductsToReorderWidget,
     cash_on_hand:         CashOnHandWidget,
     overdue_invoices:     OverdueInvoicesWidget,
