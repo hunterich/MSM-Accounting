@@ -3,7 +3,7 @@
  * (update/complete) routes.
  *
  * Draft payments must never touch the ledger: posting only happens once a
- * payment is in a posted-worthy status (anything except DRAFT and VOID).
+ * payment is COMPLETED. Processing and approval holds never touch the ledger.
  * `journalEntryId` is the idempotency token — set in the same transaction
  * as the journal entry, so re-running (e.g. PUT after PUT) is a no-op.
  */
@@ -14,10 +14,11 @@ import { assertPeriodOpen } from './period-guard';
 import { toNumber } from './money';
 import { ApiError } from './errors';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
+import { lockPayment, validatePaymentAllocations } from './payment-validation';
 
 type Tx = Prisma.TransactionClient;
 
-const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'VOID', 'PENDING_APPROVAL']);
+const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'PROCESSING', 'VOID', 'PENDING_APPROVAL']);
 
 /** Post DR Bank / CR AR for an AR receipt, once. */
 export async function postArPaymentIfNeeded(
@@ -26,14 +27,16 @@ export async function postArPaymentIfNeeded(
   paymentId: string,
   opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
+  await lockPayment(tx, orgId, 'ar', paymentId);
   const payment = await tx.aRPayment.findFirst({
     where: { id: paymentId, organizationId: orgId },
     include: { allocations: true },
   });
   if (!payment || payment.journalEntryId || UNPOSTABLE_STATUSES.has(payment.status)) return;
+  await validatePaymentAllocations(tx, orgId, 'ar', payment);
 
   const amount = toNumber(payment.totalAmount);
-  if (amount <= 0) return;
+  if (amount <= 0) throw new ApiError('Payment total must be positive before posting', 422);
 
   await assertPeriodOpen(tx, orgId, new Date(payment.date), opts);
 
@@ -49,7 +52,7 @@ export async function postArPaymentIfNeeded(
     payment.arAccountId
     ?? resolveAccountDefaultId(accounts, settings, 'arControl');
 
-  if (!bankAccountId || !arAccountId) return;
+  if (!bankAccountId || !arAccountId) throw new ApiError('Payment requires cash and receivable posting accounts', 422);
   const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);
   const penalty = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.penaltyAmount), 0);
   const discountAccountId = payment.discountAccountId ?? resolveAccountDefaultId(accounts, settings, 'arDiscount');
@@ -93,14 +96,16 @@ export async function postApPaymentIfNeeded(
   paymentId: string,
   opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
+  await lockPayment(tx, orgId, 'ap', paymentId);
   const payment = await tx.aPPayment.findFirst({
     where: { id: paymentId, organizationId: orgId },
     include: { allocations: true },
   });
   if (!payment || payment.journalEntryId || UNPOSTABLE_STATUSES.has(payment.status)) return;
+  await validatePaymentAllocations(tx, orgId, 'ap', payment);
 
   const amount = toNumber(payment.totalAmount);
-  if (amount <= 0) return;
+  if (amount <= 0) throw new ApiError('Payment total must be positive before posting', 422);
 
   await assertPeriodOpen(tx, orgId, new Date(payment.date), opts);
 
@@ -116,7 +121,7 @@ export async function postApPaymentIfNeeded(
     payment.cashAccountId
     ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
 
-  if (!apAccountId || !bankAccountId) return;
+  if (!apAccountId || !bankAccountId) throw new ApiError('Payment requires cash and payable posting accounts', 422);
   const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);
   const penalty = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.penaltyAmount), 0);
   const discountAccountId = payment.discountAccountId ?? resolveAccountDefaultId(accounts, settings, 'apDiscount');

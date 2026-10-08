@@ -119,6 +119,8 @@ function normalizeInvoice(raw: RawInvoice): Invoice {
 
 function normalizePayment(raw: RawARPayment): ARPayment {
     return {
+        allocations: raw.allocations || [],
+        reference: raw.reference || '',
         id:           raw.number || raw.id,
         _id:          raw.id,
         number:       raw.number || '',
@@ -130,7 +132,7 @@ function normalizePayment(raw: RawARPayment): ARPayment {
         totalAmount:  Number(raw.totalAmount ?? 0),
         status:       PAYMENT_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as PaymentStatus),
         invoiceId:    raw.invoiceId  || '',
-        bankId:       raw.bankId     || '',
+        bankId:       raw.bankAccountId || raw.bankId || '',
         depositAccountId: raw.depositAccountId || '',
         arAccountId: raw.arAccountId || '',
         discountAccountId: raw.discountAccountId || '',

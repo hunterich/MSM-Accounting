@@ -74,9 +74,8 @@ for (const kind of ['ap', 'ar'] as const) {
     const bill = await purchase(page, vendor.id, item.id)
     const document = kind === 'ap' ? await db.bill.findUniqueOrThrow({ where: { id: bill.id } }) : await sell(page, customer.id, item.id)
     const party = kind === 'ap' ? vendor : customer
-    const allocation = kind === 'ap' ? { billId: document.id } : { invoiceId: document.id }
-    const partial = await api(page, `/${kind}-payments`, { [kind === 'ap' ? 'vendorId' : 'customerId']: party.id,
-      date: DATE, totalAmount: 600, status: 'COMPLETED', allocations: [{ ...allocation, amountApplied: 600 }] }, 'POST')
+    await payThroughForm(page, kind, party.name, kind === 'ap' ? document.number : document.id, DATE, { settlement: 600 })
+    const partial = kind === 'ap' ? await db.aPPayment.findFirstOrThrow({ where: { organizationId: orgId } }) : await db.aRPayment.findFirstOrThrow({ where: { organizationId: orgId } })
     const partialPayment = kind === 'ap' ? await db.aPPayment.findUniqueOrThrow({ where: { id: partial.id } }) : await db.aRPayment.findUniqueOrThrow({ where: { id: partial.id } })
     await expectJournal(orgId, partialPayment.journalEntryId!, kind === 'ap' ? [['2-1000', 600, 0], ['1-1000', 0, 600]] : [['1-1000', 600, 0], ['1-1200', 0, 600]])
     const path = kind === 'ap' ? 'bills' : 'invoices'

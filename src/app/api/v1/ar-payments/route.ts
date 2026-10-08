@@ -12,6 +12,8 @@ import { syncArPaymentSettlement } from '@/lib/settlement-status';
 import { routeForApproval } from '@/lib/approval/engine';
 import { normalizeArPaymentAccount } from '@/lib/ar-payment-input';
 
+import { validatePaymentAllocations } from '@/lib/payment-validation';
+
 export const runtime = 'nodejs';
 
 export async function OPTIONS() {
@@ -44,7 +46,7 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     prisma.aRPayment.findMany({
       where, skip: (page - 1) * limit, take: limit,
       orderBy: [{ date: 'desc' }, { id: 'desc' }],
-      include: { customer: { select: { id: true, name: true, code: true } } },
+      include: { customer: { select: { id: true, name: true, code: true } }, allocations: true },
     }),
     prisma.aRPayment.count({ where }),
   ]);
@@ -75,45 +77,7 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
     // stays held until the insert commits (calling it on the base `prisma`
     // client releases the lock before the insert → spurious 409s under load).
     const number = await nextNumber(tx, 'ARPayment', 'number', 'ARP');
-    if (allocations?.length) {
-      for (const allocation of allocations) {
-        const invoice = await tx.salesInvoice.findFirst({
-          where: { id: allocation.invoiceId, organizationId: orgId },
-          select: { id: true, totalAmount: true },
-        });
-        if (!invoice) {
-          throw new ApiError('Invoice not found in organization', 404);
-        }
-        // Lock the invoice row FOR UPDATE and re-read its status UNDER the lock,
-        // so a concurrent payment (over-application, H-3) or a concurrent void
-        // (H-4) serializes here: the loser blocks until the winner commits, then
-        // reads the committed status + allocations before deciding.
-        const [locked] = await tx.$queryRaw<Array<{ status: string }>>`
-          SELECT "status" FROM "SalesInvoice" WHERE "id" = ${allocation.invoiceId} FOR UPDATE
-        `;
-        // Refuse a payment against a non-payable invoice (H-4): a VOID / DRAFT /
-        // PENDING_APPROVAL invoice has no live A/R to settle.
-        if (locked && ['VOID', 'DRAFT', 'PENDING_APPROVAL'].includes(locked.status)) {
-          throw new ApiError(`Cannot apply a payment to a ${locked.status} invoice`, 422);
-        }
-        // Only COMPLETED-payment allocations have actually cleared the invoice.
-        // VOID / PENDING_APPROVAL / DRAFT allocations posted no GL and must NOT
-        // count toward `alreadyPaid` (matches AR aging), otherwise a real new
-        // payment is falsely blocked with "Over-allocation".
-        const existingAllocations = await tx.aRPaymentAllocation.aggregate({
-          where: { invoiceId: allocation.invoiceId, payment: { status: 'COMPLETED' } },
-          _sum: { amountApplied: true },
-        });
-        const alreadyPaid = Number(existingAllocations._sum.amountApplied ?? 0);
-        const outstanding = Number(invoice.totalAmount) - alreadyPaid;
-        if (Number(allocation.amountApplied) > outstanding + 0.01) {
-          throw new ApiError(
-            `Over-allocation: invoice ${allocation.invoiceId} has outstanding ${outstanding.toFixed(2)}, cannot apply ${allocation.amountApplied}`,
-            422,
-          );
-        }
-      }
-    }
+    await validatePaymentAllocations(tx, orgId, 'ar', { ...payload, allocations });
     const created = await tx.aRPayment.create({
       data: {
         ...payload,
@@ -132,9 +96,9 @@ export const POST = withPermission({ module: 'AR_PAYMENTS', action: 'create' }, 
 
     // Post DR Bank / CR AR — skipped for DRAFT payments; idempotent via
     // journalEntryId (see lib/payment-posting.ts). A payment created directly
-    // into a postable status (anything except DRAFT/VOID) is a finalize, so it
+    // into COMPLETED is a finalize, so it
     // may be routed for approval first.
-    const isPostable = created.status !== 'DRAFT' && created.status !== 'VOID';
+    const isPostable = created.status === 'COMPLETED';
     if (isPostable) {
       const routed = await routeForApproval(tx, {
         orgId,

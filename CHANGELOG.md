@@ -7,6 +7,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — payment posting safeguards
+- Customer and supplier payment creation, draft editing and shared approval posting validate current document balances under ordered document locks. Discounts and applied credit/debit notes reduce outstanding debt; duplicate or other-party allocations and allocated cash/fees exceeding the payment total are rejected. Excess unallocated cash remains supported as an advance.
+- Posted, pending and void payments reject financial/status edits; only unposted drafts can be deleted. Completing an already completed payment remains an unchanged retry. The list/detail Edit action is enabled only for drafts. Posting now rejects missing cash/control accounts or a nonpositive payment instead of silently leaving a completed payment without a journal.
+- Added real API/database checks for immutable payment history, concurrent final settlement and approval rollback after another payment clears the balance. Concurrent note application versus payment and broader reversal/status races remain on the roadmap.
+- Processing payments remain unposted until status-only completion, which uses the same approval and live-balance guards. This keeps ledger posting consistent with settlement reports; legacy processing payments already linked to journals remain immutable.
+- Validation: 1,194 unit tests, all 19 accounting browser journeys and 20 focused PostgreSQL tests for settlement, concurrent voids, approvals and report reconciliation passed. Application/test TypeScript checks and the frontend production build passed. Changes are local and have not been deployed.
+
+### Added — partial customer and supplier payments
+- Customer receipts and supplier payments now accept an amount to settle for each selected document. Full outstanding settlement remains the default. Discounts reduce principal cash and clear debt; fees increase cash without clearing additional debt. Zero, negative and excessive settlements are rejected by the forms.
+- Payment list payloads preserve saved allocations, references and bank/account IDs. Reopening a partial draft retains its entered settlement, discount and fee rather than resetting to the document total.
+- Added partial-payment calculation regressions and real database/browser journeys for draft reload, discount/fee posting and remaining balances. The existing AP/AR partial-payment/void journeys now enter the initial partial payment through the real form.
+- Validation: 1,188 unit tests and all 17 accounting browser journeys passed on the separate disposable PostgreSQL instance; application/test TypeScript checks and frontend production build passed. Changes are local and have not been deployed. Direct API/edit/approval payment safeguards remain a separate roadmap item.
+
+### Fixed — partial purchase receipts
+- Both receiving dialogs now use the real PO/detail line IDs returned by the API. Previously they submitted an undefined PO ID and line IDs, preventing browser receipts despite working API-only tests; the dialog also shows the actual PO number and vendor.
+- Goods-receipt requests reject zero/negative/non-numeric quantities, missing line identifiers and repeated PO lines before any stock or accounting writes. Both receiving screens omit lines left at zero, support fractional deliveries, disable invalid submissions and respect receipt-creation permissions. Receiving refreshes cached purchasing, stock and reports; server rejection messages are displayed.
+- Added real-form partial receipt journeys for the PO catalog and Receive goods page, with exact inventory/GRIR and stock assertions; the full PO-to-payment journey now uses the receipt modal.
+- Validation: all six receipt/core accounting browser journeys passed against a dedicated disposable PostgreSQL container, 19 focused API/posting tests passed, both TypeScript checks and the frontend production build passed. Changes have not been deployed.
+
 ### Deployed — Windows and homelab, 2026-10-08
 - Merged PR #146 and deployed matching backend/web images pinned to `sha-3be13ca` on Windows and homelab. All five pending migrations applied successfully. CI and deployed login/session, catalogs, reports, security headers, update-board dismissal/reopen and service-restart checks passed. Posted ledger counts and debit/credit totals match each server's pre-upgrade baseline. Evidence and remaining checks: `docs/DEPLOYMENT-20261008.md`.
 - Windows automatic billing is enabled; its startup checkpoint advanced again after restart. No recurring templates or subscriptions currently exist, so a real due-template run remains to be verified. Homelab background jobs remain disabled as a recovery copy.
@@ -34,7 +53,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Remaining — release and recovery checks
 - Verify live due templates, approval holds, locked-period failure/retry and duplicate-free document catch-up after restart; migration and Windows scheduler startup/restart are verified. Email is intentionally deferred: supply a Resend API key and verified sender, re-enable desired company finance toggles, and verify actual delivery.
 - Extend the completed Windows-to-homelab recovery with actual attachment/download/print fixtures and a multi-company dataset; independently reconcile AR/AP and inventory control accounts. The tested snapshot has one company and zero attachments; baseline equality and balanced ledger totals passed, but these additional checks remain open.
-- Complete browser coverage for PO receipt inputs, initial partial payments, tax-inclusive rounding, multi-user approvals and POS merchandise returns/batch restocking; extend bank/recurring/payroll/assets journeys.
+- Complete browser coverage for tax-inclusive rounding, multi-user approvals and POS merchandise returns/batch restocking; extend bank/recurring/payroll/assets journeys. PO receipt inputs, initial partial payments and full purchase-to-payment now pass browser tests.
 - Deployed security headers and migrations passed. Still validate Google sign-in under CSP, old-tab recovery and POS worker scope, campaign-peak imports, shared-item contention and posting into the large historical company. Keep account-default expansion and posted inventory/PO-bill editing as explicit remaining work.
 
 ### Fixed — account access and dependency security

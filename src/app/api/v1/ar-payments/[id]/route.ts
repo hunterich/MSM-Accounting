@@ -10,6 +10,7 @@ import { routeForApproval } from '@/lib/approval/engine';
 import { normalizeArPaymentAccount } from '@/lib/ar-payment-input';
 
 export const runtime = 'nodejs';
+import { assertPaymentEditable, lockPayment, validatePaymentAllocations } from '@/lib/payment-validation';
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -50,8 +51,12 @@ export const PUT = withPermission({ module: 'AR_PAYMENTS', action: 'edit' }, asy
     }
     const { allocations, ...data } = normalizeArPaymentAccount(parsed.data);
     const payment = await prisma.$transaction(async (tx) => {
-      const existing = await tx.aRPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true, status: true, journalEntryId: true } });
+      await lockPayment(tx, orgId, 'ar', id);
+      const existing = await tx.aRPayment.findFirst({ where: { id, organizationId: orgId }, include: { customer: true, allocations: true } });
       if (!existing) return null;
+      assertPaymentEditable(existing, { ...data, ...(allocations !== undefined ? { allocations } : {}) });
+      if (existing.journalEntryId || (existing.status !== 'DRAFT' && !(existing.status === 'PROCESSING' && data.status === 'COMPLETED'))) return existing;
+      await validatePaymentAllocations(tx, orgId, 'ar', { ...existing, ...data, allocations: allocations ?? existing.allocations });
       if (data.customerId) {
         await validateForeignKey(tx.customer, { id: data.customerId, organizationId: orgId, status: 'ACTIVE' }, 'Customer not found in organization');
       }
@@ -85,10 +90,9 @@ export const PUT = withPermission({ module: 'AR_PAYMENTS', action: 'edit' }, asy
       // already-posted payments are a no-op (journalEntryId token). When this
       // update is the finalize transition (the payment was not yet posted and
       // is now in a postable status), the approval engine may hold it first.
-      const wasPostable = existing.status !== 'DRAFT' && existing.status !== 'VOID' && existing.status !== 'PENDING_APPROVAL';
       const effectiveStatus = (data.status ?? existing.status) as string;
-      const nowPostable = effectiveStatus !== 'DRAFT' && effectiveStatus !== 'VOID' && effectiveStatus !== 'PENDING_APPROVAL';
-      const isFinalizeTransition = !existing.journalEntryId && nowPostable && !wasPostable;
+      const nowPostable = effectiveStatus === 'COMPLETED';
+      const isFinalizeTransition = nowPostable;
 
       if (isFinalizeTransition) {
         const routed = await routeForApproval(tx, {
@@ -133,19 +137,17 @@ export const DELETE = withPermission({ module: 'AR_PAYMENTS', action: 'delete' }
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
-    const existing = await prisma.aRPayment.findFirst({ where: { id, organizationId: orgId }, select: { id: true, journalEntryId: true } });
-    if (!existing) {
-      return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
-    }
-    // Deleting a posted receipt would orphan its journal entry in the ledger.
-    // Posted receipts must be voided (which reverses the entry) instead.
-    if (existing.journalEntryId) {
-      return withCors(NextResponse.json({ error: 'Cannot delete a posted receipt — void it instead' }, { status: 422 }));
-    }
-    await prisma.aRPayment.delete({ where: { id, organizationId: orgId } });
+    await prisma.$transaction(async tx => {
+      await lockPayment(tx, orgId, 'ar', id);
+      const existing = await tx.aRPayment.findFirst({ where: { id, organizationId: orgId }, select: { status: true, journalEntryId: true } });
+      if (!existing) throw new ApiError('Not found', 404);
+      if (existing.status !== 'DRAFT' || existing.journalEntryId) throw new ApiError('Only draft payments can be deleted; posted payments must be voided', 422);
+      await tx.aRPayment.delete({ where: { id, organizationId: orgId } });
+    });
     logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'ARPayment', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
+    if (error instanceof ApiError) return withCors(NextResponse.json({ error: error.message }, { status: error.status }));
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }

@@ -96,7 +96,18 @@ export interface DocumentCharge {
   taxRate: number;
 }
 
+export interface SavedPaymentAllocation {
+  invoiceId?: string;
+  billId?: string;
+  amountApplied: number | string;
+  discountAmount: number | string;
+  penaltyAmount: number | string;
+}
+
 export interface RawARPayment {
+  allocations?: SavedPaymentAllocation[];
+  reference?: string | null;
+  bankAccountId?: string | null;
   id: string;
   number?: string | null;
   customerId?: string | null;
@@ -212,6 +223,10 @@ export interface RawBill {
 }
 
 export interface RawAPPayment {
+  allocations?: SavedPaymentAllocation[];
+  reference?: string | null;
+  bankAccountId?: string | null;
+  cashAccountId?: string | null;
   id: string;
   number?: string | null;
   vendorId?: string | null;
@@ -597,6 +612,8 @@ export interface Invoice {
 }
 
 export interface ARPayment {
+  allocations?: SavedPaymentAllocation[];
+  reference?: string;
   /** Display ID — uses ARP number if available, falls back to DB id. */
   id: string;
   /** DB primary key for mutations. */
@@ -783,6 +800,9 @@ export interface BillImportSession {
 }
 
 export interface APPayment {
+  allocations?: SavedPaymentAllocation[];
+  reference?: string;
+  cashAccountId?: string;
   id: string;
   _id: string;
   number: string;

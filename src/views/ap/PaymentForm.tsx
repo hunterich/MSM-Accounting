@@ -6,6 +6,7 @@ import SearchableSelect from '../../components/UI/SearchableSelect';
 import type { Account, BankAccount, Bill, Vendor } from '../../types';
 
 interface BillAdjustment {
+    settlementAmount?: number;
     discount: number;
     penalty:  number;
 }
@@ -58,6 +59,7 @@ import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import { Calendar, CreditCard, FileText, Hash } from 'lucide-react';
 import { useVendors, useBills, useAPPayments, useCreateAPPayment, useUpdateAPPayment } from '../../hooks/useAP';
 import { useOutstandingDocuments } from '../../hooks/useDocumentSettlement';
+import { paymentAllocation } from '../../utils/paymentAllocation';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
@@ -253,15 +255,21 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
                 method: found.method,
                 payFrom: found.bankId,
                 cashAccountId:
-                    found.depositAccountId ||
+                    found.cashAccountId || found.depositAccountId ||
                     resolveBankLinkedAssetAccountId(bankAccounts, chartOfAccounts, accountDefaultsConfig, found.bankId) ||
                     resolvedAccountDefaults.bankAsset,
                 apAccountId: found.apAccountId || resolvedAccountDefaults.apControl,
                 discountAccountId: found.discountAccountId || resolvedAccountDefaults.apDiscount,
                 penaltyAccountId: found.penaltyAccountId || resolvedAccountDefaults.apPenalty,
-                reference: '',
-                selectedBills: found.billId ? [found.billId] : [],
-                adjustments: {},
+                reference: found.reference || '',
+                selectedBills: (found.allocations || []).flatMap(a => {
+                    const bill = bills.find(b => b._id === a.billId || b.id === a.billId);
+                    return bill ? [bill.id] : [];
+                }),
+                adjustments: Object.fromEntries((found.allocations || []).flatMap(a => {
+                    const bill = bills.find(b => b._id === a.billId || b.id === a.billId);
+                    return bill ? [[bill.id, { settlementAmount: Number(a.amountApplied) + Number(a.discountAmount), discount: Number(a.discountAmount), penalty: Number(a.penaltyAmount) }]] : [];
+                })),
                 totalAmount: found.amount
             });
             return;
@@ -277,7 +285,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
             const bill = bills.find((item) => item.id === billId);
             if (!bill) return;
             const adjustment = paymentData.adjustments[billId] || { discount: 0, penalty: 0 };
-            total += Number(bill.amount || 0) - Number(adjustment.discount || 0) + Number(adjustment.penalty || 0);
+            total += paymentAllocation(Number(bill.amount || 0), adjustment).cash;
         });
         setPaymentData((prev) => (prev.totalAmount === total ? prev : { ...prev, totalAmount: total }));
     }, [paymentData.selectedBills, paymentData.adjustments, bills]);
@@ -303,11 +311,12 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
                 const bill = bills.find((item) => item.id === billId);
                 if (!bill) return null;
                 const adjustment = paymentData.adjustments[billId] || { discount: 0, penalty: 0 };
+                const allocation = paymentAllocation(Number(bill.amount || 0), adjustment);
                 return {
                     billId,
-                    amount: Number(bill.amount || 0),
-                    discount: Number(adjustment.discount || 0),
-                    penalty: Number(adjustment.penalty || 0)
+                    amount: allocation.settlement,
+                    discount: allocation.discount,
+                    penalty: allocation.penalty
                 };
             })
             .filter((row): row is PaymentBreakdownRow => Boolean(row));
@@ -367,7 +376,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
     };
 
     const handleAdjustmentChange = (billId: string, field: keyof BillAdjustment, value: string) => {
-        const normalized = Math.max(0, Number.parseFloat(value) || 0);
+        const normalized = Number(value);
         setPaymentData((prev) => ({
             ...prev,
             adjustments: {
@@ -416,6 +425,13 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
     };
 
     const handleSave = async (saveAsDraft = false) => {
+        if (paymentData.selectedBills.some(id => {
+            const bill = bills.find(b => b.id === id);
+            return !bill || !paymentAllocation(Number(bill.amount), paymentData.adjustments[id] || { discount: 0, penalty: 0 }).valid;
+        })) {
+            window.alert('Enter a positive settlement within each bill’s remaining balance. Discounts cannot exceed the settlement; fees must be non-negative.');
+            return;
+        }
         if (!paymentData.vendorId) {
             window.alert('Select a vendor before saving payment.');
             return;
@@ -445,11 +461,12 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
                 const bill = bills.find((item) => item.id === billId);
                 if (!bill) return null;
                 const adjustment = paymentData.adjustments[billId] || { discount: 0, penalty: 0 };
+                const allocation = paymentAllocation(Number(bill.amount || 0), adjustment);
                 return {
                     billId: bill._id || bill.id,
-                    amountApplied: Number(bill.amount || 0),
-                    discountAmount: Number(adjustment.discount || 0),
-                    penaltyAmount: Number(adjustment.penalty || 0),
+                    amountApplied: allocation.amountApplied,
+                    discountAmount: allocation.discount,
+                    penaltyAmount: allocation.penalty,
                 };
             })
             .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -585,6 +602,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
                                             <th>Side</th>
                                             <th>Account</th>
                                             <th className="text-right">Amount</th>
+                                            <th className="text-right">Amount to settle</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -607,6 +625,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
             ) : (
                 <div className="invoice-panel panel-no-padding">
                     <div className="panel-section-title">Open Bills</div>
+                    <p className="px-4 py-2 text-sm text-neutral-600">Choose the balance to settle now. Cash payment equals that amount minus the discount, plus any fee.</p>
                     {paymentData.vendorId ? (
                         vendorBills.length > 0 ? (
                             <div className="panel-table-wrap">
@@ -619,23 +638,24 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
                                             <th className="text-right">Amount</th>
                                             <th className="text-right">Discount</th>
                                             <th className="text-right">Penalty</th>
-                                            <th className="text-right">Allocation</th>
+                                            <th className="text-right">Cash payment</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {vendorBills.map((bill) => {
                                             const selected = paymentData.selectedBills.includes(bill.id);
                                             const adjustment = paymentData.adjustments[bill.id] || { discount: 0, penalty: 0 };
-                                            const allocation = Number(bill.amount || 0) - Number(adjustment.discount || 0) + Number(adjustment.penalty || 0);
+                                            const allocation = paymentAllocation(Number(bill.amount || 0), adjustment);
                                             return (
                                                 <tr key={bill.id} className={`row-border ${selected ? 'row-selected' : ''}`}>
                                                     <td className="text-center"><input type="checkbox" checked={selected} onChange={() => toggleBillSelection(bill.id)} disabled={mode === 'view'} /></td>
                                                     <td>{bill.id}</td>
                                                     <td className="text-neutral-600">{formatDateID(bill.date)}</td>
                                                     <td className="text-right">{formatIDR(bill.amount)}</td>
-                                                    <td className="compact">{selected ? <input type="number" className={fcSmInline} value={adjustment.discount || ''} onChange={(event) => handleAdjustmentChange(bill.id, 'discount', event.target.value)} disabled={mode === 'view'} /> : null}</td>
-                                                    <td className="compact">{selected ? <input type="number" className={fcSmInline} value={adjustment.penalty || ''} onChange={(event) => handleAdjustmentChange(bill.id, 'penalty', event.target.value)} disabled={mode === 'view'} /> : null}</td>
-                                                    <td className="text-right text-strong">{selected ? formatIDR(allocation) : '-'}</td>
+                                                    <td className="compact">{selected ? <input type="number" min="0" max={bill.amount} step="0.01" aria-label={`Amount to settle for ${bill.id}`} className={fcSmInline} value={adjustment.settlementAmount ?? bill.amount} onChange={event => handleAdjustmentChange(bill.id, 'settlementAmount', event.target.value)} disabled={mode === 'view'} /> : null}</td>
+                                                    <td className="compact">{selected ? <input type="number" min="0" step="0.01" aria-label={`Discount for ${bill.id}`} className={fcSmInline} value={adjustment.discount || ''} onChange={(event) => handleAdjustmentChange(bill.id, 'discount', event.target.value)} disabled={mode === 'view'} /> : null}</td>
+                                                    <td className="compact">{selected ? <input type="number" min="0" step="0.01" aria-label={`Fee for ${bill.id}`} className={fcSmInline} value={adjustment.penalty || ''} onChange={(event) => handleAdjustmentChange(bill.id, 'penalty', event.target.value)} disabled={mode === 'view'} /> : null}</td>
+                                                    <td className="text-right text-strong">{selected ? formatIDR(allocation.cash) : '-'}</td>
                                                 </tr>
                                             );
                                         })}

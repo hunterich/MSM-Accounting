@@ -42,13 +42,19 @@ calculation helpers. Figures illustrate test cases, not tax-rate guidance.
 
 | Journey | Checks |
 | --- | --- |
-| PO → receipt → bill → payment | PO form stores the correct vendor/item/quantity/price; draft and approved POs create no journal; receiving through the real API debits Inventory and credits GR/IR; the bill form clears GR/IR into AP; payment form clears AP into Cash/Bank; stock is booked once. |
+| PO → receipt → bill → payment | PO form stores the correct vendor/item/quantity/price; draft and approved POs create no journal; the receipt modal submits real PO/line IDs and debits Inventory / credits GR/IR; the bill form clears GR/IR into AP; payment form clears AP into Cash/Bank; stock is booked once. |
 | Direct inventory purchase → payment | Bill form stores quantity, price, discount and tax; Inventory 2,700 DR + Input Tax 297 DR = AP 2,997 CR; payment form debits AP and credits Cash/Bank; inventory and trial balance match; buying inventory does not immediately create an expense. |
 | Expense purchase, retry and reload | Failed network submission creates no bill/journal; retry stores one draft; reopening preserves expense account, quantity, discount, additional cost, tax, withholding and notes; posting debits the selected expense accounts and input tax, credits AP and withholding payable; duplicate supplier invoice is rejected without extra records. |
 | Inventory sale → customer receipt | Saved draft survives reload without posting or consuming stock; approval posts AR 3,996 DR, Sales 3,600 CR, Output Tax 396 CR, plus COGS 2,000 DR / Inventory 2,000 CR; repeat approval does not duplicate posting; receipt form settles the invoice; trial balance, P&L and balance sheet show the expected totals. |
 | Sales return → credit note | Existing `e2e/returns-to-ledger.spec.ts` verifies persisted links and amounts, and now checks the exact account, debit and credit on every journal line, including the tax reversal. |
 
-The PO receipt step is an API action, rather than an automated receipt modal.
+`e2e/purchase-receipt.spec.ts` drives both the PO catalog receipt modal and the
+Receive goods page. It checks zero/negative/excess quantities cannot submit,
+fractional partial receipts omit zero lines, reopening loads remaining quantities,
+and completing receipt closes the PO. Database assertions independently check
+each inventory/GRIR journal and the total stock quantities/value. Run it with
+`node node_modules/@playwright/test/cli.js test e2e/purchase-receipt.spec.ts --project=chromium`.
+
 The original network-retry test aborts before the server receives the request.
 The edge-case suite also loses the response after the server commits and proves
 that retrying the supplier reference cannot duplicate the bill, journal or stock.
@@ -59,9 +65,29 @@ followed by payment through the form and void through the list; bill and invoice
 voids with exact reversed journal lines and restored stock; duplicate submission
 after a lost response; inclusive VAT with decimal quantities, discounts and
 penny rounding; closed-period rejection, view-only posting rejection and forged
-company-header rejection. Partial initial payments and PO receipts use the API;
-the remainder payment and void actions use the browser. The inclusive-tax case
+company-header rejection. Initial partial payments, remainder payments and void
+actions use the browser; the edge-case PO receipts use the API, with separate
+receipt-modal coverage. The inclusive-tax case
 posts through the API and reopens the saved form.
+
+`e2e/payment-allocation.spec.ts` checks both customer and supplier partial drafts:
+invalid amounts create no payment; saving a draft creates no journal; reopening
+preserves settlement, discount and fee; completing it posts the exact cash and
+control-account amounts; paying the remaining balance clears the document.
+Its fixed decimal example settles 600.25 using principal cash of 550.15 and a
+50.10 discount, with a 10.05 fee bringing actual cash to 560.20. Both the saved
+allocation and each journal line are read directly from PostgreSQL. These are
+test amounts, not tax guidance. This suite is included in `test:accounting`.
+
+`e2e/payment-safeguards.spec.ts` exercises both payment APIs against PostgreSQL:
+duplicate allocations, another party's document, insufficient total cash and
+discount-aware overpayment are rejected without writes. Posted payments reject
+edits/deletion and allow an unchanged completion retry. Applied credit/debit
+notes reduce the available balance. Two concurrent payments for the remaining
+balance produce exactly one success; an older pending approval subsequently
+fails without changing the approval, payment or journal. Unallocated advance
+cash remains supported. These API checks do not certify concurrent note
+application versus payment or all reversal/status-transition races.
 
 The three POS checks create their own stocked company and register. They verify
 online cash checkout, replay protection and shift reconciliation; offline shift

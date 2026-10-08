@@ -5,6 +5,7 @@ import Button from '../../components/UI/Button';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 
 interface InvoiceAdjustment {
+    settlementAmount?: number;
     discount: number;
     penalty:  number;
 }
@@ -35,6 +36,7 @@ import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useCustomers, useInvoices, useARPayments, useCreateARPayment, useUpdateARPayment } from '../../hooks/useAR';
 import { useOutstandingDocuments } from '../../hooks/useDocumentSettlement';
+import { paymentAllocation } from '../../utils/paymentAllocation';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -194,7 +196,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
             const invoice = invoices.find(i => i.id === invId);
             if (invoice) {
                 const adj = paymentData.adjustments[invId] || { discount: 0, penalty: 0 };
-                total += (invoice.amount - (adj.discount || 0) + (adj.penalty || 0));
+                total += paymentAllocation(Number(invoice.amount), adj).cash;
             }
         });
         setPaymentData(prev => (prev.totalAmount === total ? prev : { ...prev, totalAmount: total }));
@@ -212,7 +214,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
         const state = navState;
         if (state.mode === 'create' || state.mode === 'view' || state.mode === 'edit') setMode(state.mode);
         if (state.paymentId) {
-            const found = payments.find((payment) => payment.id === state.paymentId);
+            const found = payments.find((payment) => payment.id === state.paymentId || payment._id === state.paymentId);
             if (found) {
                 const bankMatch = bankAccounts.find((bank) => bank.id === found.bankId) || bankAccounts[0];
                 const mappedDeposit =
@@ -230,9 +232,10 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
                     arAccountId: found.arAccountId || resolvedAccountDefaults.arControl,
                     discountAccountId: found.discountAccountId || resolvedAccountDefaults.arDiscount,
                     penaltyAccountId: found.penaltyAccountId || resolvedAccountDefaults.arPenalty,
-                    reference: '',
-                    selectedInvoices: found.invoiceId ? [found.invoiceId] : [],
-                    adjustments: {},
+                    reference: found.reference || '',
+                    selectedInvoices: (found.allocations || []).flatMap((a: { invoiceId?: string }) => a.invoiceId ? [a.invoiceId] : []),
+                    adjustments: Object.fromEntries((found.allocations || []).flatMap((a: { invoiceId?: string; amountApplied: number | string; discountAmount: number | string; penaltyAmount: number | string }) =>
+                        a.invoiceId ? [[a.invoiceId, { settlementAmount: Number(a.amountApplied) + Number(a.discountAmount), discount: Number(a.discountAmount), penalty: Number(a.penaltyAmount) }]] : [])),
                     totalAmount: Number(found.amount) || 0
                 });
             }
@@ -262,11 +265,12 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
             const invoice = invoices.find((item) => item.id === invId);
             if (!invoice) return null;
             const adjustments = paymentData.adjustments[invId] || { discount: 0, penalty: 0 };
-            const discount = Number(adjustments.discount || 0);
-            const penalty = Number(adjustments.penalty || 0);
+            const allocation = paymentAllocation(Number(invoice.amount || 0), adjustments);
+            const discount = allocation.discount;
+            const penalty = allocation.penalty;
             return {
                 invoiceId: invId,
-                amount: Number(invoice.amount || 0),
+                amount: allocation.settlement,
                 discount,
                 penalty
             };
@@ -345,7 +349,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
     };
 
     const handleAdjustmentChange = (invoiceId: string, field: keyof InvoiceAdjustment, value: string) => {
-        const normalized = Math.max(0, Number.parseFloat(value) || 0);
+        const normalized = Number(value);
         setPaymentData(prev => ({
             ...prev,
             adjustments: {
@@ -367,6 +371,13 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
         chartOfAccountsLoading;
 
     const handleSave = async (saveAsDraft = false) => {
+        if (paymentData.selectedInvoices.some(id => {
+            const invoice = invoices.find(inv => inv.id === id);
+            return !invoice || !paymentAllocation(Number(invoice.amount), paymentData.adjustments[id] || { discount: 0, penalty: 0 }).valid;
+        })) {
+            window.alert('Enter a positive settlement within each invoice’s remaining balance. Discounts cannot exceed the settlement; fees must be non-negative.');
+            return;
+        }
         if (!paymentData.customerId) {
             window.alert('Select a customer before saving payment.');
             return;
@@ -399,11 +410,12 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
                 const invoice = invoices.find((item) => item.id === invId);
                 if (!invoice) return null;
                 const adjustment = paymentData.adjustments[invId] || { discount: 0, penalty: 0 };
+                const allocation = paymentAllocation(Number(invoice.amount || 0), adjustment);
                 return {
                     invoiceId: invoice.id,
-                    amountApplied: Number(invoice.amount || 0),
-                    discountAmount: Number(adjustment.discount || 0),
-                    penaltyAmount: Number(adjustment.penalty || 0),
+                    amountApplied: allocation.amountApplied,
+                    discountAmount: allocation.discount,
+                    penaltyAmount: allocation.penalty,
                 };
             })
             .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -417,6 +429,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
             ...(paymentData.arAccountId && { arAccountId: paymentData.arAccountId }),
             ...(paymentData.discountAccountId && { discountAccountId: paymentData.discountAccountId }),
             ...(paymentData.penaltyAccountId && { penaltyAccountId: paymentData.penaltyAccountId }),
+            ...(paymentData.reference && { reference: paymentData.reference }),
             totalAmount: paymentData.totalAmount,
             allocations,
             status: saveAsDraft ? 'Draft' : 'Completed',
@@ -614,6 +627,7 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
             {paymentTab === 'invoices' && (
                 <div className="invoice-panel panel-no-padding">
                     <div className="panel-section-title">Unpaid Invoices</div>
+                    <p className="px-4 py-2 text-sm text-neutral-600">Choose the balance to settle now. Cash received equals that amount minus the discount, plus any fee.</p>
                     {paymentData.customerId ? (
                         customerInvoices.length > 0 ? (
                             <div className="panel-table-wrap">
@@ -624,16 +638,17 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
                                             <th>Invoice</th>
                                             <th>Date</th>
                                             <th className="text-right">Due Amount</th>
+                                            <th className="text-right">Amount to settle</th>
                                             <th className="text-right">Discount</th>
                                             <th className="text-right">Penalty</th>
-                                            <th className="text-right">Allocation</th>
+                                            <th className="text-right">Cash received</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {customerInvoices.map(inv => {
                                             const isSelected = paymentData.selectedInvoices.includes(inv.id);
                                             const adj = paymentData.adjustments[inv.id] || { discount: 0, penalty: 0 };
-                                            const toPay = inv.amount - (adj.discount || 0) + (adj.penalty || 0);
+                                            const allocation = paymentAllocation(Number(inv.amount), adj);
                                             return (
                                                 <tr key={inv.id} className={`row-border ${isSelected ? 'row-selected' : ''}`}>
                                                     <td className="text-center">
@@ -643,17 +658,20 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
                                                     <td className="text-neutral-600">{formatDateID(inv.date)}</td>
                                                     <td className="text-right">{formatIDR(inv.amount)}</td>
                                                     <td className="compact">
+                                                        {isSelected && <input type="number" min="0" max={inv.amount} step="0.01" aria-label={`Amount to settle for ${inv.id}`} className={fcSmInline} value={adj.settlementAmount ?? inv.amount} onChange={e => handleAdjustmentChange(inv.id, 'settlementAmount', e.target.value)} disabled={mode === 'view'} />}
+                                                    </td>
+                                                    <td className="compact">
                                                         {isSelected && (
-                                                            <input type="number" className={fcSmInline} value={adj.discount || ''} onChange={(e) => handleAdjustmentChange(inv.id, 'discount', e.target.value)} disabled={mode === 'view'} />
+                                                            <input type="number" min="0" step="0.01" aria-label={`Discount for ${inv.id}`} className={fcSmInline} value={adj.discount || ''} onChange={(e) => handleAdjustmentChange(inv.id, 'discount', e.target.value)} disabled={mode === 'view'} />
                                                         )}
                                                     </td>
                                                     <td className="compact">
                                                         {isSelected && (
-                                                            <input type="number" className={fcSmInline} value={adj.penalty || ''} onChange={(e) => handleAdjustmentChange(inv.id, 'penalty', e.target.value)} disabled={mode === 'view'} />
+                                                            <input type="number" min="0" step="0.01" aria-label={`Fee for ${inv.id}`} className={fcSmInline} value={adj.penalty || ''} onChange={(e) => handleAdjustmentChange(inv.id, 'penalty', e.target.value)} disabled={mode === 'view'} />
                                                         )}
                                                     </td>
                                                     <td className="text-right text-strong">
-                                                        {isSelected ? formatIDR(toPay) : '-'}
+                                                        {isSelected ? formatIDR(allocation.cash) : '-'}
                                                     </td>
                                                 </tr>
                                             );

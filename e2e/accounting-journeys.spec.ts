@@ -6,7 +6,7 @@ test.use({ actionTimeout: 15_000 })
 test.afterEach(async () => { await cleanupAccountingCompany() })
 test.afterAll(async () => { await db.$disconnect() })
 
-test('PO form → goods-receipt API → bill form → payment; GR/IR clears without duplicate stock', async ({ page }) => {
+test('PO form → receipt modal → bill form → payment; GR/IR clears without duplicate stock', async ({ page }) => {
   const { orgId, vendor, item } = await accountingCompany(page)
   await page.goto('/ap/pos/new')
   await choose(page, 'Search & select vendor…', vendor.name)
@@ -30,9 +30,16 @@ test('PO form → goods-receipt API → bill form → payment; GR/IR clears with
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(0)
   await api(page, `/purchase-orders/${po.id}`, { status: 'APPROVED' }, 'PUT')
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(0)
-  const received = await api(page, `/purchase-orders/${po.id}/receive`, {
-    lines: [{ purchaseOrderLineId: po.lines[0].id, qtyReceived: 3 }],
-  }, 'POST')
+  await page.reload()
+  await page.getByRole('row').filter({ hasText: po.number }).getByRole('button', { name: 'Receive', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Receive Goods' })
+  await expect(dialog.getByLabel(`Quantity to receive: ${item.name}`)).toHaveValue('3')
+  const receiptResponse = page.waitForResponse(r => r.url().endsWith(`/purchase-orders/${po.id}/receive`) && r.request().method() === 'POST')
+  await dialog.getByRole('button', { name: 'Confirm Receipt' }).click()
+  const response = await receiptResponse
+  expect(response.ok(), await response.text()).toBeTruthy()
+  const received = await response.json()
+  await expect(dialog).not.toBeVisible()
   const receiptEntry = await db.journalEntry.findFirstOrThrow({ where: { organizationId: orgId } })
   await expectJournal(orgId, receiptEntry.id, [['1-1300', 3000, 0], ['2150', 0, 3000]])
   expect(Number((await db.purchaseOrderLine.findUniqueOrThrow({ where: { id: po.lines[0].id } })).receivedQty)).toBe(3)

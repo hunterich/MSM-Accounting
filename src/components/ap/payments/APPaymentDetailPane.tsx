@@ -38,7 +38,7 @@ const APPaymentDetailPane = ({ paymentId }: Props): React.ReactElement => {
                     </div>
                     <div className="detail-header-actions">
                         <Button text="Print" size="small" variant="secondary" onClick={() => setIsPrintOpen(true)} />
-                        <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={openEdit} />
+                        <Button text="Edit" size="small" variant="primary" disabled={!canEdit || payment.status !== 'Draft'} onClick={openEdit} />
                     </div>
                 </div>
                 <div className="dense-header-grid">
