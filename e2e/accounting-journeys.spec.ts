@@ -61,7 +61,11 @@ test('PO form → receipt modal → bill form → payment; GR/IR clears without 
   await expectJournal(orgId, payment.journalEntryId!, [['2-1000', 3000, 0], ['1-1000', 0, 3000]])
   expect((await db.bill.findUniqueOrThrow({ where: { id: bill.id } })).status).toBe('PAID')
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(3)
-  const report = await api(page, `/reports/gl?type=trial-balance&asOfDate=${bill.issueDate.toISOString().slice(0, 10)}`)
+  // The receipt uses the actual instant, whereas the bill/payment use date-only
+  // inputs. Before 07:00 Jakarta, its UTC date is the previous business day;
+  // include the receipt's Jakarta day in the report cutoff.
+  const receiptDay = receiptEntry.date.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
+  const report = await api(page, `/reports/gl?type=trial-balance&asOfDate=${receiptDay}`)
   expect(report.rows.map((r: { accountCode: string; endingDebit: number; endingCredit: number }) =>
     [r.accountCode, r.endingDebit, r.endingCredit])).toEqual([
       ['1-1000', 0, 3000], ['1-1300', 3000, 0], ['2-1000', 0, 0], ['2150', 0, 0],
