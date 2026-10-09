@@ -147,8 +147,8 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
     }, [chartOfAccounts]);
 
     const depositAccountOptions = useMemo(
-        () => selectReceiptDepositAccounts(chartOfAccounts, accountDefaultsConfig.bankAsset),
-        [chartOfAccounts, accountDefaultsConfig.bankAsset],
+        () => selectReceiptDepositAccounts(chartOfAccounts, resolvedAccountDefaults.bankAsset),
+        [chartOfAccounts, resolvedAccountDefaults.bankAsset],
     );
 
     const formatAccountOption = (accountId: string) => {

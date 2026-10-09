@@ -1,4 +1,5 @@
 import type { AccountTypeValue } from './account-rules';
+import { selectCashAccounts } from './cash-accounts';
 
 type AccountLike = {
   id: string;
@@ -7,6 +8,8 @@ type AccountLike = {
   type: string;
   isActive: boolean;
   isPostable: boolean;
+  parentId?: string | null;
+  reportGroup?: string | null;
 };
 
 type BankAccountLike = {
@@ -230,6 +233,21 @@ export function isAccountUsableForRole(account: AccountLike | null | undefined, 
 }
 
 function resolvePreferredMatch(accounts: AccountLike[], key: AccountDefaultKey) {
+  if (key === 'bankAsset') {
+    // Preferred IDs/codes remain authoritative, but a substring or an arbitrary
+    // first asset must not turn employee advances/receivables into a bank default.
+    const candidates = accounts.filter((account) => isAccountUsableForRole(account, key));
+    const spec = ACCOUNT_DEFAULT_SPECS.bankAsset;
+    for (const id of spec.preferredIds) {
+      if (candidates.some((account) => account.id === id)) return id;
+    }
+    for (const code of spec.preferredCodes) {
+      const match = candidates.find((account) => normalize(account.code) === normalize(code));
+      if (match) return match.id;
+    }
+    const cashIds = new Set(selectCashAccounts(accounts.map((account) => ({ ...account, parentId: account.parentId ?? null }))).map((account) => account.id));
+    return candidates.find((account) => cashIds.has(account.id))?.id || '';
+  }
   const spec: AccountDefaultSpec = ACCOUNT_DEFAULT_SPECS[key];
   const candidates = accounts.filter((account) => isAccountUsableForRole(account, key));
 

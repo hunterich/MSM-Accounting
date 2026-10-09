@@ -81,3 +81,23 @@ describe('selectReceiptDepositAccounts', () => {
     expect(selectReceiptDepositAccounts(accounts, 'bca').map(a => a.id)).toEqual(['bca']);
   });
 });
+
+describe('cash keyword boundaries', () => {
+  it('excludes employee advances and embedded cash/bank words from names and report groups', () => {
+    const accounts = [
+      acc('advances', '1-1800', 'Kasbon Karyawan'),
+      acc('cashier', '1-1801', 'Cashier Receivable'),
+      acc('group', '1-1802', 'Employee Advances', { reportGroup: 'Kasbon' }),
+      acc('kas', '1-1803', 'Kas & Bank'),
+    ];
+    expect(selectCashAccounts(accounts).map(a => a.id)).toEqual(['kas']);
+    expect(selectReceiptDepositAccounts(accounts.map(a => ({ ...a, isActive: true }))).map(a => a.id)).toEqual(['kas']);
+  });
+
+  it('does not classify children of a Kasbon header as cash', () => {
+    expect(selectCashAccounts([
+      acc('hdr', '1-1800', 'Kasbon Karyawan', { isPostable: false }),
+      acc('child', '1-1801', 'Employee A', { parentId: 'hdr' }),
+    ])).toEqual([]);
+  });
+});

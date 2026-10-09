@@ -104,3 +104,25 @@ describe('standard chart of accounts covers every account-default role', () => {
     }
   });
 });
+
+describe('bank default safety', () => {
+  const account = (id: string, code: string, name: string, extra = {}) =>
+    ({ id, code, name, type: 'ASSET', isActive: true, isPostable: true, parentId: null, ...extra });
+
+  it.each(['112', '111', '113'])('resolves preferred code %s without requiring bank keywords', code => {
+    expect(resolveAccountDefaultId([account('bca', code, 'BCA 0123-456')], {}, 'bankAsset')).toBe('bca');
+  });
+
+  it('does not resolve Kasbon or an arbitrary asset as an automatic bank default', () => {
+    const accounts = [account('advances', '1800', 'Kasbon Karyawan'), account('ar', '1210', 'Piutang Usaha')];
+    expect(resolveAccountDefaultId(accounts, {}, 'bankAsset')).toBe('');
+    expect(resolveAccountDefaultId([...accounts, account('cash', '1190', 'Kas Kecil')], {}, 'bankAsset')).toBe('cash');
+  });
+
+  it('can resolve a child bank account through its cash header', () => {
+    expect(resolveAccountDefaultId([
+      account('header', '1000', 'Kas & Bank', { isPostable: false }),
+      account('bca', '1190', 'BCA 0123-456', { parentId: 'header' }),
+    ], {}, 'bankAsset')).toBe('bca');
+  });
+});

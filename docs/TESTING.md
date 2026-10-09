@@ -289,12 +289,18 @@ automated accounting tests should not be run against their production company.
 
 ## Report reconciliation checks
 
-The configured-bank-default regression in `payment-safeguards.spec.ts` covers a
-top-level `BCA 0123-456` asset at receipt creation, draft completion and approval.
-`cash-accounts.test.ts` covers the shared picker/validation selector, including
-inactive, non-postable, non-asset and absent configured IDs. These new regressions
-were added after the verification below; local execution was unavailable because
-the terminal failed during workspace setup. CI must validate the new commit.
+The AR/AP account regressions in `payment-safeguards.spec.ts` cover foreign,
+inactive, non-postable, wrong-type and Kasbon cash accounts; configured and
+unconfigured preferred-code bank defaults; and control, discount and penalty
+accounts. They check rollback at creation, draft completion and approval, valid
+four-line discounted settlements, and posting retries.
+`payment-posting-accounts.int.test.ts` checks the same journal-account guards
+against PostgreSQL, verifies failed creations roll back, and posts a keyword-free
+preferred-code bank default. Cash/default unit tests cover whole-word matching,
+parent classification, preferred codes 112/111/113 and the absence of an
+arbitrary-asset fallback. The verification recorded below predates these added
+regressions; consult CI for the current PR head. Local execution was unavailable
+because the terminal failed during workspace setup.
 
 `dashboard-aging.int.test.ts` checks applied credit-note gross amounts, excluded
 refund/draft/pending/void/foreign notes, mixed receipt/discount/note settlement,

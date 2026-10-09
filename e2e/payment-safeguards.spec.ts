@@ -5,69 +5,127 @@ test.setTimeout(120_000)
 test.afterEach(cleanupAccountingCompany)
 test.afterAll(async () => { await db.$disconnect() })
 
-test('receipt deposits reject foreign, non-cash and inactive accounts at creation, completion and approval', async ({ page }) => {
-  const { orgId, customer } = await accountingCompany(page)
-  const foreign = await db.account.findFirstOrThrow({ where: { organizationId: { not: orgId }, type: 'ASSET', isActive: true, isPostable: true } })
-  const revenue = await db.account.findFirstOrThrow({ where: { organizationId: orgId, type: 'REVENUE', isPostable: true } })
-  const receivable = await db.account.findFirstOrThrow({ where: { organizationId: orgId, code: '1-1200' } })
-  const parent = await db.account.create({ data: { organizationId: orgId, code: '1-1197', name: 'Bank Accounts Header', type: 'ASSET', normalSide: 'DEBIT', isPostable: false } })
-  const child = await db.account.create({ data: { organizationId: orgId, code: '1-1198', name: 'Rekening Utama', type: 'ASSET', normalSide: 'DEBIT', parentId: parent.id } })
-  const inactive = await db.account.create({ data: { organizationId: orgId, code: '1-1199', name: 'Inactive Cash', type: 'ASSET', normalSide: 'DEBIT', isActive: false } })
-  const base = { customerId: customer.id, date: DATE, status: 'COMPLETED', totalAmount: 100 }
-  const before = await db.journalEntry.count({ where: { organizationId: orgId } })
-  for (const account of [foreign, revenue, receivable, parent, inactive]) {
-    const response = await page.request.post('http://localhost:3100/api/v1/ar-payments', { data: { ...base, depositAccountId: account.id } })
-    expect(response.status(), await response.text()).toBe(422)
-    expect(await response.text()).toContain('cash or bank deposit account in this organization')
-  }
-  expect(await db.aRPayment.count({ where: { organizationId: orgId } })).toBe(0)
-  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
-  const draft = await api(page, '/ar-payments', { ...base, status: 'DRAFT', depositAccountId: foreign.id }, 'POST')
-  const completed = await page.request.put(`http://localhost:3100/api/v1/ar-payments/${draft.id}`, { data: { status: 'COMPLETED' } })
-  expect(completed.status()).toBe(422)
-  expect((await db.aRPayment.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe('DRAFT')
-  await db.aRPayment.update({ where: { id: draft.id }, data: { status: 'PENDING_APPROVAL' } })
-  const admin = await db.user.findUniqueOrThrow({ where: { email: 'admin@demo.com' } })
-  const request = await db.approvalRequest.create({ data: { organizationId: orgId, documentType: 'AR_PAYMENT', documentId: draft.id, requestedById: admin.id } })
-  const approval = await page.request.post(`http://localhost:3100/api/v1/approvals/${request.id}/approve`, { data: {} })
-  expect(approval.status()).toBe(422)
-  expect((await db.approvalRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe('PENDING')
-  expect((await db.aRPayment.findUniqueOrThrow({ where: { id: draft.id } })).journalEntryId).toBeNull()
-  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
-  const posted = await api(page, '/ar-payments', { ...base, depositAccountId: child.id }, 'POST')
-  const postedRow = await db.aRPayment.findUniqueOrThrow({ where: { id: posted.id } })
-  expect(postedRow.journalEntryId).toBeTruthy()
-  expect(await db.journalLine.count({ where: { entryId: postedRow.journalEntryId!, accountId: child.id, debit: 100 } })).toBe(1)
-  const replay = await api(page, `/ar-payments/${posted.id}`, { status: 'COMPLETED' }, 'PUT')
-  expect(replay.journalEntryId).toBe(postedRow.journalEntryId)
-  await api(page, '/ar-payments', base, 'POST') // Existing default cash account remains supported.
-  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before + 2)
-})
+for (const kind of ['ar', 'ap'] as const) {
+  test(`${kind.toUpperCase()} cash accounts reject foreign, non-cash and inactive accounts at creation, completion and approval`, async ({ page }) => {
+    const { orgId, customer, vendor } = await accountingCompany(page)
+    const foreign = await db.account.findFirstOrThrow({ where: { organizationId: { not: orgId }, type: 'ASSET', isActive: true, isPostable: true } })
+    const revenue = await db.account.findFirstOrThrow({ where: { organizationId: orgId, type: 'REVENUE', isPostable: true } })
+    const receivable = await db.account.findFirstOrThrow({ where: { organizationId: orgId, code: '1-1200' } })
+    const parent = await db.account.create({ data: { organizationId: orgId, code: '1-1197', name: 'Bank Accounts Header', type: 'ASSET', normalSide: 'DEBIT', isPostable: false } })
+    const child = await db.account.create({ data: { organizationId: orgId, code: '1-1198', name: 'Rekening Utama', type: 'ASSET', normalSide: 'DEBIT', parentId: parent.id } })
+    const inactive = await db.account.create({ data: { organizationId: orgId, code: '1-1199', name: 'Inactive Cash', type: 'ASSET', normalSide: 'DEBIT', isActive: false } })
+    const kasbon = await db.account.create({ data: { organizationId: orgId, code: '1-1800', name: 'Kasbon Karyawan', type: 'ASSET', normalSide: 'DEBIT' } })
+    const field = kind === 'ar' ? 'depositAccountId' : 'cashAccountId'
+    const base = { ...(kind === 'ar' ? { customerId: customer.id } : { vendorId: vendor.id }), date: DATE, status: 'COMPLETED', totalAmount: 100 }
+    const row = (id: string) => kind === 'ar' ? db.aRPayment.findUniqueOrThrow({ where: { id } }) : db.aPPayment.findUniqueOrThrow({ where: { id } })
+    const count = () => kind === 'ar' ? db.aRPayment.count({ where: { organizationId: orgId } }) : db.aPPayment.count({ where: { organizationId: orgId } })
+    const before = await db.journalEntry.count({ where: { organizationId: orgId } })
+    for (const account of [foreign, revenue, receivable, parent, inactive, kasbon]) {
+      const response = await page.request.post(`http://localhost:3100/api/v1/${kind}-payments`, { data: { ...base, [field]: account.id } })
+      expect(response.status(), await response.text()).toBe(422)
+      expect(await response.text()).toContain('cash or bank')
+    }
+    expect(await count()).toBe(0)
+    expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
+    const draft = await api(page, `/${kind}-payments`, { ...base, status: 'DRAFT', [field]: foreign.id }, 'POST')
+    const completed = await page.request.put(`http://localhost:3100/api/v1/${kind}-payments/${draft.id}`, { data: { status: 'COMPLETED' } })
+    expect(completed.status()).toBe(422)
+    expect((await row(draft.id)).status).toBe('DRAFT')
+    if (kind === 'ar') await db.aRPayment.update({ where: { id: draft.id }, data: { status: 'PENDING_APPROVAL' } })
+    else await db.aPPayment.update({ where: { id: draft.id }, data: { status: 'PENDING_APPROVAL' } })
+    const admin = await db.user.findUniqueOrThrow({ where: { email: 'admin@demo.com' } })
+    const request = await db.approvalRequest.create({ data: { organizationId: orgId, documentType: kind === 'ar' ? 'AR_PAYMENT' : 'AP_PAYMENT', documentId: draft.id, requestedById: admin.id } })
+    const approval = await page.request.post(`http://localhost:3100/api/v1/approvals/${request.id}/approve`, { data: {} })
+    expect(approval.status()).toBe(422)
+    expect((await db.approvalRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe('PENDING')
+    expect((await row(draft.id)).journalEntryId).toBeNull()
+    expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
+    const posted = await api(page, `/${kind}-payments`, { ...base, [field]: child.id }, 'POST')
+    const postedRow = await row(posted.id)
+    expect(postedRow.journalEntryId).toBeTruthy()
+    expect(await db.journalLine.count({ where: { entryId: postedRow.journalEntryId!, accountId: child.id, ...(kind === 'ar' ? { debit: 100 } : { credit: 100 }) } })).toBe(1)
+    const replay = await api(page, `/${kind}-payments/${posted.id}`, { status: 'COMPLETED' }, 'PUT')
+    expect(replay.journalEntryId).toBe(postedRow.journalEntryId)
+    await api(page, `/${kind}-payments`, base, 'POST')
+    expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before + 2)
+  })
 
-test('configured bank asset without cash keywords posts receipts at creation, completion and approval', async ({ page }) => {
-  const { orgId, customer } = await accountingCompany(page)
-  const bank = await db.account.create({ data: { organizationId: orgId, code: '1-1196', name: 'BCA 0123-456', type: 'ASSET', normalSide: 'DEBIT' } })
-  const org = await db.organization.findUniqueOrThrow({ where: { id: orgId } })
-  await db.organization.update({ where: { id: orgId }, data: {
-    accountDefaults: { ...(org.accountDefaults as Record<string, string> || {}), bankAsset: bank.id },
-  } })
-  const base = { customerId: customer.id, date: DATE, totalAmount: 100 }
-  const created = await api(page, '/ar-payments', { ...base, status: 'COMPLETED' }, 'POST')
-  const draft = await api(page, '/ar-payments', { ...base, status: 'DRAFT', depositAccountId: bank.id }, 'POST')
-  await api(page, `/ar-payments/${draft.id}`, { status: 'COMPLETED' }, 'PUT')
-  const held = await api(page, '/ar-payments', { ...base, status: 'DRAFT' }, 'POST')
-  await db.aRPayment.update({ where: { id: held.id }, data: { status: 'PENDING_APPROVAL' } })
-  const admin = await db.user.findUniqueOrThrow({ where: { email: 'admin@demo.com' } })
-  const request = await db.approvalRequest.create({ data: { organizationId: orgId, documentType: 'AR_PAYMENT', documentId: held.id, requestedById: admin.id } })
-  const approval = await page.request.post(`http://localhost:3100/api/v1/approvals/${request.id}/approve`, { data: {} })
-  expect(approval.ok(), await approval.text()).toBeTruthy()
-  for (const id of [created.id, draft.id, held.id]) {
-    const payment = await db.aRPayment.findUniqueOrThrow({ where: { id } })
-    expect(payment.status).toBe('COMPLETED')
-    expect(payment.journalEntryId).toBeTruthy()
-    expect(await db.journalLine.count({ where: { entryId: payment.journalEntryId!, accountId: bank.id, debit: 100 } })).toBe(1)
+  for (const configured of [true, false]) {
+    test(`${kind.toUpperCase()} ${configured ? 'configured' : 'preferred-code'} bank without cash keywords posts at creation, completion and approval`, async ({ page }) => {
+      const { orgId, customer, vendor } = await accountingCompany(page)
+      const bank = await db.account.create({ data: { organizationId: orgId, code: configured ? '1-1196' : '112', name: 'BCA 0123-456', type: 'ASSET', normalSide: 'DEBIT' } })
+      const org = await db.organization.findUniqueOrThrow({ where: { id: orgId } })
+      await db.organization.update({ where: { id: orgId }, data: {
+        accountDefaults: { ...(org.accountDefaults as Record<string, string> || {}), bankAsset: configured ? bank.id : '' },
+      } })
+      const field = kind === 'ar' ? 'depositAccountId' : 'cashAccountId'
+      const base = { ...(kind === 'ar' ? { customerId: customer.id } : { vendorId: vendor.id }), date: DATE, totalAmount: 100 }
+      const created = await api(page, `/${kind}-payments`, { ...base, status: 'COMPLETED' }, 'POST')
+      const draft = await api(page, `/${kind}-payments`, { ...base, status: 'DRAFT', [field]: bank.id }, 'POST')
+      await api(page, `/${kind}-payments/${draft.id}`, { status: 'COMPLETED' }, 'PUT')
+      const held = await api(page, `/${kind}-payments`, { ...base, status: 'DRAFT' }, 'POST')
+      if (kind === 'ar') await db.aRPayment.update({ where: { id: held.id }, data: { status: 'PENDING_APPROVAL' } })
+      else await db.aPPayment.update({ where: { id: held.id }, data: { status: 'PENDING_APPROVAL' } })
+      const admin = await db.user.findUniqueOrThrow({ where: { email: 'admin@demo.com' } })
+      const request = await db.approvalRequest.create({ data: { organizationId: orgId, documentType: kind === 'ar' ? 'AR_PAYMENT' : 'AP_PAYMENT', documentId: held.id, requestedById: admin.id } })
+      const approval = await page.request.post(`http://localhost:3100/api/v1/approvals/${request.id}/approve`, { data: {} })
+      expect(approval.ok(), await approval.text()).toBeTruthy()
+      for (const id of [created.id, draft.id, held.id]) {
+        const payment = kind === 'ar' ? await db.aRPayment.findUniqueOrThrow({ where: { id } }) : await db.aPPayment.findUniqueOrThrow({ where: { id } })
+        expect(payment.status).toBe('COMPLETED')
+        expect(payment.journalEntryId).toBeTruthy()
+        expect(await db.journalLine.count({ where: { entryId: payment.journalEntryId!, accountId: bank.id, ...(kind === 'ar' ? { debit: 100 } : { credit: 100 }) } })).toBe(1)
+      }
+    })
   }
-})
+
+  test(`${kind.toUpperCase()} control, discount and penalty accounts reject foreign and unusable accounts with rollback`, async ({ page }) => {
+    const { orgId, customer, vendor } = await accountingCompany(page)
+    const date = new Date(DATE)
+    const doc = kind === 'ar'
+      ? await db.salesInvoice.create({ data: { organizationId: orgId, customerId: customer.id, number: 'ACCOUNT-SAFETY', issueDate: date, status: 'SENT', subtotal: 1000, totalAmount: 1000 } })
+      : await db.bill.create({ data: { organizationId: orgId, vendorId: vendor.id, number: 'ACCOUNT-SAFETY', issueDate: date, status: 'OPEN', subtotal: 1000, totalAmount: 1000 } })
+    const base = { ...(kind === 'ar' ? { customerId: customer.id } : { vendorId: vendor.id }), date: DATE, totalAmount: 105,
+      allocations: [{ ...(kind === 'ar' ? { invoiceId: doc.id } : { billId: doc.id }), amountApplied: 100, discountAmount: 10, penaltyAmount: 5 }] }
+    const controlField = kind === 'ar' ? 'arAccountId' : 'apAccountId'
+    const roles = [
+      { field: controlField, type: kind === 'ar' ? 'ASSET' as const : 'LIABILITY' as const },
+      { field: 'discountAccountId', type: kind === 'ar' ? 'EXPENSE' as const : 'REVENUE' as const },
+      { field: 'penaltyAccountId', type: kind === 'ar' ? 'REVENUE' as const : 'EXPENSE' as const },
+    ]
+    const before = await db.journalEntry.count({ where: { organizationId: orgId } })
+    const admin = await db.user.findUniqueOrThrow({ where: { email: 'admin@demo.com' } })
+    for (const { field, type } of roles) {
+      const foreign = await db.account.findFirstOrThrow({ where: { organizationId: { not: orgId }, type, isActive: true, isPostable: true } })
+      const inactive = await db.account.create({ data: { organizationId: orgId, code: `QA-${field}-inactive`, name: 'Inactive posting account', type, normalSide: 'DEBIT', isActive: false } })
+      const header = await db.account.create({ data: { organizationId: orgId, code: `QA-${field}-header`, name: 'Posting header', type, normalSide: 'DEBIT', isPostable: false } })
+      const wrongType = await db.account.findFirstOrThrow({ where: { organizationId: orgId, type: { not: type }, isActive: true, isPostable: true } })
+      for (const account of [foreign, inactive, header, wrongType]) {
+        const response = await page.request.post(`http://localhost:3100/api/v1/${kind}-payments`, { data: { ...base, status: 'COMPLETED', [field]: account.id } })
+        expect(response.status(), await response.text()).toBe(422)
+        expect(await response.text()).toContain('in this organization')
+      }
+      const draft = await api(page, `/${kind}-payments`, { ...base, status: 'DRAFT', [field]: foreign.id }, 'POST')
+      const completion = await page.request.put(`http://localhost:3100/api/v1/${kind}-payments/${draft.id}`, { data: { status: 'COMPLETED' } })
+      expect(completion.status()).toBe(422)
+      const row = () => kind === 'ar' ? db.aRPayment.findUniqueOrThrow({ where: { id: draft.id } }) : db.aPPayment.findUniqueOrThrow({ where: { id: draft.id } })
+      expect((await row()).status).toBe('DRAFT')
+      if (kind === 'ar') await db.aRPayment.update({ where: { id: draft.id }, data: { status: 'PENDING_APPROVAL' } })
+      else await db.aPPayment.update({ where: { id: draft.id }, data: { status: 'PENDING_APPROVAL' } })
+      const request = await db.approvalRequest.create({ data: { organizationId: orgId, documentType: kind === 'ar' ? 'AR_PAYMENT' : 'AP_PAYMENT', documentId: draft.id, requestedById: admin.id } })
+      const approval = await page.request.post(`http://localhost:3100/api/v1/approvals/${request.id}/approve`, { data: {} })
+      expect(approval.status()).toBe(422)
+      expect((await db.approvalRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe('PENDING')
+      expect((await row()).journalEntryId).toBeNull()
+      expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
+    }
+    // Valid default control/adjustment accounts still post the discounted settlement.
+    const valid = await api(page, `/${kind}-payments`, { ...base, status: 'COMPLETED' }, 'POST')
+    const posted = kind === 'ar' ? await db.aRPayment.findUniqueOrThrow({ where: { id: valid.id } }) : await db.aPPayment.findUniqueOrThrow({ where: { id: valid.id } })
+    expect(await db.journalLine.count({ where: { entryId: posted.journalEntryId! } })).toBe(4)
+    expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before + 1)
+  })
+}
 
 for (const kind of ['ar', 'ap'] as const) {
   test(`${kind.toUpperCase()} payment API protects party, allocations, posted history and current balances`, async ({ page }) => {

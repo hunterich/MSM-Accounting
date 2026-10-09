@@ -9,7 +9,7 @@
  */
 import type { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults, ACCOUNT_DEFAULT_SPECS, isAccountUsableForRole, type AccountDefaultKey } from './account-defaults';
 import { assertPeriodOpen } from './period-guard';
 import { toNumber } from './money';
 import { ApiError } from './errors';
@@ -18,6 +18,16 @@ import { lockPayment, validatePaymentAllocations } from './payment-validation';
 import { selectReceiptDepositAccounts } from './cash-accounts';
 
 type Tx = Prisma.TransactionClient;
+
+function assertPaymentPostingAccount(
+  accounts: Array<{ id: string; code: string; name: string; type: string; isActive: boolean; isPostable: boolean }>,
+  accountId: string,
+  role: AccountDefaultKey,
+): void {
+  if (!isAccountUsableForRole(accounts.find(account => account.id === accountId), role)) {
+    throw new ApiError(`Choose an active, postable ${ACCOUNT_DEFAULT_SPECS[role].label.toLowerCase()} account in this organization`, 422);
+  }
+}
 
 const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'PROCESSING', 'VOID', 'PENDING_APPROVAL']);
 
@@ -46,17 +56,17 @@ export async function postArPaymentIfNeeded(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true, parentId: true, reportGroup: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
-  const bankAccountId =
-    payment.depositAccountId
-    ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  const defaultBankAccountId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  const bankAccountId = payment.depositAccountId ?? defaultBankAccountId;
   const arAccountId =
     payment.arAccountId
     ?? resolveAccountDefaultId(accounts, settings, 'arControl');
 
   if (!bankAccountId || !arAccountId) throw new ApiError('Payment requires cash and receivable posting accounts', 422);
-  if (!selectReceiptDepositAccounts(accounts, settings.bankAsset).some(account => account.id === bankAccountId)) {
+  if (!selectReceiptDepositAccounts(accounts, defaultBankAccountId).some(account => account.id === bankAccountId)) {
     throw new ApiError('Choose an active, postable cash or bank deposit account in this organization', 422);
   }
+  assertPaymentPostingAccount(accounts, arAccountId, 'arControl');
   const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);
   const penalty = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.penaltyAmount), 0);
   const discountAccountId = payment.discountAccountId ?? resolveAccountDefaultId(accounts, settings, 'arDiscount');
@@ -64,6 +74,9 @@ export async function postArPaymentIfNeeded(
   if ((discount > 0 && !discountAccountId) || (penalty > 0 && !penaltyAccountId) || amount + discount - penalty <= 0) {
     throw new ApiError('Payment requires valid discount/penalty accounts and a positive settlement amount', 422);
   }
+
+  if (discount > 0) assertPaymentPostingAccount(accounts, discountAccountId!, 'arDiscount');
+  if (penalty > 0) assertPaymentPostingAccount(accounts, penaltyAccountId!, 'arPenalty');
 
   const je = await postJournalEntry(tx, {
     organizationId: orgId,
@@ -115,17 +128,20 @@ export async function postApPaymentIfNeeded(
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
-    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true, parentId: true, reportGroup: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
   const apAccountId =
     payment.apAccountId
     ?? resolveAccountDefaultId(accounts, settings, 'apControl');
-  const bankAccountId =
-    payment.cashAccountId
-    ?? resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  const defaultBankAccountId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  const bankAccountId = payment.cashAccountId ?? defaultBankAccountId;
 
   if (!apAccountId || !bankAccountId) throw new ApiError('Payment requires cash and payable posting accounts', 422);
+  if (!selectReceiptDepositAccounts(accounts, defaultBankAccountId).some(account => account.id === bankAccountId)) {
+    throw new ApiError('Choose an active, postable cash or bank payment account in this organization', 422);
+  }
+  assertPaymentPostingAccount(accounts, apAccountId, 'apControl');
   const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);
   const penalty = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.penaltyAmount), 0);
   const discountAccountId = payment.discountAccountId ?? resolveAccountDefaultId(accounts, settings, 'apDiscount');
@@ -133,6 +149,9 @@ export async function postApPaymentIfNeeded(
   if ((discount > 0 && !discountAccountId) || (penalty > 0 && !penaltyAccountId) || amount + discount - penalty <= 0) {
     throw new ApiError('Payment requires valid discount/penalty accounts and a positive settlement amount', 422);
   }
+
+  if (discount > 0) assertPaymentPostingAccount(accounts, discountAccountId!, 'apDiscount');
+  if (penalty > 0) assertPaymentPostingAccount(accounts, penaltyAccountId!, 'apPenalty');
 
   const je = await postJournalEntry(tx, {
     organizationId: orgId,

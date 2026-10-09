@@ -28,11 +28,11 @@ export interface CashAccountLike {
   reportGroup?: string | null;
 }
 
-const CASH_KEYWORDS = ['bank', 'kas', 'cash', 'giro', 'petty'];
+const CASH_KEYWORDS = /\b(bank|kas|cash|giro|petty)\b/i;
 
 function mentionsCash(account: CashAccountLike): boolean {
-  const haystack = `${account.code} ${account.name} ${account.reportGroup ?? ''}`.toLowerCase();
-  return CASH_KEYWORDS.some((keyword) => haystack.includes(keyword));
+  const haystack = `${account.code} ${account.name} ${account.reportGroup ?? ''}`.replace(/[_-]+/g, ' ').toLowerCase();
+  return CASH_KEYWORDS.test(haystack);
 }
 
 /**
@@ -56,19 +56,19 @@ export function selectCashAccounts<T extends CashAccountLike>(accounts: readonly
 }
 
 /**
- * Receipt deposits also accept the explicitly configured bank asset, even
+ * Payment cash accounts also accept the resolved bank asset, even
  * when its name and ancestors do not contain cash/bank keywords.
  * Callers must supply only accounts belonging to the current organization.
  */
 export function selectReceiptDepositAccounts<T extends CashAccountLike & { isActive: boolean }>(
   accounts: readonly T[],
-  configuredBankAccountId?: string,
+  resolvedBankAccountId?: string,
 ): T[] {
   const active = accounts.filter((account) => account.isActive);
   const cashIds = new Set(selectCashAccounts(active).map((account) => account.id));
   return active.filter((account) =>
     account.isPostable && String(account.type).toUpperCase() === 'ASSET' &&
-    (cashIds.has(account.id) || account.id === configuredBankAccountId),
+    (cashIds.has(account.id) || account.id === resolvedBankAccountId),
   );
 }
 
