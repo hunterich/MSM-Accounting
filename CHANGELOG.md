@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — stale note approval recovery
+- Over-allocation during credit/debit-note approval now explains how to recover: reject the approval to return the note to Draft, then edit or delete it. The failed approval still rolls back without posting.
+- Rejection atomically claims the pending request before locking and reverting the note, matching approval's lock order and preventing concurrent approval/rejection from both succeeding. Draft notes remain editable without an early balance check; the live balance is enforced at application.
+- Isolated PostgreSQL approval races and AR/AP API recovery journeys passed; no migration is required.
+
 ### Added — corrections to posted inventory invoices
 - Sent/Overdue invoice forms offer Save correction within open accounting periods. Corrections restore original stock lots, reverse only the current posting journals and re-post the edited lines atomically. A later void restores only the current sale, preserving lot identity and FIFO order across repeated edits.
 - New sales record exact lot draws and current posting journal IDs. Invoice locks serialize corrections with receipts/voids; item locks are taken in sorted order before journal numbering. Linked note/return creation also locks the source invoice. Status-only requests cannot revive a void invoice or change a posted invoice's derived status.
