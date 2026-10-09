@@ -55,6 +55,23 @@ export function selectCashAccounts<T extends CashAccountLike>(accounts: readonly
   return accounts.filter((a) => a.isPostable && String(a.type).toUpperCase() === 'ASSET' && isCashChain(a));
 }
 
+/**
+ * Receipt deposits also accept the explicitly configured bank asset, even
+ * when its name and ancestors do not contain cash/bank keywords.
+ * Callers must supply only accounts belonging to the current organization.
+ */
+export function selectReceiptDepositAccounts<T extends CashAccountLike & { isActive: boolean }>(
+  accounts: readonly T[],
+  configuredBankAccountId?: string,
+): T[] {
+  const active = accounts.filter((account) => account.isActive);
+  const cashIds = new Set(selectCashAccounts(active).map((account) => account.id));
+  return active.filter((account) =>
+    account.isPostable && String(account.type).toUpperCase() === 'ASSET' &&
+    (cashIds.has(account.id) || account.id === configuredBankAccountId),
+  );
+}
+
 type CashDb = Pick<Prisma.TransactionClient, 'account' | 'journalLine'>;
 
 /**

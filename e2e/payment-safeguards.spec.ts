@@ -44,6 +44,31 @@ test('receipt deposits reject foreign, non-cash and inactive accounts at creatio
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before + 2)
 })
 
+test('configured bank asset without cash keywords posts receipts at creation, completion and approval', async ({ page }) => {
+  const { orgId, customer } = await accountingCompany(page)
+  const bank = await db.account.create({ data: { organizationId: orgId, code: '1-1196', name: 'BCA 0123-456', type: 'ASSET', normalSide: 'DEBIT' } })
+  const org = await db.organization.findUniqueOrThrow({ where: { id: orgId } })
+  await db.organization.update({ where: { id: orgId }, data: {
+    accountDefaults: { ...(org.accountDefaults as Record<string, string> || {}), bankAsset: bank.id },
+  } })
+  const base = { customerId: customer.id, date: DATE, totalAmount: 100 }
+  const created = await api(page, '/ar-payments', { ...base, status: 'COMPLETED' }, 'POST')
+  const draft = await api(page, '/ar-payments', { ...base, status: 'DRAFT', depositAccountId: bank.id }, 'POST')
+  await api(page, `/ar-payments/${draft.id}`, { status: 'COMPLETED' }, 'PUT')
+  const held = await api(page, '/ar-payments', { ...base, status: 'DRAFT' }, 'POST')
+  await db.aRPayment.update({ where: { id: held.id }, data: { status: 'PENDING_APPROVAL' } })
+  const admin = await db.user.findUniqueOrThrow({ where: { email: 'admin@demo.com' } })
+  const request = await db.approvalRequest.create({ data: { organizationId: orgId, documentType: 'AR_PAYMENT', documentId: held.id, requestedById: admin.id } })
+  const approval = await page.request.post(`http://localhost:3100/api/v1/approvals/${request.id}/approve`, { data: {} })
+  expect(approval.ok(), await approval.text()).toBeTruthy()
+  for (const id of [created.id, draft.id, held.id]) {
+    const payment = await db.aRPayment.findUniqueOrThrow({ where: { id } })
+    expect(payment.status).toBe('COMPLETED')
+    expect(payment.journalEntryId).toBeTruthy()
+    expect(await db.journalLine.count({ where: { entryId: payment.journalEntryId!, accountId: bank.id, debit: 100 } })).toBe(1)
+  }
+})
+
 for (const kind of ['ar', 'ap'] as const) {
   test(`${kind.toUpperCase()} payment API protects party, allocations, posted history and current balances`, async ({ page }) => {
     const { orgId, vendor, customer, item } = await accountingCompany(page)

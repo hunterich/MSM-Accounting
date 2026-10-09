@@ -15,7 +15,7 @@ import { toNumber } from './money';
 import { ApiError } from './errors';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { lockPayment, validatePaymentAllocations } from './payment-validation';
-import { selectCashAccounts } from './cash-accounts';
+import { selectReceiptDepositAccounts } from './cash-accounts';
 
 type Tx = Prisma.TransactionClient;
 
@@ -54,7 +54,7 @@ export async function postArPaymentIfNeeded(
     ?? resolveAccountDefaultId(accounts, settings, 'arControl');
 
   if (!bankAccountId || !arAccountId) throw new ApiError('Payment requires cash and receivable posting accounts', 422);
-  if (!selectCashAccounts(accounts).some(account => account.id === bankAccountId)) {
+  if (!selectReceiptDepositAccounts(accounts, settings.bankAsset).some(account => account.id === bankAccountId)) {
     throw new ApiError('Choose an active, postable cash or bank deposit account in this organization', 422);
   }
   const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);

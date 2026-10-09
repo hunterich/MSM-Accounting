@@ -41,7 +41,7 @@ import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
-import { selectCashAccounts } from '../../../lib/cash-accounts';
+import { selectReceiptDepositAccounts } from '../../../lib/cash-accounts';
 
 interface PaymentFormProps { recordId?: string; mode?: PaymentMode; workspaceTabId?: string }
 
@@ -147,8 +147,8 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
     }, [chartOfAccounts]);
 
     const depositAccountOptions = useMemo(
-        () => selectCashAccounts(chartOfAccounts.filter(account => account.isActive)),
-        [chartOfAccounts],
+        () => selectReceiptDepositAccounts(chartOfAccounts, accountDefaultsConfig.bankAsset),
+        [chartOfAccounts, accountDefaultsConfig.bankAsset],
     );
 
     const formatAccountOption = (accountId: string) => {

@@ -289,6 +289,13 @@ automated accounting tests should not be run against their production company.
 
 ## Report reconciliation checks
 
+The configured-bank-default regression in `payment-safeguards.spec.ts` covers a
+top-level `BCA 0123-456` asset at receipt creation, draft completion and approval.
+`cash-accounts.test.ts` covers the shared picker/validation selector, including
+inactive, non-postable, non-asset and absent configured IDs. These new regressions
+were added after the verification below; local execution was unavailable because
+the terminal failed during workspace setup. CI must validate the new commit.
+
 `dashboard-aging.int.test.ts` checks applied credit-note gross amounts, excluded
 refund/draft/pending/void/foreign notes, mixed receipt/discount/note settlement,
 note reversal, calendar aging boundaries and Jakarta midnight. It compares aging
