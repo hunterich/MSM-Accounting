@@ -289,6 +289,19 @@ automated accounting tests should not be run against their production company.
 
 ## Report reconciliation checks
 
+Dashboard return-date regressions compare monthly sales, customer totals and
+calendar buckets for full/partial returns, later-month refunds, standalone
+refund notes, note voids, held/void/foreign notes and Jakarta month boundaries.
+Returns reduce their credit-note period and are excluded from paid settlements;
+refunds still do not settle unpaid AR. Gross notes already include PPN.
+
+Read-only timing on an existing company: set `DATABASE_URL` for that environment,
+then run `npx tsx scripts/benchmark-dashboard-sales.ts ORG_ID YYYY-MM-DD YYYY-MM-DD`.
+The command reports invoice count, first-read timing, warm samples and PostgreSQL
+`EXPLAIN (ANALYZE, BUFFERS)` in a read-only transaction. It seeds no fixtures and
+changes no company data. Historical-company timing has not been run in this
+session because the local terminal cannot start.
+
 POS sale regressions cover configured `Kasir 1` / `Laci Kasir` drawers, sale
 replay and whole-sale rollback for foreign, inactive, non-postable and non-asset
 register accounts. Marketplace import regressions cover non-default `Saldo

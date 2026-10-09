@@ -26,7 +26,8 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async (
   } catch { throw new ApiError('Invalid report date', 400); }
   if (from > to) return err('dateFrom must be before or equal to dateTo', 400);
   if (type === 'customers') {
-    const rows = await readCustomerSales(prisma, { organizationId: orgId, dateFrom: from, dateTo: to });
+    const asOf = reportDate(null, true);
+    const rows = await readCustomerSales(prisma, { organizationId: orgId, dateFrom: from, dateTo: to > asOf ? asOf : to });
     return ok({ rows: rows.slice(0, 10), grandTotal: asMoney(rows.reduce((sum, row) => sum + row.total, 0)) });
   }
   if (type === 'sales') {
