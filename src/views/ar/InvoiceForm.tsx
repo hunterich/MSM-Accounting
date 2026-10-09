@@ -532,8 +532,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         const currentStatus = editingInvoiceId
             ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
             : 'Draft';
-        if (editingInvoiceId && currentStatus !== 'Draft') {
-            window.alert('Only Draft invoices can be edited. Sent/Paid invoices are locked.');
+        if (editingInvoiceId && !['Draft', 'Sent', 'Overdue'].includes(currentStatus)) {
+            window.alert('Only Draft, Sent or Overdue invoices can be edited.');
             return;
         }
 
@@ -542,8 +542,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
         try {
             if (editingInvoiceId) {
-                // Full edits are only allowed while DRAFT (enforced server-side).
-                // Status transition to SENT in the same update triggers posting.
+                // Posted corrections reverse and re-post atomically server-side.
                 const subtotalAmt = calculateSubtotal();
                 const discountAmt = calculateDiscountAmount(subtotalAmt);
                 const netAmt = subtotalAmt - discountAmt;
@@ -578,7 +577,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                         discountPct: Number(line.discount || 0),
                         lineSubtotal: Math.round(Number(line.quantity || 0) * Number(line.price || 0) * (1 - Number(line.discount || 0) / 100) * 100) / 100,
                     })),
-                    ...(saveAsDraft ? {} : { status: 'Sent' }),
+                    ...(currentStatus === 'Draft' && !saveAsDraft ? { status: 'Sent' } : {}),
                 } as any);
             } else {
                 // POST always creates a DRAFT (createInvoiceInputSchema shape;
@@ -767,8 +766,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             printOptions={[
                 { label: 'Print / PDF', hint: 'Preview, print, or download', onClick: handlePrint },
             ]}
-            onSaveDraft={() => { void persistInvoice(true); }}
-            primaryLabel="Save & Approve"
+            onSaveDraft={editingInvoiceId && invoices.find(inv => inv.id === editingInvoiceId)?.status !== 'Draft' ? undefined : () => { void persistInvoice(true); }}
+            primaryLabel={editingInvoiceId && invoices.find(inv => inv.id === editingInvoiceId)?.status !== 'Draft' ? 'Save correction' : 'Save & Approve'}
             onPrimary={() => { void persistInvoice(false); }}
             moreItems={canDeleteInvoice
                 ? [{ label: 'Delete invoice', danger: true, onClick: () => setConfirmDelete(true) }]
@@ -968,7 +967,12 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                                         if (!item.productId) return null;
                                                         const prod = products.find((p: ProductLike) => p.id === item.productId);
                                                         if (!prod) return null;
-                                                        const avail = prod.currentStock ?? prod.stock ?? 0;
+                                                        const original = editingInvoiceId ? invoices.find(inv => inv.id === editingInvoiceId) : undefined;
+                                                        const ownSoldQty = original && ['Sent', 'Overdue'].includes(original.status)
+                                                            ? (original.items ?? []).filter((line: { itemId?: string }) => line.itemId === item.productId)
+                                                                .reduce((sum: number, line: { quantity?: number }) => sum + Number(line.quantity ?? 0), 0)
+                                                            : 0;
+                                                        const avail = (prod.currentStock ?? prod.stock ?? 0) + ownSoldQty;
                                                         if (item.quantity > avail) {
                                                             return (
                                                                 <div className="flex items-center gap-1 mt-1 text-[11px] text-amber-600">

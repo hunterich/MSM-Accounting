@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — corrections to posted inventory invoices
+- Sent/Overdue invoice forms offer Save correction within open accounting periods. Corrections restore original stock lots, reverse only the current posting journals and re-post the edited lines atomically. A later void restores only the current sale, preserving lot identity and FIFO order across repeated edits.
+- New sales record exact lot draws and current posting journal IDs. Invoice locks serialize corrections with receipts/voids; item locks are taken in sorted order before journal numbering. Linked note/return creation also locks the source invoice. Status-only requests cannot revive a void invoice or change a posted invoice's derived status.
+- Corrections require complete lot tracking and agreement between restored lot value and recorded COGS. Historical stock invoices, negative-stock shortfalls, missing/revalued source lots and weighted-average movements with differing source-lot value remain void-first. Receipts, returns, credit notes and closed original/repost periods block corrections. No historical lot draws are guessed.
+- Requires migration `20261009060000_invoice_lot_draws`. Isolated PostgreSQL and browser coverage includes repeated corrections followed by void, replacement items, fractional quantities, rollback, period/dependency guards and concurrent correction/payment/void requests. Deployment remains pending.
+
 ### Fixed — note-aware Paid/reopened document status
 - Invoice/bill status now includes completed payment principal/discounts and applied linked credit/debit-note gross amounts. Fees, drafts, approval holds, cash refunds and standalone credits do not clear source-document debt.
 - Note application and approval finalization update the source status; note/payment reversals reopen it when a balance remains. Document locks and sorted payment-document ordering serialize status derivation. Reversal paths acquire document locks before journal numbering to match posting lock order.

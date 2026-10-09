@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
-import { calculateAndPostCOGS } from './inventory-costing';
+import { calculateAndPostCOGS, lockInventoryItems } from './inventory-costing';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { toNumber, asMoney } from './money';
 import { postJournalEntry } from './journal-posting';
@@ -21,7 +21,7 @@ export async function postInvoiceSend(
   opts: { allowNegativeStock?: boolean } & TransactionDateGuardOptions = {},
 ): Promise<void> {
   const invoice = await tx.salesInvoice.findUnique({
-    where: { id: invoiceId },
+    where: { id: invoiceId, organizationId: orgId },
     select: {
       number: true,
       issueDate: true,
@@ -40,6 +40,11 @@ export async function postInvoiceSend(
   }
 
   const invoiceNumber = invoice.number;
+  const postingJournalIds: string[] = [];
+  const invoiceLines = await tx.salesInvoiceLine.findMany({
+    where: { invoiceId }, select: { id: true, itemId: true, quantity: true }, orderBy: { lineNo: 'asc' },
+  });
+  await lockInventoryItems(tx, orgId, invoiceLines.flatMap(line => line.itemId ? [line.itemId] : []));
 
   // Refuse to post into a closed/locked accounting period.
   await assertPeriodOpen(tx, orgId, new Date(invoice.issueDate), opts);
@@ -150,12 +155,13 @@ export async function postInvoiceSend(
       });
     }
 
-    await postJournalEntry(tx, {
+    const arEntry = await postJournalEntry(tx, {
       organizationId: orgId,
       date: arInvoiceDate,
       memo: `Sales recognition: ${invoice.number}`,
       lines: arLines,
     });
+    postingJournalIds.push(arEntry.id);
   }
 
   const organization = await tx.organization.findUnique({
@@ -164,12 +170,6 @@ export async function postInvoiceSend(
   });
 
   if (organization?.costingMethod) {
-    const invoiceLines = await tx.salesInvoiceLine.findMany({
-      where: { invoiceId },
-      select: { id: true, itemId: true, quantity: true },
-      orderBy: { lineNo: 'asc' },
-    });
-
     const itemIds = invoiceLines
       .map((l) => l.itemId)
       .filter((itemId): itemId is string => Boolean(itemId));
@@ -226,7 +226,7 @@ export async function postInvoiceSend(
           });
 
           if (cogs > 0) {
-            await postJournalEntry(tx, {
+            const cogsEntry = await postJournalEntry(tx, {
               organizationId: orgId,
               date: invoiceDate,
               memo: `COGS auto-post: ${invoiceNumber}`,
@@ -245,9 +245,11 @@ export async function postInvoiceSend(
                 },
               ],
             });
+            postingJournalIds.push(cogsEntry.id);
           }
         }
       }
     }
   }
+  await tx.salesInvoice.update({ where: { id: invoiceId }, data: { postingTracked: true, postingJournalIds } });
 }

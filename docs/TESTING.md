@@ -117,6 +117,30 @@ changes, application is idempotent and scoped by company, and partial amounts,
 refunds, pending/void notes and draft documents are excluded. Notes, payments
 and journals remain unchanged.
 
+### Posted inventory invoice corrections
+
+Posted inventory corrections have separate coverage in
+`e2e/inventory-invoice-corrections.spec.ts` and
+`lib/__tests__/integration/inventory-invoice-corrections.int.test.ts`. The real
+form journey edits a Sent invoice twice, reloads and voids it, verifying original
+FIFO lot identity/order and net AR/COGS journals. API races cover correction
+versus correction, void and receipt. Closed original/new periods, linked notes
+and returns, legacy tracking and insufficient-stock failures leave the prior
+document/stock/journals unchanged. PostgreSQL tests also cover replacement
+items, fractional quantities and rejection of weighted-average COGS that does
+not match the source-lot value.
+
+Migration `20261009060000_invoice_lot_draws` is required before using this
+feature. Existing records default to untracked; the migration does not infer
+historical lot draws or posting versions. New sales preserve lot draw quantities
+and current journal IDs, and reversed SALES movements carry a reversal marker
+so repeated corrections and later voids do not restore prior sale versions.
+Editing requires exact quantity and value restoration. Negative-stock
+shortfalls, missing/revalued lots and weighted-average source-lot/COGS value
+differences remain void-first. Weighted-average valuation reconciliation is
+still separate work. The tests do not certify every inventory race across all
+modules or rebuild historical costing data.
+
 ### One-time backfill for existing note-covered documents
 
 No schema migration is needed. Set `DATABASE_URL` explicitly to the intended

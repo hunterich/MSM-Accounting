@@ -252,6 +252,10 @@ export function useUpdateInvoice() {
         onSuccess: (_, vars) => {
             qc.invalidateQueries({ queryKey: AR_KEYS.invoices });
             qc.invalidateQueries({ queryKey: AR_KEYS.invoice(vars.id) });
+            qc.invalidateQueries({ queryKey: ['invItems'] });
+            qc.invalidateQueries({ queryKey: ['invValuation'] });
+            qc.invalidateQueries({ queryKey: ['journalEntries'] });
+            qc.invalidateQueries({ queryKey: ['glAccounts'] });
         },
     });
 }
@@ -271,6 +275,10 @@ export function useVoidInvoice() {
         onSuccess: (_, id) => {
             qc.invalidateQueries({ queryKey: AR_KEYS.invoices });
             qc.invalidateQueries({ queryKey: AR_KEYS.invoice(id) });
+            qc.invalidateQueries({ queryKey: ['invItems'] });
+            qc.invalidateQueries({ queryKey: ['invValuation'] });
+            qc.invalidateQueries({ queryKey: ['journalEntries'] });
+            qc.invalidateQueries({ queryKey: ['glAccounts'] });
         },
     });
 }

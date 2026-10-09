@@ -50,6 +50,6 @@ describe('reverseInvoicePosting', () => {
     const tx = { journalEntry: { findMany: vi.fn(async () => [{ id: 'je-ar' }, { id: 'je-cogs' }]) } } as never;
     await reverseInvoicePosting(tx, 'org-a', { id: 'inv-1', number: 'INV-0001' }, { date: DATE });
     expect(reverseJournalEntry).toHaveBeenCalledTimes(2);
-    expect(restoreConsumedLayers).toHaveBeenCalledWith(tx, 'org-a', 'SALES', 'inv-1', DATE);
+    expect(restoreConsumedLayers).toHaveBeenCalledWith(tx, 'org-a', 'SALES', 'inv-1', DATE, { requireExact: true });
   });
 });

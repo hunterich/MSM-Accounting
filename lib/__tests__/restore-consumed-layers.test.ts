@@ -11,7 +11,8 @@ import { restoreConsumedLayers } from '../inventory-costing';
 
 function makeTx(outbound: any[]) {
   return {
-    inventoryLedgerEntry: { findMany: vi.fn(async () => outbound), create: vi.fn(async () => ({})) },
+    $executeRaw: vi.fn(async () => 0),
+    inventoryLedgerEntry: { findMany: vi.fn(async () => outbound), create: vi.fn(async () => ({})), update: vi.fn(async () => ({})) },
     inventoryLot: { create: vi.fn(async () => ({})) },
   };
 }

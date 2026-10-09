@@ -6,6 +6,13 @@ import { advisoryLockKey } from './advisory-lock'
 
 const QTY_EPSILON = 1e-6
 
+/** Use one global item order before journal numbering or inventory writes. */
+export async function lockInventoryItems(tx: Prisma.TransactionClient, orgId: string, itemIds: readonly string[]) {
+  for (const itemId of [...new Set(itemIds)].sort()) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`item-stock:${orgId}:${itemId}`)})`
+  }
+}
+
 /**
  * Total on-hand quantity for an item (optionally scoped to a warehouse),
  * summed from open cost layers.
@@ -201,7 +208,10 @@ export function reversePurchaseLayers(
 }
 
 /**
- * Un-consume: restore the stock a document drew down (e.g. when voiding an
+ * Un-consume: tracked sales restore their original lot quantities and mark the
+ * outbound movement reversed. requireExact rejects incomplete/legacy tracking.
+ * Other movements and legacy sales use replacement lots at recorded value.
+ * Restore the stock a document drew down (e.g. when voiding an
  * invoice's COGS or a purchase return's removal). For each outbound
  * `InventoryLedgerEntry` the document wrote, re-add a fresh inbound cost layer +
  * ledger entry. The restored value anchors on the recorded `valueChange` (the
@@ -223,11 +233,22 @@ export async function restoreConsumedLayers(
   documentType: InventoryDocumentType,
   documentId: string,
   date: Date,
+  opts: { requireExact?: boolean } = {},
 ): Promise<number> {
   const outbound = await tx.inventoryLedgerEntry.findMany({
-    where: { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 } },
+    where: { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 }, ...(documentType === 'SALES' ? { reversedAt: null } : {}) },
+    include: { lotDraws: { include: { lot: true } } },
   })
   if (outbound.length === 0) return 0
+
+  if (documentType === 'SALES') {
+    if (opts.requireExact && outbound.some(entry => !entry.drawsTracked ||
+      entry.lotDraws.some(draw => !draw.lot) ||
+      Math.abs(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity), 0) - toNumber(entry.qtyOut)) > QTY_EPSILON)) {
+      throw new ApiError('This invoice has no complete original stock-lot tracking — void it to change.', 422)
+    }
+    await lockInventoryItems(tx, orgId, outbound.map(entry => entry.itemId))
+  }
 
   let valueRestored = 0
   for (const entry of outbound) {
@@ -236,20 +257,38 @@ export async function restoreConsumedLayers(
     const unitCost = qty > 0 ? value / qty : 0
     valueRestored += value
 
-    await tx.inventoryLot.create({
-      data: {
-        organizationId: orgId,
-        itemId: entry.itemId,
-        warehouseId: entry.warehouseId ?? null,
-        documentType: InventoryDocumentType.ADJUSTMENT,
-        documentId,
-        date,
-        qtyIn: qty,
-        qtyOut: 0,
-        qtyBalance: qty,
-        unitCost,
-      },
-    })
+    // New sales restore the exact source lots. Negative-stock shortfalls and
+    // historical movements keep the old value-neutral replacement-lot path.
+    const exact = documentType === 'SALES' && entry.drawsTracked && entry.lotDraws.length > 0 &&
+      entry.lotDraws.every(draw => draw.lot && draw.lot.organizationId === orgId && draw.lot.itemId === entry.itemId) &&
+      Math.abs(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity), 0) - qty) <= QTY_EPSILON &&
+      Math.abs(asMoney(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity) * toNumber(draw.lot?.unitCost), 0)) - value) <= 0.01
+    if (exact) {
+      for (const draw of entry.lotDraws) {
+        const restored = await tx.inventoryLot.updateMany({
+          where: { id: draw.lotId!, organizationId: orgId, itemId: entry.itemId, qtyOut: { gte: draw.quantity } },
+          data: { qtyOut: { decrement: draw.quantity }, qtyBalance: { increment: draw.quantity } },
+        })
+        if (restored.count !== 1) throw new ApiError('Original stock lot is no longer available for exact restoration.', 422)
+      }
+    } else {
+      if (opts.requireExact) throw new ApiError('Original stock lots cannot be restored exactly — void this invoice to change.', 422)
+
+      await tx.inventoryLot.create({
+        data: {
+          organizationId: orgId,
+          itemId: entry.itemId,
+          warehouseId: entry.warehouseId ?? null,
+          documentType: InventoryDocumentType.ADJUSTMENT,
+          documentId,
+          date,
+          qtyIn: qty,
+          qtyOut: 0,
+          qtyBalance: qty,
+          unitCost,
+        },
+      })
+    }
     await tx.inventoryLedgerEntry.create({
       data: {
         organizationId: orgId,
@@ -264,6 +303,7 @@ export async function restoreConsumedLayers(
         valueChange: value,
       },
     })
+    if (documentType === 'SALES') await tx.inventoryLedgerEntry.update({ where: { id: entry.id }, data: { reversedAt: date } })
   }
   return asMoney(valueRestored)
 }
@@ -384,7 +424,7 @@ export async function consumeFIFO(
   docType: InventoryDocumentType,
   docId: string,
   date: Date
-): Promise<{ totalCost: number; cogsPerUnit: number }> {
+): Promise<{ totalCost: number; cogsPerUnit: number; draws: Array<{ lotId: string | null; quantity: number }> }> {
   // Fetch open lots ordered oldest-first (FIFO)
   const lots = await tx.inventoryLot.findMany({
     where: {
@@ -393,11 +433,12 @@ export async function consumeFIFO(
       ...(warehouseId ? { warehouseId } : {}),
       qtyBalance: { gt: 0 },
     },
-    orderBy: { date: 'asc' },
+    orderBy: [{ date: 'asc' }, { id: 'asc' }],
   })
 
   let remaining = qty
   let totalCost = 0
+  const draws: Array<{ lotId: string | null; quantity: number }> = []
 
   for (const lot of lots) {
     if (remaining <= 0) break
@@ -407,6 +448,7 @@ export async function consumeFIFO(
 
     totalCost += consume * lotCost
     remaining -= consume
+    draws.push({ lotId: lot.id, quantity: consume })
 
     await tx.inventoryLot.update({
       where: { id: lot.id },
@@ -425,6 +467,7 @@ export async function consumeFIFO(
     })
     const fallbackCost = toNumber(item?.costPrice)
     totalCost += remaining * fallbackCost
+    draws.push({ lotId: null, quantity: remaining })
   }
 
   const cogsPerUnit = qty > 0 ? totalCost / qty : 0
@@ -432,6 +475,7 @@ export async function consumeFIFO(
   return {
     totalCost: asMoney(totalCost),
     cogsPerUnit: asMoney(cogsPerUnit),
+    draws,
   }
 }
 
@@ -499,11 +543,13 @@ export async function relieveCostLayers(
 
   let totalCost: number
   let unitCost: number
+  let draws: Array<{ lotId: string | null; quantity: number }> = []
 
   if (method === 'FIFO') {
     const result = await consumeFIFO(tx, orgId, itemId, warehouseId, qty, docType, docId, date)
     totalCost = result.totalCost
     unitCost = result.cogsPerUnit
+    draws = result.draws
   } else {
     // WEIGHTED_AVERAGE
     unitCost = await getWeightedAverageCost(tx, orgId, itemId, warehouseId)
@@ -517,7 +563,7 @@ export async function relieveCostLayers(
         ...(warehouseId ? { warehouseId } : {}),
         qtyBalance: { gt: 0 },
       },
-      orderBy: { date: 'asc' },
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
     })
 
     let remaining = qty
@@ -526,6 +572,7 @@ export async function relieveCostLayers(
       const lotBalance = toNumber(lot.qtyBalance)
       const consume = Math.min(lotBalance, remaining)
       remaining -= consume
+      draws.push({ lotId: lot.id, quantity: consume })
 
       await tx.inventoryLot.update({
         where: { id: lot.id },
@@ -535,6 +582,7 @@ export async function relieveCostLayers(
         },
       })
     }
+    if (remaining > QTY_EPSILON) draws.push({ lotId: null, quantity: remaining })
   }
 
   // Record outbound ledger entry
@@ -550,6 +598,7 @@ export async function relieveCostLayers(
       qtyOut: qty,
       unitCost,
       valueChange: asMoney(-totalCost),
+      ...(docType === 'SALES' ? { drawsTracked: true, lotDraws: { create: draws } } : {}),
     },
   })
 

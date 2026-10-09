@@ -3,6 +3,7 @@ export type AppLanguage = 'en' | 'id';
 // Keys are the existing English UI labels. Unknown labels deliberately stay in
 // English so untranslated screens never display a broken key.
 const indonesian: Record<string, string> = {
+  'Save correction': 'Simpan koreksi',
   'Language': 'Bahasa',
   'Welcome back': 'Selamat datang kembali',
   'Sign in': 'Masuk',
