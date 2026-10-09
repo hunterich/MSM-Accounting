@@ -17,6 +17,7 @@ type BankAccountLike = {
   name?: string;
   code?: string;
   bankName?: string;
+  isActive?: boolean;
 };
 
 type AccountDefaultSpec = {
@@ -328,19 +329,25 @@ export function resolveBankLinkedAssetAccountId(
   bankId: string | null | undefined,
 ) {
   const bank = bankAccounts.find((account) => account.id === bankId);
-  if (!bank) return resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  if (!bank || bank.isActive === false) return resolveAccountDefaultId(accounts, settings, 'bankAsset');
 
   const candidates = accounts.filter((account) => isAccountUsableForRole(account, 'bankAsset'));
-  const bankKeywords = [bank.code, bank.bankName, bank.name]
-    .map((value) => normalize(value))
-    .filter(Boolean);
-
-  if (bankKeywords.length > 0) {
-    const matched = candidates.find((account) => {
-      const haystack = normalize(`${account.code} ${account.name}`);
-      return bankKeywords.some((keyword) => haystack.includes(keyword));
-    });
-    if (matched) return matched.id;
+  // Codes shorter than three characters are too broad to identify a GL asset.
+  // Prefer exact identifiers, then whole words/phrases, and never pick the first
+  // account when a Banking identifier matches multiple assets.
+  const identifiers = [bank.code, bank.name, bank.bankName]
+    .map(value => normalize(value))
+    .filter(value => value.replace(/\s/g, '').length >= 3);
+  for (const identifier of identifiers) {
+    const exact = candidates.filter(account =>
+      normalize(account.code) === identifier || normalize(account.name) === identifier,
+    );
+    if (exact.length === 1) return exact[0].id;
+    if (exact.length > 1) continue;
+    const matched = candidates.filter(account =>
+      ` ${normalize(`${account.code} ${account.name}`)} `.includes(` ${identifier} `),
+    );
+    if (matched.length === 1) return matched[0].id;
   }
 
   return resolveAccountDefaultId(accounts, settings, 'bankAsset');
@@ -356,7 +363,7 @@ export function selectPaymentCashAccounts<T extends CashAccountLike & { isActive
   settings: Partial<AccountDefaultsConfig> | undefined,
 ): T[] {
   const defaultId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
-  const linkedIds = bankAccounts.map(bank =>
+  const linkedIds = bankAccounts.filter(bank => bank.isActive !== false).map(bank =>
     resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, bank.id),
   );
   return selectReceiptDepositAccounts(accounts, defaultId, linkedIds);

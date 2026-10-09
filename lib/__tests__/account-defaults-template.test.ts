@@ -3,6 +3,7 @@ import { STANDARD_ROOT_ACCOUNTS, STANDARD_CHILD_ACCOUNTS } from '../organization
 import {
   ACCOUNT_DEFAULT_SPECS,
   resolveAccountDefaultId,
+  resolveBankLinkedAssetAccountId,
   selectPaymentCashAccounts,
   isAccountUsableForRole,
   type AccountDefaultKey,
@@ -146,5 +147,41 @@ describe('Banking-mapped payment accounts', () => {
     ];
     const banks = [{ id: 'b1', name: 'BCA 0123' }, { id: 'b2', name: 'Mandiri' }, { id: 'b3', name: 'Shopee Wallet' }];
     expect(selectPaymentCashAccounts(accounts, banks, { bankAsset: 'cash' }).map(a => a.id)).toEqual(['cash']);
+  });
+});
+
+describe('Banking identifiers cannot accidentally authorize receivables', () => {
+  const account = (id: string, code: string, name: string) =>
+    ({ id, code, name, type: 'ASSET', parentId: null, isActive: true, isPostable: true });
+  const accounts = [
+    account('ar', '1-1200', 'Piutang Usaha'), account('cash', '1190', 'Cash'),
+    account('bca', '1-1010', 'BCA 0123'), account('mandiri', '1-1020', 'Mandiri'),
+  ];
+
+  it.each(['1', '01', '120'])('ignores short or embedded code %s in both the resolver and picker', code => {
+    const banks = [{ id: 'bank', code, name: 'Settlement' }];
+    expect(resolveBankLinkedAssetAccountId(banks, accounts, {}, 'bank')).toBe('cash');
+    expect(selectPaymentCashAccounts(accounts, banks, {}).map(a => a.id)).toEqual(['cash']);
+  });
+
+  it('keeps exact long codes and bounded bank names usable', () => {
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', code: '1-1010' }], accounts, {}, 'b')).toBe('bca');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', bankName: 'BCA' }], accounts, {}, 'b')).toBe('bca');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', name: 'Mandiri' }], accounts, {}, 'b')).toBe('mandiri');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', name: 'BCA' }], [
+      account('ar', '1-1200', 'Piutang BCARD'), account('cash', '1190', 'Cash'),
+    ], {}, 'b')).toBe('cash');
+  });
+
+  it('does not choose the first of multiple whole-word matches', () => {
+    const ambiguous = [...accounts, account('bca2', '1-1030', 'BCA 0456')];
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', bankName: 'BCA' }], ambiguous, {}, 'b')).toBe('cash');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', name: 'BCA 0456', bankName: 'BCA' }], ambiguous, {}, 'b')).toBe('bca2');
+  });
+
+  it('does not authorize assets through inactive Banking records', () => {
+    const banks = [{ id: 'b', name: 'BCA 0123', isActive: false }];
+    expect(resolveBankLinkedAssetAccountId(banks, accounts, {}, 'b')).toBe('cash');
+    expect(selectPaymentCashAccounts(accounts, banks, {}).map(a => a.id)).toEqual(['cash']);
   });
 });

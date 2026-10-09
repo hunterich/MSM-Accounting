@@ -679,7 +679,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Sales by Customer',
-    description: 'Lists total sales value per customer',
+    description: 'Net sales including PPN, after all applied credit notes in their own period, including refunds and price adjustments',
     type: 'table',
     filterMode: 'date-range',
   },
@@ -687,8 +687,8 @@ const SALES_REPORTS: ReportDefinition[] = [
     id: 'by-item',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
-    name: 'Sales by Item',
-    description: 'Lists total sales value per item',
+    name: 'Sales by Item (Gross)',
+    description: 'Gross invoice line subtotals before credit notes and excluding PPN',
     type: 'table',
     filterMode: 'date-range',
   },
@@ -696,8 +696,8 @@ const SALES_REPORTS: ReportDefinition[] = [
     id: 'by-item-customer',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
-    name: 'Item Sales by Customer',
-    description: 'Lists item-level sales value per customer',
+    name: 'Item Sales by Customer (Gross)',
+    description: 'Gross invoice line subtotals per customer before credit notes and excluding PPN',
     type: 'table',
     filterMode: 'date-range',
   },
@@ -724,7 +724,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Monthly Sales Chart',
-    description: 'Bar chart of monthly sales',
+    description: 'Monthly net sales including PPN, after all applied credit notes in the credit note month',
     type: 'chart',
     filterMode: 'date-range',
   },
@@ -733,7 +733,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Sales Share by Customer',
-    description: 'Pie chart of top customers by sales, the rest grouped as Others',
+    description: 'Customer share of net sales including PPN and all applied credit notes; the rest grouped as Others',
     type: 'chart',
     filterMode: 'date-range',
   },
@@ -741,8 +741,8 @@ const SALES_REPORTS: ReportDefinition[] = [
     id: 'share-by-item',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
-    name: 'Portion of Sales per Item',
-    description: 'Pie chart of top-selling items, the rest grouped as Others',
+    name: 'Portion of Sales per Item (Gross)',
+    description: 'Item share of gross invoice line subtotals before credit notes and excluding PPN',
     type: 'chart',
     filterMode: 'date-range',
   },
@@ -1052,7 +1052,7 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
     const rows = data.rows as SalesByCustomerRow[];
     const grand = data.grandTotal as number;
     const totalInvoices = rows.reduce((s, r) => s + r.invoiceCount, 0);
-    let csv = 'No,Pelanggan,Jumlah Invoice,Rata-rata per Invoice,Total Penjualan,Kontribusi (%)\n';
+    let csv = 'No,Pelanggan,Jumlah Invoice,Rata-rata per Invoice,Penjualan Neto (termasuk PPN dan nota kredit),Kontribusi (%)\n';
     csv += rows.map((row, i) => [
       i + 1,
       escapeCsvCell(row.customerName),
@@ -1067,7 +1067,7 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
 
   if (report.id === 'by-item') {
     const rows = data.rows as SalesByItemRow[];
-    let csv = 'Barang,Qty,Total Penjualan\n';
+    let csv = 'Barang,Qty,Penjualan Bruto (tanpa PPN dan nota kredit)\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.description),
       row.qty,
@@ -1107,7 +1107,7 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
 
   if (report.id === 'by-item-customer') {
     const rows = data.rows as SalesByItemCustomerRow[];
-    let csv = 'Pelanggan,Barang,Qty,Total\n';
+    let csv = 'Pelanggan,Barang,Qty,Penjualan Bruto (tanpa PPN dan nota kredit)\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.customerName),
       escapeCsvCell(row.description),
@@ -1119,7 +1119,7 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
 
   if (report.id === 'monthly-chart') {
     const rows = data.rows as SalesMonthlyRow[];
-    let csv = 'Bulan,Total Penjualan\n';
+    let csv = 'Bulan,Penjualan Neto (termasuk PPN dan nota kredit)\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.month),
       row.total,
@@ -1130,7 +1130,7 @@ const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>):
   if (report.id === 'share-by-item') {
     const rows = data.rows as SalesShareItemRow[];
     const grandTotal = data.grandTotal as number;
-    let csv = 'Barang,Total,Porsi (%)\n';
+    let csv = 'Barang,Penjualan Bruto (tanpa PPN dan nota kredit),Porsi (%)\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.description),
       row.total,
@@ -3914,6 +3914,9 @@ const Reports: React.FC<ReportsProps> = ({
                     </div>
                     <div className="text-lg font-bold text-primary-700 mt-1">{activeReport.report.name}</div>
                     <div className="text-xs text-neutral-500 mt-1">{periodLabel}</div>
+                    {activeReport.report.category === 'sales' && (
+                      <div className="text-xs text-neutral-500 mt-1">{activeReport.report.description}</div>
+                    )}
                   </div>
 
                   <div className="overflow-x-auto print:overflow-visible">

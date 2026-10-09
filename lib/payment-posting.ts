@@ -68,7 +68,7 @@ export async function postArPaymentIfNeeded(
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
   const bankRows = await tx.bankAccount.findMany({
-    where: { organizationId: orgId },
+    where: { organizationId: orgId, isActive: true },
     select: { id: true, code: true, name: true, bankName: true },
   });
   const bankAccounts = bankRows.map(bank => ({
@@ -153,7 +153,7 @@ export async function postApPaymentIfNeeded(
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
   const bankRows = await tx.bankAccount.findMany({
-    where: { organizationId: orgId },
+    where: { organizationId: orgId, isActive: true },
     select: { id: true, code: true, name: true, bankName: true },
   });
   const bankAccounts = bankRows.map(bank => ({

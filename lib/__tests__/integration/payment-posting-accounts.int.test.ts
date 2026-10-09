@@ -85,7 +85,17 @@ for (const kind of ['ar', 'ap'] as const) {
         return tx.aPPayment.findUniqueOrThrow({ where: { id: payment.id } });
       });
       await expect(create()).rejects.toMatchObject({ status: 422 });
-      await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'BCA 0123', bankName: 'BCA' } });
+      // Short Banking codes must not authorize the receivable account or named bank.
+      const receivable = await prisma.account.findUniqueOrThrow({ where: { id: org.accounts.arControl } });
+      await prisma.account.update({ where: { id: receivable.id }, data: { code: '1-1200' } });
+      const short = await prisma.bankAccount.create({ data: { organizationId: org.orgId, code: '1', name: 'Settlement' } });
+      await expect(create(receivable.id)).rejects.toMatchObject({ status: 422 });
+      await expect(create()).rejects.toMatchObject({ status: 422 });
+      await prisma.bankAccount.update({ where: { id: short.id }, data: { code: '01' } });
+      await expect(create(receivable.id)).rejects.toMatchObject({ status: 422 });
+      const mapped = await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'BCA 0123', bankName: 'BCA', isActive: false } });
+      await expect(create()).rejects.toMatchObject({ status: 422 });
+      await prisma.bankAccount.update({ where: { id: mapped.id }, data: { isActive: true } });
       await expect(create(other.accounts.bankAsset)).rejects.toMatchObject({ status: 422 });
       expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(0);
       const payment = await create();
