@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — notification freshness and subscription dates
+- Finance notifications are not queued without a provider key; payment checkpoints advance while offline so later setup does not replay that interval. Existing unattempted reminders, summaries and payment alerts expire after 24 hours from queue creation, retaining cancelled audit rows. Attempted deliveries keep existing idempotency/retry safeguards. No production notification rows were changed during development.
+- Subscription invoice and posting dates use the company's business-day label rather than the exact run instant, including Jakarta midnight. Subscription claims, approvals and retries retain their existing behavior.
+- Paginated catalogs validate known status/type/settlement filters before database queries and return 400 for invalid values. Shared catalogs and invoices debounce search typing by 300 ms; filter and page navigation remain immediate.
+- Full-list CSV export, bulk-payment digests and visible automation run errors remain separate roadmap features. Current page export and per-payment alert behavior are unchanged. No schema migration is required.
+
 ### Fixed — AR/AP posting accounts and dashboard aging
 - Customer receipt and supplier payment posting reject foreign, inactive, non-postable and non-cash/bank cash accounts at creation, completion and approval. Both cash pickers and posting validation accept the resolved bank default and company Banking-mapped assets, including named BCA/Mandiri and marketplace holding accounts without cash keywords, while retaining company/active/postable/asset checks. POS register and marketplace receipt callers pass their server-resolved configured deposit account explicitly; these workflows require the same basic asset checks without cash keywords. Cash keywords match whole words, so Kasbon Karyawan and its children are excluded from automatic cash classification; automatic bank resolution no longer chooses an arbitrary first asset.
 - AR/AP control, discount and penalty journal accounts must belong to the company, be active and postable, and have a type allowed for their role. A validation failure rolls back the payment transition and journal entry.

@@ -18,6 +18,7 @@ async function enqueue(tx: Prisma.TransactionClient, org: Org, key: string, kind
 /** Finance routing is explicitly authorized; customer reminders remain manual. */
 export async function queueFinanceNotifications(org: Org, now = new Date()): Promise<void> {
   if (!org.financeEmail?.trim()) return;
+  const providerReady = Boolean(process.env.RESEND_API_KEY?.trim());
   const day = billingDay(now, org.timezone);
   const dayLabel = day.toISOString().slice(0, 10);
   const nextDay = new Date(day.getTime() + 86_400_000).toISOString().slice(0, 10);
@@ -30,7 +31,7 @@ export async function queueFinanceNotifications(org: Org, now = new Date()): Pro
     const checkpoint = await tx.automationCheckpoint.findUnique({
       where: { organizationId_job: { organizationId: org.id, job: 'PAYMENT_ALERTS' } },
     });
-    if (org.paymentAlerts && checkpoint) {
+    if (providerReady && org.paymentAlerts && checkpoint) {
       // Overlap protects transactions whose timestamp preceded the previous scan's commit.
       const since = new Date(Math.max(checkpoint.startedAt.getTime(), checkpoint.lastRunAt.getTime() - 3_600_000));
       for (const kind of ['AR', 'AP'] as const) {
@@ -54,8 +55,11 @@ export async function queueFinanceNotifications(org: Org, now = new Date()): Pro
     await tx.automationCheckpoint.upsert({
       where: { organizationId_job: { organizationId: org.id, job: 'PAYMENT_ALERTS' } },
       create: { organizationId: org.id, job: 'PAYMENT_ALERTS', lastRunAt: now, startedAt: now },
-      update: { lastRunAt: now, ...(!org.paymentAlerts ? { startedAt: now } : {}) },
+      update: { lastRunAt: now, ...(!org.paymentAlerts || !providerReady ? { startedAt: now } : {}) },
     });
+    // Keep the payment baseline current while offline; enabling email later
+    // must not replay payments from the provider-less interval.
+    if (!providerReady) return;
     if (localHour < 8) return;
     const alreadyQueued = async (key: string) => Boolean(await tx.notificationDelivery.findUnique({
       where: { organizationId_key: { organizationId: org.id, key } }, select: { id: true },
@@ -105,7 +109,14 @@ export function notificationEnabled(org: Org, kind: string): boolean {
 }
 
 export async function deliverFinanceNotifications(now = new Date(), send = sendFinanceNotification): Promise<void> {
-  if (!process.env.RESEND_API_KEY) return;
+  // Existing unattempted mail also expires by queue age, not first-send time.
+  // Leave attempted deliveries to the provider-idempotency recovery policy.
+  await prisma.notificationDelivery.updateMany({ where: {
+    status: 'PENDING', attempts: 0, createdAt: { lte: new Date(now.getTime() - 86_400_000) },
+    kind: { in: ['PAYMENT_ALERT', 'INVOICE_REMINDER', 'DAILY_SUMMARY'] },
+    OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }],
+  }, data: { status: 'CANCELLED', leaseUntil: null, lastError: 'Unsent notification expired after 24 hours in the queue.' } });
+  if (!process.env.RESEND_API_KEY?.trim()) return;
   const pending = await prisma.notificationDelivery.findMany({
     where: { status: { in: ['PENDING', 'PROCESSING'] }, availableAt: { lte: now },
       OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] }, orderBy: { createdAt: 'asc' }, take: 100,
