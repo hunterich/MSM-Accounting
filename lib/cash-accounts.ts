@@ -56,16 +56,20 @@ export function selectCashAccounts<T extends CashAccountLike>(accounts: readonly
 }
 
 /**
- * Payment cash accounts also accept the resolved bank asset, even
+ * Payment cash accounts also accept Banking-mapped assets and the resolved bank asset, even
  * when its name and ancestors do not contain cash/bank keywords.
  * Callers must supply only accounts belonging to the current organization.
  */
 export function selectReceiptDepositAccounts<T extends CashAccountLike & { isActive: boolean }>(
   accounts: readonly T[],
   resolvedBankAccountId?: string,
+  bankLinkedAccountIds: readonly string[] = [],
 ): T[] {
   const active = accounts.filter((account) => account.isActive);
-  const cashIds = new Set(selectCashAccounts(active).map((account) => account.id));
+  const cashIds = new Set([
+    ...selectCashAccounts(active).map((account) => account.id),
+    ...bankLinkedAccountIds,
+  ]);
   return active.filter((account) =>
     account.isPostable && String(account.type).toUpperCase() === 'ASSET' &&
     (cashIds.has(account.id) || account.id === resolvedBankAccountId),

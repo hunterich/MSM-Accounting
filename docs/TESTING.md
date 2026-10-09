@@ -289,6 +289,16 @@ automated accounting tests should not be run against their production company.
 
 ## Report reconciliation checks
 
+POS sale regressions cover configured `Kasir 1` / `Laci Kasir` drawers, sale
+replay and whole-sale rollback for foreign, inactive, non-postable and non-asset
+register accounts. Marketplace import regressions cover non-default `Saldo
+Shopee` / `Shopee Wallet` holding assets and import replay. Payment-account
+PostgreSQL checks require Banking configuration before accepting a named
+non-default bank and reject invalid or mismatched internal configured-deposit
+contexts. Unit checks cover the shared Banking-mapped picker/posting selector.
+These regressions were added after the historical verification below; consult
+CI for the current PR head.
+
 The AR/AP account regressions in `payment-safeguards.spec.ts` cover foreign,
 inactive, non-postable, wrong-type and Kasbon cash accounts; configured and
 unconfigured preferred-code bank defaults; and control, discount and penalty

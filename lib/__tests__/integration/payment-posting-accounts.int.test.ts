@@ -64,3 +64,53 @@ for (const kind of ['ar', 'ap'] as const) {
     }
   });
 }
+
+for (const kind of ['ar', 'ap'] as const) {
+  it(`${kind} accepts a non-default named bank only after company Banking configuration maps it`, async () => {
+    const org = await createTestOrg();
+    const other = await createTestOrg();
+    try {
+      const party = kind === 'ar' ? await createCustomer(org.orgId) : await createVendor(org.orgId);
+      const bank = await prisma.account.create({ data: { organizationId: org.orgId, code: '1190', name: 'BCA 0123', type: 'ASSET', normalSide: 'DEBIT' } });
+      const field = kind === 'ar' ? 'depositAccountId' : 'cashAccountId';
+      const create = (accountId = bank.id) => prisma.$transaction(async tx => {
+        const common = { organizationId: org.orgId, number: 'BANK-MAPPED', date: new Date('2026-09-15'), totalAmount: 100, status: 'COMPLETED' as const, [field]: accountId };
+        if (kind === 'ar') {
+          const payment = await tx.aRPayment.create({ data: { ...common, customerId: party } });
+          await postArPaymentIfNeeded(tx, org.orgId, payment.id);
+          return tx.aRPayment.findUniqueOrThrow({ where: { id: payment.id } });
+        }
+        const payment = await tx.aPPayment.create({ data: { ...common, vendorId: party } });
+        await postApPaymentIfNeeded(tx, org.orgId, payment.id);
+        return tx.aPPayment.findUniqueOrThrow({ where: { id: payment.id } });
+      });
+      await expect(create()).rejects.toMatchObject({ status: 422 });
+      await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'BCA 0123', bankName: 'BCA' } });
+      await expect(create(other.accounts.bankAsset)).rejects.toMatchObject({ status: 422 });
+      expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(0);
+      const payment = await create();
+      expect(await prisma.journalLine.count({ where: { entryId: payment.journalEntryId!, accountId: bank.id, ...(kind === 'ar' ? { debit: 100 } : { credit: 100 }) } })).toBe(1);
+    } finally { await cleanupOrg(org.orgId); await cleanupOrg(other.orgId); }
+  });
+}
+
+it('internal configured deposit context still checks the receipt account itself', async () => {
+  const org = await createTestOrg();
+  const other = await createTestOrg();
+  try {
+    const customerId = await createCustomer(org.orgId);
+    const drawer = await prisma.account.create({ data: { organizationId: org.orgId, code: '1190', name: 'Kasir 1', type: 'ASSET', normalSide: 'DEBIT' } });
+    for (const accountId of [other.accounts.bankAsset, org.accounts.salesRevenue]) {
+      await expect(prisma.$transaction(async tx => {
+        const payment = await tx.aRPayment.create({ data: { organizationId: org.orgId, number: 'TRUST-CHECK', customerId, date: new Date('2026-09-15'), status: 'COMPLETED', totalAmount: 100, depositAccountId: accountId } });
+        await postArPaymentIfNeeded(tx, org.orgId, payment.id, {}, { source: 'MARKETPLACE_HOLDING', accountId });
+      })).rejects.toMatchObject({ status: 422 });
+    }
+    await expect(prisma.$transaction(async tx => {
+      const payment = await tx.aRPayment.create({ data: { organizationId: org.orgId, number: 'TRUST-MISMATCH', customerId, date: new Date('2026-09-15'), status: 'COMPLETED', totalAmount: 100, depositAccountId: drawer.id } });
+      await postArPaymentIfNeeded(tx, org.orgId, payment.id, {}, { source: 'POS_REGISTER', accountId: org.accounts.bankAsset });
+    })).rejects.toMatchObject({ status: 422 });
+    expect(await prisma.aRPayment.count({ where: { organizationId: org.orgId } })).toBe(0);
+    expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(0);
+  } finally { await cleanupOrg(org.orgId); await cleanupOrg(other.orgId); }
+});

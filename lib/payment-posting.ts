@@ -9,13 +9,13 @@
  */
 import type { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
-import { resolveAccountDefaultId, loadOrgAccountDefaults, ACCOUNT_DEFAULT_SPECS, isAccountUsableForRole, type AccountDefaultKey } from './account-defaults';
+import { resolveAccountDefaultId, loadOrgAccountDefaults, ACCOUNT_DEFAULT_SPECS, isAccountUsableForRole, type AccountDefaultKey, selectPaymentCashAccounts } from './account-defaults';
 import { assertPeriodOpen } from './period-guard';
 import { toNumber } from './money';
 import { ApiError } from './errors';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { lockPayment, validatePaymentAllocations } from './payment-validation';
-import { selectReceiptDepositAccounts } from './cash-accounts';
+
 
 type Tx = Prisma.TransactionClient;
 
@@ -31,12 +31,23 @@ function assertPaymentPostingAccount(
 
 const UNPOSTABLE_STATUSES = new Set(['DRAFT', 'PROCESSING', 'VOID', 'PENDING_APPROVAL']);
 
+/**
+ * Only internal POS/marketplace callers may supply this configuration-derived
+ * account. Form/API routes never populate this argument. Its ID must match the
+ * receipt deposit, which still passes company/activity/postability/asset checks.
+ */
+export type ConfiguredReceiptDeposit = {
+  source: 'POS_REGISTER' | 'MARKETPLACE_HOLDING';
+  accountId: string;
+};
+
 /** Post DR Bank / CR AR for an AR receipt, once. */
 export async function postArPaymentIfNeeded(
   tx: Tx,
   orgId: string,
   paymentId: string,
   opts: TransactionDateGuardOptions = {},
+  configuredDeposit?: ConfiguredReceiptDeposit,
 ): Promise<void> {
   await lockPayment(tx, orgId, 'ar', paymentId);
   const payment = await tx.aRPayment.findFirst({
@@ -56,6 +67,14 @@ export async function postArPaymentIfNeeded(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true, parentId: true, reportGroup: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
+  const bankRows = await tx.bankAccount.findMany({
+    where: { organizationId: orgId },
+    select: { id: true, code: true, name: true, bankName: true },
+  });
+  const bankAccounts = bankRows.map(bank => ({
+    id: bank.id, code: bank.code ?? undefined, name: bank.name ?? undefined, bankName: bank.bankName ?? undefined,
+  }));
+
   const defaultBankAccountId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
   const bankAccountId = payment.depositAccountId ?? defaultBankAccountId;
   const arAccountId =
@@ -63,7 +82,9 @@ export async function postArPaymentIfNeeded(
     ?? resolveAccountDefaultId(accounts, settings, 'arControl');
 
   if (!bankAccountId || !arAccountId) throw new ApiError('Payment requires cash and receivable posting accounts', 422);
-  if (!selectReceiptDepositAccounts(accounts, defaultBankAccountId).some(account => account.id === bankAccountId)) {
+  if (!isAccountUsableForRole(accounts.find(account => account.id === bankAccountId), 'bankAsset') ||
+      (configuredDeposit?.accountId !== bankAccountId &&
+       !selectPaymentCashAccounts(accounts, bankAccounts, settings).some(account => account.id === bankAccountId))) {
     throw new ApiError('Choose an active, postable cash or bank deposit account in this organization', 422);
   }
   assertPaymentPostingAccount(accounts, arAccountId, 'arControl');
@@ -131,6 +152,14 @@ export async function postApPaymentIfNeeded(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true, parentId: true, reportGroup: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
+  const bankRows = await tx.bankAccount.findMany({
+    where: { organizationId: orgId },
+    select: { id: true, code: true, name: true, bankName: true },
+  });
+  const bankAccounts = bankRows.map(bank => ({
+    id: bank.id, code: bank.code ?? undefined, name: bank.name ?? undefined, bankName: bank.bankName ?? undefined,
+  }));
+
   const apAccountId =
     payment.apAccountId
     ?? resolveAccountDefaultId(accounts, settings, 'apControl');
@@ -138,7 +167,7 @@ export async function postApPaymentIfNeeded(
   const bankAccountId = payment.cashAccountId ?? defaultBankAccountId;
 
   if (!apAccountId || !bankAccountId) throw new ApiError('Payment requires cash and payable posting accounts', 422);
-  if (!selectReceiptDepositAccounts(accounts, defaultBankAccountId).some(account => account.id === bankAccountId)) {
+  if (!selectPaymentCashAccounts(accounts, bankAccounts, settings).some(account => account.id === bankAccountId)) {
     throw new ApiError('Choose an active, postable cash or bank payment account in this organization', 422);
   }
   assertPaymentPostingAccount(accounts, apAccountId, 'apControl');

@@ -1,5 +1,5 @@
 import type { AccountTypeValue } from './account-rules';
-import { selectCashAccounts } from './cash-accounts';
+import { selectCashAccounts, selectReceiptDepositAccounts, type CashAccountLike } from './cash-accounts';
 
 type AccountLike = {
   id: string;
@@ -344,4 +344,20 @@ export function resolveBankLinkedAssetAccountId(
   }
 
   return resolveAccountDefaultId(accounts, settings, 'bankAsset');
+}
+
+/** Same accepted GL cash accounts for both payment pickers and posting guards.
+ * Bank mappings come from the organization's Banking configuration, never a
+ * request-provided list of allowed GL IDs.
+ */
+export function selectPaymentCashAccounts<T extends CashAccountLike & { isActive: boolean }>(
+  accounts: T[],
+  bankAccounts: BankAccountLike[],
+  settings: Partial<AccountDefaultsConfig> | undefined,
+): T[] {
+  const defaultId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  const linkedIds = bankAccounts.map(bank =>
+    resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, bank.id),
+  );
+  return selectReceiptDepositAccounts(accounts, defaultId, linkedIds);
 }

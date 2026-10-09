@@ -3,6 +3,7 @@ import { STANDARD_ROOT_ACCOUNTS, STANDARD_CHILD_ACCOUNTS } from '../organization
 import {
   ACCOUNT_DEFAULT_SPECS,
   resolveAccountDefaultId,
+  selectPaymentCashAccounts,
   isAccountUsableForRole,
   type AccountDefaultKey,
 } from '../account-defaults';
@@ -124,5 +125,26 @@ describe('bank default safety', () => {
       account('header', '1000', 'Kas & Bank', { isPostable: false }),
       account('bca', '1190', 'BCA 0123-456', { parentId: 'header' }),
     ], {}, 'bankAsset')).toBe('bca');
+  });
+});
+
+describe('Banking-mapped payment accounts', () => {
+  const account = (id: string, name: string, extra = {}) =>
+    ({ id, code: '1190', name, type: 'ASSET', parentId: null, isActive: true, isPostable: true, ...extra });
+
+  it('includes multiple named bank/holding assets alongside the configured default', () => {
+    const accounts = [account('cash', 'Cash'), account('bca', 'BCA 0123'), account('mandiri', 'Mandiri'), account('shopee', 'Saldo Shopee'), account('advances', 'Kasbon Karyawan')];
+    const banks = [{ id: 'b1', name: 'BCA 0123' }, { id: 'b2', name: 'Mandiri' }, { id: 'b3', name: 'Saldo Shopee' }];
+    expect(selectPaymentCashAccounts(accounts, banks, { bankAsset: 'cash' }).map(a => a.id)).toEqual(['cash', 'bca', 'mandiri', 'shopee']);
+    expect(selectPaymentCashAccounts(accounts, [], { bankAsset: 'cash' }).map(a => a.id)).toEqual(['cash']);
+  });
+
+  it('does not permit Banking mappings to bypass asset/activity/postability checks', () => {
+    const accounts = [
+      account('cash', 'Cash'), account('inactive', 'BCA 0123', { isActive: false }),
+      account('header', 'Mandiri', { isPostable: false }), account('loan', 'Shopee Wallet', { type: 'LIABILITY' }),
+    ];
+    const banks = [{ id: 'b1', name: 'BCA 0123' }, { id: 'b2', name: 'Mandiri' }, { id: 'b3', name: 'Shopee Wallet' }];
+    expect(selectPaymentCashAccounts(accounts, banks, { bankAsset: 'cash' }).map(a => a.id)).toEqual(['cash']);
   });
 });
