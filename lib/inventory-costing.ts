@@ -5,6 +5,25 @@ import { ApiError } from './errors'
 import { advisoryLockKey } from './advisory-lock'
 
 const QTY_EPSILON = 1e-6
+type TrackedMovement = Prisma.InventoryLedgerEntryGetPayload<{ include: { lotDraws: { include: { lot: true } } } }>
+
+function canRestoreExactSalesValue(entry: TrackedMovement, orgId: string): boolean {
+  return entry.documentType === 'SALES' && entry.drawsTracked && entry.lotDraws.length > 0 &&
+    entry.lotDraws.every(draw => draw.lot && draw.lot.organizationId === orgId && draw.lot.itemId === entry.itemId) &&
+    Math.abs(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity), 0) - toNumber(entry.qtyOut)) <= QTY_EPSILON &&
+    Math.abs(asMoney(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity) * toNumber(draw.lot?.unitCost), 0)) + toNumber(entry.valueChange)) <= 0.01
+}
+
+/** Corrections must leave a sale that can also be reversed at its recorded cost. */
+export async function assertCorrectedSalesValue(tx: Prisma.TransactionClient, orgId: string, invoiceId: string) {
+  const entries = await tx.inventoryLedgerEntry.findMany({
+    where: { organizationId: orgId, documentType: 'SALES', documentId: invoiceId, reversedAt: null, qtyOut: { gt: 0 } },
+    include: { lotDraws: { include: { lot: true } } },
+  })
+  if (entries.some(entry => !canRestoreExactSalesValue(entry, orgId))) {
+    throw new ApiError('The corrected sale cost differs from its stock-lot value — void and replace the invoice instead.', 422)
+  }
+}
 
 /** Use one global item order before journal numbering or inventory writes. */
 export async function lockInventoryItems(tx: Prisma.TransactionClient, orgId: string, itemIds: readonly string[]) {
@@ -259,10 +278,7 @@ export async function restoreConsumedLayers(
 
     // New sales restore the exact source lots. Negative-stock shortfalls and
     // historical movements keep the old value-neutral replacement-lot path.
-    const exact = documentType === 'SALES' && entry.drawsTracked && entry.lotDraws.length > 0 &&
-      entry.lotDraws.every(draw => draw.lot && draw.lot.organizationId === orgId && draw.lot.itemId === entry.itemId) &&
-      Math.abs(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity), 0) - qty) <= QTY_EPSILON &&
-      Math.abs(asMoney(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity) * toNumber(draw.lot?.unitCost), 0)) - value) <= 0.01
+    const exact = canRestoreExactSalesValue(entry, orgId)
     if (exact) {
       for (const draw of entry.lotDraws) {
         const restored = await tx.inventoryLot.updateMany({

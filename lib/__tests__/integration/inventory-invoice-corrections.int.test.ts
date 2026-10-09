@@ -4,6 +4,8 @@ import { postBillToLedger } from '@/lib/bill-posting';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { reverseInvoicePosting } from '@/lib/repost';
 import { voidInvoice } from '@/lib/invoice-void';
+import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
+import { assertCorrectedSalesValue } from '@/lib/inventory-costing';
 import { prisma, createTestOrg, createCustomer, createVendor, createItem, cleanupOrg, disconnect,
   accountBalance, assertInventoryReconciled, assertTrialBalanced, type TestOrg } from './harness';
 
@@ -39,10 +41,67 @@ async function edit(org: TestOrg, invoiceId: string, itemId: string, quantity: n
     await tx.salesInvoice.update({ where: { id: invoiceId }, data: { totalAmount: quantity * 300, subtotal: quantity * 300 } });
     await tx.salesInvoiceLine.updateMany({ where: { invoiceId }, data: { itemId, quantity, price: 300, lineSubtotal: quantity * 300 } });
     await postInvoiceSend(tx, org.orgId, invoiceId);
+    await assertCorrectedSalesValue(tx, org.orgId, invoiceId);
   });
 }
 
 describe('posted inventory invoice corrections', () => {
+  it('rolls back when later differently-priced receipts make the corrected WA sale disagree with lot value', async () => {
+    const { org, invoice, itemId } = await setup('WEIGHTED_AVERAGE', [100, 100]);
+    try {
+      const vendorId = await createVendor(org.orgId);
+      const bill = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, number: 'B-LATER-WA', issueDate: DATE, status: 'OPEN', subtotal: 2100, totalAmount: 2100 } });
+      await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, { id: bill.id, number: bill.number, issueDate: DATE,
+        apAccountId: null, taxable: false, taxInclusive: false, taxRate: 0,
+        lines: [{ id: 'later-wa', itemId, quantity: 7, price: 300, lineTotal: 2100, purchaseOrderLineId: null }] }));
+      const before = { lots: await lots(org.orgId), doc: await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { lines: true } }),
+        journals: await prisma.journalEntry.count({ where: { organizationId: org.orgId } }) };
+      await expect(edit(org, invoice.id, itemId, 1)).rejects.toThrow(/corrected sale cost differs/);
+      expect(await lots(org.orgId)).toEqual(before.lots);
+      expect(await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { lines: true } })).toEqual(before.doc);
+      expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(before.journals);
+      await assertInventoryReconciled(org.orgId, 'after refused later-cost WA correction');
+    } finally { await cleanupOrg(org.orgId); }
+  });
+
+  it('an invoice correction and purchase return with opposite item line orders both complete and reconcile', async () => {
+    const { org, invoice, itemId } = await setup();
+    try {
+      const second = await createItem(org.orgId);
+      const vendorId = await createVendor(org.orgId);
+      const bill = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, number: 'B-LOCKS', issueDate: DATE, status: 'OPEN', subtotal: 700, totalAmount: 700 } });
+      await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, { id: bill.id, number: bill.number, issueDate: DATE,
+        apAccountId: null, taxable: false, taxInclusive: false, taxRate: 0,
+        lines: [{ id: 'b-locks', itemId: second, quantity: 7, price: 100, lineTotal: 700, purchaseOrderLineId: null }] }));
+      await prisma.$transaction(async tx => {
+        const current = await tx.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
+        await reverseInvoicePosting(tx, org.orgId, current, { date: DATE });
+        await tx.salesInvoiceLine.create({ data: { invoiceId: invoice.id, itemId: second, lineNo: 2, description: 'Second item', quantity: 3, price: 300, lineSubtotal: 900 } });
+        await tx.salesInvoice.update({ where: { id: invoice.id }, data: { subtotal: 1800, totalAmount: 1800 } });
+        await postInvoiceSend(tx, org.orgId, invoice.id);
+      });
+      const returned = await prisma.purchaseReturn.create({ data: { organizationId: org.orgId, vendorId, billId: bill.id,
+        number: 'PR-LOCKS', returnDate: DATE, status: 'APPROVED', returnAccountId: org.accounts.apControl,
+        lines: { create: [second, itemId].map((id, index) => ({ itemId: id, lineNo: index + 1, description: 'Return item', qtyReturn: 1 })) } } });
+      const corrected = prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${invoice.id} AND "organizationId" = ${org.orgId} FOR UPDATE`;
+        const current = await tx.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
+        await reverseInvoicePosting(tx, org.orgId, current, { date: DATE });
+        await tx.salesInvoiceLine.updateMany({ where: { invoiceId: invoice.id }, data: { quantity: 2, lineSubtotal: 600 } });
+        await tx.salesInvoice.update({ where: { id: invoice.id }, data: { subtotal: 1200, totalAmount: 1200 } });
+        await postInvoiceSend(tx, org.orgId, invoice.id);
+      });
+      await Promise.all([corrected, prisma.$transaction(tx => postPurchaseReturnOnApproval(tx, returned.id))]);
+      for (const id of [itemId, second]) {
+        expect((await lots(org.orgId)).filter(lot => lot.itemId === id).reduce((sum, lot) => sum + Number(lot.qtyBalance), 0)).toBe(4);
+      }
+      expect((await prisma.purchaseReturn.findUniqueOrThrow({ where: { id: returned.id } })).journalEntryId).toBeTruthy();
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(400);
+      await assertInventoryReconciled(org.orgId, 'after opposite-order return/correction');
+      await assertTrialBalanced(org.orgId, 'after opposite-order return/correction');
+    } finally { await cleanupOrg(org.orgId); }
+  });
+
   it('changing the stocked item restores the old item and consumes the replacement; void restores both', async () => {
     const { org, invoice, originalLots } = await setup();
     try {

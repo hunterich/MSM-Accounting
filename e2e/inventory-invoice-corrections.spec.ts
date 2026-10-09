@@ -5,9 +5,10 @@ test.setTimeout(120_000)
 test.afterEach(cleanupAccountingCompany)
 test.afterAll(async () => { await db.$disconnect() })
 
-async function fixture(page: Page) {
+async function fixture(page: Page, method: 'FIFO' | 'WEIGHTED_AVERAGE' = 'FIFO') {
   const company = await accountingCompany(page)
   const { orgId, vendor, customer, item } = company
+  await db.organization.update({ where: { id: orgId }, data: { costingMethod: method } })
   for (const [qty, price] of [[2, 1000], [5, 2000]]) {
     await api(page, '/bills', { vendorId: vendor.id, vendorInvoiceNo: `CORRECTION-STOCK-${price}`, issueDate: DATE, status: 'OPEN', taxable: false,
       taxRate: 0, subtotal: qty * price, totalAmount: qty * price,
@@ -115,6 +116,44 @@ test('closed original/repost periods, linked credit notes and returns block a co
   expect(await currentLots(orgId)).toEqual(beforeLots)
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(beforeJournals)
   expect((await api(page, `/invoices/${invoice.id}`)).totalAmount).toBe('9000')
+})
+
+test('Weighted Average limit is visible before Save correction and a refused save changes nothing', async ({ page }) => {
+  const { orgId, invoice } = await fixture(page, 'WEIGHTED_AVERAGE')
+  await page.goto(`/ar/invoices/edit?invoiceId=${invoice.id}`)
+  const notice = page.getByRole('note').filter({ hasText: 'Weighted Average corrections require' })
+  await expect(notice).toBeVisible()
+  await expect(notice).toContainText('Purchases at different costs can prevent a correction')
+  await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toBeVisible()
+  await page.reload()
+  await expect(notice).toBeVisible()
+  const before = { doc: await api(page, `/invoices/${invoice.id}`), lots: await currentLots(orgId), journals: await db.journalEntry.count({ where: { organizationId: orgId } }) }
+  const row = page.getByRole('row').filter({ has: page.getByPlaceholder('Description').filter({ visible: true }) })
+  await row.locator('input[type="number"]').nth(0).fill('1')
+  page.once('dialog', dialog => dialog.accept())
+  const saved = page.waitForResponse(r => r.url().endsWith(`/api/v1/invoices/${invoice.id}`) && r.request().method() === 'PUT')
+  await page.getByRole('button', { name: 'Save correction', exact: true }).click()
+  expect((await saved).status()).toBe(422)
+  expect(await api(page, `/invoices/${invoice.id}`)).toEqual(before.doc)
+  expect(await currentLots(orgId)).toEqual(before.lots)
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before.journals)
+})
+
+test('voided credit notes preserve their audit history and no longer block correction; active notes still block', async ({ page }) => {
+  const { orgId, customer, invoice, correction } = await fixture(page)
+  const note = await api(page, '/credit-notes', { customerId: customer.id, sourceInvoiceId: invoice.id,
+    date: DATE, amount: 1000, applyTax: false, settlementType: 'APPLY_TO_INVOICE' }, 'POST')
+  await api(page, `/credit-notes/${note.id}`, { status: 'APPLIED' }, 'PUT')
+  const url = `http://localhost:3100/api/v1/invoices/${invoice.id}`
+  expect((await page.request.put(url, { data: correction(1) })).status()).toBe(422)
+  await api(page, `/credit-notes/${note.id}/void`, {}, 'POST')
+  const noteBefore = await db.creditNote.findUniqueOrThrow({ where: { id: note.id } })
+  await api(page, `/invoices/${invoice.id}`, correction(1), 'PUT')
+  expect(await db.creditNote.findUniqueOrThrow({ where: { id: note.id } })).toEqual(noteBefore)
+  expect((await api(page, `/invoices/${invoice.id}`)).status).toBe('SENT')
+  expect(await balance(orgId, '1-1200')).toBe(3000)
+  expect(await balance(orgId, '5-1000')).toBe(1000)
+  await assertBalanced(page)
 })
 
 for (const competing of ['edit', 'void', 'payment'] as const) {

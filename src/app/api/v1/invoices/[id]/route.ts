@@ -9,7 +9,7 @@ import { reverseInvoicePosting } from '@/lib/repost';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 import { assertItemsActive } from '@/lib/item-availability';
-import { lockInventoryItems } from '@/lib/inventory-costing';
+import { lockInventoryItems, assertCorrectedSalesValue } from '@/lib/inventory-costing';
 
 export const runtime = 'nodejs';
 
@@ -93,7 +93,8 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
           id: true, status: true, number: true, issueDate: true, organizationId: true,
           postingTracked: true, postingJournalIds: true,
           lines: { select: { itemId: true } },
-          _count: { select: { paymentAllocations: true, salesReturns: true, creditNotes: true } },
+          _count: { select: { paymentAllocations: true, salesReturns: true,
+            creditNotes: { where: { status: { not: 'VOID' } } } } },
         },
       });
 
@@ -207,6 +208,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       // (its prior entries and exact inventory draws were reversed above).
       if (isPostedEdit) {
         await postInvoiceSend(tx, existing.organizationId, existing.id, dateOverride);
+        await assertCorrectedSalesValue(tx, existing.organizationId, existing.id);
       }
 
       // Post AR + COGS journals when the invoice transitions DRAFT → SENT,

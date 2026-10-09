@@ -90,6 +90,7 @@ import { useExtraAction } from '../../hooks/useModulePermissions';
 import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice, useNextInvoiceNumber } from '../../hooks/useAR';
 import { useAllItems } from '../../hooks/useInventory';
 import { useSalesTypes } from '../../hooks/useSalesTypes';
+import { useOrganizationSettings } from '../../hooks/useOrganizationSettings';
 import { useDraftAutosave } from '../../hooks/useDraftAutosave';
 
 class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
@@ -435,6 +436,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
     // ── Workspace draft autosave + dirty mirroring (workspace mode only) ──────
     const isEditMode = Boolean(editingInvoiceId);
+    const { data: organizationSettings } = useOrganizationSettings();
+    const isPostedCorrection = isEditMode && ['Sent', 'Overdue'].includes(invoices.find(inv => inv.id === editingInvoiceId)?.status ?? '');
     const snapshot = useMemo<InvoiceDraft>(() => ({
         customerId: formData.customerId,
         email: formData.email,
@@ -776,6 +779,11 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             main={(
             <form onSubmit={(e) => e.preventDefault()}>
                     <ClosedPeriodBanner date={formData.issueDate} className="mt-4" />
+                    {isPostedCorrection && organizationSettings?.costingMethod === 'WEIGHTED_AVERAGE' && (
+                        <div role="note" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                            Weighted Average corrections require the original stock-lot value to match the recorded cost of goods sold. Purchases at different costs can prevent a correction; void and replace the invoice in that case.
+                        </div>
+                    )}
 
                     {/* Header Section: compact single row */}
                     <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-4 border-t-3 border-t-primary-500 mb-4">
