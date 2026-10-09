@@ -1,8 +1,10 @@
-import { afterAll, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { prisma, createTestOrg, createCustomer, createVendor, cleanupOrg, disconnect } from './harness';
 import { queueFinanceNotifications, deliverFinanceNotifications } from '../../finance-notifications';
 
 afterAll(disconnect);
+beforeEach(() => vi.stubEnv('RESEND_API_KEY', 'mock-provider-only'));
+afterEach(() => vi.unstubAllEnvs());
 const now = new Date('2026-10-08T02:00:00Z');
 async function orgFixture() {
   const { orgId } = await createTestOrg();
@@ -10,6 +12,47 @@ async function orgFixture() {
     financeEmail: 'finance@example.test', invoiceReminders: true, paymentAlerts: true, dailySummary: true,
   } });
 }
+
+it('does not queue while the provider is absent and advances the payment baseline without replaying offline history', async () => {
+  const org = await orgFixture();
+  try {
+    vi.stubEnv('RESEND_API_KEY', '');
+    await queueFinanceNotifications(org, now);
+    const customerId = await createCustomer(org.id);
+    const later = new Date(now.getTime() + 2 * 86_400_000);
+    await prisma.aRPayment.create({ data: { organizationId: org.id, customerId, number: 'OFFLINE', date: now,
+      status: 'COMPLETED', totalAmount: 100, updatedAt: new Date(later.getTime() - 1000) } });
+    await queueFinanceNotifications(org, later);
+    expect(await prisma.notificationDelivery.count({ where: { organizationId: org.id } })).toBe(0);
+    expect((await prisma.automationCheckpoint.findUniqueOrThrow({ where: { organizationId_job: { organizationId: org.id, job: 'PAYMENT_ALERTS' } } })).startedAt).toEqual(later);
+    vi.stubEnv('RESEND_API_KEY', 'mock-provider-only');
+    await queueFinanceNotifications(org, new Date(later.getTime() + 900_000));
+    expect(await prisma.notificationDelivery.count({ where: { organizationId: org.id, kind: 'PAYMENT_ALERT' } })).toBe(0);
+    expect(await prisma.notificationDelivery.count({ where: { organizationId: org.id, kind: 'DAILY_SUMMARY' } })).toBe(1);
+  } finally { await cleanupOrg(org.id); }
+});
+
+it('cancels a legacy unattempted backlog even while offline and sends only recent notifications after setup', async () => {
+  const org = await orgFixture();
+  try {
+    for (const kind of ['PAYMENT_ALERT', 'INVOICE_REMINDER', 'DAILY_SUMMARY']) {
+      await prisma.notificationDelivery.create({ data: { organizationId: org.id, key: `stale:${kind}`, kind,
+        recipient: org.financeEmail!, subject: kind, bodyText: 'Old backlog', availableAt: new Date(0),
+        createdAt: new Date(now.getTime() - 86_400_000) } });
+    }
+    const fresh = await prisma.notificationDelivery.create({ data: { organizationId: org.id, key: 'fresh', kind: 'DAILY_SUMMARY',
+      recipient: org.financeEmail!, subject: 'Current', bodyText: 'Current', availableAt: new Date(0), createdAt: now } });
+    const send = vi.fn().mockResolvedValue(undefined);
+    vi.stubEnv('RESEND_API_KEY', '');
+    await deliverFinanceNotifications(now, send);
+    expect(send).not.toHaveBeenCalled();
+    expect(await prisma.notificationDelivery.count({ where: { organizationId: org.id, status: 'CANCELLED' } })).toBe(3);
+    vi.stubEnv('RESEND_API_KEY', 'mock-provider-only');
+    await deliverFinanceNotifications(now, send);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: fresh.id } })).status).toBe('SENT');
+  } finally { await cleanupOrg(org.id); }
+});
 
 it('queues correct outstanding amounts and one daily digest under overlapping sweeps; excludes drafts', async () => {
   const org = await orgFixture();

@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — notification freshness and subscription dates
+- Finance notifications are not queued without a provider key; payment checkpoints advance while offline so later setup does not replay that interval. Existing unattempted reminders, summaries and payment alerts expire after 24 hours from queue creation, retaining cancelled audit rows. Attempted deliveries keep existing idempotency/retry safeguards. No production notification rows were changed during development.
+- Subscription invoice and posting dates use the company's business-day label rather than the exact run instant, including Jakarta midnight. Subscription claims, approvals and retries retain their existing behavior.
+- Paginated catalogs validate known status/type/settlement filters before database queries and return 400 for invalid values. Shared catalogs and invoices debounce search typing by 300 ms; filter and page navigation remain immediate.
+- Full-list CSV export, bulk-payment digests and visible automation run errors remain separate roadmap features. Current page export and per-payment alert behavior are unchanged. No schema migration is required.
+
 ### Fixed — stale note approval recovery
 - Over-allocation during credit/debit-note approval now explains how to recover: reject the approval to return the note to Draft, then edit or delete it. The failed approval still rolls back without posting.
 - Rejection atomically claims the pending request before locking and reverting the note, matching approval's lock order and preventing concurrent approval/rejection from both succeeding. Draft notes remain editable without an early balance check; the live balance is enforced at application.

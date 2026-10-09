@@ -11,6 +11,7 @@ import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions, useExtraAction } from '../../../hooks/useModulePermissions';
 
 import { invoiceListQuery, type InvoiceFilters } from './invoiceListQuery';
+import { useCatalogPagination } from '../../../hooks/useCatalogPagination';
 
 const InvoiceListPane = (): React.ReactElement => {
     const { canEdit, canCreate } = useModulePermissions('ar_invoices');
@@ -19,12 +20,13 @@ const InvoiceListPane = (): React.ReactElement => {
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [printInvoiceId, setPrintInvoiceId] = useState<string | null>(null);
     const [filters, setFilters] = useState<InvoiceFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
-    const [page, setPage] = useState(1);
-    const [limit, setLimit] = useState(20);
+    const { page: _page, limit: _limit, ...queryFilters } = invoiceListQuery(filters, 1, 20);
+    const paging = useCatalogPagination({ ...queryFilters, search: filters.searchTerm.trim() });
+    const { page, limit, onPageChange: setPage, onLimitChange: setLimit } = paging;
     // Read from the same source the form writes to (the invoices API via React
     // Query), so seeded + just-saved invoices both appear here and can be
     // opened as tabs.
-    const { data: invoicesResult, isLoading, isFetching, error, refetch } = useInvoices(invoiceListQuery(filters, page, limit));
+    const { data: invoicesResult, isLoading, isFetching, error, refetch } = useInvoices(paging.query);
     const invoices = invoicesResult?.data ?? [];
     const total = invoicesResult?.total ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -33,7 +35,6 @@ const InvoiceListPane = (): React.ReactElement => {
     }, [invoicesResult, page, totalPages]);
     const changeFilter = (key: keyof InvoiceFilters, value: string) => {
         setFilters((previous) => ({ ...previous, [key]: value }));
-        setPage(1);
     };
 
     // Invoice ids are cuids; the human-facing label is the invoice number.

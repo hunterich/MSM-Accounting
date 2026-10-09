@@ -21,6 +21,16 @@ beforeEach(() => {
 });
 
 describe('catalog queries paginate matching records in the organization', () => {
+    for (const [handler, path, key] of [[getARPayments, 'ar-payments', 'status'], [getAPPayments, 'ap-payments', 'status'], [getBankTransactions, 'bank-transactions', 'type']] as const) {
+        it(`${path}: invalid ${key} returns 400 before database access`, async () => {
+            const response = await handler(new NextRequest(`http://localhost/api/v1/${path}?${key}=INVALID`, {
+                headers: { 'x-org-id': 'org-1', 'x-user-id': 'user-1', 'x-role-type': 'ADMIN' },
+            }));
+            expect(response.status).toBe(400);
+            expect(await response.json()).toEqual({ error: `Invalid ${key} filter` });
+            for (const model of Object.values(mocks)) expect(model.findMany).not.toHaveBeenCalled();
+        });
+    }
     for (const [name, handler, model] of [
         ['receivables payments', getARPayments, mocks.aRPayment],
         ['payables payments', getAPPayments, mocks.aPPayment],

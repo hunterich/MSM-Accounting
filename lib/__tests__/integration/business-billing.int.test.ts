@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma, createTestOrg, createCustomer, createVendor, cleanupOrg, disconnect } from './harness';
 import { runDueRecurringInvoices } from '../../recurring-invoices';
 import { runDueRecurringBills } from '../../recurring-bills';
+import { runDueSubscriptions } from '../../subscription-billing';
 
 afterAll(disconnect);
 const now = new Date('2026-10-08T01:00:00Z');
@@ -15,6 +16,28 @@ async function fixtures() {
   await prisma.userOrganization.create({ data: { organizationId: org.orgId, roleId: role.id, userId: user.id } });
   return { org, user };
 }
+
+it('subscription invoice and journal dates follow the Jakarta business day across midnight, with unchanged retry safety', async () => {
+  for (const [instant, label] of [['2026-10-08T16:59:00Z', '2026-10-08'], ['2026-10-08T17:01:00Z', '2026-10-09']]) {
+    const { org, user } = await fixtures();
+    try {
+      const customerId = await createCustomer(org.orgId);
+      const plan = await prisma.subscriptionPlan.create({ data: { organizationId: org.orgId, name: 'Midnight plan', price: 100, interval: 'MONTHLY' } });
+      const subscription = await prisma.subscription.create({ data: { organizationId: org.orgId, customerId, planId: plan.id, status: 'ACTIVE',
+        startDate: new Date('2026-09-08'), currentPeriodStart: new Date('2026-09-08'), currentPeriodEnd: new Date('2026-10-08'), nextInvoiceDate: new Date('2026-10-08') } });
+      const result = await runDueSubscriptions(org.orgId, user.id, new Date(instant));
+      expect(result.errors).toEqual([]);
+      expect(result.generated).toBe(1);
+      const invoice = await prisma.salesInvoice.findUniqueOrThrow({ where: { id: result.invoices[0].invoiceId } });
+      expect(invoice.issueDate).toEqual(new Date(`${label}T00:00:00Z`));
+      const journal = await prisma.journalEntry.findFirstOrThrow({ where: { organizationId: org.orgId, memo: { contains: invoice.number } } });
+      expect(journal.date).toEqual(invoice.issueDate);
+      expect((await runDueSubscriptions(org.orgId, user.id, new Date(instant))).generated).toBe(0);
+      expect(await prisma.salesInvoice.count({ where: { organizationId: org.orgId } })).toBe(1);
+      expect((await prisma.subscription.findUniqueOrThrow({ where: { id: subscription.id } })).nextInvoiceDate).not.toEqual(new Date('2026-10-08'));
+    } finally { await cleanupOrg(org.orgId); await prisma.user.delete({ where: { id: user.id } }); }
+  }
+});
 
 it('overlapping due sweeps generate one invoice and one bill per occurrence, with no draft journals', async () => {
   const { org, user } = await fixtures();

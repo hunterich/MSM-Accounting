@@ -11,6 +11,10 @@ The first target customers are small distribution and e-commerce companies in In
 
 ## Release validation still required
 
+- [ ] **P1 — full filtered CSV exports** — add permission- and tenant-scoped server exports for paginated document catalogs, preserving active filters and stable ordering across all matching rows. Offer separate Export all matching CSV and Export page CSV actions; cover multi-page exports, totals and CSV escaping. Page export remains the current behavior.
+- [ ] **P1 — bulk-payment alert digest** — above a per-company scan threshold, combine posted AR/AP payments into a bounded digest with counts, amounts and a link to the filtered payment list. Preserve per-payment deduplication across overlap/restarts and test import/retry races. Current alerts remain one email per payment.
+- [ ] **P1 — visible automation run results** — persist last run, generated counts and per-template/subscription failures; show permission-scoped status/errors with document links on Recurring and Subscription screens. Explain period/item/account failures and avoid notification storms or automatic period overrides. Current failures remain in backend logs.
+
 - [x] **Dismissible app update board** — What’s new opens for unseen release notes and can be closed or reopened from the bell; remembers each user's dismissal on the browser, with mobile and Indonesian support. Notes are bundled with the frontend version (`src/lib/appUpdates.ts`). Deployed dismissal/refresh/reopen checks passed on Windows and homelab.
 - [x] **Release deployment and migration** — PR #146 merged; matching backend/web images `sha-3be13ca` deployed to Windows and homelab. Five migrations, login/session, catalogs/reports, security headers and service restart passed; ledger totals/counts are unchanged. Windows billing startup/restart verified. See `docs/DEPLOYMENT-20261008.md`.
 - [x] **Recovery host preparation** — authorized installation on `haely-linux@192.168.68.102`; Docker/Compose/Buildx, PostgreSQL 16 tools and Caddy verified. Blank staging database uses its own volume and localhost-only port. Evidence: `artifacts/recovery-drill/host-setup.md`.

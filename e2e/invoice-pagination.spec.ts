@@ -11,12 +11,14 @@ test('invoice catalog pages, filters the whole dataset, and scrolls within the t
         customerId: 'page-customer', customer: { name: 'Pagination customer' },
         totalAmount: 1000, lines: [],
     }));
+    const searched: string[] = [];
     await page.route('**/api/v1/invoices?*', async (route) => {
         const params = new URL(route.request().url()).searchParams;
         const pageNo = Number(params.get('page') || 1);
         const limit = Number(params.get('limit') || 20);
         const status = params.get('status');
         const search = (params.get('search') || '').toLowerCase();
+        if (search) searched.push(search);
         const matching = invoices.filter((invoice) => (!status || invoice.status === status)
             && (!search || invoice.number.toLowerCase().includes(search)));
         await route.fulfill({ json: { data: matching.slice((pageNo - 1) * limit, pageNo * limit), total: matching.length, page: pageNo, limit } });
@@ -31,9 +33,10 @@ test('invoice catalog pages, filters the whole dataset, and scrolls within the t
     await page.getByLabel('Status', { exact: true }).selectOption('Draft');
     await expect(paging).toContainText('Showing 1–20 of 25 invoices');
     await expect(page.getByText('PAGE-041', { exact: true })).toBeVisible();
-    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('PAGE-065');
+    await page.getByRole('textbox', { name: 'Search', exact: true }).pressSequentially('PAGE-065', { delay: 20 });
     await expect(paging).toContainText('Showing 1–1 of 1 invoices');
     await expect(page.getByText('PAGE-065', { exact: true })).toBeVisible();
+    expect(searched).toEqual(['page-065']); // No request per intermediate keystroke.
     await page.getByRole('textbox', { name: 'Search', exact: true }).fill('');
     await page.getByLabel('Status', { exact: true }).selectOption('');
     await expect(paging).toContainText('Showing 1–20 of 65 invoices');
