@@ -33,7 +33,7 @@
     "bench:capacity": "tsx scripts/benchmark-capacity.ts",
     "test:e2e:setup": "node scripts/e2e-db-setup.mjs",
     "test:e2e": "playwright test --project=chromium",
-    "test:accounting": "playwright test e2e/accounting-journeys.spec.ts e2e/accounting-edge-cases.spec.ts e2e/returns-to-ledger.spec.ts e2e/purchase-receipt.spec.ts e2e/payment-allocation.spec.ts e2e/payment-safeguards.spec.ts e2e/note-payment-concurrency.spec.ts --project=chromium",
+    "test:accounting": "playwright test e2e/accounting-journeys.spec.ts e2e/accounting-edge-cases.spec.ts e2e/returns-to-ledger.spec.ts e2e/purchase-receipt.spec.ts e2e/payment-allocation.spec.ts e2e/payment-safeguards.spec.ts e2e/note-payment-concurrency.spec.ts e2e/note-settlement-status.spec.ts --project=chromium",
     "test:e2e:all": "playwright test --project=chromium --project=pos",
     "typecheck:e2e": "tsc --noEmit --project tsconfig.e2e.json",
     "test:e2e:pos": "playwright test --project=pos",

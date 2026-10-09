@@ -70,16 +70,17 @@ async function voidPayment(
     throw new ApiError(`${cfg.label} is already voided`, 409);
   }
 
-  await reverseJournalEntry(tx, payment.journalEntryId, {
-    date: opts.date,
-    memo: `Void ${cfg.label}: ${payment.number}`,
-  });
   // Capture the documents settled by the payment, so the
   // invoices/bills it had marked PAID fall back to open.
   const settledDocumentIds = await cfg.settledDocumentIds(tx, paymentId);
   // Keep the allocations as historical evidence. Current settlement queries
   // filter payment.status=COMPLETED, so VOID allocations no longer clear debt.
   await cfg.syncSettlement(tx, orgId, paymentId, settledDocumentIds);
+  // Document locks precede journal numbering on both posting and reversal.
+  await reverseJournalEntry(tx, payment.journalEntryId, {
+    date: opts.date,
+    memo: `Void ${cfg.label}: ${payment.number}`,
+  });
 }
 
 const AP_CONFIG: VoidConfig = {

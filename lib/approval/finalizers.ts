@@ -9,7 +9,7 @@ import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { postArPaymentIfNeeded, postApPaymentIfNeeded } from '@/lib/payment-posting';
-import { syncArPaymentSettlement, syncApPaymentSettlement } from '@/lib/settlement-status';
+import { syncArPaymentSettlement, syncApPaymentSettlement, syncCreditNoteSettlement, syncDebitNoteSettlement } from '@/lib/settlement-status';
 import { postStockAdjustmentIfNeeded } from '@/lib/stock-adjustment-posting';
 import { ApiError } from '@/lib/errors';
 
@@ -44,13 +44,15 @@ export const FINALIZERS: Partial<Record<ApprovalDocumentType, Finalizer>> = {
     await postPayrollRunToLedger(tx, orgId, documentId);
     await tx.payrollRun.update({ where: { id: documentId }, data: { status: 'POSTED', updatedAt: new Date() } });
   },
-  CREDIT_NOTE: async (tx, _orgId, documentId) => {
+  CREDIT_NOTE: async (tx, orgId, documentId) => {
     await postCreditNoteOnApply(tx, documentId);
     await tx.creditNote.update({ where: { id: documentId }, data: { status: 'APPLIED', updatedAt: new Date() } });
+    await syncCreditNoteSettlement(tx, orgId, documentId);
   },
-  DEBIT_NOTE: async (tx, _orgId, documentId) => {
+  DEBIT_NOTE: async (tx, orgId, documentId) => {
     await postDebitNoteOnApply(tx, documentId);
     await tx.debitNote.update({ where: { id: documentId }, data: { status: 'APPLIED', updatedAt: new Date() } });
+    await syncDebitNoteSettlement(tx, orgId, documentId);
   },
   SALES_RETURN: async (tx, _orgId, documentId) => {
     await postSalesReturnOnApproval(tx, documentId);

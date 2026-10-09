@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — note-aware Paid/reopened document status
+- Invoice/bill status now includes completed payment principal/discounts and applied linked credit/debit-note gross amounts. Fees, drafts, approval holds, cash refunds and standalone credits do not clear source-document debt.
+- Note application and approval finalization update the source status; note/payment reversals reopen it when a balance remains. Document locks and sorted payment-document ordering serialize status derivation. Reversal paths acquire document locks before journal numbering to match posting lock order.
+- Added AR/AP API/database journeys for mixed settlements, note approvals, replacement notes, refund exclusion and simultaneous note/payment reversals. Changes require no migration and remain unmerged for review.
+
 ### Fixed — credit/debit-note settlement and lifecycle guards
 - Linked note application uses the same document locks and live debt validation as payments, excluding the note itself when its route has already marked it applied inside the transaction. Competing payments/notes and stale note approvals cannot clear more than the current balance. Refund and standalone credit paths retain their existing behavior.
 - Note row locks serialize edits, posting and draft deletion. Pending notes reject edits, deletion and direct application; void notes cannot be revived through status changes. Draft party/source edits validate company ownership before writing.

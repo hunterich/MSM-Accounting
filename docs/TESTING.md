@@ -97,8 +97,16 @@ themselves twice, a completion retry posts no extra journal, void notes remain
 terminal, pending notes cannot bypass approval or be edited/deleted, and draft
 party edits cannot link another company's records. A stale approval fails with
 the note, approval request and journal count unchanged. These checks use the
-real API and PostgreSQL; broader reversal races and note-aware PAID/reopened
-document status derivation still need coverage.
+real API and PostgreSQL; broader reversal races across other document types
+still need coverage. Note-aware document status has separate coverage below.
+
+`e2e/note-settlement-status.spec.ts` verifies AR/AP Paid/reopened status with
+completed payment principal plus discounts and applied linked notes. Drafts,
+approval holds and monetary refunds leave debt outstanding. Real approval and
+ordinary note application can complete settlement; voiding notes/payments
+reopens it. Concurrent note/payment reversals both finish and leave one journal
+reversal per source. Locks are acquired in document order before journal
+numbering. These checks do not certify all reversal races across other modules.
 
 The three POS checks create their own stocked company and register. They verify
 online cash checkout, replay protection and shift reconciliation; offline shift
