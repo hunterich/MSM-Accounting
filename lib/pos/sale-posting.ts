@@ -312,7 +312,10 @@ export async function postPosSale(
     },
     select: { id: true },
   });
-  await postArPaymentIfNeeded(tx, orgId, payment.id);
+  await postArPaymentIfNeeded(tx, orgId, payment.id, {}, {
+    source: 'POS_REGISTER',
+    accountId: cashAccountId,
+  });
   // The receipt settles the invoice in full → PAID (the invoice list reads the status).
   await syncArPaymentSettlement(tx, orgId, payment.id);
 

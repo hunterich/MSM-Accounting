@@ -3,6 +3,8 @@ import { STANDARD_ROOT_ACCOUNTS, STANDARD_CHILD_ACCOUNTS } from '../organization
 import {
   ACCOUNT_DEFAULT_SPECS,
   resolveAccountDefaultId,
+  resolveBankLinkedAssetAccountId,
+  selectPaymentCashAccounts,
   isAccountUsableForRole,
   type AccountDefaultKey,
 } from '../account-defaults';
@@ -102,5 +104,84 @@ describe('standard chart of accounts covers every account-default role', () => {
       const expected = a.type === 'ASSET' || a.type === 'EXPENSE' ? 'DEBIT' : 'CREDIT';
       expect(a.normalSide, `${a.code} ${a.name}`).toBe(expected);
     }
+  });
+});
+
+describe('bank default safety', () => {
+  const account = (id: string, code: string, name: string, extra = {}) =>
+    ({ id, code, name, type: 'ASSET', isActive: true, isPostable: true, parentId: null, ...extra });
+
+  it.each(['112', '111', '113'])('resolves preferred code %s without requiring bank keywords', code => {
+    expect(resolveAccountDefaultId([account('bca', code, 'BCA 0123-456')], {}, 'bankAsset')).toBe('bca');
+  });
+
+  it('does not resolve Kasbon or an arbitrary asset as an automatic bank default', () => {
+    const accounts = [account('advances', '1800', 'Kasbon Karyawan'), account('ar', '1210', 'Piutang Usaha')];
+    expect(resolveAccountDefaultId(accounts, {}, 'bankAsset')).toBe('');
+    expect(resolveAccountDefaultId([...accounts, account('cash', '1190', 'Kas Kecil')], {}, 'bankAsset')).toBe('cash');
+  });
+
+  it('can resolve a child bank account through its cash header', () => {
+    expect(resolveAccountDefaultId([
+      account('header', '1000', 'Kas & Bank', { isPostable: false }),
+      account('bca', '1190', 'BCA 0123-456', { parentId: 'header' }),
+    ], {}, 'bankAsset')).toBe('bca');
+  });
+});
+
+describe('Banking-mapped payment accounts', () => {
+  const account = (id: string, name: string, extra = {}) =>
+    ({ id, code: '1190', name, type: 'ASSET', parentId: null, isActive: true, isPostable: true, ...extra });
+
+  it('includes multiple named bank/holding assets alongside the configured default', () => {
+    const accounts = [account('cash', 'Cash'), account('bca', 'BCA 0123'), account('mandiri', 'Mandiri'), account('shopee', 'Saldo Shopee'), account('advances', 'Kasbon Karyawan')];
+    const banks = [{ id: 'b1', name: 'BCA 0123' }, { id: 'b2', name: 'Mandiri' }, { id: 'b3', name: 'Saldo Shopee' }];
+    expect(selectPaymentCashAccounts(accounts, banks, { bankAsset: 'cash' }).map(a => a.id)).toEqual(['cash', 'bca', 'mandiri', 'shopee']);
+    expect(selectPaymentCashAccounts(accounts, [], { bankAsset: 'cash' }).map(a => a.id)).toEqual(['cash']);
+  });
+
+  it('does not permit Banking mappings to bypass asset/activity/postability checks', () => {
+    const accounts = [
+      account('cash', 'Cash'), account('inactive', 'BCA 0123', { isActive: false }),
+      account('header', 'Mandiri', { isPostable: false }), account('loan', 'Shopee Wallet', { type: 'LIABILITY' }),
+    ];
+    const banks = [{ id: 'b1', name: 'BCA 0123' }, { id: 'b2', name: 'Mandiri' }, { id: 'b3', name: 'Shopee Wallet' }];
+    expect(selectPaymentCashAccounts(accounts, banks, { bankAsset: 'cash' }).map(a => a.id)).toEqual(['cash']);
+  });
+});
+
+describe('Banking identifiers cannot accidentally authorize receivables', () => {
+  const account = (id: string, code: string, name: string) =>
+    ({ id, code, name, type: 'ASSET', parentId: null, isActive: true, isPostable: true });
+  const accounts = [
+    account('ar', '1-1200', 'Piutang Usaha'), account('cash', '1190', 'Cash'),
+    account('bca', '1-1010', 'BCA 0123'), account('mandiri', '1-1020', 'Mandiri'),
+  ];
+
+  it.each(['1', '01', '120'])('ignores short or embedded code %s in both the resolver and picker', code => {
+    const banks = [{ id: 'bank', code, name: 'Settlement' }];
+    expect(resolveBankLinkedAssetAccountId(banks, accounts, {}, 'bank')).toBe('cash');
+    expect(selectPaymentCashAccounts(accounts, banks, {}).map(a => a.id)).toEqual(['cash']);
+  });
+
+  it('keeps exact long codes and bounded bank names usable', () => {
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', code: '1-1010' }], accounts, {}, 'b')).toBe('bca');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', bankName: 'BCA' }], accounts, {}, 'b')).toBe('bca');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', name: 'Mandiri' }], accounts, {}, 'b')).toBe('mandiri');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', name: 'BCA' }], [
+      account('ar', '1-1200', 'Piutang BCARD'), account('cash', '1190', 'Cash'),
+    ], {}, 'b')).toBe('cash');
+  });
+
+  it('does not choose the first of multiple whole-word matches', () => {
+    const ambiguous = [...accounts, account('bca2', '1-1030', 'BCA 0456')];
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', bankName: 'BCA' }], ambiguous, {}, 'b')).toBe('cash');
+    expect(resolveBankLinkedAssetAccountId([{ id: 'b', name: 'BCA 0456', bankName: 'BCA' }], ambiguous, {}, 'b')).toBe('bca2');
+  });
+
+  it('does not authorize assets through inactive Banking records', () => {
+    const banks = [{ id: 'b', name: 'BCA 0123', isActive: false }];
+    expect(resolveBankLinkedAssetAccountId(banks, accounts, {}, 'b')).toBe('cash');
+    expect(selectPaymentCashAccounts(accounts, banks, {}).map(a => a.id)).toEqual(['cash']);
   });
 });

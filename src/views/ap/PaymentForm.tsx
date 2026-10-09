@@ -65,7 +65,7 @@ import { useBankAccounts } from '../../hooks/useBanking';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
+import { resolveAccountDefaults, resolveBankLinkedAssetAccountId, selectPaymentCashAccounts } from '../../../lib/account-defaults';
 
 const buildPaymentNo = (bankCode: string, dateStr?: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -164,8 +164,8 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: APPaymentForm
     }, [chartOfAccounts]);
 
     const cashAccountOptions = useMemo<Account[]>(() => {
-        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, [chartOfAccounts]);
+        return selectPaymentCashAccounts(chartOfAccounts, bankAccounts, accountDefaultsConfig);
+    }, [chartOfAccounts, bankAccounts, accountDefaultsConfig]);
 
     const getBankCode = (bankId: string) => {
         const bank = bankAccounts.find((item) => item.id === bankId);

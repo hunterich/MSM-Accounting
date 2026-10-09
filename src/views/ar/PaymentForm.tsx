@@ -40,7 +40,7 @@ import { paymentAllocation } from '../../utils/paymentAllocation';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
+import { resolveAccountDefaults, resolveBankLinkedAssetAccountId, selectPaymentCashAccounts } from '../../../lib/account-defaults';
 
 interface PaymentFormProps { recordId?: string; mode?: PaymentMode; workspaceTabId?: string }
 
@@ -145,7 +145,10 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Revenue');
     }, [chartOfAccounts]);
 
-    const depositAccountOptions = arAccountOptions;
+    const depositAccountOptions = useMemo(
+        () => selectPaymentCashAccounts(chartOfAccounts, bankAccounts, accountDefaultsConfig),
+        [chartOfAccounts, bankAccounts, accountDefaultsConfig],
+    );
 
     const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];

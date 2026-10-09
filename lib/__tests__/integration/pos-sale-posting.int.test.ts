@@ -64,6 +64,43 @@ function saleInput(itemId: string, registerId: string, shiftId: string, clientSa
 }
 
 describe('postPosSale', () => {
+
+  it.each(['Kasir 1', 'Laci Kasir'])('posts to the configured register asset named %s without cash keywords', async name => {
+    const { org, itemId, registerId, shiftId } = await setup();
+    try {
+      const cash = await prisma.account.create({ data: { organizationId: org.orgId, code: '1195', name, type: 'ASSET', normalSide: 'DEBIT' } });
+      await prisma.posRegister.update({ where: { id: registerId }, data: { cashAccountId: cash.id } });
+      const input = saleInput(itemId, registerId, shiftId, 'configured-drawer');
+      const result = await prisma.$transaction(tx => postPosSale(tx, org.orgId, input));
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: result.salesInvoiceId } })).status).toBe('PAID');
+      expect(await accountBalance(org.orgId, cash.id)).toBe(30000);
+      await assertTrialBalanced(org.orgId, 'keyword-free POS drawer');
+      const retry = await prisma.$transaction(tx => postPosSale(tx, org.orgId, input));
+      expect(retry.posSaleId).toBe(result.posSaleId);
+      expect(await accountBalance(org.orgId, cash.id)).toBe(30000);
+    } finally { await cleanupOrg(org.orgId); }
+  });
+
+  it('configured register cash still rejects foreign, inactive, header and non-asset accounts with whole-sale rollback', async () => {
+    const { org, itemId, registerId, shiftId } = await setup();
+    const other = await createTestOrg();
+    try {
+      const inactive = await prisma.account.create({ data: { organizationId: org.orgId, code: '1196', name: 'Kasir 1', type: 'ASSET', normalSide: 'DEBIT', isActive: false } });
+      const header = await prisma.account.create({ data: { organizationId: org.orgId, code: '1197', name: 'Laci Kasir', type: 'ASSET', normalSide: 'DEBIT', isPostable: false } });
+      const before = await prisma.journalEntry.count({ where: { organizationId: org.orgId } });
+      for (const accountId of [other.accounts.bankAsset, inactive.id, header.id, org.accounts.salesRevenue]) {
+        await prisma.posRegister.update({ where: { id: registerId }, data: { cashAccountId: accountId } });
+        await expect(prisma.$transaction(tx => postPosSale(tx, org.orgId, saleInput(itemId, registerId, shiftId, 'invalid-drawer')))).rejects.toMatchObject({ status: 422 });
+        expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(before);
+        expect(await prisma.salesInvoice.count({ where: { organizationId: org.orgId } })).toBe(0);
+        expect(await prisma.aRPayment.count({ where: { organizationId: org.orgId } })).toBe(0);
+        expect(await prisma.posSale.count({ where: { organizationId: org.orgId } })).toBe(0);
+        const batch = await prisma.stockBatch.findFirstOrThrow({ where: { organizationId: org.orgId, batchNumber: 'PCT-EARLY' } });
+        expect(Number(batch.qtyOnHand)).toBe(5);
+      }
+    } finally { await cleanupOrg(org.orgId); await cleanupOrg(other.orgId); }
+  });
+
   it('does not deadlock with a receipt holding the payment sequence lock', async () => {
     const { org, itemId, registerId, shiftId } = await setup();
     const customer = await prisma.customer.findFirstOrThrow({ where: { organizationId: org.orgId } });

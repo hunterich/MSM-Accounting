@@ -176,6 +176,32 @@ async function seedScenario(): Promise<Scenario> {
 }
 
 describe('marketplace import orchestrator', () => {
+
+  it.each(['Saldo Shopee', 'Shopee Wallet'])('settles into the mapped non-default holding asset %s', async name => {
+    const s = await seedScenario();
+    try {
+      const holding = await prisma.account.create({ data: { organizationId: s.org.orgId, code: '1195', name, type: 'ASSET', normalSide: 'DEBIT' } });
+      const bank = await prisma.bankAccount.create({ data: { organizationId: s.org.orgId, name, bankName: name } });
+      await prisma.ecommerceConnection.update({ where: { id: s.connectionId }, data: { holdingAccountId: bank.id } });
+      const itemId = await createStockedItem(s.org.orgId, 50_000, 10);
+      const order: ImportOrder = { orderNo: 'WALLET-ORDER', issueDate: '2026-06-01',
+        lines: [{ itemId, description: 'Stocked Product', sku: 'STK', quantity: 1, unitPrice: 100_000 }] };
+      const result = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], { recordPayment: true });
+      expect(result.failed).toEqual([]);
+      expect(result.created).toBe(1);
+      const invoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.org.orgId, poNumber: order.orderNo } });
+      expect(invoice.status).toBe('PAID');
+      const payment = await prisma.aRPayment.findFirstOrThrow({ where: { organizationId: s.org.orgId } });
+      expect(payment.depositAccountId).toBe(holding.id);
+      expect(await prisma.journalLine.count({ where: { entryId: payment.journalEntryId!, accountId: holding.id, debit: invoice.totalAmount } })).toBe(1);
+      const count = await prisma.journalEntry.count({ where: { organizationId: s.org.orgId } });
+      const replay = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], { recordPayment: true });
+      expect(replay.skipped).toBe(1);
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.org.orgId } })).toBe(count);
+      await assertTrialBalanced(s.org.orgId, 'marketplace wallet');
+    } finally { await cleanupOrg(s.org.orgId); }
+  });
+
   it('reviews existing, new, inactive, and undated orders without posting them', async () => {
     const s = await seedScenario();
     const activeItemId = await createStockedItem(s.org.orgId, 25_000, 10);

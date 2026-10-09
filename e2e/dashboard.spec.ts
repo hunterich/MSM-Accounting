@@ -15,6 +15,9 @@ test.describe('Dashboard', () => {
     await expect(page.getByRole('heading', { name: 'Cash on Hand' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Recent Invoices' })).toBeVisible()
     await expect(page.getByText('INV-0001').first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Sales This Month.*incl\. PPN/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Customer Sales.*incl\. PPN/ })).toBeVisible()
+    await expect(page.getByText('Net Sales', { exact: true })).toBeVisible()
   })
 
   test('navigation sidebar is visible', async ({ page }) => {
