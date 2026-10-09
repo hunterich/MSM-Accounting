@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — stale note approval recovery
+- Over-allocation during credit/debit-note approval now explains how to recover: reject the approval to return the note to Draft, then edit or delete it. The failed approval still rolls back without posting.
+- Rejection atomically claims the pending request before locking and reverting the note, matching approval's lock order and preventing concurrent approval/rejection from both succeeding. Draft notes remain editable without an early balance check; the live balance is enforced at application.
+- Isolated PostgreSQL approval races and AR/AP API recovery journeys passed; no migration is required.
+
 ### Fixed — note-aware Paid/reopened document status
 - Invoice/bill status now includes completed payment principal/discounts and applied linked credit/debit-note gross amounts. Fees, drafts, approval holds, cash refunds and standalone credits do not clear source-document debt.
 - Note application and approval finalization update the source status; note/payment reversals reopen it when a balance remains. Document locks and sorted payment-document ordering serialize status derivation. Reversal paths acquire document locks before journal numbering to match posting lock order.

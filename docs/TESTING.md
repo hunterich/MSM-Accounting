@@ -119,6 +119,14 @@ and journals remain unchanged.
 
 ### One-time backfill for existing note-covered documents
 
+Stale note-approval recovery is covered by the AR/AP journeys in
+`e2e/note-payment-concurrency.spec.ts`: over-allocation leaves approval/note
+pending with a reject-and-edit hint; rejection returns the note to Draft and
+allows editing/deletion without posting. `note-approval-recovery.int.test.ts`
+checks competing approval/rejection for both note types, requiring exactly one
+consistent terminal outcome. Follow-up validation: 1,201 unit tests, 17
+PostgreSQL approval checks and both Chromium recovery journeys passed.
+
 No schema migration is needed. Set `DATABASE_URL` explicitly to the intended
 database, then preview with `npm run db:backfill-note-status`. Review the scanned
 and Paid-transition counts; run `npm run db:backfill-note-status -- --apply` to

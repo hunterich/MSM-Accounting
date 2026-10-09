@@ -6,6 +6,7 @@ import { normalizeApprovalRequirements, requiresApproval } from './config';
 import { getDescriptor } from './registry';
 import { getFinalizer } from './finalizers';
 import { assertApprovalAuthorized } from './can-approve';
+import { PaymentOverAllocationError } from '@/lib/payment-validation';
 
 /** FNV-1a 32-bit hash → stable advisory-lock id (same helper used for number sequences). */
 function fnv1aHash(input: string): number {
@@ -104,7 +105,14 @@ export async function approveRequest(
     });
     if (claim.count !== 1) throw new ApiError('Approval request is no longer pending', 409);
 
-    await getFinalizer(reqRow.documentType)(tx, actor.orgId, reqRow.documentId);
+    try {
+      await getFinalizer(reqRow.documentType)(tx, actor.orgId, reqRow.documentId);
+    } catch (error) {
+      if (error instanceof PaymentOverAllocationError && ['CREDIT_NOTE', 'DEBIT_NOTE'].includes(reqRow.documentType)) {
+        throw new ApiError(`${error.message}. Reject this approval to return the note to Draft, then edit or delete the note.`, error.status);
+      }
+      throw error;
+    }
 
     await logAuditTx(tx, {
       orgId: actor.orgId,
@@ -145,6 +153,20 @@ export async function rejectRequest(
       requireDistinctApproverForAdmins: org?.requireDistinctApproverForAdmins ?? false,
     });
 
+    // Claim before taking the document lock, matching approval's lock order.
+    // A concurrent approval/rejection must not both finalize and revert a note.
+    const claim = await tx.approvalRequest.updateMany({
+      where: { id: reqRow.id, status: 'PENDING' },
+      data: { status: 'REJECTED', reviewedById: actor.userId, reviewedAt: new Date(), ...(note ? { note } : {}) },
+    });
+    if (claim.count !== 1) throw new ApiError('Approval request is no longer pending', 409);
+
+    if (reqRow.documentType === 'CREDIT_NOTE') {
+      await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${reqRow.documentId} AND "organizationId" = ${actor.orgId} FOR UPDATE`;
+    } else if (reqRow.documentType === 'DEBIT_NOTE') {
+      await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${reqRow.documentId} AND "organizationId" = ${actor.orgId} FOR UPDATE`;
+    }
+
     const revertMap: Record<ApprovalDocumentType, () => Promise<unknown>> = {
       INVOICE:         () => tx.salesInvoice.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
       PURCHASE_ORDER:  () => tx.purchaseOrder.update({ where: { id: reqRow.documentId }, data: { status: 'DRAFT',    updatedAt: new Date() } }),
@@ -161,10 +183,6 @@ export async function rejectRequest(
     };
     await revertMap[reqRow.documentType]();
 
-    await tx.approvalRequest.update({
-      where: { id: reqRow.id },
-      data: { status: 'REJECTED', reviewedById: actor.userId, reviewedAt: new Date(), ...(note ? { note } : {}) },
-    });
     await logAuditTx(tx, {
       orgId: actor.orgId,
       actorId: actor.userId,

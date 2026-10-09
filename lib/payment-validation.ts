@@ -3,6 +3,11 @@ import { ApiError } from './errors';
 
 type Tx = Prisma.TransactionClient;
 export type PaymentKind = 'ar' | 'ap';
+export class PaymentOverAllocationError extends ApiError {
+  constructor(outstanding: number) {
+    super(`Over-allocation: remaining balance is ${(Math.max(0, outstanding) / 100).toFixed(2)}`, 422);
+  }
+}
 type Allocation = { invoiceId?: string; billId?: string; amountApplied: unknown; discountAmount?: unknown; penaltyAmount?: unknown };
 
 const cents = (value: unknown) => {
@@ -65,6 +70,6 @@ export async function validatePaymentAllocations(tx: Tx, orgId: string, kind: Pa
       : await tx.debitNote.findMany({ where: { organizationId: orgId, sourceBillId: id, status: 'APPLIED', settlementType: 'APPLY_TO_BILL', ...(options.excludeNoteId ? { id: { not: options.excludeNoteId } } : {}) }, select: { amount: true } });
     // Note.amount is gross (its taxAmount is already included).
     const outstanding = cents(doc.totalAmount) - cents(paid._sum.amountApplied) - cents(paid._sum.discountAmount) - notes.reduce((sum, note) => sum + cents(note.amount), 0);
-    if (cleared > outstanding) throw new ApiError(`Over-allocation: remaining balance is ${(Math.max(0, outstanding) / 100).toFixed(2)}`, 422);
+    if (cleared > outstanding) throw new PaymentOverAllocationError(outstanding);
   }
 }
