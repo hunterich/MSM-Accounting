@@ -3,6 +3,8 @@ export type AppLanguage = 'en' | 'id';
 // Keys are the existing English UI labels. Unknown labels deliberately stay in
 // English so untranslated screens never display a broken key.
 const indonesian: Record<string, string> = {
+  'Save correction': 'Simpan koreksi',
+  'Weighted Average corrections require the original stock-lot value to match the recorded cost of goods sold. Purchases at different costs can prevent a correction; void and replace the invoice in that case.': 'Koreksi dengan metode Rata-rata Tertimbang memerlukan nilai lot stok asal yang sama dengan harga pokok penjualan tercatat. Pembelian dengan biaya berbeda dapat menghalangi koreksi; batalkan dan buat faktur pengganti jika demikian.',
   'Language': 'Bahasa',
   'Welcome back': 'Selamat datang kembali',
   'Sign in': 'Masuk',

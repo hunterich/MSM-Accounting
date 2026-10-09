@@ -85,11 +85,14 @@ import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { translate } from '../../i18n/language';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useExtraAction } from '../../hooks/useModulePermissions';
 import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice, useNextInvoiceNumber } from '../../hooks/useAR';
 import { useAllItems } from '../../hooks/useInventory';
 import { useSalesTypes } from '../../hooks/useSalesTypes';
+import { useOrganizationSettings } from '../../hooks/useOrganizationSettings';
 import { useDraftAutosave } from '../../hooks/useDraftAutosave';
 
 class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
@@ -435,6 +438,9 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
     // ── Workspace draft autosave + dirty mirroring (workspace mode only) ──────
     const isEditMode = Boolean(editingInvoiceId);
+    const language = useLanguageStore(state => state.language) ?? 'en';
+    const { data: organizationSettings } = useOrganizationSettings();
+    const isPostedCorrection = isEditMode && ['Sent', 'Overdue'].includes(invoices.find(inv => inv.id === editingInvoiceId)?.status ?? '');
     const snapshot = useMemo<InvoiceDraft>(() => ({
         customerId: formData.customerId,
         email: formData.email,
@@ -532,8 +538,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         const currentStatus = editingInvoiceId
             ? (invoices.find(inv => inv.id === editingInvoiceId)?.status || 'Draft')
             : 'Draft';
-        if (editingInvoiceId && currentStatus !== 'Draft') {
-            window.alert('Only Draft invoices can be edited. Sent/Paid invoices are locked.');
+        if (editingInvoiceId && !['Draft', 'Sent', 'Overdue'].includes(currentStatus)) {
+            window.alert('Only Draft, Sent or Overdue invoices can be edited.');
             return;
         }
 
@@ -542,8 +548,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
         try {
             if (editingInvoiceId) {
-                // Full edits are only allowed while DRAFT (enforced server-side).
-                // Status transition to SENT in the same update triggers posting.
+                // Posted corrections reverse and re-post atomically server-side.
                 const subtotalAmt = calculateSubtotal();
                 const discountAmt = calculateDiscountAmount(subtotalAmt);
                 const netAmt = subtotalAmt - discountAmt;
@@ -578,7 +583,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                         discountPct: Number(line.discount || 0),
                         lineSubtotal: Math.round(Number(line.quantity || 0) * Number(line.price || 0) * (1 - Number(line.discount || 0) / 100) * 100) / 100,
                     })),
-                    ...(saveAsDraft ? {} : { status: 'Sent' }),
+                    ...(currentStatus === 'Draft' && !saveAsDraft ? { status: 'Sent' } : {}),
                 } as any);
             } else {
                 // POST always creates a DRAFT (createInvoiceInputSchema shape;
@@ -767,8 +772,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             printOptions={[
                 { label: 'Print / PDF', hint: 'Preview, print, or download', onClick: handlePrint },
             ]}
-            onSaveDraft={() => { void persistInvoice(true); }}
-            primaryLabel="Save & Approve"
+            onSaveDraft={isPostedCorrection ? undefined : () => { void persistInvoice(true); }}
+            primaryLabel={translate(language, isPostedCorrection ? 'Save correction' : 'Save & Approve')}
             onPrimary={() => { void persistInvoice(false); }}
             moreItems={canDeleteInvoice
                 ? [{ label: 'Delete invoice', danger: true, onClick: () => setConfirmDelete(true) }]
@@ -777,6 +782,11 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             main={(
             <form onSubmit={(e) => e.preventDefault()}>
                     <ClosedPeriodBanner date={formData.issueDate} className="mt-4" />
+                    {isPostedCorrection && organizationSettings?.costingMethod === 'WEIGHTED_AVERAGE' && (
+                        <div role="note" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                            {translate(language, 'Weighted Average corrections require the original stock-lot value to match the recorded cost of goods sold. Purchases at different costs can prevent a correction; void and replace the invoice in that case.')}
+                        </div>
+                    )}
 
                     {/* Header Section: compact single row */}
                     <div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-4 border-t-3 border-t-primary-500 mb-4">
@@ -968,7 +978,12 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                                         if (!item.productId) return null;
                                                         const prod = products.find((p: ProductLike) => p.id === item.productId);
                                                         if (!prod) return null;
-                                                        const avail = prod.currentStock ?? prod.stock ?? 0;
+                                                        const original = editingInvoiceId ? invoices.find(inv => inv.id === editingInvoiceId) : undefined;
+                                                        const ownSoldQty = original && ['Sent', 'Overdue'].includes(original.status)
+                                                            ? (original.items ?? []).filter((line: { itemId?: string }) => line.itemId === item.productId)
+                                                                .reduce((sum: number, line: { quantity?: number }) => sum + Number(line.quantity ?? 0), 0)
+                                                            : 0;
+                                                        const avail = (prod.currentStock ?? prod.stock ?? 0) + ownSoldQty;
                                                         if (item.quantity > avail) {
                                                             return (
                                                                 <div className="flex items-center gap-1 mt-1 text-[11px] text-amber-600">

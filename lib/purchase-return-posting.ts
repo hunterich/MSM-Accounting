@@ -20,7 +20,7 @@ import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
-import { calculateAndPostCOGS } from './inventory-costing';
+import { calculateAndPostCOGS, lockInventoryItems } from './inventory-costing';
 import { toNumber } from './money';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
@@ -56,6 +56,9 @@ export async function postPurchaseReturnOnApproval(
       })
     : [];
   const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
+  // Match invoice posting/corrections: acquire all shared stock locks in one
+  // global order before consuming any line, regardless of document line order.
+  await lockInventoryItems(tx, pr.organizationId, [...inventoryItemIds]);
 
   let totalConsumedCost = 0;
   for (const line of pr.lines) {

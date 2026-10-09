@@ -117,7 +117,48 @@ changes, application is idempotent and scoped by company, and partial amounts,
 refunds, pending/void notes and draft documents are excluded. Notes, payments
 and journals remain unchanged.
 
-### One-time backfill for existing note-covered documents
+### Posted inventory invoice corrections
+
+Posted inventory corrections have separate coverage in
+`e2e/inventory-invoice-corrections.spec.ts` and
+`lib/__tests__/integration/inventory-invoice-corrections.int.test.ts`. The real
+form journey edits a Sent invoice twice, reloads and voids it, verifying original
+FIFO lot identity/order and net AR/COGS journals. API races cover correction
+versus correction, void and receipt. Closed original/new periods, linked notes
+and returns, legacy tracking and insufficient-stock failures leave the prior
+document/stock/journals unchanged. PostgreSQL tests also cover replacement
+items, fractional quantities and rejection of weighted-average COGS that does
+not match the source-lot value. Browser checks cover the Weighted Average warning
+before saving and rejection without side effects, plus correction after an applied
+credit note is voided while preserving its audit record. The Weighted Average
+journey also switches to Bahasa Indonesia and verifies the translated button
+and notice after reload. Active credit notes and
+all linked returns still block edits; return history references the original
+invoice lines, which a correction replaces.
+
+PostgreSQL coverage also checks concurrent invoice correction and purchase return
+with opposite item line orders, and rollback when later differently priced
+purchases make the corrected weighted-average sale differ from its lot value.
+Matching-cost weighted-average corrections remain supported.
+
+Migration `20261009060000_invoice_lot_draws` is required before using this
+feature. Existing records default to untracked; the migration does not infer
+historical lot draws or posting versions. New sales preserve lot draw quantities
+and current journal IDs, and reversed SALES movements carry a reversal marker
+so repeated corrections and later voids do not restore prior sale versions.
+Editing requires exact quantity and value restoration. Negative-stock
+shortfalls, missing/revalued lots and weighted-average source-lot/COGS value
+differences remain void-first. Weighted-average valuation reconciliation is
+still separate work. The tests do not certify every inventory race across all
+modules or rebuild historical costing data.
+
+Review follow-up verification (2026-10-09): all 1,201 unit tests, eight
+invoice-correction PostgreSQL tests, 17 related reversal/return/reposting
+PostgreSQL regressions and eight Chromium correction journeys passed. Both
+TypeScript projects and the frontend production build passed. These checks used
+isolated QA databases; production migration and deployment remain pending.
+
+### Stale note approval recovery
 
 Stale note-approval recovery is covered by the AR/AP journeys in
 `e2e/note-payment-concurrency.spec.ts`: over-allocation leaves approval/note
@@ -126,6 +167,8 @@ allows editing/deletion without posting. `note-approval-recovery.int.test.ts`
 checks competing approval/rejection for both note types, requiring exactly one
 consistent terminal outcome. Follow-up validation: 1,201 unit tests, 17
 PostgreSQL approval checks and both Chromium recovery journeys passed.
+
+### One-time backfill for existing note-covered documents
 
 No schema migration is needed. Set `DATABASE_URL` explicitly to the intended
 database, then preview with `npm run db:backfill-note-status`. Review the scanned
