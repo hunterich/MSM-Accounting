@@ -5,6 +5,45 @@ test.setTimeout(120_000)
 test.afterEach(cleanupAccountingCompany)
 test.afterAll(async () => { await db.$disconnect() })
 
+test('receipt deposits reject foreign, non-cash and inactive accounts at creation, completion and approval', async ({ page }) => {
+  const { orgId, customer } = await accountingCompany(page)
+  const foreign = await db.account.findFirstOrThrow({ where: { organizationId: { not: orgId }, type: 'ASSET', isActive: true, isPostable: true } })
+  const revenue = await db.account.findFirstOrThrow({ where: { organizationId: orgId, type: 'REVENUE', isPostable: true } })
+  const receivable = await db.account.findFirstOrThrow({ where: { organizationId: orgId, code: '1-1200' } })
+  const parent = await db.account.create({ data: { organizationId: orgId, code: '1-1197', name: 'Bank Accounts Header', type: 'ASSET', normalSide: 'DEBIT', isPostable: false } })
+  const child = await db.account.create({ data: { organizationId: orgId, code: '1-1198', name: 'Rekening Utama', type: 'ASSET', normalSide: 'DEBIT', parentId: parent.id } })
+  const inactive = await db.account.create({ data: { organizationId: orgId, code: '1-1199', name: 'Inactive Cash', type: 'ASSET', normalSide: 'DEBIT', isActive: false } })
+  const base = { customerId: customer.id, date: DATE, status: 'COMPLETED', totalAmount: 100 }
+  const before = await db.journalEntry.count({ where: { organizationId: orgId } })
+  for (const account of [foreign, revenue, receivable, parent, inactive]) {
+    const response = await page.request.post('http://localhost:3100/api/v1/ar-payments', { data: { ...base, depositAccountId: account.id } })
+    expect(response.status(), await response.text()).toBe(422)
+    expect(await response.text()).toContain('cash or bank deposit account in this organization')
+  }
+  expect(await db.aRPayment.count({ where: { organizationId: orgId } })).toBe(0)
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
+  const draft = await api(page, '/ar-payments', { ...base, status: 'DRAFT', depositAccountId: foreign.id }, 'POST')
+  const completed = await page.request.put(`http://localhost:3100/api/v1/ar-payments/${draft.id}`, { data: { status: 'COMPLETED' } })
+  expect(completed.status()).toBe(422)
+  expect((await db.aRPayment.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe('DRAFT')
+  await db.aRPayment.update({ where: { id: draft.id }, data: { status: 'PENDING_APPROVAL' } })
+  const admin = await db.user.findUniqueOrThrow({ where: { email: 'admin@demo.com' } })
+  const request = await db.approvalRequest.create({ data: { organizationId: orgId, documentType: 'AR_PAYMENT', documentId: draft.id, requestedById: admin.id } })
+  const approval = await page.request.post(`http://localhost:3100/api/v1/approvals/${request.id}/approve`, { data: {} })
+  expect(approval.status()).toBe(422)
+  expect((await db.approvalRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe('PENDING')
+  expect((await db.aRPayment.findUniqueOrThrow({ where: { id: draft.id } })).journalEntryId).toBeNull()
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
+  const posted = await api(page, '/ar-payments', { ...base, depositAccountId: child.id }, 'POST')
+  const postedRow = await db.aRPayment.findUniqueOrThrow({ where: { id: posted.id } })
+  expect(postedRow.journalEntryId).toBeTruthy()
+  expect(await db.journalLine.count({ where: { entryId: postedRow.journalEntryId!, accountId: child.id, debit: 100 } })).toBe(1)
+  const replay = await api(page, `/ar-payments/${posted.id}`, { status: 'COMPLETED' }, 'PUT')
+  expect(replay.journalEntryId).toBe(postedRow.journalEntryId)
+  await api(page, '/ar-payments', base, 'POST') // Existing default cash account remains supported.
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before + 2)
+})
+
 for (const kind of ['ar', 'ap'] as const) {
   test(`${kind.toUpperCase()} payment API protects party, allocations, posted history and current balances`, async ({ page }) => {
     const { orgId, vendor, customer, item } = await accountingCompany(page)

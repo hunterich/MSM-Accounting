@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — receipt deposit accounts and dashboard aging
+- Customer receipt posting rejects deposit accounts outside the company, inactive/non-postable accounts and assets outside cash/bank classification. Validation runs in the shared posting path, including draft completion and approval. The receipt account picker uses the same cash/bank name, report-group and parent-chain classification as the dashboard cash balance.
+- Dashboard aging and Overdue Invoices subtract gross applied linked credit notes as well as completed receipts and discounts. Draft, pending, void, refund and other-company notes are excluded. Days overdue follow Jakarta calendar dates independently of the database session timezone.
+- Isolated database checks reconcile aging with the sales widget at Jakarta midnight; API journeys exercise account rejection/rollback and valid default/child cash accounts. No migration or historical journal rewrite is required.
+
 ### Fixed — stale note approval recovery
 - Over-allocation during credit/debit-note approval now explains how to recover: reject the approval to return the note to Draft, then edit or delete it. The failed approval still rolls back without posting.
 - Rejection atomically claims the pending request before locking and reverting the note, matching approval's lock order and preventing concurrent approval/rejection from both succeeding. Draft notes remain editable without an early balance check; the live balance is enforced at application.

@@ -15,6 +15,7 @@ import { toNumber } from './money';
 import { ApiError } from './errors';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { lockPayment, validatePaymentAllocations } from './payment-validation';
+import { selectCashAccounts } from './cash-accounts';
 
 type Tx = Prisma.TransactionClient;
 
@@ -42,7 +43,7 @@ export async function postArPaymentIfNeeded(
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
-    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true, parentId: true, reportGroup: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
   const bankAccountId =
@@ -53,6 +54,9 @@ export async function postArPaymentIfNeeded(
     ?? resolveAccountDefaultId(accounts, settings, 'arControl');
 
   if (!bankAccountId || !arAccountId) throw new ApiError('Payment requires cash and receivable posting accounts', 422);
+  if (!selectCashAccounts(accounts).some(account => account.id === bankAccountId)) {
+    throw new ApiError('Choose an active, postable cash or bank deposit account in this organization', 422);
+  }
   const discount = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.discountAmount), 0);
   const penalty = (payment.allocations ?? []).reduce((s, a) => s + toNumber(a.penaltyAmount), 0);
   const discountAccountId = payment.discountAccountId ?? resolveAccountDefaultId(accounts, settings, 'arDiscount');

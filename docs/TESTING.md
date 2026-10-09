@@ -289,6 +289,21 @@ automated accounting tests should not be run against their production company.
 
 ## Report reconciliation checks
 
+`dashboard-aging.int.test.ts` checks applied credit-note gross amounts, excluded
+refund/draft/pending/void/foreign notes, mixed receipt/discount/note settlement,
+note reversal, calendar aging boundaries and Jakarta midnight. It compares aging
+to the sales widget and repeats the query in a non-UTC PostgreSQL session.
+The receipt-account journey in `payment-safeguards.spec.ts` rejects foreign,
+revenue, receivable, inactive and non-postable deposit accounts, checks rollback
+at creation/completion/approval, and confirms valid child/default cash accounts
+and unchanged posting retries. These use isolated QA databases and do not amend
+historical journals.
+
+Receipt/aging follow-up verification (2026-10-09): all 1,201 unit tests,
+18 PostgreSQL checks, three payment-safeguard journeys and the existing real-form
+invoice-to-receipt journey passed. Both TypeScript projects and the frontend
+production build passed. The timezone check also passed after its final change.
+
 `lib/__tests__/integration/report-reconciliation.int.test.ts` compares real
 statement, aging and party-balance endpoints with posted control-account journal
 lines at the same cutoff. It covers gross/tax note amounts, monetary refunds,
