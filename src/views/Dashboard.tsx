@@ -8,6 +8,8 @@ import { WIDGET_REGISTRY, DEFAULT_WIDGET_IDS } from '../config/dashboardWidgets'
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAccessStore } from '../stores/useAccessStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useLanguageStore } from '../stores/useLanguageStore';
+import { translate } from '../i18n/language';
 
 // Widget components
 import CashOnHandWidget       from '../components/dashboard/widgets/CashOnHandWidget';
@@ -47,6 +49,7 @@ const Dashboard = (): React.ReactElement => {
     const canApproveAny       = useAuthStore((s) => s.permissions.some((p) => p.canApprove === true));
     const dashboardConfig     = useSettingsStore((s) => s.dashboardConfig);
     const setDashboardWidgets = useSettingsStore((s) => s.setDashboardWidgets);
+    const language            = useLanguageStore((s) => s.language) ?? 'en';
 
     // Active widget IDs — user's saved list, filtered by current RBAC
     const activeWidgetIds = useMemo(() => {
@@ -109,7 +112,7 @@ const Dashboard = (): React.ReactElement => {
                                 <button
                                     onClick={() => removeWidget(id)}
                                     className="absolute -top-2 -right-2 z-10 bg-danger-500 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-md hover:bg-danger-600 transition-colors"
-                                    title={`Remove ${meta.label}`}
+                                    title={`Remove ${translate(language, meta.label)}`}
                                 >
                                     <X size={12} />
                                 </button>
@@ -157,7 +160,7 @@ const Dashboard = (): React.ReactElement => {
                             onClick={() => addWidget(w.id)}
                             className="text-left p-4 rounded-lg border border-neutral-200 hover:border-primary-400 hover:bg-primary-50 transition-colors cursor-pointer bg-transparent w-full"
                         >
-                            <div className="font-semibold text-neutral-900 text-sm">{w.label}</div>
+                            <div className="font-semibold text-neutral-900 text-sm">{translate(language, w.label)}</div>
                             <div className="text-xs text-neutral-500 mt-0.5">{w.description}</div>
                         </button>
                     ))}

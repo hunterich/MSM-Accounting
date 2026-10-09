@@ -12,6 +12,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Note application and approval finalization update the source status; note/payment reversals reopen it when a balance remains. Document locks and sorted payment-document ordering serialize status derivation. Reversal paths acquire document locks before journal numbering to match posting lock order.
 - Added AR/AP API/database journeys for mixed settlements, note approvals, replacement notes, refund exclusion, simultaneous note/payment reversals and full-note settlement/reopening without payments. No schema migration is required; existing open documents covered by applied notes can be reconciled with the dry-run-first `db:backfill-note-status` script.
 
+### Fixed — financial dashboard widget rollout and language
+- Users with a customized dashboard now receive the Sales This Month, Profit/Loss This Year and Customer Sales widgets once at the top of their saved layout (settings store v10). Removing them afterwards is respected.
+- Widget text follows the interface language instead of mixing Bahasa titles with English labels; English is the source text and Bahasa Indonesia translations are included, including period dates.
+- The profit/loss ring now shows how income was used (COGS, expenditure and remaining profit) instead of placing income and costs in one ring. A loss shows the cost split only.
+
 ### Fixed — credit/debit-note settlement and lifecycle guards
 - Linked note application uses the same document locks and live debt validation as payments, excluding the note itself when its route has already marked it applied inside the transaction. Competing payments/notes and stale note approvals cannot clear more than the current balance. Refund and standalone credit paths retain their existing behavior.
 - Note row locks serialize edits, posting and draft deletion. Pending notes reject edits, deletion and direct application; void notes cannot be revived through status changes. Draft party/source edits validate company ownership before writing.
