@@ -1,8 +1,11 @@
 import { useState } from 'react';
+import { useDebouncedSearch } from './useDebouncedSearch';
 
 /** Keep each filter combination on its first page, including kept-alive tabs. */
 export function useCatalogPagination<T extends Record<string, string | number | undefined>>(filters: T) {
-    const key = JSON.stringify(filters);
+    const search = useDebouncedSearch(String(filters.search ?? ''));
+    const queryFilters = { ...filters, ...('search' in filters ? { search } : {}) };
+    const key = JSON.stringify(queryFilters);
     const [position, setPosition] = useState({ key, page: 1 });
     const [limit, setLimit] = useState(20);
     if (position.key !== key) setPosition({ key, page: 1 });
@@ -12,7 +15,7 @@ export function useCatalogPagination<T extends Record<string, string | number | 
         setLimit(next);
         setPosition({ key, page: 1 });
     };
-    return { query: { ...filters, page, limit }, page, limit, onPageChange, onLimitChange };
+    return { query: { ...queryFilters, page, limit }, page, limit, onPageChange, onLimitChange };
 }
 
 export function catalogStatus(value: string) {

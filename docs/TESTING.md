@@ -360,6 +360,21 @@ posted-data problems are flagged for review rather than rewritten automatically.
 
 ## Automatic billing and finance notifications — 2026-10-08
 
+PR #146 reliability follow-up: isolated PostgreSQL checks cover no-provider
+queue suppression and baseline advancement, cancellation of unattempted messages
+at 24 hours, recent delivery after setup, existing retry/idempotency behavior and
+subscription invoice/journal dates on both sides of Jakarta midnight. Email tests
+inject a fake sender. Catalog route checks require 400 before database access
+for invalid enums, while the invoice browser journey types rapidly and verifies
+only the final search is requested. Full exports, bulk alert digests and visible
+run errors remain separate roadmap features.
+
+Follow-up verification (2026-10-09): 1,215 unit tests, 22 isolated PostgreSQL
+checks and four Chromium pagination journeys passed. The invoice typing/paging
+journey passed again after final query normalization. Both TypeScript projects
+and frontend production build passed. No real emails, production queue changes,
+provider enablement or production migrations were performed.
+
 The isolated PostgreSQL billing/notification pass covered concurrent recurring
 generation, repeated-run de-duplication, draft posting safety, inactive administrator
 rejection, expired templates, recurring/subscription approval regressions,

@@ -44,10 +44,13 @@ request until provider credentials and a verified sender are configured.
   Template locks and selected-date rechecks serialize recurring batch/manual work.
   Subscription claims compare the selected date and period. Failed documents roll
   back and remain due. Failures are logged independently of other jobs/companies.
+  Subscription issue dates use the company's business-day label at UTC midnight,
+  matching recurring invoice date storage rather than the scheduler's run instant.
 - Payment alerts: poll new COMPLETED AR/AP payments every 15 minutes. The first
   scan establishes a baseline; old payments are not flooded to finance. A persistent
   checkpoint supports restart catch-up and a one-hour overlap handles delayed
-  commits. Disabled alerts advance the baseline; re-enabling does not backfill
+  commits. Disabled alerts or a missing provider key advance the baseline;
+  re-enabling does not backfill
   disabled periods. Transactions committing more than an hour after their timestamp
   need operational review. Alerts are keyed by payment ID and kind.
 - After 08:00 in each company timezone: at most one due/overdue reminder digest
@@ -58,7 +61,11 @@ request until provider credentials and a verified sender are configured.
   Missed daily digests during a prolonged outage are not backfilled.
 - Delivery: database outbox, conditional leases, current-toggle/recipient checks,
   stable Resend idempotency keys and up to five retry attempts. No provider key
-  means queued messages remain unsent. Changed recipients or disabled toggles
+  means new notifications are not queued. Existing unattempted reminders,
+  summaries and payment alerts expire after 24 hours by queue creation time,
+  even before a provider is configured; cancellation retains their audit rows.
+  Attempted deliveries keep their provider-idempotency safeguards.
+  Changed recipients or disabled toggles
   cancel old queued messages. An uncertain attempt older than 23 hours is marked
   FAILED for review before the provider's [24-hour idempotency window](https://resend.com/docs/dashboard/emails/idempotency-keys) expires.
 

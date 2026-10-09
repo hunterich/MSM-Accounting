@@ -7,6 +7,7 @@ import { prisma as defaultPrisma } from '@/lib/prisma';
 import { AccessError } from '@/lib/document-access';
 import { CreditLimitError } from '@/lib/credit-limit';
 import { ApiError } from '@/lib/errors';
+import { validateListFilters } from '@/lib/list-filters';
 
 // Re-exported so existing `import { ApiError } from '@/lib/api-utils'` keeps working.
 export { ApiError };
@@ -96,7 +97,9 @@ export function parsePaginationParams(
   req: NextRequest,
   defaults: { page?: number; limit?: number; maxLimit?: number } = {},
 ) {
-  const { searchParams } = new URL(req.url);
+  const url = new URL(req.url);
+  validateListFilters(url);
+  const { searchParams } = url;
   const defaultPage = defaults.page ?? 1;
   const defaultLimit = defaults.limit ?? 20;
   const maxLimit = defaults.maxLimit ?? 100;

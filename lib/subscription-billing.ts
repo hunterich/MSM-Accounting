@@ -5,8 +5,11 @@ import { routeForApproval } from '@/lib/approval/engine';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { resolveRequesterId } from '@/lib/approval/requester';
 import { nextInvoiceNumber } from '@/lib/invoice-number';
+import { billingDay } from '@/lib/billing-calendar';
 
 export async function runDueSubscriptions(orgId: string, actorId: string | null = null, today = new Date()) {
+  const organization = await prisma.organization.findUniqueOrThrow({ where: { id: orgId }, select: { timezone: true } });
+  const issueDate = billingDay(today, organization.timezone);
   // Find all subscriptions due for invoicing
   const subscriptions = await prisma.subscription.findMany({
     where: {
@@ -68,7 +71,7 @@ export async function runDueSubscriptions(orgId: string, actorId: string | null 
           organizationId: orgId,
           number: invoiceNumber,
           customerId: sub.customerId,
-          issueDate: today,
+          issueDate,
           dueDate,
           status: 'SENT',
           subtotal: Number(sub.plan.price),
