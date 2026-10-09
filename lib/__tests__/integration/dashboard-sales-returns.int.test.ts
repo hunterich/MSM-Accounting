@@ -52,6 +52,9 @@ it('net sales recognize applied gross credit notes in their own Jakarta month wi
     await prisma.$transaction(async tx => {
       await tx.$executeRaw`SET LOCAL TIME ZONE 'Pacific/Honolulu'`;
       expect(await readSalesCalendar(tx, { organizationId: org.orgId }, 'month', customerId)).toEqual(calendar);
+      expect(await readDashboardSales(tx, org.orgId, febFrom, febTo, new Date('2026-02-27T17:00:00Z'), febTo)).toEqual(feb);
+      expect(await readCustomerSales(tx, { organizationId: org.orgId, dateFrom: febFrom, dateTo: febTo })).toEqual(februaryCustomers);
+
     });
     await prisma.creditNote.update({ where: { id: (await prisma.creditNote.findUniqueOrThrow({ where: { organizationId_number: { organizationId: org.orgId, number: 'FEB-REFUND' } } })).id }, data: { status: 'VOID' } });
     expect((await readCustomerSales(prisma, { organizationId: org.orgId, dateFrom: febFrom, dateTo: febTo }))[0].total).toBe(189);
