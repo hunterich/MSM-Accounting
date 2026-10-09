@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { orgScopedStorage } from '../lib/orgScopedStorage';
-import { DEFAULT_WIDGET_IDS } from '../config/dashboardWidgets';
+import { DEFAULT_WIDGET_IDS, addIntroducedWidgets } from '../config/dashboardWidgets';
 import {
     DEFAULT_ACCOUNT_DEFAULTS,
     type AccountDefaultsConfig,
@@ -266,14 +266,18 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: 'msm-settings',
-            version: 9,
+            version: 10,
             // Everything in this store is org-scoped (companyInfo, features,
             // print/branding, doc numbering, dashboard widget layout) — the
             // localStorage copy is only a cache of DB-backed settings, so it
             // is partitioned per company and rehydrated from the server.
             storage: createJSONStorage(() => orgScopedStorage),
-            migrate: (persistedState) => ({
+            migrate: (persistedState, version) => ({
                 ...(persistedState as PersistedSettingsState | undefined),
+                dashboardConfig: addIntroducedWidgets(
+                    (persistedState as PersistedSettingsState | undefined)?.dashboardConfig || {},
+                    version,
+                ),
                 companyInfo: {
                     ...DEFAULT_COMPANY_INFO,
                     ...((persistedState as PersistedSettingsState | undefined)?.companyInfo || {}),

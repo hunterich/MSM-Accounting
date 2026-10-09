@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { dashboardPeriod, jakartaToday, percentageChange, previousYear } from '../dashboardPeriod';
+import { dashboardPeriod, jakartaToday, percentageChange, periodLabel, previousYear, profitRing } from '../dashboardPeriod';
+
+describe('profit/loss ring', () => {
+    it('splits income into COGS, expenditure and the profit left over', () => {
+        const ring = profitRing({ cogs: 600, expenditure: 200, profit: 200 });
+        expect(ring.segments.map(s => [s.key, s.value])).toEqual([['cogs', 600], ['expenditure', 200], ['profit', 200]]);
+        expect(ring.gradient).toBe('conic-gradient(#ffca36 0% 60%, #ff5d88 60% 80%, #26d7b0 80% 100%)');
+    });
+    it('shows only the costs for a loss', () => {
+        expect(profitRing({ cogs: 300, expenditure: 100, profit: -50 }).segments.map(s => s.key)).toEqual(['cogs', 'expenditure']);
+    });
+    it('draws nothing without activity', () => {
+        expect(profitRing({ cogs: 0, expenditure: 0, profit: 0 })).toEqual({ segments: [], gradient: '' });
+    });
+});
+
+describe('period labels', () => {
+    it('follows the interface language', () => {
+        expect(periodLabel('2026-10-01', '2026-10-08')).toBe('1 Oct 2026 – 8 Oct 2026');
+        expect(periodLabel('2026-10-01', '2026-10-08', 'id')).toBe('1 Okt 2026 – 8 Okt 2026');
+    });
+});
 
 describe('financial widget periods and comparisons', () => {
     it('uses the Jakarta business day at a UTC midnight boundary', () => {
