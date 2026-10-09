@@ -137,6 +137,11 @@ test('Weighted Average limit is visible before Save correction and a refused sav
   expect(await api(page, `/invoices/${invoice.id}`)).toEqual(before.doc)
   expect(await currentLots(orgId)).toEqual(before.lots)
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before.journals)
+  await page.evaluate(() => localStorage.setItem('msm-ui-language', JSON.stringify({ state: { language: 'id' }, version: 0 })))
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Simpan koreksi', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('note').filter({ hasText: 'Koreksi dengan metode Rata-rata Tertimbang' })).toBeVisible()
 })
 
 test('voided credit notes preserve their audit history and no longer block correction; active notes still block', async ({ page }) => {

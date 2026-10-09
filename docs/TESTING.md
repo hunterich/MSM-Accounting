@@ -130,7 +130,9 @@ document/stock/journals unchanged. PostgreSQL tests also cover replacement
 items, fractional quantities and rejection of weighted-average COGS that does
 not match the source-lot value. Browser checks cover the Weighted Average warning
 before saving and rejection without side effects, plus correction after an applied
-credit note is voided while preserving its audit record. Active credit notes and
+credit note is voided while preserving its audit record. The Weighted Average
+journey also switches to Bahasa Indonesia and verifies the translated button
+and notice after reload. Active credit notes and
 all linked returns still block edits; return history references the original
 invoice lines, which a correction replaces.
 

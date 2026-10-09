@@ -85,6 +85,8 @@ import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
 
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { translate } from '../../i18n/language';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useExtraAction } from '../../hooks/useModulePermissions';
 import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice, useNextInvoiceNumber } from '../../hooks/useAR';
@@ -436,6 +438,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
     // ── Workspace draft autosave + dirty mirroring (workspace mode only) ──────
     const isEditMode = Boolean(editingInvoiceId);
+    const language = useLanguageStore(state => state.language) ?? 'en';
     const { data: organizationSettings } = useOrganizationSettings();
     const isPostedCorrection = isEditMode && ['Sent', 'Overdue'].includes(invoices.find(inv => inv.id === editingInvoiceId)?.status ?? '');
     const snapshot = useMemo<InvoiceDraft>(() => ({
@@ -769,8 +772,8 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             printOptions={[
                 { label: 'Print / PDF', hint: 'Preview, print, or download', onClick: handlePrint },
             ]}
-            onSaveDraft={editingInvoiceId && invoices.find(inv => inv.id === editingInvoiceId)?.status !== 'Draft' ? undefined : () => { void persistInvoice(true); }}
-            primaryLabel={editingInvoiceId && invoices.find(inv => inv.id === editingInvoiceId)?.status !== 'Draft' ? 'Save correction' : 'Save & Approve'}
+            onSaveDraft={isPostedCorrection ? undefined : () => { void persistInvoice(true); }}
+            primaryLabel={translate(language, isPostedCorrection ? 'Save correction' : 'Save & Approve')}
             onPrimary={() => { void persistInvoice(false); }}
             moreItems={canDeleteInvoice
                 ? [{ label: 'Delete invoice', danger: true, onClick: () => setConfirmDelete(true) }]
@@ -781,7 +784,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     <ClosedPeriodBanner date={formData.issueDate} className="mt-4" />
                     {isPostedCorrection && organizationSettings?.costingMethod === 'WEIGHTED_AVERAGE' && (
                         <div role="note" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                            Weighted Average corrections require the original stock-lot value to match the recorded cost of goods sold. Purchases at different costs can prevent a correction; void and replace the invoice in that case.
+                            {translate(language, 'Weighted Average corrections require the original stock-lot value to match the recorded cost of goods sold. Purchases at different costs can prevent a correction; void and replace the invoice in that case.')}
                         </div>
                     )}
 
