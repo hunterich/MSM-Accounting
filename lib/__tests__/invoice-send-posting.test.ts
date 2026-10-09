@@ -3,7 +3,7 @@ import { postInvoiceSend } from '../invoice-send-posting';
 
 vi.mock('../period-guard', () => ({ assertPeriodOpen: vi.fn(async () => undefined) }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
-vi.mock('../inventory-costing', () => ({ calculateAndPostCOGS: vi.fn(async () => 0) }));
+vi.mock('../inventory-costing', () => ({ calculateAndPostCOGS: vi.fn(async () => 0), lockInventoryItems: vi.fn(async () => undefined) }));
 
 import { postJournalEntry } from '../journal-posting';
 import { calculateAndPostCOGS } from '../inventory-costing';
@@ -24,7 +24,7 @@ function makeTx(invoiceOver: any = {}) {
     ...invoiceOver,
   };
   return {
-    salesInvoice: { findUnique: vi.fn(async () => invoice) },
+    salesInvoice: { findUnique: vi.fn(async () => invoice), update: vi.fn(async () => invoice) },
     account: { findMany: vi.fn(async () => ACCOUNTS) },
     organization: { findUnique: vi.fn(async () => ({ accountDefaults: null, costingMethod: null })) },
     salesInvoiceLine: { findMany: vi.fn(async () => []) },

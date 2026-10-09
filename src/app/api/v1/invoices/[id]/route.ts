@@ -9,6 +9,7 @@ import { reverseInvoicePosting } from '@/lib/repost';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 import { assertItemsActive } from '@/lib/item-availability';
+import { lockInventoryItems, assertCorrectedSalesValue } from '@/lib/inventory-costing';
 
 export const runtime = 'nodejs';
 
@@ -64,6 +65,8 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
     const { lines, charges, ...header } = body;
     delete header.organizationId;
     delete header.createdById;
+    delete header.postingTracked;
+    delete header.postingJournalIds;
 
     // Voiding a posted invoice must reverse its journal entries and restore the
     // sold stock — that only happens through the dedicated endpoint. A bare
@@ -77,23 +80,33 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
     }
 
     const access = await getInvoiceAccessContext(orgId, userId);
-    const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1;
+    const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1 && !lines && !charges;
 
     // Captured inside the transaction for the audit trail of an edit-after-post.
     let postedEditBefore: unknown = null;
 
     const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const existing = await tx.salesInvoice.findFirst({
         where: applyInvoiceAccessScope({ id, organizationId: orgId }, access),
         select: {
           id: true, status: true, number: true, issueDate: true, organizationId: true,
+          postingTracked: true, postingJournalIds: true,
           lines: { select: { itemId: true } },
-          _count: { select: { paymentAllocations: true, salesReturns: true, creditNotes: true } },
+          _count: { select: { paymentAllocations: true, salesReturns: true,
+            creditNotes: { where: { status: { not: 'VOID' } } } } },
         },
       });
 
       if (!existing) {
         throw new AccessError('Invoice not found', 404);
+      }
+
+      if (isStatusOnlyUpdate && header.status !== existing.status && !(existing.status === 'DRAFT' && header.status === 'SENT')) {
+        throw new AccessError('Invoice status is managed by sending, settlement or voiding; use the corresponding action.', 422);
+      }
+      if (header.customerId && !await tx.customer.findFirst({ where: { id: header.customerId, organizationId: orgId }, select: { id: true } })) {
+        throw new AccessError('Customer not found in organization.', 422);
       }
 
       if (lines) {
@@ -118,22 +131,22 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       const isDraftSend = isDraft && header.status === 'SENT';
 
       if (isPostedEdit) {
-        // v1 keeps the reverse+re-post pure-GL: inventory invoices involve cost-layer
-        // re-consumption that must be voided + re-sent instead.
-        if (existing.lines.some((l) => l.itemId) || (lines ?? []).some((l: any) => l.itemId)) {
-          throw new AccessError('This invoice has inventory items — void it to change (editing posted stock movements is not supported yet).', 422);
+        if (!existing.postingTracked && await tx.item.count({ where: { organizationId: orgId,
+          id: { in: existing.lines.flatMap(line => line.itemId ? [line.itemId] : []) }, type: { in: ['PRODUCT', 'RAW_MATERIAL'] } } })) {
+          throw new AccessError('This historical invoice has no original stock-lot tracking — void it to change.', 422);
         }
         if (existing._count.paymentAllocations > 0) {
           throw new AccessError('Cannot edit an invoice with receipts applied — unallocate them first.', 422);
         }
         if (existing._count.salesReturns > 0 || existing._count.creditNotes > 0) {
-          throw new AccessError('Cannot edit an invoice with returns or credit notes against it — reverse those first.', 422);
+          throw new AccessError('Invoices linked to returns or credit notes must be voided and replaced to change their lines.', 422);
         }
         const newDate = header.issueDate ? new Date(header.issueDate) : new Date(existing.issueDate);
         await assertPeriodOpen(tx, existing.organizationId, new Date(existing.issueDate)); // posted period
         await assertPeriodOpen(tx, existing.organizationId, newDate);                       // re-post period
+        await lockInventoryItems(tx, orgId, [...existing.lines, ...(lines ?? [])].flatMap((line: any) => line.itemId ? [line.itemId] : []));
         postedEditBefore = await tx.salesInvoice.findFirst({ where: { id }, include: { lines: true, charges: true } });
-        await reverseInvoicePosting(tx, existing.organizationId, { id: existing.id, number: existing.number }, { date: newDate });
+        await reverseInvoicePosting(tx, existing.organizationId, existing, { date: newDate });
       }
 
       // Atomically claim the DRAFT → SENT transition before any GL side effect:
@@ -192,10 +205,10 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       }
 
       // Edit-after-post: re-post AR (+ charges) from the freshly-edited invoice
-      // (its prior entries were reversed above). v1 edit-after-post is restricted
-      // to non-inventory invoices, so no COGS re-consumption happens here.
+      // (its prior entries and exact inventory draws were reversed above).
       if (isPostedEdit) {
         await postInvoiceSend(tx, existing.organizationId, existing.id, dateOverride);
+        await assertCorrectedSalesValue(tx, existing.organizationId, existing.id);
       }
 
       // Post AR + COGS journals when the invoice transitions DRAFT → SENT,

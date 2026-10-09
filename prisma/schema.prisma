@@ -608,6 +608,8 @@ model SalesInvoice {
   migrationBatchId   String?
   salesTypeId        String?
   deletedAt          DateTime?
+  postingTracked     Boolean       @default(false)
+  postingJournalIds  String[]      @default([])
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -1398,6 +1400,9 @@ model InventoryLedgerEntry {
   valueChange    Decimal     @default(0) @db.Decimal(18, 2)
   migrationBatchId String?
   createdAt      DateTime    @default(now())
+  drawsTracked   Boolean     @default(false)
+  reversedAt     DateTime?
+  lotDraws       InventoryLotDraw[]
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   item           Item         @relation(fields: [itemId], references: [id], onDelete: Restrict)
@@ -2116,6 +2121,7 @@ model InventoryLot {
   unitCost       Decimal               @db.Decimal(15, 6)
   migrationBatchId String?
   createdAt      DateTime              @default(now())
+  draws          InventoryLotDraw[]
   organization   Organization          @relation(fields: [organizationId], references: [id])
   item           Item                  @relation(fields: [itemId], references: [id])
   warehouse      Warehouse?            @relation(fields: [warehouseId], references: [id])
@@ -2123,6 +2129,20 @@ model InventoryLot {
   @@index([organizationId, itemId, date])
   @@index([itemId, warehouseId, date])
   @@index([migrationBatchId])
+}
+
+// Exact quantity relief for a sale. Historical draws survive lot deletion;
+// a missing source lot cannot support an edit that requires exact restoration.
+model InventoryLotDraw {
+  id            String @id @default(cuid())
+  ledgerEntryId String
+  lotId         String?
+  quantity      Decimal @db.Decimal(15, 4)
+  ledgerEntry   InventoryLedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Cascade)
+  lot           InventoryLot? @relation(fields: [lotId], references: [id], onDelete: SetNull)
+
+  @@index([ledgerEntryId])
+  @@index([lotId])
 }
 
 model BankStatement {

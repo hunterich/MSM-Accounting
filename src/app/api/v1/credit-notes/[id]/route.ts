@@ -115,7 +115,10 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       }
 
       if (d.customerId) await validateForeignKey(tx.customer, { id: d.customerId, organizationId: orgId }, 'Customer not found in organization');
-      if (d.sourceInvoiceId) await validateForeignKey(tx.salesInvoice, { id: d.sourceInvoiceId, organizationId: orgId }, 'Source invoice not found in organization');
+      if (d.sourceInvoiceId) {
+        await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${d.sourceInvoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;
+        await validateForeignKey(tx.salesInvoice, { id: d.sourceInvoiceId, organizationId: orgId }, 'Source invoice not found in organization');
+      }
       if (d.salesReturnId) await validateForeignKey(tx.salesReturn, { id: d.salesReturnId, organizationId: orgId }, 'Sales return not found in organization');
       const updated = await tx.creditNote.update({
         where: { id, organizationId: orgId },

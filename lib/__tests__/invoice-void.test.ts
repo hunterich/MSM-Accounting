@@ -18,6 +18,7 @@ const DATE = new Date('2026-06-20');
 
 function makeTx(invoice: any, entries: any[] = []) {
   return {
+    $queryRaw: vi.fn(async () => []),
     salesInvoice: {
       findFirst: vi.fn(async () => invoice),
       // Claim-first guard: updateMany returns the affected count (1 = winner).

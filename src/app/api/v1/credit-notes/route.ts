@@ -62,6 +62,7 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
     // / salesReturn) — or attach this org's note to another org's document.
     await validateForeignKey(tx.customer, { id: d.customerId, organizationId: orgId }, 'Customer not found in organization');
     if (d.sourceInvoiceId) {
+      await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${d.sourceInvoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;
       await validateForeignKey(tx.salesInvoice, { id: d.sourceInvoiceId, organizationId: orgId }, 'Source invoice not found in organization');
     }
     if (d.salesReturnId) {

@@ -31,12 +31,15 @@ export async function voidInvoice(
   invoiceId: string,
   opts: { date: Date },
 ): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${invoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;
   const inv = await tx.salesInvoice.findFirst({
     where: { id: invoiceId, organizationId: orgId },
     select: {
       id: true,
       number: true,
       status: true,
+      postingTracked: true,
+      postingJournalIds: true,
       paymentAllocations: { where: { payment: { status: { not: 'VOID' } } }, select: { id: true } },
       creditNotes: { where: { status: 'APPLIED', settlementType: 'APPLY_TO_INVOICE' }, select: { id: true } },
     },
@@ -78,18 +81,23 @@ export async function voidInvoice(
 
   // Reverse the AR-recognition + COGS posting entries (resolved by memo — no
   // journalEntryId column on invoices; there is one COGS entry per inventory line).
+  // Stock locks precede journal numbering, matching send and edit posting.
+  await restoreConsumedLayers(tx, orgId, InventoryDocumentType.SALES, inv.id, opts.date);
   const entries = await tx.journalEntry.findMany({
     where: {
       organizationId: orgId,
       status: 'POSTED',
-      memo: { in: [`Sales recognition: ${inv.number}`, `COGS auto-post: ${inv.number}`] },
+      ...(inv.postingTracked
+        ? { id: { in: inv.postingJournalIds } }
+        : { memo: { in: [`Sales recognition: ${inv.number}`, `COGS auto-post: ${inv.number}`] } }),
     },
     select: { id: true },
   });
+  if (inv.postingTracked && entries.length !== inv.postingJournalIds.length) {
+    throw new ApiError('Invoice posting history is incomplete — cannot safely reverse it.', 422);
+  }
   for (const entry of entries) {
     await reverseJournalEntry(tx, entry.id, { date: opts.date, memo: `Void invoice: ${inv.number}` });
   }
 
-  // Put the sold stock back (un-consume the SALES draw-down).
-  await restoreConsumedLayers(tx, orgId, InventoryDocumentType.SALES, inv.id, opts.date);
 }

@@ -59,6 +59,7 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
   const { lines, ...header } = parsed.data;
 
   const salesReturn = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${header.invoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;
     // Tenant isolation: the customer, the source invoice, and every referenced
     // line item must belong to this org — otherwise they leak back through the
     // GET `include` joins (customer / invoice / lines.item).

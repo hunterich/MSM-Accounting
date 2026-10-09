@@ -52,19 +52,29 @@ export async function reverseBillPosting(
 export async function reverseInvoicePosting(
   tx: Tx,
   orgId: string,
-  inv: { id: string; number: string },
+  inv: { id: string; number: string; postingTracked?: boolean; postingJournalIds?: string[] },
   opts: { date: Date },
 ): Promise<void> {
+  // Restore before journal numbering: shared-item locks must precede the
+  // journal lock, matching send/re-post. A failure rolls the transaction back.
+  await restoreConsumedLayers(tx, orgId, InventoryDocumentType.SALES, inv.id, opts.date, { requireExact: true });
   const entries = await tx.journalEntry.findMany({
     where: {
       organizationId: orgId,
       status: 'POSTED',
-      memo: { in: [`Sales recognition: ${inv.number}`, `COGS auto-post: ${inv.number}`] },
+      ...(inv.postingTracked
+        ? { id: { in: inv.postingJournalIds ?? [] } }
+        : { memo: { in: [`Sales recognition: ${inv.number}`, `COGS auto-post: ${inv.number}`] } }),
     },
-    select: { id: true },
+    select: { id: true, memo: true },
   });
+  if (inv.postingTracked && entries.length !== (inv.postingJournalIds ?? []).length) {
+    throw new ApiError('Invoice posting history is incomplete — cannot safely reverse it.', 422);
+  }
+  if (!inv.postingTracked && entries.filter(entry => entry.memo === `Sales recognition: ${inv.number}`).length > 1) {
+    throw new ApiError('Historical invoice has multiple untracked postings — review its journal history before correcting.', 422);
+  }
   for (const entry of entries) {
     await reverseJournalEntry(tx, entry.id, { date: opts.date, memo: `Re-post invoice: ${inv.number}` });
   }
-  await restoreConsumedLayers(tx, orgId, InventoryDocumentType.SALES, inv.id, opts.date);
 }
