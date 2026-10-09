@@ -24,6 +24,7 @@ import { ApiError } from './api-utils';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { validatePaymentAllocations } from './payment-validation';
+import { syncCreditNoteSettlement } from './settlement-status';
 
 type Tx = Prisma.TransactionClient;
 
@@ -48,6 +49,7 @@ export async function postCreditNoteOnApply(
       id: true,
       number: true,
       organizationId: true,
+      status: true,
       customerId: true,
       sourceInvoiceId: true,
       date: true,
@@ -155,6 +157,7 @@ export async function postCreditNoteOnApply(
       where: { id: cn.id },
       data: { journalEntryId: je.id, postedAt: new Date() },
     });
+    if (cn.status === 'APPLIED') await syncCreditNoteSettlement(tx, cn.organizationId, cn.id);
   } catch (error) {
     if (isJournalEntryIdUniqueViolation(error)) {
       throw new ApiError(

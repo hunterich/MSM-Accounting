@@ -20,6 +20,7 @@ import { ApiError } from './api-utils';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { validatePaymentAllocations } from './payment-validation';
+import { syncDebitNoteSettlement } from './settlement-status';
 
 type Tx = Prisma.TransactionClient;
 
@@ -44,6 +45,7 @@ export async function postDebitNoteOnApply(
       id: true,
       number: true,
       organizationId: true,
+      status: true,
       vendorId: true,
       sourceBillId: true,
       date: true,
@@ -151,6 +153,7 @@ export async function postDebitNoteOnApply(
       where: { id: dn.id },
       data: { journalEntryId: je.id, postedAt: new Date() },
     });
+    if (dn.status === 'APPLIED') await syncDebitNoteSettlement(tx, dn.organizationId, dn.id);
   } catch (error) {
     if (isJournalEntryIdUniqueViolation(error)) {
       throw new ApiError(

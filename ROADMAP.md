@@ -1,7 +1,7 @@
 # MSM Accounting Software — Improvement Roadmap
 
 > Benchmarked against ERPNext (open-source ERP).
-> Created 2026-02-27 | Latest released changelog version: v1.1.0 | Reconciled with code/tests: 2026-10-08
+> Created 2026-02-27 | Latest released changelog version: v1.1.0 | Reconciled with code/tests: 2026-10-09
 
 ---
 
@@ -19,12 +19,19 @@ The first target customers are small distribution and e-commerce companies in In
 - [ ] **P1 — extend recovery coverage** with a backup containing actual attachments and download/print verification; independently reconcile AR/AP and inventory control accounts to subledgers. This source snapshot has zero attachment/import records and no deployed file-storage directory. Recovery preserves the existing data; a balanced trial balance alone does not certify its accounting correctness. Retest a multi-company snapshot when available (this one contains one company).
 - [x] **PO receipt browser journeys** — catalog and Receive goods page partial/fractional deliveries, zero-line omission, invalid-quantity prevention, remaining quantities, final closure and exact inventory/GRIR postings. Corrected mismatched PO/detail-line IDs that prevented actual form receipts. The full purchasing journey uses the receipt modal; see `e2e/purchase-receipt.spec.ts` and `docs/TESTING.md`.
 - [x] **Initial partial-payment forms** — customer receipts and supplier payments expose an amount to settle, preserve saved draft allocations/discounts/fees, and apply discounts to debt without double-counting them. Browser coverage includes initial partial input, draft reload/finalization, remainder payment and void; see `e2e/payment-allocation.spec.ts` and `e2e/accounting-edge-cases.spec.ts`.
-- [~] **P1 — payment posting safeguards** — payments and linked credit/debit-note posting share current-balance validation and document locks, including approval finalization. Note edits/deletion lock the note; pending notes cannot bypass approval and void notes cannot be revived. Draft edits enforce tenant-scoped party/source references. Race coverage includes payments versus notes, competing notes and stale approvals. Remaining: comprehensive reversal races across document types and note-aware PAID/reopened status derivation. See `e2e/payment-safeguards.spec.ts` and `e2e/note-payment-concurrency.spec.ts`.
+- [~] **P1 — payment posting safeguards** — payments and linked credit/debit-note posting share current-balance validation and document locks, including approval finalization. Note edits/deletion lock the note; pending notes cannot bypass approval and void notes cannot be revived. Draft edits enforce tenant-scoped party/source references. Paid/reopened status includes applied linked notes; monetary refunds do not clear source debt. Race coverage includes payment/note posting, stale approvals and simultaneous note/payment reversals. Remaining: comprehensive reversal races across other document types. See `e2e/payment-safeguards.spec.ts`, `e2e/note-payment-concurrency.spec.ts` and `e2e/note-settlement-status.spec.ts`.
 - [ ] **P1 — complete browser journeys** for tax-inclusive penny rounding through forms, multi-user approvals, POS merchandise returns with batch restocking, bank imports/reconciliation, recurring billing, payroll and assets. Backend coverage exists; see `docs/TESTING.md`.
 - [ ] **P1 — production capacity validation**: posting into the large historical company, shared-item contention, concurrent marketplace duplicate/retry races, campaign-peak imports, deep pages and detail exports. October 7 isolated load/read retests passed; deployment/migration is complete, but production capacity remains unverified. See `docs/capacity-target.md`.
 - [ ] **P1 — remaining deployment smoke**: Google sign-in under the deployed CSP, old-tab recovery after upgrade and POS worker scope. Security headers and ordinary authenticated browser journeys passed on both servers.
 - [ ] **P1 — live billing document and finance delivery validation**: due templates, approval holds, locked-period failures and duplicate-free document catch-up after restart. Migration and Windows billing startup/restart passed, but the company currently has no recurring templates/subscriptions. Finance emails are intentionally disabled on both servers at the operator's request; provider credentials, verified sender, desired company toggles and real delivery verification remain deferred. Source and PostgreSQL/mocked-provider tests pass.
 - [ ] **P2 — accounting defaults expansion**: `stockVariance`, `purchaseDiscount`, `incomeTaxExpense`, settings sub-tabs and exact posting-account regressions.
+
+Legacy open documents covered by applied notes can be reconciled with
+`npm run db:backfill-note-status` (dry run) followed by `-- --apply` after
+reviewing the counts. This is a status-only backfill; operational use is still
+pending. Isolated PostgreSQL tests prove dry-run safety, idempotency and tenant
+scoping; AR/AP browser journeys prove note-only settlement and reopening.
+See `docs/TESTING.md` for database selection and company-scoped usage.
 
 ## Legend
 

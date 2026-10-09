@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — note-aware Paid/reopened document status
+- Invoice/bill status now includes completed payment principal/discounts and applied linked credit/debit-note gross amounts. Fees, drafts, approval holds, cash refunds and standalone credits do not clear source-document debt.
+- Note application and approval finalization update the source status; note/payment reversals reopen it when a balance remains. Document locks and sorted payment-document ordering serialize status derivation. Reversal paths acquire document locks before journal numbering to match posting lock order.
+- Added AR/AP API/database journeys for mixed settlements, note approvals, replacement notes, refund exclusion, simultaneous note/payment reversals and full-note settlement/reopening without payments. No schema migration is required; existing open documents covered by applied notes can be reconciled with the dry-run-first `db:backfill-note-status` script.
+
 ### Fixed — financial dashboard widget rollout and language
 - Users with a customized dashboard now receive the Sales This Month, Profit/Loss This Year and Customer Sales widgets once at the top of their saved layout (settings store v10). Removing them afterwards is respected.
 - Widget text follows the interface language instead of mixing Bahasa titles with English labels; English is the source text and Bahasa Indonesia translations are included, including period dates.

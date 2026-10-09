@@ -1,5 +1,5 @@
 /**
- * Roll payment allocations up into the document's own status.
+ * Derive document status from completed payments and applied linked notes.
  *
  * Outstanding balances are always *derived* from allocations (aging, credit
  * limit, over-allocation guard), but the list screens and the void rules read
@@ -12,9 +12,10 @@
  *   - approval finalizer                           → status became COMPLETED
  *   - void                                         → allocations removed
  *
- * The rule mirrors the aging report: only allocations of COMPLETED payments
- * clear a document, and a cash discount clears it alongside the cash applied
- * (a penalty is extra income, not settlement). PAID is reversible — a voided
+ * COMPLETED-payment principal and discounts plus APPLIED linked note gross
+ * amounts clear debt. Fees, cash refunds and standalone credits do not settle
+ * a source document. Document locks serialize derivation with posting/voiding.
+ * PAID is reversible — a voided
  * receipt puts the invoice back to SENT (the bill back to OPEN) — while DRAFT,
  * PENDING_APPROVAL and VOID documents are never touched.
  */
@@ -33,14 +34,17 @@ const BILL_OPEN_STATUSES = new Set(['OPEN', 'PENDING', 'OVERDUE']);
 export type SettlementTransition = 'PAID' | 'REOPENED' | null;
 
 /**
- * Re-derive one invoice's status from its COMPLETED-payment allocations.
- * Returns the transition applied, or null when nothing changed.
+ * Re-derive one invoice's status from payments and linked debt credits.
+ * Returns the transition applied (or previewed with dryRun), or null when
+ * nothing changes. Dry runs retain the document lock without writing status.
  */
 export async function syncInvoiceSettlementStatus(
   tx: Tx,
   orgId: string,
   invoiceId: string,
+  options: { dryRun?: boolean } = {},
 ): Promise<SettlementTransition> {
+  await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${invoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;
   const invoice = await tx.salesInvoice.findFirst({
     where: { id: invoiceId, organizationId: orgId },
     select: { id: true, status: true, totalAmount: true },
@@ -48,20 +52,24 @@ export async function syncInvoiceSettlementStatus(
   if (!invoice) return null;
 
   const cleared = await tx.aRPaymentAllocation.aggregate({
-    where: { invoiceId, payment: { status: 'COMPLETED' } },
+    where: { invoiceId, payment: { organizationId: orgId, status: 'COMPLETED' } },
     _sum: { amountApplied: true, discountAmount: true },
+  });
+  const notes = await tx.creditNote.aggregate({
+    where: { organizationId: orgId, sourceInvoiceId: invoiceId, status: 'APPLIED', settlementType: 'APPLY_TO_INVOICE' },
+    _sum: { amount: true },
   });
   const settled = isSettled(
     toNumber(invoice.totalAmount),
-    toNumber(cleared._sum.amountApplied) + toNumber(cleared._sum.discountAmount),
+    toNumber(cleared._sum.amountApplied) + toNumber(cleared._sum.discountAmount) + toNumber(notes._sum.amount),
   );
 
   if (settled && INVOICE_OPEN_STATUSES.has(invoice.status)) {
-    await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'PAID', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'PAID', updatedAt: new Date() } });
     return 'PAID';
   }
   if (!settled && invoice.status === 'PAID') {
-    await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'SENT', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'SENT', updatedAt: new Date() } });
     return 'REOPENED';
   }
   return null;
@@ -72,7 +80,9 @@ export async function syncBillSettlementStatus(
   tx: Tx,
   orgId: string,
   billId: string,
+  options: { dryRun?: boolean } = {},
 ): Promise<SettlementTransition> {
+  await tx.$queryRaw`SELECT "id" FROM "Bill" WHERE "id" = ${billId} AND "organizationId" = ${orgId} FOR UPDATE`;
   const bill = await tx.bill.findFirst({
     where: { id: billId, organizationId: orgId },
     select: { id: true, status: true, totalAmount: true },
@@ -80,20 +90,24 @@ export async function syncBillSettlementStatus(
   if (!bill) return null;
 
   const cleared = await tx.aPPaymentAllocation.aggregate({
-    where: { billId, payment: { status: 'COMPLETED' } },
+    where: { billId, payment: { organizationId: orgId, status: 'COMPLETED' } },
     _sum: { amountApplied: true, discountAmount: true },
+  });
+  const notes = await tx.debitNote.aggregate({
+    where: { organizationId: orgId, sourceBillId: billId, status: 'APPLIED', settlementType: 'APPLY_TO_BILL' },
+    _sum: { amount: true },
   });
   const settled = isSettled(
     toNumber(bill.totalAmount),
-    toNumber(cleared._sum.amountApplied) + toNumber(cleared._sum.discountAmount),
+    toNumber(cleared._sum.amountApplied) + toNumber(cleared._sum.discountAmount) + toNumber(notes._sum.amount),
   );
 
   if (settled && BILL_OPEN_STATUSES.has(bill.status)) {
-    await tx.bill.update({ where: { id: bill.id }, data: { status: 'PAID', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.bill.update({ where: { id: bill.id }, data: { status: 'PAID', updatedAt: new Date() } });
     return 'PAID';
   }
   if (!settled && bill.status === 'PAID') {
-    await tx.bill.update({ where: { id: bill.id }, data: { status: 'OPEN', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.bill.update({ where: { id: bill.id }, data: { status: 'OPEN', updatedAt: new Date() } });
     return 'REOPENED';
   }
   return null;
@@ -115,7 +129,7 @@ export async function syncArPaymentSettlement(
     select: { invoiceId: true },
   });
   const ids = new Set<string>([...allocations.map((a) => a.invoiceId), ...alsoInvoiceIds]);
-  for (const invoiceId of ids) {
+  for (const invoiceId of [...ids].sort()) {
     await syncInvoiceSettlementStatus(tx, orgId, invoiceId);
   }
 }
@@ -132,9 +146,20 @@ export async function syncApPaymentSettlement(
     select: { billId: true },
   });
   const ids = new Set<string>([...allocations.map((a) => a.billId), ...alsoBillIds]);
-  for (const billId of ids) {
+  for (const billId of [...ids].sort()) {
     await syncBillSettlementStatus(tx, orgId, billId);
   }
+}
+
+/** Only linked debt credits affect document status; cash refunds do not. */
+export async function syncCreditNoteSettlement(tx: Tx, orgId: string, noteId: string) {
+  const note = await tx.creditNote.findFirst({ where: { id: noteId, organizationId: orgId }, select: { sourceInvoiceId: true, settlementType: true } });
+  if (note?.sourceInvoiceId && note.settlementType === 'APPLY_TO_INVOICE') await syncInvoiceSettlementStatus(tx, orgId, note.sourceInvoiceId);
+}
+
+export async function syncDebitNoteSettlement(tx: Tx, orgId: string, noteId: string) {
+  const note = await tx.debitNote.findFirst({ where: { id: noteId, organizationId: orgId }, select: { sourceBillId: true, settlementType: true } });
+  if (note?.sourceBillId && note.settlementType === 'APPLY_TO_BILL') await syncBillSettlementStatus(tx, orgId, note.sourceBillId);
 }
 
 /** A document is settled once the cleared amount reaches its total (to the cent). */

@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
+import { syncCreditNoteSettlement, syncDebitNoteSettlement } from './settlement-status';
 
 type Tx = Prisma.TransactionClient;
 
@@ -22,6 +23,7 @@ interface VoidConfig {
    * BEFORE the GL reversal so only the winner reverses (no double-reversal).
    */
   claimVoid: (tx: Tx, orgId: string, id: string) => Promise<{ count: number }>;
+  syncSettlement: (tx: Tx, orgId: string, id: string) => Promise<void>;
 }
 
 /**
@@ -62,6 +64,9 @@ async function voidNote(
     throw new ApiError(`${cfg.label} is already voided`, 409);
   }
 
+  // Take the document lock before journal numbering, matching application.
+  // Everything, including the status change, rolls back if reversal fails.
+  await cfg.syncSettlement(tx, orgId, id);
   await reverseJournalEntry(tx, note.journalEntryId, {
     date: opts.date,
     memo: `Void ${cfg.label}: ${note.number}`,
@@ -70,6 +75,7 @@ async function voidNote(
 
 const CN_CONFIG: VoidConfig = {
   label: 'credit note',
+  syncSettlement: syncCreditNoteSettlement,
   find: (tx, orgId, id) =>
     tx.creditNote.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true } }),
   claimVoid: (tx, orgId, id) =>
@@ -78,16 +84,17 @@ const CN_CONFIG: VoidConfig = {
 
 const DN_CONFIG: VoidConfig = {
   label: 'debit note',
+  syncSettlement: syncDebitNoteSettlement,
   find: (tx, orgId, id) =>
     tx.debitNote.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true } }),
   claimVoid: (tx, orgId, id) =>
     tx.debitNote.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
 };
 
-export function voidCreditNote(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {
-  return voidNote(tx, orgId, id, opts, CN_CONFIG);
+export async function voidCreditNote(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {
+  await voidNote(tx, orgId, id, opts, CN_CONFIG);
 }
 
-export function voidDebitNote(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {
-  return voidNote(tx, orgId, id, opts, DN_CONFIG);
+export async function voidDebitNote(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {
+  await voidNote(tx, orgId, id, opts, DN_CONFIG);
 }

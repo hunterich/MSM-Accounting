@@ -52,7 +52,7 @@ export async function voidInvoice(
     throw new ApiError('Draft invoices are not posted — delete the invoice instead of voiding', 422);
   }
   if (inv.status === 'PAID') {
-    throw new ApiError('Cannot void a paid invoice — void its receipts first', 422);
+    throw new ApiError('Cannot void a paid invoice — void its receipts or applied credit notes first', 422);
   }
   if (inv.paymentAllocations.length > 0) {
     throw new ApiError('Cannot void an invoice with receipts applied — unallocate them first', 422);

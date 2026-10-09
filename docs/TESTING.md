@@ -97,8 +97,39 @@ themselves twice, a completion retry posts no extra journal, void notes remain
 terminal, pending notes cannot bypass approval or be edited/deleted, and draft
 party edits cannot link another company's records. A stale approval fails with
 the note, approval request and journal count unchanged. These checks use the
-real API and PostgreSQL; broader reversal races and note-aware PAID/reopened
-document status derivation still need coverage.
+real API and PostgreSQL; broader reversal races across other document types
+still need coverage. Note-aware document status has separate coverage below.
+
+`e2e/note-settlement-status.spec.ts` verifies AR/AP Paid/reopened status with
+completed payment principal plus discounts and applied linked notes. Drafts,
+approval holds and monetary refunds leave debt outstanding. Real approval and
+ordinary note application can complete settlement; voiding notes/payments
+reopens it. Concurrent note/payment reversals both finish and leave one journal
+reversal per source. Locks are acquired in document order before journal
+numbering. These checks do not certify all reversal races across other modules.
+Full-amount credit/debit notes also settle a document with zero payments;
+voiding the note alone reopens it through the note settlement sync. The paid
+document void error directs users to the applied note in this case.
+
+`lib/__tests__/integration/backfill-note-settlement-status.int.test.ts` verifies
+legacy status reconciliation against isolated PostgreSQL: dry runs persist no
+changes, application is idempotent and scoped by company, and partial amounts,
+refunds, pending/void notes and draft documents are excluded. Notes, payments
+and journals remain unchanged.
+
+### One-time backfill for existing note-covered documents
+
+No schema migration is needed. Set `DATABASE_URL` explicitly to the intended
+database, then preview with `npm run db:backfill-note-status`. Review the scanned
+and Paid-transition counts; run `npm run db:backfill-note-status -- --apply` to
+persist them. Add `--organization=<id>` to either command to limit the company.
+The script processes open invoices (SENT/OVERDUE) and bills
+(OPEN/PENDING/OVERDUE) with applied linked debt notes in batches of 100, then
+locks and rechecks each document before using the shared settlement sync.
+Dry runs take the same locks but write no records. Each document commits
+separately, so an interrupted run can safely be repeated. Already Paid, draft,
+approval-held and void documents are excluded; no journal entries are created.
+These commands are operational instructions, not an automatic deployment step.
 
 The three POS checks create their own stocked company and register. They verify
 online cash checkout, replay protection and shift reconciliation; offline shift

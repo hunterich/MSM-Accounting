@@ -54,7 +54,7 @@ export async function voidBill(
     throw new ApiError('Draft bills are not posted — delete the bill instead of voiding', 422);
   }
   if (bill.status === 'PAID') {
-    throw new ApiError('Cannot void a paid bill — void or unallocate its payments first', 422);
+    throw new ApiError('Cannot void a paid bill — void or unallocate its payments, or void its applied debit notes first', 422);
   }
   if (bill.paymentAllocations.length > 0) {
     throw new ApiError('Cannot void a bill with payments applied — unallocate its payments first', 422);
