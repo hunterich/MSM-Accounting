@@ -6,6 +6,38 @@ test.afterEach(cleanupAccountingCompany)
 test.afterAll(async () => { await db.$disconnect() })
 
 for (const kind of ['ar', 'ap'] as const) {
+  test(`${kind.toUpperCase()} full note alone makes Paid; voiding the note alone reopens`, async ({ page }) => {
+    const { orgId, vendor, customer, item } = await accountingCompany(page)
+    const bill = await api(page, '/bills', { vendorId: vendor.id, vendorInvoiceNo: 'NOTE-ONLY', issueDate: DATE,
+      status: 'OPEN', taxable: false, taxRate: 0, subtotal: 2000, totalAmount: 2000,
+      lines: [{ itemId: item.id, description: item.name, quantity: 2, price: 1000, lineTotal: 2000 }] }, 'POST')
+    let doc = bill
+    if (kind === 'ar') {
+      doc = await api(page, '/invoices', { customerId: customer.id, issueDate: DATE,
+        tax: { enabled: false, inclusive: false, rate: 0 },
+        lines: [{ itemId: item.id, description: item.name, quantity: 1, price: 2000 }] }, 'POST')
+      await api(page, `/invoices/${doc.id}`, { status: 'SENT' }, 'PUT')
+    }
+    const notePath = kind === 'ar' ? '/credit-notes' : '/debit-notes'
+    const docPath = kind === 'ar' ? '/invoices' : '/bills'
+    const note = await api(page, notePath, { date: DATE, amount: 2000, applyTax: false,
+      [kind === 'ar' ? 'customerId' : 'vendorId']: kind === 'ar' ? customer.id : vendor.id,
+      [kind === 'ar' ? 'sourceInvoiceId' : 'sourceBillId']: doc.id,
+      settlementType: kind === 'ar' ? 'APPLY_TO_INVOICE' : 'APPLY_TO_BILL' }, 'POST')
+    const paymentCount = () => kind === 'ar'
+      ? db.aRPayment.count({ where: { organizationId: orgId } })
+      : db.aPPayment.count({ where: { organizationId: orgId } })
+    expect(await paymentCount()).toBe(0)
+    await api(page, `${notePath}/${note.id}`, { status: 'APPLIED' }, 'PUT')
+    expect((await api(page, `${docPath}/${doc.id}`)).status).toBe('PAID')
+    const blocked = await page.request.post(`http://localhost:3100/api/v1${docPath}/${doc.id}/void`, { data: {} })
+    expect(blocked.status()).toBe(422)
+    expect(await blocked.text()).toContain(kind === 'ar' ? 'applied credit notes' : 'applied debit notes')
+    await api(page, `${notePath}/${note.id}/void`, {}, 'POST')
+    expect((await api(page, `${docPath}/${doc.id}`)).status).toBe(kind === 'ar' ? 'SENT' : 'OPEN')
+    expect(await paymentCount()).toBe(0)
+  })
+
   test(`${kind.toUpperCase()} applied notes and payments derive Paid; reversals reopen; refunds do not clear debt`, async ({ page }) => {
     const { orgId, vendor, customer, item } = await accountingCompany(page)
     const bill = await api(page, '/bills', { vendorId: vendor.id, vendorInvoiceNo: 'NOTE-STATUS', issueDate: DATE,

@@ -1,7 +1,7 @@
 # MSM Accounting Software — Improvement Roadmap
 
 > Benchmarked against ERPNext (open-source ERP).
-> Created 2026-02-27 | Latest released changelog version: v1.1.0 | Reconciled with code/tests: 2026-10-08
+> Created 2026-02-27 | Latest released changelog version: v1.1.0 | Reconciled with code/tests: 2026-10-09
 
 ---
 
@@ -25,6 +25,13 @@ The first target customers are small distribution and e-commerce companies in In
 - [ ] **P1 — remaining deployment smoke**: Google sign-in under the deployed CSP, old-tab recovery after upgrade and POS worker scope. Security headers and ordinary authenticated browser journeys passed on both servers.
 - [ ] **P1 — live billing document and finance delivery validation**: due templates, approval holds, locked-period failures and duplicate-free document catch-up after restart. Migration and Windows billing startup/restart passed, but the company currently has no recurring templates/subscriptions. Finance emails are intentionally disabled on both servers at the operator's request; provider credentials, verified sender, desired company toggles and real delivery verification remain deferred. Source and PostgreSQL/mocked-provider tests pass.
 - [ ] **P2 — accounting defaults expansion**: `stockVariance`, `purchaseDiscount`, `incomeTaxExpense`, settings sub-tabs and exact posting-account regressions.
+
+Legacy open documents covered by applied notes can be reconciled with
+`npm run db:backfill-note-status` (dry run) followed by `-- --apply` after
+reviewing the counts. This is a status-only backfill; operational use is still
+pending. Isolated PostgreSQL tests prove dry-run safety, idempotency and tenant
+scoping; AR/AP browser journeys prove note-only settlement and reopening.
+See `docs/TESTING.md` for database selection and company-scoped usage.
 
 ## Legend
 

@@ -35,12 +35,14 @@ export type SettlementTransition = 'PAID' | 'REOPENED' | null;
 
 /**
  * Re-derive one invoice's status from payments and linked debt credits.
- * Returns the transition applied, or null when nothing changed.
+ * Returns the transition applied (or previewed with dryRun), or null when
+ * nothing changes. Dry runs retain the document lock without writing status.
  */
 export async function syncInvoiceSettlementStatus(
   tx: Tx,
   orgId: string,
   invoiceId: string,
+  options: { dryRun?: boolean } = {},
 ): Promise<SettlementTransition> {
   await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${invoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;
   const invoice = await tx.salesInvoice.findFirst({
@@ -63,11 +65,11 @@ export async function syncInvoiceSettlementStatus(
   );
 
   if (settled && INVOICE_OPEN_STATUSES.has(invoice.status)) {
-    await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'PAID', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'PAID', updatedAt: new Date() } });
     return 'PAID';
   }
   if (!settled && invoice.status === 'PAID') {
-    await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'SENT', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'SENT', updatedAt: new Date() } });
     return 'REOPENED';
   }
   return null;
@@ -78,6 +80,7 @@ export async function syncBillSettlementStatus(
   tx: Tx,
   orgId: string,
   billId: string,
+  options: { dryRun?: boolean } = {},
 ): Promise<SettlementTransition> {
   await tx.$queryRaw`SELECT "id" FROM "Bill" WHERE "id" = ${billId} AND "organizationId" = ${orgId} FOR UPDATE`;
   const bill = await tx.bill.findFirst({
@@ -100,11 +103,11 @@ export async function syncBillSettlementStatus(
   );
 
   if (settled && BILL_OPEN_STATUSES.has(bill.status)) {
-    await tx.bill.update({ where: { id: bill.id }, data: { status: 'PAID', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.bill.update({ where: { id: bill.id }, data: { status: 'PAID', updatedAt: new Date() } });
     return 'PAID';
   }
   if (!settled && bill.status === 'PAID') {
-    await tx.bill.update({ where: { id: bill.id }, data: { status: 'OPEN', updatedAt: new Date() } });
+    if (!options.dryRun) await tx.bill.update({ where: { id: bill.id }, data: { status: 'OPEN', updatedAt: new Date() } });
     return 'REOPENED';
   }
   return null;
