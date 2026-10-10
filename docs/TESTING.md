@@ -117,6 +117,28 @@ changes, application is idempotent and scoped by company, and partial amounts,
 refunds, pending/void notes and draft documents are excluded. Notes, payments
 and journals remain unchanged.
 
+### Stock adjustment and count contention
+
+Run `npm run test:int -- stock-adjustment stock-count inventory-invoice-corrections`
+against the disposable PostgreSQL database described below. The new
+`lib/__tests__/integration/stock-adjustment-concurrency.int.test.ts` holds real
+postings uncommitted and waits for PostgreSQL to report the blocked contender
+before releasing them. It checks remaining FIFO layer costs after a sale or
+another adjustment, a count's variance against the committed live quantity,
+sale rollback after an increase is voided, and void/status rollback when the
+increase has been consumed. A real create-route request contends with a count
+to verify adjustment numbering finishes without a lock cycle or duplicate
+numbers. Opposite-order multi-item adjustments, corrections and purchase
+returns complete with exact stock/COGS/variance values. Every case checks
+nonnegative lot balances, lot/ledger/GL agreement and the trial balance.
+
+Existing adjustment/count tests retain coverage for drafts, approval holds,
+warehouse scoping, mixed/net-zero adjustments, void cascades and repeat voids.
+The known unequal-cost Weighted Average reconciliation case remains an
+expected failure; this change preserves valuation and shortfall policies.
+The existing invoice-correction browser suite also checks form/API regression.
+No migration or production data update is needed for these locks.
+
 ### Posted inventory invoice corrections
 
 Posted inventory corrections have separate coverage in
