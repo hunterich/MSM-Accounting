@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — concurrent stock adjustments and counts
+- Stock adjustments acquire sorted item locks before reading or changing cost layers and before journal numbering. Voids use the same order, re-read stock under those locks and roll back when an added layer has been consumed.
+- Stock counts lock items before reading live on-hand and generating their variance adjustment. Direct adjustment creation uses item locks before adjustment numbering, avoiding a lock cycle with counts.
+- Seven isolated PostgreSQL races verify FIFO costs, count quantities, consumed-stock rollback, adjustment numbering and concurrent sales, corrections and purchase returns. Existing costing and adjustment-shortfall rules remain unchanged. No migration or data backfill is required.
+
 ### Fixed — notification freshness and subscription dates
 - Finance notifications are not queued without a provider key; payment checkpoints advance while offline so later setup does not replay that interval. Existing unattempted reminders, summaries and payment alerts expire after 24 hours from queue creation, retaining cancelled audit rows. Attempted deliveries keep existing idempotency/retry safeguards. No production notification rows were changed during development.
 - Subscription invoice and posting dates use the company's business-day label rather than the exact run instant, including Jakarta midnight. Subscription claims, approvals and retries retain their existing behavior.

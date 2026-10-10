@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { stockAdjustmentInputSchema } from '@/types/api';
+import { lockInventoryItems } from '@/lib/inventory-costing';
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 
@@ -76,6 +77,9 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
       await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId }, 'Item not found in organization');
     }
 
+    // Stock-count posting also holds item locks while allocating ADJ numbers.
+    // Use that order here so direct posting cannot take the opposite order.
+    await lockInventoryItems(tx, orgId, lines.map(line => line.itemId));
     const number = await nextNumber(tx, 'StockAdjustment', 'number', 'ADJ');
     const adj = await tx.stockAdjustment.create({
       data: {
