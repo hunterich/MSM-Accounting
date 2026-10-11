@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
 import { toNumber, asMoney } from './money';
 import { ApiError } from './errors';
-import { addCostLayer } from './inventory-costing';
+import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
@@ -64,6 +64,7 @@ export async function postGoodsReceiptToLedger(
   }
   grirNet = asMoney(grirNet);
   if (grirNet <= 0) return;
+  await lockInventoryItems(tx, orgId, layers.map(layer => layer.itemId));
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },

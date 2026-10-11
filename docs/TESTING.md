@@ -117,6 +117,23 @@ changes, application is idempotent and scoped by company, and partial amounts,
 refunds, pending/void notes and draft documents are excluded. Notes, payments
 and journals remain unchanged.
 
+### Purchase stock contention
+
+Purchase stock contention is covered by
+`lib/__tests__/integration/purchase-stock-concurrency.int.test.ts`. Run
+`npm run test:int -- purchase-stock-concurrency void-concurrency edit-posted-repost gl-invariants inventory-invoice-corrections asset-purchase`
+against the disposable database. Real uncommitted bill/receipt postings, voids,
+corrections and sales overlap until PostgreSQL reports the waiting transaction.
+Checks cover newly committed stock becoming available, exact FIFO COGS,
+insufficient-stock rollback after voiding, consumed-stock refusal with unchanged
+bill/PO status and journals, and replacement-item correction before a sale.
+An actual PO receive-route request runs concurrently with un-receiving a prior
+receipt, checking net received quantity, stock and GR/IR. All cases check lot
+balances, lot/ledger/GL reconciliation and trial balance. The existing
+`purchase-receipt.spec.ts` and `accounting-journeys.spec.ts` browser suites cover
+receipt/finalization forms and inventory bill/sale workflows. No migration is
+needed for purchase item locks.
+
 ### Posted inventory invoice corrections
 
 Posted inventory corrections have separate coverage in

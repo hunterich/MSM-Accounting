@@ -6,6 +6,7 @@ import { reversePurchaseLayers } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
+import { advisoryLockKey } from './advisory-lock';
 
 type Tx = Prisma.TransactionClient;
 
@@ -52,6 +53,9 @@ export async function unreceiveGoodsReceipt(
   }
 
   await assertPeriodOpen(tx, orgId, opts.date);
+  // Receiving and un-receiving the same PO share the receive claim. PO row
+  // changes below precede item locks and journal numbering, as in receiving.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`po-receive:${bill.poId}`)})`;
 
   // Atomically claim the un-receive before any side effect, using the soft-delete
   // field as the claim token. The guarded `updateMany` takes a row lock; a
@@ -66,6 +70,25 @@ export async function unreceiveGoodsReceipt(
   if (claim.count !== 1) {
     throw new ApiError('Goods receipt already un-received', 409);
   }
+
+  // Roll back PO quantities first. A consumed-stock failure below rolls these
+  // changes and the soft-delete claim back in the same transaction.
+  for (const line of [...bill.lines].sort((a, b) => (a.purchaseOrderLineId ?? '').localeCompare(b.purchaseOrderLineId ?? ''))) {
+    if (!line.purchaseOrderLineId) continue;
+    await tx.purchaseOrderLine.update({
+      where: { id: line.purchaseOrderLineId },
+      data: { receivedQty: { decrement: toNumber(line.quantity) } },
+    });
+  }
+  const poLines = await tx.purchaseOrderLine.findMany({
+    where: { purchaseOrderId: bill.poId },
+    select: { quantity: true, receivedQty: true },
+  });
+  const anyReceived = poLines.some((pl) => toNumber(pl.receivedQty) > QTY_EPSILON);
+  await tx.purchaseOrder.update({
+    where: { id: bill.poId },
+    data: { status: anyReceived ? 'PARTIAL_RECEIVED' : 'APPROVED' },
+  });
 
   // Remove the cost layers this receipt booked (throws if any was consumed).
   const valueRemoved = await reversePurchaseLayers(tx, orgId, bill.id, opts.date);
@@ -93,25 +116,6 @@ export async function unreceiveGoodsReceipt(
       ],
     });
   }
-
-  // Roll back the PO: decrement receivedQty on each linked line, then recompute status.
-  for (const line of bill.lines) {
-    if (!line.purchaseOrderLineId) continue;
-    await tx.purchaseOrderLine.update({
-      where: { id: line.purchaseOrderLineId },
-      data: { receivedQty: { decrement: toNumber(line.quantity) } },
-    });
-  }
-
-  const poLines = await tx.purchaseOrderLine.findMany({
-    where: { purchaseOrderId: bill.poId },
-    select: { quantity: true, receivedQty: true },
-  });
-  const anyReceived = poLines.some((pl) => toNumber(pl.receivedQty) > QTY_EPSILON);
-  await tx.purchaseOrder.update({
-    where: { id: bill.poId },
-    data: { status: anyReceived ? 'PARTIAL_RECEIVED' : 'APPROVED' },
-  });
 
   // The receipt bill was already soft-deleted by the atomic claim above.
 }

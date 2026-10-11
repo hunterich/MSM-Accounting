@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 vi.mock('@/lib/prisma', () => ({ prisma: { purchaseOrder: { findFirst: vi.fn() }, $transaction: vi.fn() } }));
 vi.mock('@/lib/cors', () => ({ withCors: (r: Response) => r, corsPreflightResponse: () => new Response(null, { status: 204 }) }));
 vi.mock('@/lib/api-utils', async (orig) => ({ ...(await orig<any>()), nextNumber: vi.fn(async () => 'BILL-0001') }));
-vi.mock('@/lib/inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined) }));
+vi.mock('@/lib/inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined), lockInventoryItems: vi.fn(async () => undefined) }));
 vi.mock('@/lib/journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('@/lib/grir', () => ({ ensureGrIrAccount: vi.fn(async () => 'acc-grir') }));
 vi.mock('@/lib/account-defaults', async (orig) => ({ ...(await orig<any>()), loadOrgAccountDefaults: vi.fn(async () => ({})) }));

@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
 import { toNumber, asMoney } from './money';
-import { addCostLayer } from './inventory-costing';
+import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
 import { ensurePphPayableAccount } from './withholding';
@@ -74,6 +74,7 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
       })
     : [];
   const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
+  await lockInventoryItems(tx, orgId, [...inventoryItemIds]);
 
   // If goods were already received against this bill (cost layers booked at
   // receipt), inventory is already on the books — every stocked line must clear
