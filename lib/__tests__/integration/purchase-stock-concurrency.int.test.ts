@@ -8,6 +8,7 @@ import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { voidBill } from '@/lib/bill-void';
 import { reverseBillPosting } from '@/lib/repost';
 import { unreceiveGoodsReceipt } from '@/lib/unreceive-goods';
+import { advisoryLockKey } from '@/lib/advisory-lock';
 import { prisma, createTestOrg, createCustomer, createVendor, createItem, cleanupOrg, disconnect,
   accountBalance, assertInventoryReconciled, assertTrialBalanced, type TestOrg } from './harness';
 
@@ -88,6 +89,54 @@ async function check(org: TestOrg, qty: number, value: number) {
 }
 
 describe('purchase stock transaction locks', () => {
+  it('a GR/IR-only PO bill re-post holding journal numbering cannot form a cycle with a sale holding the item', async () => {
+    const org = await createTestOrg();
+    const ready = deferred<void>(), saleHasItem = deferred<void>();
+    let repost: Promise<unknown> | undefined, checkout: Promise<unknown> | undefined;
+    try {
+      const itemId = await createItem(org.orgId, 100);
+      const { received } = await receipt(org, itemId);
+      await prisma.$transaction(async tx => {
+        await tx.bill.update({ where: { id: received.id }, data: { status: 'OPEN' } });
+        const current = await tx.bill.findUniqueOrThrow({ where: { id: received.id }, include: { lines: true } });
+        await postBillToLedger(tx, org.orgId, current);
+      });
+      const invoice = await sale(org, itemId, 3);
+      repost = prisma.$transaction(async tx => {
+        const current = await tx.bill.findUniqueOrThrow({ where: { id: received.id }, include: { lines: true } });
+        await reverseBillPosting(tx, org.orgId, current, { date: DATE });
+        ready.resolve();
+        await saleHasItem.promise;
+        await postBillToLedger(tx, org.orgId, current);
+      }, { timeout: 10000 });
+      const settledRepost = repost.then(() => undefined, error => error);
+      await Promise.race([ready.promise, repost.then(() => { throw new Error('Re-post did not wait'); })]);
+      checkout = prisma.$transaction(tx => send(new Proxy(tx, {
+        get(target, key) {
+          const value = Reflect.get(target, key);
+          if (key === '$executeRaw') return async (...args: unknown[]) => {
+            const result = await Reflect.apply(value, target, args);
+            if (String(args[0]).includes('pg_advisory_xact_lock') && args[1] === advisoryLockKey(`item-stock:${org.orgId}:${itemId}`)) saleHasItem.resolve();
+            return result;
+          };
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }), org, invoice.id), { timeout: 10000 });
+      checkout.catch(() => saleHasItem.resolve());
+      const outcomes = await Promise.allSettled([repost, checkout]);
+      expect(outcomes.map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
+      expect(await settledRepost).toBeUndefined();
+      expect(await accountBalance(org.orgId, org.accounts.grIrClearing)).toBe(0);
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(300);
+      expect(await prisma.inventoryLot.count({ where: { organizationId: org.orgId, documentId: received.id } })).toBe(1);
+      await check(org, 7, 700);
+    } finally {
+      saleHasItem.resolve();
+      await Promise.allSettled([repost, checkout].filter(Boolean));
+      await cleanupOrg(org.orgId);
+    }
+  });
+
   it.each(['bill', 'goods receipt'] as const)('a sale waits for an uncommitted %s and sees its stock', async kind => {
     const org = await createTestOrg();
     try {

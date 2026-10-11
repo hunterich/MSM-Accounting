@@ -134,6 +134,14 @@ balances, lot/ledger/GL reconciliation and trial balance. The existing
 receipt/finalization forms and inventory bill/sale workflows. No migration is
 needed for purchase item locks.
 
+The PO helper re-post regression holds journal numbering after reversing a
+GR/IR-only bill, then starts a sale that holds the item's stock lock. The re-post
+must finish without attempting that item lock, allowing the sale to proceed;
+GR/IR, FIFO/COGS and remaining inventory reconcile. This exercises the helpers
+directly: the edit API continues to reject posted PO-linked bill corrections.
+Normal GR/IR-only bills and already-booked receipts also skip item locking;
+direct bills still lock all newly written stock-layer items before journal posting.
+
 ### Posted inventory invoice corrections
 
 Posted inventory corrections have separate coverage in
