@@ -139,6 +139,13 @@ expected failure; this change preserves valuation and shortfall policies.
 The existing invoice-correction browser suite also checks form/API regression.
 No migration or production data update is needed for these locks.
 
+`lib/__tests__/integration/pos-sale-posting.int.test.ts` also forces a reverse-order
+batch cart to overlap a sorted stock adjustment: the adjustment holds the first
+item while POS attempts it, then both must finish without a lock cycle. Exact
+COGS, variance and remaining lot quantities reconcile to the GL and trial balance.
+POS locks the complete materialized item set before its FEFO loop, including
+ordinary items and inventory-linked modifiers.
+
 ### Posted inventory invoice corrections
 
 Posted inventory corrections have separate coverage in

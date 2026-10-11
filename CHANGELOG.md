@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed — concurrent stock adjustments and counts
 - Stock adjustments acquire sorted item locks before reading or changing cost layers and before journal numbering. Voids use the same order, re-read stock under those locks and roll back when an added layer has been consumed.
 - Stock counts lock items before reading live on-hand and generating their variance adjustment. Direct adjustment creation uses item locks before adjustment numbering, avoiding a lock cycle with counts.
+- POS locks all materialized item IDs in sorted order before FEFO allocation and numbering, including inventory-linked modifiers and ordinary non-batch items. An opposite-order cart/adjustment PostgreSQL regression verifies both complete and reconcile.
 - Seven isolated PostgreSQL races verify FIFO costs, count quantities, consumed-stock rollback, adjustment numbering and concurrent sales, corrections and purchase returns. Existing costing and adjustment-shortfall rules remain unchanged. No migration or data backfill is required.
 
 ### Fixed — notification freshness and subscription dates

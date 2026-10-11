@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { ApiError } from '@/lib/errors';
-import { advisoryLockKey } from '@/lib/advisory-lock';
+import { lockInventoryItems } from '@/lib/inventory-costing';
 import { nextNumber } from '@/lib/api-utils';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
@@ -165,6 +165,9 @@ export async function postPosSale(
   const change = round2(cash - finalTotal);
 
   // 4. FEFO allocation for batch-tracked lines.
+  // Include ordinary items and inventory-linked modifiers before any batch
+  // read or numbering. Cart order must not determine the shared lock order.
+  await lockInventoryItems(tx, orgId, materialized.flatMap(line => line.itemId ? [line.itemId] : []));
   const allocationsByLine: { itemId: string; allocations: { stockBatchId: string; qty: number }[] }[] = [];
   for (const line of materialized) {
     if (!line.itemId) continue; // priced-only modifier lines draw no stock
@@ -173,13 +176,6 @@ export async function postPosSale(
       select: { requiresBatchTracking: true },
     });
     if (!item?.requiresBatchTracking) continue;
-    // Serialize per-item BEFORE the FEFO sufficiency read. Two concurrent sales
-    // otherwise both read the same qtyOnHand, both pass pickFefo, and both
-    // decrement the batch (step 8) below zero. Same lock key as the COGS/lot
-    // path (calculateAndPostCOGS) so this item's batch + lot draw-downs stay
-    // serialized under one transaction-scoped lock; the loser blocks here and
-    // re-reads the winner's committed qtyOnHand.
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`item-stock:${orgId}:${line.itemId}`)})`;
     const batches = await tx.stockBatch.findMany({
       where: { organizationId: orgId, itemId: line.itemId, warehouseId, qtyOnHand: { gt: 0 } },
       select: { id: true, expiryDate: true, qtyOnHand: true },
