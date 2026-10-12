@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — report tabs refresh and keep their filters
+- Open reports have a Refresh button that reloads the report with the same filters. Re-running "Ubah Filter" without changing anything also reloads instead of silently showing the previous result.
+- A report run while the tab limit is reached keeps its filters through the "make room" prompt instead of asking for them again.
+- Running the same report with different filters opens a separate tab, so periods can be compared side by side; identical filters refocus the existing tab. Report tab titles show their period and update after "Ubah Filter".
+
 ### Fixed — notification freshness and subscription dates
 - Finance notifications are not queued without a provider key; payment checkpoints advance while offline so later setup does not replay that interval. Existing unattempted reminders, summaries and payment alerts expire after 24 hours from queue creation, retaining cancelled audit rows. Attempted deliveries keep existing idempotency/retry safeguards. No production notification rows were changed during development.
 - Subscription invoice and posting dates use the company's business-day label rather than the exact run instant, including Jakarta midnight. Subscription claims, approvals and retries retain their existing behavior.

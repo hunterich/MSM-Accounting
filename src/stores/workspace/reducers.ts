@@ -112,6 +112,10 @@ export function setStatus(state: WorkspaceState, id: string, status: TabStatus):
     return mapTab(state, id, (t) => ({ ...t, status }));
 }
 
+export function setTitle(state: WorkspaceState, id: string, title: string): WorkspaceState {
+    return mapTab(state, id, (t) => ({ ...t, title }));
+}
+
 export function saveDraft(state: WorkspaceState, id: string, draft: unknown): WorkspaceState {
     return mapTab(state, id, (t) => ({
         ...t,
