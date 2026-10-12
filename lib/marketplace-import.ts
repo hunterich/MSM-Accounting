@@ -257,7 +257,10 @@ export async function importMarketplaceOrders(
             },
             select: { id: true },
           });
-          await postArPaymentIfNeeded(tx, orgId, payment.id);
+          await postArPaymentIfNeeded(tx, orgId, payment.id, {}, settlementGlAccountId ? {
+            source: 'MARKETPLACE_HOLDING',
+            accountId: settlementGlAccountId,
+          } : undefined);
           await tx.salesInvoice.update({
             where: { id: invoice.id },
             data: { status: 'PAID' },

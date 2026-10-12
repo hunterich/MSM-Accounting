@@ -1,4 +1,5 @@
 import type { AccountTypeValue } from './account-rules';
+import { selectCashAccounts, selectReceiptDepositAccounts, type CashAccountLike } from './cash-accounts';
 
 type AccountLike = {
   id: string;
@@ -7,6 +8,8 @@ type AccountLike = {
   type: string;
   isActive: boolean;
   isPostable: boolean;
+  parentId?: string | null;
+  reportGroup?: string | null;
 };
 
 type BankAccountLike = {
@@ -14,6 +17,7 @@ type BankAccountLike = {
   name?: string;
   code?: string;
   bankName?: string;
+  isActive?: boolean;
 };
 
 type AccountDefaultSpec = {
@@ -230,6 +234,21 @@ export function isAccountUsableForRole(account: AccountLike | null | undefined, 
 }
 
 function resolvePreferredMatch(accounts: AccountLike[], key: AccountDefaultKey) {
+  if (key === 'bankAsset') {
+    // Preferred IDs/codes remain authoritative, but a substring or an arbitrary
+    // first asset must not turn employee advances/receivables into a bank default.
+    const candidates = accounts.filter((account) => isAccountUsableForRole(account, key));
+    const spec = ACCOUNT_DEFAULT_SPECS.bankAsset;
+    for (const id of spec.preferredIds) {
+      if (candidates.some((account) => account.id === id)) return id;
+    }
+    for (const code of spec.preferredCodes) {
+      const match = candidates.find((account) => normalize(account.code) === normalize(code));
+      if (match) return match.id;
+    }
+    const cashIds = new Set(selectCashAccounts(accounts.map((account) => ({ ...account, parentId: account.parentId ?? null }))).map((account) => account.id));
+    return candidates.find((account) => cashIds.has(account.id))?.id || '';
+  }
   const spec: AccountDefaultSpec = ACCOUNT_DEFAULT_SPECS[key];
   const candidates = accounts.filter((account) => isAccountUsableForRole(account, key));
 
@@ -310,20 +329,42 @@ export function resolveBankLinkedAssetAccountId(
   bankId: string | null | undefined,
 ) {
   const bank = bankAccounts.find((account) => account.id === bankId);
-  if (!bank) return resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  if (!bank || bank.isActive === false) return resolveAccountDefaultId(accounts, settings, 'bankAsset');
 
   const candidates = accounts.filter((account) => isAccountUsableForRole(account, 'bankAsset'));
-  const bankKeywords = [bank.code, bank.bankName, bank.name]
-    .map((value) => normalize(value))
-    .filter(Boolean);
-
-  if (bankKeywords.length > 0) {
-    const matched = candidates.find((account) => {
-      const haystack = normalize(`${account.code} ${account.name}`);
-      return bankKeywords.some((keyword) => haystack.includes(keyword));
-    });
-    if (matched) return matched.id;
+  // Codes shorter than three characters are too broad to identify a GL asset.
+  // Prefer exact identifiers, then whole words/phrases, and never pick the first
+  // account when a Banking identifier matches multiple assets.
+  const identifiers = [bank.code, bank.name, bank.bankName]
+    .map(value => normalize(value))
+    .filter(value => value.replace(/\s/g, '').length >= 3);
+  for (const identifier of identifiers) {
+    const exact = candidates.filter(account =>
+      normalize(account.code) === identifier || normalize(account.name) === identifier,
+    );
+    if (exact.length === 1) return exact[0].id;
+    if (exact.length > 1) continue;
+    const matched = candidates.filter(account =>
+      ` ${normalize(`${account.code} ${account.name}`)} `.includes(` ${identifier} `),
+    );
+    if (matched.length === 1) return matched[0].id;
   }
 
   return resolveAccountDefaultId(accounts, settings, 'bankAsset');
+}
+
+/** Same accepted GL cash accounts for both payment pickers and posting guards.
+ * Bank mappings come from the organization's Banking configuration, never a
+ * request-provided list of allowed GL IDs.
+ */
+export function selectPaymentCashAccounts<T extends CashAccountLike & { isActive: boolean }>(
+  accounts: T[],
+  bankAccounts: BankAccountLike[],
+  settings: Partial<AccountDefaultsConfig> | undefined,
+): T[] {
+  const defaultId = resolveAccountDefaultId(accounts, settings, 'bankAsset');
+  const linkedIds = bankAccounts.filter(bank => bank.isActive !== false).map(bank =>
+    resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, bank.id),
+  );
+  return selectReceiptDepositAccounts(accounts, defaultId, linkedIds);
 }

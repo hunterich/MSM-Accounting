@@ -1,7 +1,8 @@
-import { Prisma, type PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 /** One aggregate row, regardless of invoice or allocation history size. */
-export async function dashboardAging(db: PrismaClient, organizationId: string, now: Date) {
+export async function dashboardAging(db: Pick<Prisma.TransactionClient, '$queryRaw'>, organizationId: string, now: Date) {
+  const instant = now.toISOString(); // Explicit offset survives a non-UTC database session.
   const [row] = await db.$queryRaw<Array<Record<string, Prisma.Decimal | bigint>>>(Prisma.sql`
     WITH invoices AS (
       SELECT id, "dueDate", "totalAmount" FROM "SalesInvoice"
@@ -13,10 +14,18 @@ export async function dashboardAging(db: PrismaClient, organizationId: string, n
       JOIN invoices i ON i.id = a."invoiceId"
       WHERE p."organizationId" = ${organizationId} AND p.status = 'COMPLETED'
       GROUP BY a."invoiceId"
+    ), notes AS (
+      SELECT n."sourceInvoiceId", SUM(n.amount) AS amount FROM "CreditNote" n
+      JOIN invoices i ON i.id = n."sourceInvoiceId"
+      WHERE n."organizationId" = ${organizationId} AND n.status = 'APPLIED'
+        AND n."settlementType" = 'APPLY_TO_INVOICE'
+      GROUP BY n."sourceInvoiceId"
     ), outstanding AS (
-      SELECT GREATEST(ROUND(i."totalAmount" - COALESCE(c.amount, 0), 2), 0) AS amount,
-        COALESCE(FLOOR(EXTRACT(EPOCH FROM (${now}::timestamp - i."dueDate")) / 86400), 0) AS days
+      SELECT GREATEST(ROUND(i."totalAmount" - COALESCE(c.amount, 0) - COALESCE(n.amount, 0), 2), 0) AS amount,
+        COALESCE((${instant}::timestamptz AT TIME ZONE 'Asia/Jakarta')::date -
+          (i."dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta')::date, 0) AS days
       FROM invoices i LEFT JOIN cleared c ON c."invoiceId" = i.id
+      LEFT JOIN notes n ON n."sourceInvoiceId" = i.id
     )
     SELECT COALESCE(SUM(amount) FILTER (WHERE days <= 0), 0) AS current,
       COALESCE(SUM(amount) FILTER (WHERE days BETWEEN 1 AND 30), 0) AS "d1To30",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectCashAccounts } from '@/lib/cash-accounts';
+import { selectCashAccounts, selectReceiptDepositAccounts } from '@/lib/cash-accounts';
 
 const acc = (
   id: string,
@@ -50,5 +50,54 @@ describe('selectCashAccounts', () => {
   it('survives a parent cycle in bad data', () => {
     const accounts = [acc('a', '1-1', 'A', { parentId: 'b' }), acc('b', '1-2', 'B', { parentId: 'a' })];
     expect(selectCashAccounts(accounts)).toEqual([]);
+  });
+});
+
+describe('selectReceiptDepositAccounts', () => {
+  const active = (id: string, name: string, extra: Record<string, unknown> = {}) =>
+    ({ ...acc(id, '1-1900', name), isActive: true, ...extra });
+
+  it('includes a configured top-level bank asset without cash keywords, alongside classified cash', () => {
+    const accounts = [active('bca', 'BCA 0123-456'), active('cash', 'Kas Kecil'), active('ar', 'Piutang Usaha')];
+    expect(selectReceiptDepositAccounts(accounts, 'bca').map(a => a.id)).toEqual(['bca', 'cash']);
+    expect(selectReceiptDepositAccounts(accounts).map(a => a.id)).toEqual(['cash']);
+  });
+
+  it('does not let a configured default bypass activity, postability or asset type', () => {
+    for (const extra of [{ isActive: false }, { isPostable: false }, { type: 'LIABILITY' }]) {
+      expect(selectReceiptDepositAccounts([active('bca', 'BCA 0123-456', extra)], 'bca')).toEqual([]);
+    }
+  });
+
+  it('ignores a configured ID absent from the organization chart', () => {
+    expect(selectReceiptDepositAccounts([active('ar', 'Piutang Usaha')], 'foreign-bank')).toEqual([]);
+  });
+
+  it('keeps UI Asset casing and parent cash accounts supported without duplicates', () => {
+    const accounts = [
+      active('header', 'Kas & Bank', { isPostable: false }),
+      active('bca', 'BCA IDR', { type: 'Asset', parentId: 'header' }),
+    ];
+    expect(selectReceiptDepositAccounts(accounts, 'bca').map(a => a.id)).toEqual(['bca']);
+  });
+});
+
+describe('cash keyword boundaries', () => {
+  it('excludes employee advances and embedded cash/bank words from names and report groups', () => {
+    const accounts = [
+      acc('advances', '1-1800', 'Kasbon Karyawan'),
+      acc('cashier', '1-1801', 'Cashier Receivable'),
+      acc('group', '1-1802', 'Employee Advances', { reportGroup: 'Kasbon' }),
+      acc('kas', '1-1803', 'Kas & Bank'),
+    ];
+    expect(selectCashAccounts(accounts).map(a => a.id)).toEqual(['kas']);
+    expect(selectReceiptDepositAccounts(accounts.map(a => ({ ...a, isActive: true }))).map(a => a.id)).toEqual(['kas']);
+  });
+
+  it('does not classify children of a Kasbon header as cash', () => {
+    expect(selectCashAccounts([
+      acc('hdr', '1-1800', 'Kasbon Karyawan', { isPostable: false }),
+      acc('child', '1-1801', 'Employee A', { parentId: 'hdr' }),
+    ])).toEqual([]);
   });
 });
