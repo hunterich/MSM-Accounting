@@ -141,6 +141,7 @@ GR/IR, FIFO/COGS and remaining inventory reconcile. This exercises the helpers
 directly: the edit API continues to reject posted PO-linked bill corrections.
 Normal GR/IR-only bills and already-booked receipts also skip item locking;
 direct bills still lock all newly written stock-layer items before journal posting.
+
 ### Stock adjustment and count contention
 
 Run `npm run test:int -- stock-adjustment stock-count inventory-invoice-corrections`
