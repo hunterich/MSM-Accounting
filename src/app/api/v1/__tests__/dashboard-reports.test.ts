@@ -30,10 +30,10 @@ describe('dashboard financial reports', () => {
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
   it('returns reconciled period sales and all-date outstanding, preserving decimal precision', async () => {
-    vi.mocked(prisma.$queryRaw).mockResolvedValue([{ sales: '100.25', unpaid: '20.10', current: '20.10', overdue: '40.20' }]);
+    vi.mocked(prisma.$queryRaw).mockResolvedValue([{ grossSales: '100.25', returns: '0', paid: '80.15', unpaid: '20.10', current: '20.10', overdue: '40.20' }]);
     const response = await GET(request('type=sales&dateFrom=2026-10-01&dateTo=2026-10-08'));
     const data = await response.json();
-    expect(data).toEqual({ sales: 100.25, paid: 80.15, unpaid: 20.1, current: 20.1, overdue: 40.2, outstanding: 60.3 });
+    expect(data).toEqual({ sales: 100.25, grossSales: 100.25, returns: 0, paid: 80.15, unpaid: 20.1, current: 20.1, overdue: 40.2, outstanding: 60.3 });
     const sql = vi.mocked(prisma.$queryRaw).mock.calls[0][0] as unknown as { values: unknown[] };
     expect(sql.values).toContain('org-test');
     expect(sql.values).toContainEqual(new Date('2026-09-30T17:00:00Z'));

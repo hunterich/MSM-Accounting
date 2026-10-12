@@ -7,6 +7,10 @@ import { postArPaymentIfNeeded } from '@/lib/payment-posting';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { syncArPaymentSettlement } from '@/lib/settlement-status';
 import type { Prisma } from '@prisma/client';
+import { lockInventoryItems } from '@/lib/inventory-costing';
+import { advisoryLockKey } from '@/lib/advisory-lock';
+import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
+import { assertInventoryReconciled } from './harness';
 
 afterAll(async () => {
   await disconnect();
@@ -64,6 +68,90 @@ function saleInput(itemId: string, registerId: string, shiftId: string, clientSa
 }
 
 describe('postPosSale', () => {
+  it('a reverse-order batch cart and sorted adjustment finish without an item-lock cycle', async () => {
+    const { org, itemId, registerId, shiftId } = await setup();
+    try {
+      const second = await prisma.item.create({ data: { organizationId: org.orgId, sku: 'SECOND', name: 'Second batch item',
+        type: 'PRODUCT', requiresBatchTracking: true, costPrice: 2000, sellingPrice: 5000 } });
+      await prisma.$transaction(tx => receiveBatch(tx, org.orgId, { itemId: second.id, warehouseId: org.warehouseId,
+        batchNumber: 'SECOND', expiryDate: new Date('2027-10-01'), qty: 105, unitCost: 2000, date: new Date('2026-07-01') }));
+      const [a, b] = [itemId, second.id].sort();
+      const adj = await prisma.stockAdjustment.create({ data: { organizationId: org.orgId, number: 'ADJ-POS-ORDER',
+        date: new Date('2026-07-03'), reason: 'Concurrent POS adjustment', status: 'APPROVED' } });
+      let ready!: () => void, attemptingA!: () => void;
+      const heldA = new Promise<void>(done => { ready = done; });
+      const posAttemptsA = new Promise<void>(done => { attemptingA = done; });
+      const adjusting = prisma.$transaction(async tx => {
+        await lockInventoryItems(tx, org.orgId, [a]); ready();
+        await posAttemptsA;
+        await postStockAdjustmentToLedger(tx, org.orgId, { ...adj, warehouseId: org.warehouseId,
+          lines: [a, b].map(id => ({ itemId: id, oldQty: 105, newQty: 104, unitCost: 2000 })) });
+      }, { timeout: 10000 });
+      const settledAdjustment = adjusting.then(() => undefined, error => error);
+      await heldA;
+      const input = saleInput(itemId, registerId, shiftId, 'client-sorted-item-locks');
+      input.lines = [b, a].map(id => ({ itemId: id, description: 'Batch item', quantity: 1, price: 5000, discountPct: 0 }));
+      input.tenders = [{ method: 'CASH', amount: 10000 }];
+      const checkout = prisma.$transaction(tx => postPosSale(new Proxy(tx, {
+        get(target, key) {
+          const value = Reflect.get(target, key);
+          if (key === '$executeRaw') return (...args: unknown[]) => {
+            if (String(args[0]).includes('pg_advisory_xact_lock') && args[1] === advisoryLockKey(`item-stock:${org.orgId}:${a}`)) attemptingA();
+            return Reflect.apply(value, target, args);
+          };
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }), org.orgId, input), { timeout: 10000 });
+      checkout.catch(() => attemptingA());
+      const outcomes = await Promise.allSettled([adjusting, checkout]);
+      expect(outcomes.map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
+      expect(await settledAdjustment).toBeUndefined();
+      const lots = await prisma.inventoryLot.findMany({ where: { organizationId: org.orgId } });
+      for (const id of [a, b]) expect(lots.filter(lot => lot.itemId === id).reduce((sum, lot) => sum + Number(lot.qtyBalance), 0)).toBe(103);
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(4000);
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAdjustment)).toBe(4000);
+      await assertInventoryReconciled(org.orgId, 'POS/adjustment item order');
+      await assertTrialBalanced(org.orgId, 'POS/adjustment item order');
+    } finally { await cleanupOrg(org.orgId); }
+  });
+
+
+  it.each(['Kasir 1', 'Laci Kasir'])('posts to the configured register asset named %s without cash keywords', async name => {
+    const { org, itemId, registerId, shiftId } = await setup();
+    try {
+      const cash = await prisma.account.create({ data: { organizationId: org.orgId, code: '1195', name, type: 'ASSET', normalSide: 'DEBIT' } });
+      await prisma.posRegister.update({ where: { id: registerId }, data: { cashAccountId: cash.id } });
+      const input = saleInput(itemId, registerId, shiftId, 'configured-drawer');
+      const result = await prisma.$transaction(tx => postPosSale(tx, org.orgId, input));
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: result.salesInvoiceId } })).status).toBe('PAID');
+      expect(await accountBalance(org.orgId, cash.id)).toBe(30000);
+      await assertTrialBalanced(org.orgId, 'keyword-free POS drawer');
+      const retry = await prisma.$transaction(tx => postPosSale(tx, org.orgId, input));
+      expect(retry.posSaleId).toBe(result.posSaleId);
+      expect(await accountBalance(org.orgId, cash.id)).toBe(30000);
+    } finally { await cleanupOrg(org.orgId); }
+  });
+
+  it('configured register cash still rejects foreign, inactive, header and non-asset accounts with whole-sale rollback', async () => {
+    const { org, itemId, registerId, shiftId } = await setup();
+    const other = await createTestOrg();
+    try {
+      const inactive = await prisma.account.create({ data: { organizationId: org.orgId, code: '1196', name: 'Kasir 1', type: 'ASSET', normalSide: 'DEBIT', isActive: false } });
+      const header = await prisma.account.create({ data: { organizationId: org.orgId, code: '1197', name: 'Laci Kasir', type: 'ASSET', normalSide: 'DEBIT', isPostable: false } });
+      const before = await prisma.journalEntry.count({ where: { organizationId: org.orgId } });
+      for (const accountId of [other.accounts.bankAsset, inactive.id, header.id, org.accounts.salesRevenue]) {
+        await prisma.posRegister.update({ where: { id: registerId }, data: { cashAccountId: accountId } });
+        await expect(prisma.$transaction(tx => postPosSale(tx, org.orgId, saleInput(itemId, registerId, shiftId, 'invalid-drawer')))).rejects.toMatchObject({ status: 422 });
+        expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(before);
+        expect(await prisma.salesInvoice.count({ where: { organizationId: org.orgId } })).toBe(0);
+        expect(await prisma.aRPayment.count({ where: { organizationId: org.orgId } })).toBe(0);
+        expect(await prisma.posSale.count({ where: { organizationId: org.orgId } })).toBe(0);
+        const batch = await prisma.stockBatch.findFirstOrThrow({ where: { organizationId: org.orgId, batchNumber: 'PCT-EARLY' } });
+        expect(Number(batch.qtyOnHand)).toBe(5);
+      }
+    } finally { await cleanupOrg(org.orgId); await cleanupOrg(other.orgId); }
+  });
+
   it('does not deadlock with a receipt holding the payment sequence lock', async () => {
     const { org, itemId, registerId, shiftId } = await setup();
     const customer = await prisma.customer.findFirstOrThrow({ where: { organizationId: org.orgId } });
