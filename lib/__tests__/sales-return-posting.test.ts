@@ -4,7 +4,7 @@ import { addCostLayer } from '../inventory-costing';
 import { postJournalEntry } from '../journal-posting';
 
 vi.mock('../period-guard', () => ({ assertPeriodOpen: vi.fn() }));
-vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn() }));
+vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(), lockInventoryItems: vi.fn() }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('../account-defaults', () => ({
   loadOrgAccountDefaults: vi.fn(),

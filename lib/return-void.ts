@@ -4,6 +4,7 @@ import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
 import { reverseAddedLayers, restoreConsumedLayers } from './inventory-costing';
+import { lockSalesReturns } from './sales-return-lines';
 
 type Tx = Prisma.TransactionClient;
 
@@ -70,16 +71,24 @@ async function voidReturn(
     throw new ApiError(`${cfg.label} is already voided`, 409);
   }
 
+  // Unwind under item locks before journal numbering. Any consumed-layer
+  // refusal rolls back the status claim without creating a reversal journal.
+  await cfg.unwindInventory(tx, orgId, id, opts.date);
   if (ret.journalEntryId) {
     await reverseJournalEntry(tx, ret.journalEntryId, { date: opts.date, memo: `Void ${cfg.label}: ${ret.number}` });
   }
-  await cfg.unwindInventory(tx, orgId, id, opts.date);
 }
 
 const SR_CONFIG: VoidConfig = {
   label: 'sales return',
   noteLabel: 'credit note',
   find: async (tx, orgId, id) => {
+    const initial = await tx.salesReturn.findFirst({
+      where: { id, organizationId: orgId }, select: { invoiceId: true },
+    });
+    if (!initial) return null;
+    // Match posting/editing before reading status and claimed return totals.
+    await lockSalesReturns(tx, orgId, initial.invoiceId);
     const r = await tx.salesReturn.findFirst({
       where: { id, organizationId: orgId },
       select: {
