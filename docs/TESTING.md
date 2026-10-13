@@ -1,5 +1,26 @@
 # Testing transactions and accounting
 
+## Opening stock and batch receipt coordination
+
+Opening/batch coordination is covered by
+`lib/__tests__/integration/opening-batch-concurrency.int.test.ts`. Run
+`npm run test:int -- opening-batch-concurrency pos-batch-stock-in pos-sale-posting import-opening-stock opening-period-guard migration-opening-stock-nogl oversell-overpay-concurrency`
+against the disposable database. Nine cases prove valued receipts refuse missing
+usable Inventory/Opening Equity accounts before changing new or existing batches
+(the error is caught inside the transaction to verify pre-write validation),
+zero-cost stock remains valid, overlapping receipts accumulate into one physical
+batch, and existing opening idempotency posts once. Real overlapping opening/invoice
+and batch/POS postings check fixed quantities, COGS, inventory GL and physical
+batch stock, plus lot/ledger/GL reconciliation and trial balance.
+
+Additions previously could safely report less available stock while a receipt
+was uncommitted; these tests validate coordination, not a newly fixed oversell
+claim. The existing migration-mode test still ensures opening stock does not
+post GL twice when the migrated trial balance already includes inventory.
+The batch helper is currently used for opening/setup/test data, not live AP
+purchasing; its equity offset is preserved. It has no production route and does
+not introduce a new purchasing flow. No production data is changed by these tests.
+
 ## Account security
 
 Run `npm run test:security` for database-free regression tests of current session

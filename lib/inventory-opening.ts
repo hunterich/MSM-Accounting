@@ -17,7 +17,7 @@
  */
 import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
-import { addCostLayer } from './inventory-costing';
+import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { ApiError } from './errors';
@@ -58,6 +58,9 @@ export async function postOpeningStockIfNeeded(
   // committed OPENING entry and returns a no-op.
   const lockId = fnv1aHash(`opening:${orgId}:${itemId}`);
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+  // Opening idempotency -> shared item lock -> journal numbering. Coordinate
+  // this addition with sales/returns before reading or changing stock.
+  await lockInventoryItems(tx, orgId, [itemId]);
 
   const item = await tx.item.findUnique({
     where: { id: itemId },
