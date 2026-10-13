@@ -93,12 +93,18 @@ const SR_CONFIG: VoidConfig = {
       where: { id, organizationId: orgId },
       select: {
         id: true,
+        invoiceId: true,
         number: true,
         status: true,
         journalEntryId: true,
         creditNotes: { where: { status: 'APPLIED' }, select: { id: true } },
       },
     });
+    // A draft could have been moved to another invoice and finalized while
+    // we waited. Never void it while holding the old invoice's return lock.
+    if (r && r.invoiceId !== initial.invoiceId) {
+      throw new ApiError('Sales return changed its source invoice; retry the void action', 409);
+    }
     return r ? { id: r.id, number: r.number, status: r.status, journalEntryId: r.journalEntryId, appliedNotes: r.creditNotes } : null;
   },
   unwindInventory: (tx, orgId, id, date) => reverseAddedLayers(tx, orgId, InventoryDocumentType.SALES_RETURN, id, date),

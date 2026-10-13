@@ -32,6 +32,15 @@ const pr = (over: any = {}) => ({ id: 'pr-1', number: 'PR-0001', status: 'APPROV
 describe('voidSalesReturn', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('refuses a changed invoice identity without claiming VOID or reversing stock/journals', async () => {
+    const tx = makeSrTx(sr());
+    tx.salesReturn.findFirst.mockResolvedValueOnce({ invoiceId: 'old-invoice' }).mockResolvedValueOnce(sr({ invoiceId: 'new-invoice' }));
+    await expect(voidSalesReturn(tx as never, 'org-a', 'sr-1', { date: DATE })).rejects.toMatchObject({ status: 409 });
+    expect(tx.salesReturn.updateMany).not.toHaveBeenCalled();
+    expect(reverseAddedLayers).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+  });
+
   it('reverses the JE, removes the restock, and marks VOID', async () => {
     const tx = makeSrTx(sr());
     await voidSalesReturn(tx as never, 'org-a', 'sr-1', { date: DATE });

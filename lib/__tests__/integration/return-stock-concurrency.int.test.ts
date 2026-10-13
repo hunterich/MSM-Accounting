@@ -7,6 +7,7 @@ import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { voidSalesReturn, voidPurchaseReturn } from '@/lib/return-void';
 import { reverseAddedLayers } from '@/lib/inventory-costing';
 import { reverseJournalEntry } from '@/lib/reverse-journal-entry';
+import { lockSalesReturns } from '@/lib/sales-return-lines';
 import { prisma, createTestOrg, createCustomer, createVendor, createItem, cleanupOrg, disconnect,
   accountBalance, assertInventoryReconciled, assertTrialBalanced, type TestOrg } from './harness';
 
@@ -87,6 +88,58 @@ async function check(org: TestOrg, qty: number, value: number, cogs: number) {
 }
 
 describe('return stock and reversals share the inventory lock order', () => {
+  it('a void waiting on the old invoice refuses a draft moved and posted against another invoice', async () => {
+    const { org, itemId, customerId } = await stock();
+    const held = deferred<void>(), initialRead = deferred<void>();
+    let moving: Promise<unknown> | undefined, voiding: Promise<unknown> | undefined;
+    try {
+      const a = await invoice(org, itemId, customerId, 'INV-SOURCE-A', 5);
+      const b = await invoice(org, itemId, customerId, 'INV-SOURCE-B', 5);
+      await prisma.$transaction(tx => send(tx, org, a.id));
+      await prisma.$transaction(tx => send(tx, org, b.id));
+      const ret = await returnDoc(org, itemId, customerId, a, 'SR-MOVED', 4);
+      await prisma.salesReturn.update({ where: { id: ret.id }, data: { status: 'DRAFT' } });
+      moving = prisma.$transaction(async tx => {
+        await lockSalesReturns(tx, org.orgId, a.id); held.resolve();
+        await initialRead.promise;
+        await tx.salesReturn.update({ where: { id: ret.id }, data: { invoiceId: b.id, status: 'APPROVED' } });
+        await tx.salesReturnLine.updateMany({ where: { salesReturnId: ret.id }, data: { sourceInvoiceLineId: b.lines[0].id } });
+        await postSalesReturnOnApproval(tx, ret.id);
+      }, { timeout: 10000 });
+      const settledMoving = moving.then(() => undefined, error => error);
+      await Promise.race([held.promise, moving.then(() => { throw new Error('Move did not wait'); })]);
+      voiding = prisma.$transaction(tx => voidSalesReturn(new Proxy(tx, {
+        get(target, key) {
+          if (key === 'salesReturn') return new Proxy(target.salesReturn, {
+            get(delegate, method) {
+              const value = Reflect.get(delegate, method);
+              if (method === 'findFirst') return async (...args: unknown[]) => {
+                const row = await Reflect.apply(value, delegate, args);
+                initialRead.resolve();
+                return row;
+              };
+              return typeof value === 'function' ? value.bind(delegate) : value;
+            },
+          });
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }), org.orgId, ret.id, { date: DATE }), { timeout: 10000 });
+      const results = await Promise.allSettled([moving, voiding]);
+      expect(results[0].status).toBe('fulfilled');
+      expect(results[1].status).toBe('rejected');
+      if (results[1].status === 'rejected') expect(results[1].reason).toMatchObject({ status: 409 });
+      expect(await settledMoving).toBeUndefined();
+      expect(await prisma.salesReturn.findUniqueOrThrow({ where: { id: ret.id } })).toMatchObject({ status: 'APPROVED', invoiceId: b.id });
+      expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(6);
+      await check(org, 4, 400, 600);
+    } finally {
+      initialRead.resolve();
+      await Promise.allSettled([moving, voiding].filter(Boolean));
+      await cleanupOrg(org.orgId);
+    }
+  });
+
   it('the reversal primitive cannot delete a layer checked before a concurrent sale commits', async () => {
     const { org, itemId, customerId, ret } = await returned();
     try {
