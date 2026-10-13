@@ -44,3 +44,14 @@ test('running a report opens it as a report sub-tab', async ({ page }) => {
         .__MSM_WORKSPACE__.tabs.some((t) => t.kind === 'report' && t.target.module === 'reports'), { timeout: 15000 });
     expect(await reportTabExists(page)).toBe(true);
 });
+
+test('Refresh re-fetches a report tab with unchanged filters', async ({ page }) => {
+    await page.goto('/reports');
+    await page.getByRole('button', { name: /Sales by Customer/ }).first().click();
+    const first = page.waitForResponse((r) => r.url().includes('/api/v1/reports/sales'), { timeout: 15000 });
+    await page.getByRole('button', { name: 'Tampilkan' }).click();
+    await first;
+    const again = page.waitForResponse((r) => r.url().includes('/api/v1/reports/sales'), { timeout: 15000 });
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    expect((await again).ok()).toBe(true);
+});

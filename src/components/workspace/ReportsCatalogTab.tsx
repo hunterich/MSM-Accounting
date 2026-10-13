@@ -2,25 +2,36 @@ import React from 'react';
 import Reports, { type ReportDefinition, type ReportParams } from '../../views/reports/Reports';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
-import { makeTabId } from '../../stores/workspace/types';
+import { reportTabId, reportTabTarget, reportTabTitle } from './reportTabs';
 
 /** The Reports module's catalog tab: renders the card grid, and opens each
- *  chosen report as its own `report` sub-tab carrying the run params. */
+ *  run as a `report` sub-tab carrying its params. Distinct filters open
+ *  separate tabs (compare periods side by side); the same filters refocus. */
 const ReportsCatalogTab: React.FC = () => {
   const { open } = useWorkspaceNav();
   const saveDraft = useWorkspaceStore((s) => s.saveDraft);
   const setStatus = useWorkspaceStore((s) => s.setStatus);
+  const setTitle = useWorkspaceStore((s) => s.setTitle);
 
   const handleRun = (report: ReportDefinition, params: ReportParams) => {
-    const target = { module: 'reports', entity: report.id, recordId: null, mode: 'view' as const };
-    // Reports have no unsaved-edit concept. Open 'clean', and re-clean after
-    // stashing the run params, because saveDraft marks the tab 'dirty' — so the
-    // tab bar never shows a false unsaved-changes dot on a report sub-tab.
-    const opened = open({ kind: 'report', target, title: report.name, path: '/reports', initialStatus: 'clean' });
+    // The params ride on the tab itself, so a tab blocked by the cap prompt and
+    // opened later via "make room" still runs with the chosen filters.
+    const opened = open({
+      kind: 'report',
+      target: reportTabTarget(report, params),
+      title: reportTabTitle(report, params),
+      path: '/reports',
+      initialStatus: 'clean',
+      draft: params,
+    });
     if (opened) {
-      const id = makeTabId(target);
+      // Refocusing an existing tab (whose filters may since have changed via
+      // "Ubah Filter") must show what was just requested. Reports have no
+      // unsaved state, so re-clean after saveDraft marks the tab dirty.
+      const id = reportTabId(report, params);
       saveDraft(id, params);
       setStatus(id, 'clean');
+      setTitle(id, reportTabTitle(report, params));
     }
   };
 

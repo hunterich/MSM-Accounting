@@ -15,6 +15,11 @@ interface OpenArgs {
      * several unsaved "New sales order" drafts open at once.
      */
     unique?: boolean;
+    /**
+     * Initial draft carried on the tab itself, so it survives the cap prompt:
+     * a tab opened later via "make room" still has its payload (e.g. report params).
+     */
+    draft?: unknown;
 }
 
 let uniqueSeq = 0;
@@ -33,6 +38,7 @@ export function useWorkspaceNav() {
             target: args.target,
             path: args.path,
             status: args.initialStatus ?? (args.target.recordId === null ? 'new' : 'clean'),
+            ...(args.draft !== undefined ? { draft: args.draft } : {}),
         };
         const ok = openTab(tab);
         // At cap: stash the blocked tab so WorkspaceShell can offer to make room

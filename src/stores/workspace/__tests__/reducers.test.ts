@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     openTab, closeTab, closeOthers, closeAll, closeToRight,
-    activateTab, setStatus, saveDraft, clearDraft, isAtCap, pushClosed, capBlock, isPinnedTab, ensureDashboard,
+    activateTab, setStatus, setTitle, saveDraft, clearDraft, isAtCap, pushClosed, capBlock, isPinnedTab, ensureDashboard,
 } from '../reducers';
 import { makeTabId, TAB_CAP, MODULE_CAP, type WorkspaceState, type TabTarget } from '../types';
 
@@ -181,6 +181,12 @@ describe('status + drafts', () => {
         const s = openTab(empty, tab('sales-order', 'A'));
         const dirty = setStatus(s, s.tabs[0].id, 'dirty');
         expect(dirty.tabs[0].status).toBe('dirty');
+    });
+
+    it('setTitle renames a single tab without touching its status or draft', () => {
+        const s = saveDraft(openTab(empty, tab('sales-order', 'A')), makeTabId({ module: 'ar', entity: 'sales-order', recordId: 'A', mode: 'view' }), { x: 1 });
+        const renamed = setTitle(s, s.tabs[0].id, 'Renamed');
+        expect(renamed.tabs[0]).toMatchObject({ title: 'Renamed', status: 'dirty', draft: { x: 1 } });
     });
 
     it('saveDraft stores a snapshot and marks the tab dirty (or new for a create tab)', () => {
