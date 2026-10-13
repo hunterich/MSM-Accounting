@@ -9,6 +9,7 @@ import {
 import { corsPreflightResponse } from '@/lib/cors';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { assertNoDirectControlPosting } from '@/lib/control-account-guard';
 import {
   ok,
   err,
@@ -240,6 +241,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       throw new ApiError('One or more journal line accounts are invalid/inactive', 404);
     }
 
+    await assertNoDirectControlPosting(tx, payload.organizationId, accountIds);
     const entryNo = await nextJournalNumber(tx, payload.organizationId);
 
     const entry = await tx.journalEntry.create({

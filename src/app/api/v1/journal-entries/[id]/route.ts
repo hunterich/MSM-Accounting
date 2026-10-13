@@ -5,6 +5,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { assertNoDirectControlPosting } from '@/lib/control-account-guard';
 import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
 import { canOverrideTransactionDate } from '@/lib/authz';
@@ -105,6 +106,7 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
   const newDate = new Date(payload.date);
 
   const updated = await prisma.$transaction(async (tx) => {
+    await assertNoDirectControlPosting(tx, orgId, accountIds);
     // A supplied periodId must contain the entry date, and a transition to
     // POSTED must not write into a closed/locked period (resolved by date).
     if (payload.periodId) {

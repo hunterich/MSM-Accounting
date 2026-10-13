@@ -7,6 +7,7 @@ import { getDescriptor } from './registry';
 import { getFinalizer } from './finalizers';
 import { assertApprovalAuthorized } from './can-approve';
 import { PaymentOverAllocationError } from '@/lib/payment-validation';
+import { lockFinancialApprovalPeriod } from './financial-period';
 
 /** FNV-1a 32-bit hash → stable advisory-lock id (same helper used for number sequences). */
 function fnv1aHash(input: string): number {
@@ -40,6 +41,7 @@ export async function routeForApproval(
   const reqs = normalizeApprovalRequirements(org?.approvalRequirements);
   const { configKey } = getDescriptor(args.documentType);
   if (!requiresApproval(reqs, configKey)) return false;
+  await lockFinancialApprovalPeriod(tx, args.orgId, args.documentType, args.documentId);
 
   // Serialize concurrent finalizes of the SAME document so the find→create
   // below cannot interleave (Bug A: two finalizes both see "no open PENDING"
