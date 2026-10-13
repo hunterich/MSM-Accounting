@@ -23,9 +23,9 @@ These are responsibilities, not assignments or messages to external people.
 
 - [x] **ACC-01 — receipt/payment account validation and note-aware sales/aging** — merged in #155; deployment verification remains open.
 - [x] **INV-00 — sales, POS, adjustment/count and purchase stock locking** — implemented scopes merged in #153, #157 and #158; this does not cover every inventory writer or prove Weighted Average reconciliation.
-- [ ] **INV-01 — remaining inventory writers and reversals** — next engineering task. Audit opening stock, POS batch receiving, sales-return restocking and return voids; close missing locks/lock-order gaps in bounded PRs. Verify simultaneous sale/return/receipt/void with real PostgreSQL and exact rollback/lot/ledger/GL assertions.
+- [x] **INV-01 — remaining inventory writers and reversals** — audited opening stock, POS batch receiving, sales-return restocking and return voids; safeguards merged in #161/#162. Return voids protect consumed layers and per-invoice totals; supplier-return restoration uses item locks; opening/batch additions coordinate with sales; missing usable batch posting accounts refuse before writes. Combined local verification passed 1,240 unit tests and 320 PostgreSQL tests (plus the existing Weighted Average expected failure); both PR heads passed all CI jobs. Deployment/pilot verification remains open.
 - [ ] **INV-02 — Weighted Average valuation reconciliation** — reproduce the known unequal-cost gap, choose and document the valuation invariant, implement consistent layer/ledger/GL treatment, then replace the expected-failure regression with passing tests. Test purchases at different prices, partial sales, returns, adjustments, corrections and reversals. Depends on INV-01.
-- [ ] **ACC-02 — settlement and close acceptance** — reconcile AR/AP aging to control accounts, inventory to GL, and P&L/balance sheet to journals across notes, discounts, returns and period boundaries. Test permissions, approvals and closed-period rejection through the browser. Depends on INV-02.
+- [ ] **ACC-02 — settlement and close acceptance** — next task starts with financial concurrency in issue #163, then AR/AP aging/control reconciliation, notes, discounts, returns, approvals and period-boundary checks. Keep financial posting separate from stock restocking. The return/note concurrency work can proceed now; full inventory/month-end acceptance still depends on INV-02's valuation reconciliation.
 - [ ] **ACC-02 follow-up — linked credit-note application versus sales-return void** — [issue #163](https://github.com/hunterich/MSM-Accounting/issues/163). Unverified, pre-existing candidate: reproduce both execution orders in isolated PostgreSQL before choosing a fix. Note-first must block void; void-first must block application, preserving status, stock and financial journals. Include approval finalization and review the analogous supplier-return/debit-note pattern. Separate from INV-01 PRs #161/#162.
 
 **Exit gate:** no unexplained subledger/control-account differences in the agreed
@@ -86,7 +86,8 @@ and business review where the workflow changes. Never use production data for
 automated tests. Broader CRM, manufacturing, clinic/pharmacy, advanced enterprise
 and new payroll features are outside the initial distribution/e-commerce pilot.
 
-**Next sequence:** INV-01 → INV-02 → ACC-02 → DIST-02 → ECOM-01 → ECOM-02.
+**Next sequence:** ACC-02 financial concurrency (#163) → INV-02 → ACC-02 full
+settlement/close acceptance → DIST-02 → ECOM-01 → ECOM-02.
 DIST-01 can be clarified alongside the accounting work; DIST-03/DIST-04 move
 ahead of distribution acceptance if the pilot needs them. Distribution and
 e-commerce milestone order can be adjusted when
