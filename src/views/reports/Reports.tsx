@@ -1,7 +1,7 @@
 import React, { Fragment, useEffect, useRef, useState } from 'react';
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package, Users,
-  Search, Printer, Download, FileText, X, LayoutGrid, BarChart3, ChevronRight,
+  Search, Printer, Download, FileText, X, LayoutGrid, BarChart3, ChevronRight, RefreshCw,
   type LucideIcon,
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
@@ -1537,6 +1537,9 @@ const Reports: React.FC<ReportsProps> = ({
   const [activeReportId, setActiveReportId] = useState<ReportType | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // `single` variant: bumped to re-fetch when the saved params are unchanged
+  // (Refresh, or "Ubah Filter" re-run with the same filters).
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [customerDays, setCustomerDays] = useState<Record<string, { open: boolean; loading: boolean; days: CustomerDayRow[]; error?: string }>>({});
   const printRef = useRef<HTMLDivElement>(null);
   const [reportPresets, setReportPresets] = useState<Record<string, ReportParams>>(loadReportPresets);
@@ -1807,7 +1810,9 @@ const Reports: React.FC<ReportsProps> = ({
         // The single-mode effect is the sole fetch path: persisting the new
         // params re-renders this component with fresh singleParams, which the
         // effect picks up and fetches. Returning here avoids a double request.
-        onParamsChange?.(params);
+        // Unchanged params would not re-trigger the effect, so bump the nonce.
+        if (JSON.stringify(params) === JSON.stringify(singleParams ?? null)) setRefreshNonce((n) => n + 1);
+        else onParamsChange?.(params);
         return;
       }
       // api.get returns unknown; cast to record since shape varies per report
@@ -1877,7 +1882,27 @@ const Reports: React.FC<ReportsProps> = ({
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variant, singleReport, singleParamsKey]);
+  }, [variant, singleReport, singleParamsKey, refreshNonce]);
+
+  /** Re-fetch the shown report with its current params (no filter changes). */
+  const refreshActiveReport = async () => {
+    if (!activeReport?.params || isLoading) return;
+    if (variant === 'single') {
+      setRefreshNonce((n) => n + 1);
+      return;
+    }
+    const { report, params } = activeReport;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.get<Record<string, unknown>>(report.apiPath, params as unknown as Record<string, unknown>);
+      setOpenReports((prev) => prev.map((entry) => (entry.report.id === report.id ? { ...entry, data } : entry)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const buildApCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
     if (report.id === 'ap-statement') return buildStatementCsv(data);
@@ -3866,6 +3891,16 @@ const Reports: React.FC<ReportsProps> = ({
                       <span className="text-xs text-neutral-500">{periodLabel}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {activeReport.params && (
+                        <button
+                          onClick={() => { void refreshActiveReport(); }}
+                          disabled={isLoading}
+                          title="Reload this report with the same filters"
+                          className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-default"
+                        >
+                          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh
+                        </button>
+                      )}
                       <button
                         onClick={handlePrint}
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"

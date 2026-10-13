@@ -52,6 +52,7 @@ interface WorkspaceStore {
     dismissCapPrompt: () => void;
     reorderTab: (id: string, toIndex: number) => void;
     setStatus: (id: string, status: TabStatus) => void;
+    setTitle: (id: string, title: string) => void;
     saveDraft: (id: string, draft: unknown) => void;
     clearDraft: (id: string) => void;
     /** Upsert + activate the single tab for a page module (non-migrated area). */
@@ -182,6 +183,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
             reorderTab: (id, toIndex) => set(R.reorderTab(get(), id, toIndex)),
             setStatus: (id, status) => set(R.setStatus(get(), id, status)),
+            setTitle: (id, title) => set(R.setTitle(get(), id, title)),
             saveDraft: (id, draft) => set(R.saveDraft(get(), id, draft)),
             clearDraft: (id) => set(R.clearDraft(get(), id)),
 

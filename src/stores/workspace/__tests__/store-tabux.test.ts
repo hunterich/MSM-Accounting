@@ -91,6 +91,14 @@ describe('at-cap prompt', () => {
         expect(after.capPrompt).toBeNull();
     });
 
+    it('a blocked tab keeps its draft through the cap prompt (e.g. report filters)', () => {
+        fill();
+        const blocked = { ...mkTab('OVER'), draft: { dateFrom: '2026-10-01', dateTo: '2026-10-08' } };
+        useWorkspaceStore.getState().promptForCap(blocked);
+        useWorkspaceStore.getState().resolveCapPrompt(useWorkspaceStore.getState().tabs[0].id);
+        expect(useWorkspaceStore.getState().getTab(blocked.id)?.draft).toEqual(blocked.draft);
+    });
+
     it('dismissCapPrompt clears the prompt without changing tabs', () => {
         fill();
         useWorkspaceStore.getState().promptForCap(mkTab('OVER'));
