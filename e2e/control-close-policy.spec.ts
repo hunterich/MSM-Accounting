@@ -43,3 +43,20 @@ test('authenticated manual API refuses source spoofing but accepts ordinary expe
   await api(page, '/journal-entries', payload(expense.id, 'MANUAL'), 'POST')
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(1)
 })
+
+test('explicit invoice approval submission respects monthly closure with automatic routing disabled', async ({ page }) => {
+  const { orgId, customer } = await accountingCompany(page)
+  const invoice = await db.salesInvoice.create({ data: { organizationId: orgId, customerId: customer.id,
+    number: 'EXPLICIT-APPROVAL', issueDate: new Date(DATE), status: 'DRAFT', subtotal: 100, totalAmount: 100 } })
+  const submitted = await api(page, `/invoices/${invoice.id}/submit-approval`, {}, 'POST')
+  expect((await db.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('PENDING_APPROVAL')
+  await api(page, `/approvals/${submitted.approvalRequestId}/reject`, { note: 'Cancel before close' }, 'POST')
+  const period = await db.accountingPeriod.findFirstOrThrow({ where: { organizationId: orgId, name: '2026-09' } })
+  await api(page, `/accounting-periods/${period.id}/close`, {}, 'POST')
+  const denied = await page.request.post(`http://localhost:3100/api/v1/invoices/${invoice.id}/submit-approval`, { data: {} })
+  expect(denied.status()).toBe(422)
+  expect((await db.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('DRAFT')
+  expect(await db.approvalRequest.count({ where: { organizationId: orgId, documentId: invoice.id } })).toBe(1)
+  expect((await db.approvalRequest.findUniqueOrThrow({ where: { id: submitted.approvalRequestId } })).status).toBe('REJECTED')
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(0)
+})

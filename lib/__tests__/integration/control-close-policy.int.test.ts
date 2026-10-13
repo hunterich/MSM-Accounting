@@ -10,7 +10,10 @@ import { POST as importOpening } from '@/src/app/api/v1/import/[entity]/route';
 import { POST as closePeriod } from '@/src/app/api/v1/accounting-periods/[id]/close/route';
 import { GET as closeChecklist } from '@/src/app/api/v1/accounting-periods/[id]/close-checklist/route';
 import { PUT as applyCredit } from '@/src/app/api/v1/credit-notes/[id]/route';
+import { POST as submitInvoice } from '@/src/app/api/v1/invoices/[id]/submit-approval/route';
 import { closeAccountingPeriod } from '@/lib/period-close';
+import { submitInvoiceForApproval } from '@/lib/approval/invoice-submission';
+import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { approveRequest, rejectRequest, routeForApproval } from '@/lib/approval/engine';
 import { prisma, createTestOrg, createCustomer, createVendor, cleanupOrg, disconnect, accountBalance,
   journalEntryCount, assertTrialBalanced } from './harness';
@@ -174,6 +177,101 @@ describe('ordinary postings cannot bypass AR/AP controls', () => {
 });
 
 describe('pending financial documents block their posting period close', () => {
+  async function draftInvoice(f: Fixture) {
+    const invoice = await financial(f, 'INVOICE');
+    return prisma.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'DRAFT' } });
+  }
+  it('explicit invoice submission refuses an already-closed month without changing Draft or creating a request', async () => {
+    const f = await fixture();
+    try {
+      const invoice = await financial(f, 'INVOICE');
+      await prisma.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'DRAFT' } });
+      expect((await close(f)).status).toBe(200);
+      const response = await submitInvoice(request(f, 'POST'), { params: Promise.resolve({ id: invoice.id }) });
+      expect(response.status).toBe(422);
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('DRAFT');
+      expect(await prisma.approvalRequest.count({ where: { organizationId: f.org.orgId } })).toBe(0);
+      expect(await journalEntryCount(f.org.orgId)).toBe(0);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  it('explicit invoice submission wins: close waits then refuses; automatic approval routing can be disabled', async () => {
+    const f = await fixture();
+    try {
+      const invoice = await draftInvoice(f);
+      const response = await overlap(tx => submitInvoiceForApproval(tx, f.org.orgId, f.actor.userId, invoice.id), () => close(f)) as Response;
+      expect(response.status).toBe(422);
+      expect((await prisma.accountingPeriod.findUniqueOrThrow({ where: { id: f.period.id } })).status).toBe('OPEN');
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('PENDING_APPROVAL');
+      expect(await prisma.approvalRequest.count({ where: { organizationId: f.org.orgId, documentId: invoice.id, status: 'PENDING' } })).toBe(1);
+      expect(await journalEntryCount(f.org.orgId)).toBe(0);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(0);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  it('close wins: explicit invoice submission waits then refuses with complete rollback', async () => {
+    const f = await fixture();
+    try {
+      const invoice = await draftInvoice(f);
+      const response = await overlap(tx => closeAccountingPeriod(tx, f.org.orgId, f.actor.userId, f.period.id),
+        () => submitInvoice(request(f, 'POST'), { params: Promise.resolve({ id: invoice.id }) })) as Response;
+      expect(response.status).toBe(422);
+      expect((await prisma.accountingPeriod.findUniqueOrThrow({ where: { id: f.period.id } })).status).toBe('CLOSED');
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('DRAFT');
+      expect(await prisma.approvalRequest.count({ where: { organizationId: f.org.orgId } })).toBe(0);
+      expect(await journalEntryCount(f.org.orgId)).toBe(0);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(0);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  it('explicit invoice submission rechecks Draft after waiting behind invoice posting', async () => {
+    const f = await fixture();
+    try {
+      const invoice = await draftInvoice(f);
+      const response = await overlap(async tx => {
+        await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'SENT' } });
+        await postInvoiceSend(tx, f.org.orgId, invoice.id);
+      }, () => submitInvoice(request(f, 'POST'), { params: Promise.resolve({ id: invoice.id }) })) as Response;
+      expect(response.status).toBe(400);
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('SENT');
+      expect(await prisma.approvalRequest.count({ where: { organizationId: f.org.orgId } })).toBe(0);
+      expect(await journalEntryCount(f.org.orgId)).toBe(1);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(100);
+      await assertTrialBalanced(f.org.orgId);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  it('concurrent explicit invoice submissions create one request and reject the stale Draft check', async () => {
+    const f = await fixture();
+    try {
+      const invoice = await draftInvoice(f);
+      const response = await overlap(tx => submitInvoiceForApproval(tx, f.org.orgId, f.actor.userId, invoice.id),
+        () => submitInvoice(request(f, 'POST'), { params: Promise.resolve({ id: invoice.id }) })) as Response;
+      expect(response.status).toBe(400);
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('PENDING_APPROVAL');
+      expect(await prisma.approvalRequest.count({ where: { organizationId: f.org.orgId, documentId: invoice.id } })).toBe(1);
+      expect(await journalEntryCount(f.org.orgId)).toBe(0);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  it('explicit invoice submission reuses an existing pending request while Draft, without another request', async () => {
+    const f = await fixture();
+    try {
+      const invoice = await draftInvoice(f);
+      const pending = await prisma.approvalRequest.create({ data: { organizationId: f.org.orgId, documentId: invoice.id,
+        documentType: 'INVOICE', requestedById: f.actor.userId } });
+      const response = await submitInvoice(request(f, 'POST'), { params: Promise.resolve({ id: invoice.id }) });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ approvalRequestId: pending.id });
+      expect(await prisma.approvalRequest.count({ where: { organizationId: f.org.orgId, documentId: invoice.id } })).toBe(1);
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('PENDING_APPROVAL');
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  it('explicit invoice submission cannot submit another company invoice', async () => {
+    const f = await fixture(), other = await fixture();
+    try {
+      const invoice = await draftInvoice(other);
+      const response = await submitInvoice(request(f, 'POST'), { params: Promise.resolve({ id: invoice.id }) });
+      expect(response.status).toBe(404);
+      expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('DRAFT');
+      expect(await prisma.approvalRequest.count({ where: { organizationId: { in: [f.org.orgId, other.org.orgId] } } })).toBe(0);
+    } finally { await cleanupOrg(f.org.orgId); await cleanupOrg(other.org.orgId); }
+  });
   for (const kind of ['INVOICE', 'BILL', 'CREDIT_NOTE', 'DEBIT_NOTE', 'AR_PAYMENT', 'AP_PAYMENT',
     'SALES_RETURN', 'PURCHASE_RETURN', 'STOCK_ADJUSTMENT', 'PAYROLL_RUN'] as const) {
     it(`${kind}: checklist and close refuse; rejection through engine releases the block`, async () => {

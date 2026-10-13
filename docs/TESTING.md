@@ -613,7 +613,7 @@ documents awaiting approval with a posting date inside the period. No automatic
 redating. This is the first bounded implementation in issue #167; independent
 per-control reconciliation and complete migration/month-end acceptance remain open.
 
-`control-close-policy.int.test.ts` has 26 real PostgreSQL cases. Manual POST/PUT
+`control-close-policy.int.test.ts` has 33 real PostgreSQL cases. Manual POST/PUT
 and source-label spoofing cannot post to configured/auto-resolved AR/AP controls
 or additional accounts explicitly designated by document overrides. Bank create
 and edit use the same restriction; an edit refusal rolls back its attempted
@@ -630,10 +630,17 @@ approval through the genuine engine. The same date/period-row lock governs
 submission and closing; both race orders observe a PostgreSQL blocking wait
 before releasing the winner. Rejected submission creates no request or journal.
 Period-close logic is shared with the actual close API, not copied into tests.
+Explicit invoice submission also calls the period guard inside its transaction,
+and checks Draft only after obtaining the invoice row lock. Seven review
+regressions cover closed-month refusal (fails against the pre-fix route), both
+submission/close race orders, posting winning before submission, duplicate
+submissions, existing-request reuse and cross-company refusal. Explicit approval
+submission remains available with automatic routing disabled. The shared
+submission helper is the actual route's implementation, not a test-only copy.
 
 Two focused regressions fail against pre-fix main (manual AR posting and closing
 over an in-period pending invoice). Existing approval, return, opening and bank
-regressions pass. Full local suites: 1,240 unit tests and 380 PostgreSQL tests,
+regressions pass. Full local suites: 1,240 unit tests and 387 PostgreSQL tests,
 plus the existing expected Weighted Average failure; two backup suites are
 excluded locally because `pg_dump` is unavailable and remain CI checks.
 
@@ -647,6 +654,12 @@ source spoofing refuses while an ordinary expense journal posts. Both TypeScript
 projects and frontend/backend builds are checked. English/Bahasa close guidance
 uses the translation function. No production postings, period changes, data
 rewrites, migration or deployment were performed.
+After the explicit invoice-route fix, all four focused browser cases pass
+together: close guidance/rejection, ordinary manual posting policy, explicit
+invoice submission/rejection followed by closed-month refusal, and the existing
+monthly close/reopen journey. Both TypeScript projects and the backend build
+are rechecked for that change. Additional document offset/refund account-role
+validation remains a separate follow-up in issue #169.
 
 Before release, finance should review existing direct-control GL differences
 and any financial holds already dated in closed months. The new rules do not
