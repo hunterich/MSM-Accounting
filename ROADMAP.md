@@ -1,13 +1,99 @@
-# MSM Accounting Software — Improvement Roadmap
+# MSM Accounting — Delivery Plan and Feature Backlog
 
-> Benchmarked against ERPNext (open-source ERP).
-> Created 2026-02-27 | Latest released changelog version: v1.1.0 | Reconciled with code/tests: 2026-10-13
+> Active delivery plan updated 2026-10-13. The older module inventory below includes historical ERPNext comparisons; it is not evidence of Accurate replacement readiness.
 
 ---
 
 ## Product focus
 
 The first target customers are small distribution and e-commerce companies in Indonesia. Prioritize purchasing and partial goods receipts, warehouse inventory/costing, sales fulfillment and returns, marketplace settlement reconciliation, and financial reports. The long-term objective is an application that can replace Accurate for these businesses; module presence alone does not prove operational or accounting readiness.
+
+## Active delivery checklist
+
+**First release outcome:** a pilot business can run purchases, stock, sales,
+receipts/payments, returns, marketplace settlements and month-end reporting in
+MSM, with independently reconciled balances and recoverable data. We will verify
+the pilot's actual workflows before claiming it can replace their current system.
+
+Implementation owner: Codex. Scope, workflow acceptance and release approval:
+the business owner. Accounting acceptance: the business's finance reviewer.
+These are responsibilities, not assignments or messages to external people.
+
+### Milestone 1 — Accounting that survives real transactions
+
+- [x] **ACC-01 — receipt/payment account validation and note-aware sales/aging** — merged in #155; deployment verification remains open.
+- [x] **INV-00 — sales, POS, adjustment/count and purchase stock locking** — implemented scopes merged in #153, #157 and #158; this does not cover every inventory writer or prove Weighted Average reconciliation.
+- [x] **INV-01 — remaining inventory writers and reversals** — audited opening stock, POS batch receiving, sales-return restocking and return voids; safeguards merged in #161/#162. Return voids protect consumed layers and per-invoice totals; supplier-return restoration uses item locks; opening/batch additions coordinate with sales; missing usable batch posting accounts refuse before writes. Combined local verification passed 1,240 unit tests and 320 PostgreSQL tests (plus the existing Weighted Average expected failure); both PR heads passed all CI jobs. Deployment/pilot verification remains open.
+- [ ] **INV-02 — Weighted Average valuation reconciliation** — reproduce the known unequal-cost gap, choose and document the valuation invariant, implement consistent layer/ledger/GL treatment, then replace the expected-failure regression with passing tests. Test purchases at different prices, partial sales, returns, adjustments, corrections and reversals. Depends on INV-01.
+- [~] **ACC-02 — settlement and close acceptance (#167)** — #165 safeguards are merged. Finance approved blocking ordinary direct control postings and closing over in-period financial approval holds; control/close guards are merged in [PR #168](https://github.com/hunterich/MSM-Accounting/pull/168). Remaining tests must prove each control account, penalties/discounts, actual migration opening balances and reversal-date history. AR/AP acceptance can proceed before INV-02; full inventory/month-end acceptance still depends on it. Keep financial posting separate from stock restocking.
+- [x] **ACC-02 — linked return/note eligibility and concurrency (#163)** — merged in [PR #165](https://github.com/hunterich/MSM-Accounting/pull/165), with all three CI jobs green on the final commit. Both AR/AP sides enforce party/source/company matching and refuse Draft/Void returns; pending notes block void and rejection permits it. Thirty-four PostgreSQL cases cover application/submission races, approval/rejection, refunds, changed links after waits and exact accounting/stock rollback. Deployment and pilot verification remain open; the local production read-only audit found zero affected notes at 11:23 WIB on 2026-10-13. Rerun the audit on every server before release.
+- [ ] **ACC-02 policy follow-ups — #164 / #166** — finance must decide aggregate linked-note caps and preservation of financial-note intent when a Draft return is deleted. Track separately; neither is silently included in #165 or the INV-02 scope.
+
+**Exit gate:** no unexplained subledger/control-account differences in the agreed
+scenarios; concurrent operations either post once or fail with complete rollback.
+Remaining limitations are explicit and acceptable for the pilot's costing method.
+
+### Milestone 2 — A distributor can complete its working day
+
+- [ ] **DIST-01 — approve the pilot workflow and sample data** — agree warehouses, costing method, purchase/sale units, pricing tiers, delivery flow, opening balances and representative transactions. Identify which existing screens already satisfy each step before building more.
+- [ ] **DIST-02 — purchase-to-payment and sale-to-receipt acceptance** — complete browser journeys for partial deliveries, outstanding orders, returns, partial settlements and stock counts; verify quantities, document links and exact accounting. Build only the gaps found in DIST-01.
+- [ ] **DIST-03 — purchase/stock/sales unit conversion** — support and test the required carton/pack/piece conversions with fractional quantities and cost/price consistency. Depends on DIST-01 and INV-02.
+- [ ] **DIST-04 — wholesale pricing and warehouse fulfillment** — deliver the pilot's customer price tiers and agreed warehouse movement/fulfillment flow; verify stock and invoice values through forms. Depends on DIST-01; audit existing warehouse functionality first.
+
+**Exit gate:** the pilot can finish one representative business day, including
+returns and corrections, without editing the database or using an external sheet
+to repair stock or accounting balances.
+
+### Milestone 3 — An e-commerce seller can reconcile its payouts
+
+- [ ] **ECOM-01 — order/import reliability** — validate the existing Shopee/TikTok import workflow with real sanitized files: duplicate/retry prevention, SKU mapping, cancellations and stock posting. Agree supported inputs; automatic live platform ingestion is a separate scope.
+- [ ] **ECOM-02 — settlement-to-bank reconciliation** — trace orders, gross sales, marketplace fees, discounts, refunds, wallet/clearing balances and bank payouts. Provide a usable mismatch queue and prove each amount reaches the intended ledger account. Depends on ECOM-01 and ACC-02.
+- [ ] **ECOM-03 — SKU/channel margin report** — show sales, returns, COGS and allocatable marketplace costs for the supported inputs; reconcile report totals to posted transactions and define the treatment of unallocated costs. Depends on ECOM-02 and INV-02.
+
+**Exit gate:** a real sample settlement reconciles from orders through the bank
+payout, with every remaining difference identified and reviewable.
+
+### Milestone 4 — Month-end, migration and release readiness
+
+- [ ] **OPS-01 — full filtered exports and onboarding** — export all matching rows safely; dry-run customer/vendor/item and opening-balance imports with validation and reconciliation. Page-only CSV remains documented until full export ships.
+- [ ] **OPS-02 — finance operations visibility** — expose recurring/subscription last-run results and errors, then add bounded bulk-payment digests. Email delivery remains disabled until the operator authorizes setup and verifies delivery.
+- [ ] **OPS-03 — release and recovery gate** — verify final CI, stage the merged changes, run company-scoped smoke/reconciliation checks, validate backup restore with attachments and permissions, and meet the agreed capacity target in `docs/capacity-target.md`. Deployment is a separate authorized step; merging is not deployment.
+- [ ] **OPS-04 — pilot language and document review** — verify required English/Bahasa forms, errors and printed documents end to end, using the pilot's approved accounting/tax settings.
+
+### Milestone 5 — Prove replacement with a real pilot
+
+- [ ] **PILOT-01 — parallel run and sign-off** — use sanitized copies or an explicitly authorized pilot environment for one complete accounting period alongside the current system. Compare opening/closing balances, inventory, AR/AP, marketplace payouts and financial statements; record and resolve differences. Depends on milestones 1–4.
+- [ ] **PILOT-02 — cutover decision** — business owner and finance reviewer accept the workflow, reconciliations, known limitations, migration and recovery plan before production cutover. Expand to another company only after the first pilot passes.
+
+## How work is tracked
+
+The active checklist above controls execution; the longer sections below are a
+backlog. Each engineering task gets a GitHub issue or a clearly scoped PR with
+its task ID, acceptance criteria, dependencies and test evidence. Link that issue
+or PR back to its checkbox when created. Do not create a new feature merely
+because its module appears in the backlog.
+
+Work moves through **Ready → In progress → In review → Merged → Deployed →
+Verified with pilot**. Track those states explicitly in task/PR notes. Check an
+implementation checkbox only with evidence; record deployment and operational
+acceptance separately. Keep one feature in progress, incorporate review findings,
+and finish its acceptance checks before selecting the next task. A newly found
+accounting corruption/security blocker can interrupt that order; other findings
+go into a follow-up task rather than expanding the PR indefinitely.
+
+For each PR: fixed example amounts and expected behavior, appropriate unit/
+isolated PostgreSQL/browser checks, current CI evidence, updated documentation,
+and business review where the workflow changes. Never use production data for
+automated tests. Broader CRM, manufacturing, clinic/pharmacy, advanced enterprise
+and new payroll features are outside the initial distribution/e-commerce pilot.
+
+**Next sequence:** INV-02 → ACC-02 full
+settlement/close acceptance → DIST-02 → ECOM-01 → ECOM-02.
+DIST-01 can be clarified alongside the accounting work; DIST-03/DIST-04 move
+ahead of distribution acceptance if the pilot needs them. Distribution and
+e-commerce milestone order can be adjusted when
+the pilot business is selected. Calendar estimates follow scoped acceptance
+criteria and pilot availability, not the number of unchecked backlog entries.
 
 ## Release validation still required
 
@@ -602,7 +688,7 @@ See `docs/TESTING.md` for database selection and company-scoped usage.
 
 ---
 
-## Recommended Execution Order
+## Historical version sequence (not the active delivery order)
 
 ```
 v0.5.x — DB infrastructure done (PostgreSQL + Prisma schema applied; customizable dashboard done)
