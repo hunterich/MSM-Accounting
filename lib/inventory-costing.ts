@@ -174,6 +174,14 @@ export async function reverseAddedLayers(
   documentId: string,
   date: Date,
 ): Promise<number> {
+  // Discover identities before waiting, then inspect quantities under the
+  // shared item locks. A concurrent sale must not consume a checked layer
+  // while this reversal waits to delete it.
+  const identities = await tx.inventoryLot.findMany({
+    where: { organizationId: orgId, documentType, documentId },
+    select: { itemId: true },
+  })
+  await lockInventoryItems(tx, orgId, identities.map(lot => lot.itemId))
   const lots = await tx.inventoryLot.findMany({
     where: { organizationId: orgId, documentType, documentId },
   })
@@ -263,8 +271,13 @@ export async function restoreConsumedLayers(
   date: Date,
   opts: { requireExact?: boolean } = {},
 ): Promise<number> {
+  const where = { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 }, ...(documentType === 'SALES' ? { reversedAt: null } : {}) }
+  const identities = await tx.inventoryLedgerEntry.findMany({ where, select: { itemId: true } })
+  // Applies to supplier-return restoration too. Re-read tracked lot details
+  // and movements only after waiting for every affected item in sorted order.
+  await lockInventoryItems(tx, orgId, identities.map(entry => entry.itemId))
   const outbound = await tx.inventoryLedgerEntry.findMany({
-    where: { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 }, ...(documentType === 'SALES' ? { reversedAt: null } : {}) },
+    where,
     include: { lotDraws: { include: { lot: true } } },
   })
   if (outbound.length === 0) return 0
@@ -275,7 +288,6 @@ export async function restoreConsumedLayers(
       Math.abs(entry.lotDraws.reduce((sum, draw) => sum + toNumber(draw.quantity), 0) - toNumber(entry.qtyOut)) > QTY_EPSILON)) {
       throw new ApiError('This invoice has no complete original stock-lot tracking — void it to change.', 422)
     }
-    await lockInventoryItems(tx, orgId, outbound.map(entry => entry.itemId))
   }
 
   let valueRestored = 0

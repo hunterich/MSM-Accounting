@@ -117,6 +117,24 @@ changes, application is idempotent and scoped by company, and partial amounts,
 refunds, pending/void notes and draft documents are excluded. Notes, payments
 and journals remain unchanged.
 
+### Return stock and reversal contention
+
+Return stock contention is covered by
+`lib/__tests__/integration/return-stock-concurrency.int.test.ts`. Run
+`npm run test:int -- return-stock-concurrency return-void-invariants sales-return-original-cost void-concurrency inventory-invoice-corrections purchase-stock-concurrency`
+against the disposable PostgreSQL database. Eight cases hold real transactions
+uncommitted until PostgreSQL reports a blocked contender. The reversal-primitive
+case catches a stale untouched-lot check followed by deletion after a sale commits,
+independent of a caller's journal lock. Other cases verify consumed-stock refusal,
+sale rollback after void, replacement/partial returns sharing invoice totals,
+existing repeated-void protection and supplier-return restoration at recorded
+cost. A draft moved and finalized against another invoice while void waits must
+refuse with 409 before any VOID claim or reversal under the old invoice lock.
+Fixed expected stock, inventory/COGS/control values, journal counts and
+status/movement rollback reconcile lots, ledger and GL, with a balanced trial
+balance. The existing returns-to-ledger browser journey retains the separate
+credit-note financial treatment. No production records are amended.
+
 ### Purchase stock contention
 
 Purchase stock contention is covered by

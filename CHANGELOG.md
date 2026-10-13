@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — return stock and reversal concurrency
+- Customer-return voids take the same per-invoice return lock as posting/editing before re-reading status and checking eligibility. Return posting then acquires sorted item locks; reversals re-read lot balances or stock movements under those locks before journal numbering.
+- A consumed return layer cannot be deleted using a pre-sale snapshot. Supplier-return voids lock their restored items as well. Failure rolls back status, inventory and journals; existing one-time void claims, original return costs and separate credit/debit-note settlement remain intact.
+- Eight isolated PostgreSQL races/regressions check the deletion primitive, sale/void overlap, per-invoice return totals, a changed source invoice while void waits and supplier-return restoration, with exact lot/ledger/GL reconciliation. A changed invoice identity refuses the void with 409 before claiming status or reversing stock. No schema migration or historical data rewrite is required.
+
 ### Fixed — concurrent stock adjustments and counts
 - Stock adjustments acquire sorted item locks before reading or changing cost layers and before journal numbering. Voids use the same order, re-read stock under those locks and roll back when an added layer has been consumed.
 - Stock counts lock items before reading live on-hand and generating their variance adjustment. Direct adjustment creation uses item locks before adjustment numbering, avoiding a lock cycle with counts.
