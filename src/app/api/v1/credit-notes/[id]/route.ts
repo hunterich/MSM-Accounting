@@ -7,6 +7,7 @@ import { asMoney, toNumber } from '@/lib/money';
 import { updateCreditNoteInputSchema } from '@/types/api';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
+import { lockEligibleNoteReturn } from '@/lib/note-return-eligibility';
 
 export const runtime = 'nodejs';
 
@@ -88,7 +89,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.creditNote.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, journalEntryId: true },
+        select: { id: true, status: true, journalEntryId: true, customerId: true, sourceInvoiceId: true, salesReturnId: true },
       });
       if (!prior) {
         throw Object.assign(new Error('Not found'), { status: 404 });
@@ -114,6 +115,15 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         );
       }
 
+      // Reserve and validate the effective link before any invoice lock. This
+      // also protects submission to approval, which posts no journal yet.
+      if (prior.status === 'DRAFT' && nextStatus === 'APPLIED') {
+        await lockEligibleNoteReturn(tx, 'credit', {
+          organizationId: orgId, partyId: d.customerId ?? prior.customerId,
+          sourceId: d.sourceInvoiceId !== undefined ? d.sourceInvoiceId : prior.sourceInvoiceId,
+          returnId: d.salesReturnId !== undefined ? d.salesReturnId : prior.salesReturnId,
+        });
+      }
       if (d.customerId) await validateForeignKey(tx.customer, { id: d.customerId, organizationId: orgId }, 'Customer not found in organization');
       if (d.sourceInvoiceId) {
         await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${d.sourceInvoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;

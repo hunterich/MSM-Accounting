@@ -25,6 +25,7 @@ import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { validatePaymentAllocations } from './payment-validation';
 import { syncCreditNoteSettlement } from './settlement-status';
+import { lockEligibleNoteReturn } from './note-return-eligibility';
 
 type Tx = Prisma.TransactionClient;
 
@@ -52,6 +53,7 @@ export async function postCreditNoteOnApply(
       status: true,
       customerId: true,
       sourceInvoiceId: true,
+      salesReturnId: true,
       date: true,
       amount: true,
       taxAmount: true,
@@ -68,6 +70,10 @@ export async function postCreditNoteOnApply(
 
   // Idempotency token — already posted, nothing to do.
   if (cn.journalEntryId) return;
+  await lockEligibleNoteReturn(tx, 'credit', {
+    organizationId: cn.organizationId, partyId: cn.customerId,
+    sourceId: cn.sourceInvoiceId, returnId: cn.salesReturnId,
+  });
   if (cn.sourceInvoiceId && cn.settlementType === 'APPLY_TO_INVOICE') {
     await validatePaymentAllocations(tx, cn.organizationId, 'ar', {
       customerId: cn.customerId, totalAmount: cn.amount,

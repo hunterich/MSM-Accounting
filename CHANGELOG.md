@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — linked return and credit/debit-note eligibility
+- Applying or submitting a linked credit/debit note requires the same company, customer/vendor and source invoice/bill as its return. Draft or voided returns are refused, including through approval finalization and cash refunds. Standalone notes retain their existing behavior; note creation still saves Draft.
+- API integrations must supply the return's source invoice/bill on a linked note; an omitted or mismatched source now returns 422 when applying or submitting. The app forms already copy this source from the return.
+- Note application/submission holds the return row before source-document and journal locks. Return voids recheck applied and pending linked notes after claiming that row, before reversing stock or journals. Pending approval blocks voiding until the approver decides; rejection returns the note to Draft and permits the return void. Draft notes do not block voiding, but cannot subsequently be applied against that voided return.
+- Isolated PostgreSQL regressions cover both race orders, approval/rejection, changed links after lock waits, refunds and exact stock/lot/ledger/control/clearing rollback. No schema migration or historical journal rewrite is required. Aggregate note-value caps remain a separate finance-policy decision in #164.
+
 ### Fixed — return stock and reversal concurrency
 - Customer-return voids take the same per-invoice return lock as posting/editing before re-reading status and checking eligibility. Return posting then acquires sorted item locks; reversals re-read lot balances or stock movements under those locks before journal numbering.
 - A consumed return layer cannot be deleted using a pre-sale snapshot. Supplier-return voids lock their restored items as well. Failure rolls back status, inventory and journals; existing one-time void claims, original return costs and separate credit/debit-note settlement remain intact.
