@@ -581,3 +581,26 @@ Seven focused Chromium journeys pass (returns, note settlement and note/payment
 concurrency), along with both TypeScript projects and frontend/backend builds.
 The broader milestone/checklist proposal remains in separate draft PR #160;
 the ACC-02 and merged INV-01 states are recorded in this branch's ROADMAP.md.
+
+### Pre-release linked-note audit
+
+Run `scripts/audit-linked-note-returns.sql` against each production database
+before releasing #165. It uses a repeatable-read, read-only transaction and a
+15-second statement timeout, then rolls back. It reports linked Draft/Pending
+notes with missing returns, wrong company/party/source, or Draft/Void returns;
+missing source invoice/bill IDs are included. Counts cover all matching notes;
+details are capped at 200. No documents or journals are amended.
+
+For the local Docker deployment:
+
+```powershell
+Get-Content -Raw scripts/audit-linked-note-returns.sql | docker exec -i msm-accounting-db-1 sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
+```
+
+Observed 2026-10-13 at 11:23 WIB: local production `msm_accounting` had zero
+linked Draft/Pending notes and zero invalid notes. This snapshot does not cover
+other servers or notes created later; rerun before deployment. If rows appear,
+review with finance: reject pending requests before editing their Draft notes,
+and correct the link or document intent. Do not bulk-unlink or rewrite postings.
+Draft-return deletion and preservation of financial-note links is tracked in
+issue #166, separately from the aggregate value-cap policy in #164.
