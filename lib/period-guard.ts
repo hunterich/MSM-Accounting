@@ -21,11 +21,10 @@ import {
 
 type Tx = Prisma.TransactionClient;
 
-export async function assertPeriodOpen(
+export async function lockOpenAccountingPeriod(
   tx: Tx,
   organizationId: string,
   date: Date,
-  opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
   // Lock the matching period row FOR SHARE (if one exists). Concurrent posts
   // share the lock and don't block each other, but a concurrent period-close
@@ -54,6 +53,15 @@ export async function assertPeriodOpen(
     );
   }
 
+}
+
+export async function assertPeriodOpen(
+  tx: Tx,
+  organizationId: string,
+  date: Date,
+  opts: TransactionDateGuardOptions = {},
+): Promise<void> {
+  await lockOpenAccountingPeriod(tx, organizationId, date);
   // The transaction-date window (Accurate's "Pembatasan Tanggal Transaksi")
   // rides along here rather than being wired up separately, so it inherits this
   // guard's coverage: `period-guard-policy.test.ts` proves every journal-writing

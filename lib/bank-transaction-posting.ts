@@ -31,6 +31,7 @@ import {
 } from './account-defaults';
 import { assertPeriodOpen } from './period-guard';
 import { toNumber, asMoney } from './money';
+import { assertNoDirectControlPosting } from './control-account-guard';
 
 type Tx = Prisma.TransactionClient;
 
@@ -170,6 +171,10 @@ export async function postBankTransactionIfNeeded(tx: Tx, orgId: string, txnId: 
 
   const ctx = await loadBankPostingContext(tx, orgId);
   const { moves, lines, memo, postable } = buildBankPosting(txn, ctx);
+  const directAccountId = txn.type === 'INCOME' ? txn.incomeAccountId : txn.type === 'EXPENSE' ? txn.expenseAccountId : null;
+  // Reject the categorisation even when the bank cannot resolve to GL: its
+  // cached balance must not move under a forbidden control-account category.
+  await assertNoDirectControlPosting(tx, orgId, [...lines.map(line => line.accountId), ...(directAccountId ? [directAccountId] : [])]);
   if (!postable) return { journalEntryId: null, moves };
 
   const je = await postJournalEntry(tx, { organizationId: orgId, date: new Date(txn.date), memo, lines });

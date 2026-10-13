@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — AR/AP control posting and financial approval close policy
+- Ordinary manual journal creation/editing and direct bank categorisation refuse designated AR/AP controls, including document-level alternate controls. Use customer/vendor documents for settlements; controlled opening/migration imports remain supported. Setting a public journal's source to Opening or System grants no exemption. Bank edit refusal rolls back its reversal, journal and cached balance changes.
+- Monthly close and its checklist block pending financial documents dated in that period, including valued-stock returns/adjustments and payroll period-end postings. Orders that post no GL, other periods and other companies do not block close. Approve or reject the pending documents first; nothing is automatically redated.
+- Financial approval submission locks the document and shares the same period lock as posting, so concurrent submission and close cannot leave a newly pending financial document inside a closed month. The close dialog explains the blocking items in English/Bahasa. No schema migration or historical data rewrite is required; independent AR/AP reconciliation remains separate ACC-02 acceptance work.
+- Explicit invoice Submit for approval uses the same period lock and checks Draft status inside its transaction, including when automatic approval routing is disabled. Closed-month submission refuses without a request/status change; existing pending requests on a Draft are reused, and concurrent posting/submission cannot overwrite a Sent invoice.
+
 ### Fixed — linked return and credit/debit-note eligibility
 - Applying or submitting a linked credit/debit note requires the same company, customer/vendor and source invoice/bill as its return. Draft or voided returns are refused, including through approval finalization and cash refunds. Standalone notes retain their existing behavior; note creation still saves Draft.
 - API integrations must supply the return's source invoice/bill on a linked note; an omitted or mismatched source now returns 422 when applying or submitting. The app forms already copy this source from the return.

@@ -16,6 +16,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 
+// This suite isolates decimal arithmetic. Real control-account refusals and
+// rollback are covered by control-close-policy.int.test.ts against PostgreSQL.
+vi.mock('@/lib/control-account-guard', () => ({ assertNoDirectControlPosting: vi.fn(async () => undefined) }));
+
 let putExistingEntry: { id: string; status: string; organizationId: string; lines: { accountId: string }[] } | null = null;
 const putUpdates: Record<string, unknown>[] = [];
 
@@ -47,7 +51,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     account: {
       findMany: vi.fn(async () => [
-        { id: 'acc-ar', isPostable: true, isActive: true },
+        { id: 'acc-expense', isPostable: true, isActive: true },
         { id: 'acc-cash', isPostable: true, isActive: true },
       ]),
     },
@@ -92,7 +96,7 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
       id: 'je-existing',
       status: 'DRAFT',
       organizationId: 'org-1',
-      lines: [{ accountId: 'acc-ar' }],
+      lines: [{ accountId: 'acc-expense' }],
     };
     // The lines below sum-as-Decimal to 100.00 / 100.00 exactly. Under the
     // pre-fix bare-Number arithmetic, JS would compute the credit sum as
@@ -105,7 +109,7 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
         source: 'ADJUSTMENT',
         status: 'DRAFT',
         lines: [
-          { accountId: 'acc-ar', debit: '100.00', credit: 0 },
+          { accountId: 'acc-expense', debit: '100.00', credit: 0 },
           { accountId: 'acc-cash', debit: 0, credit: '33.33' },
           { accountId: 'acc-cash', debit: 0, credit: '33.33' },
           { accountId: 'acc-cash', debit: 0, credit: '33.34' },
@@ -125,7 +129,7 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
       id: 'je-existing',
       status: 'DRAFT',
       organizationId: 'org-1',
-      lines: [{ accountId: 'acc-ar' }],
+      lines: [{ accountId: 'acc-expense' }],
     };
     const res = await updateJournalEntry(
       makePutReq('je-existing', {
@@ -134,7 +138,7 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
         source: 'ADJUSTMENT',
         status: 'DRAFT',
         lines: [
-          { accountId: 'acc-ar', debit: 100, credit: 0 },
+          { accountId: 'acc-expense', debit: 100, credit: 0 },
           { accountId: 'acc-cash', debit: 0, credit: 99 },
         ],
       }),
@@ -149,7 +153,7 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
       id: 'je-existing',
       status: 'DRAFT',
       organizationId: 'org-1',
-      lines: [{ accountId: 'acc-ar' }],
+      lines: [{ accountId: 'acc-expense' }],
     };
     const res = await updateJournalEntry(
       makePutReq('je-existing', {
@@ -158,7 +162,7 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
         source: 'ADJUSTMENT',
         status: 'POSTED',
         lines: [
-          { accountId: 'acc-ar', debit: '12345.67', credit: 0 },
+          { accountId: 'acc-expense', debit: '12345.67', credit: 0 },
           { accountId: 'acc-cash', debit: 0, credit: '12345.67' },
         ],
       }),
