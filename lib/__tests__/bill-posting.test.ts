@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { postBillToLedger } from '../bill-posting';
 
-vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined) }));
+vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined), lockInventoryItems: vi.fn(async () => undefined) }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('../grir', () => ({ ensureGrIrAccount: vi.fn(async () => 'acc-grir') }));
 vi.mock('../withholding', () => ({ ensurePphPayableAccount: vi.fn(async () => 'acc-pph') }));
 
-import { addCostLayer } from '../inventory-costing';
+import { addCostLayer, lockInventoryItems } from '../inventory-costing';
 import { postJournalEntry } from '../journal-posting';
 
 const ACCOUNTS = [
@@ -53,6 +53,7 @@ describe('postBillToLedger', () => {
   });
   beforeEach(() => {
     (addCostLayer as any).mockClear();
+    (lockInventoryItems as any).mockClear();
     (postJournalEntry as any).mockClear();
   });
 
@@ -60,6 +61,7 @@ describe('postBillToLedger', () => {
     const tx = makeTx();
     await postBillToLedger(tx as any, 'org-a', bill());
     expect(addCostLayer).not.toHaveBeenCalled();
+    expect(lockInventoryItems).not.toHaveBeenCalled();
     const je = (postJournalEntry as any).mock.calls[0][1];
     const grir = je.lines.find((l: any) => l.accountId === 'acc-grir');
     expect(grir.debit).toBe(10000);
@@ -73,6 +75,7 @@ describe('postBillToLedger', () => {
     await postBillToLedger(tx as any, 'org-a', b);
     // Must NOT re-book inventory or add a second cost layer.
     expect(addCostLayer).not.toHaveBeenCalled();
+    expect(lockInventoryItems).not.toHaveBeenCalled();
     const je = (postJournalEntry as any).mock.calls[0][1];
     expect(je.lines.find((l: any) => l.accountId === 'acc-grir').debit).toBe(10000);
     expect(je.lines.some((l: any) => l.accountId === 'acc-inv')).toBe(false);

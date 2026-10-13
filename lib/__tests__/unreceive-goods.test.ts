@@ -21,6 +21,7 @@ const ACCOUNTS = [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset
 
 function makeTx(bill: any, poLinesAfter: any[] = [{ quantity: 10, receivedQty: 0 }], claimCount = 1) {
   return {
+    $executeRaw: vi.fn(async () => 1),
     bill: {
       findFirst: vi.fn(async () => bill),
       updateMany: vi.fn(async () => ({ count: claimCount })),

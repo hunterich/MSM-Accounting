@@ -10,6 +10,7 @@ import { reverseAddedLayers, reversePurchaseLayers } from '../inventory-costing'
 
 function makeTx(lots: any[]) {
   return {
+    $executeRaw: vi.fn(async () => 1),
     inventoryLot: {
       findMany: vi.fn(async () => lots),
       delete: vi.fn(async () => ({})),

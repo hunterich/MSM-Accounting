@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined) }));
+vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined), lockInventoryItems: vi.fn(async () => undefined) }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je' })) }));
 vi.mock('../grir', () => ({ ensureGrIrAccount: vi.fn(async () => 'acc-grir') }));
 

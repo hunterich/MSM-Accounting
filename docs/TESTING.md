@@ -117,6 +117,31 @@ changes, application is idempotent and scoped by company, and partial amounts,
 refunds, pending/void notes and draft documents are excluded. Notes, payments
 and journals remain unchanged.
 
+### Purchase stock contention
+
+Purchase stock contention is covered by
+`lib/__tests__/integration/purchase-stock-concurrency.int.test.ts`. Run
+`npm run test:int -- purchase-stock-concurrency void-concurrency edit-posted-repost gl-invariants inventory-invoice-corrections asset-purchase`
+against the disposable database. Real uncommitted bill/receipt postings, voids,
+corrections and sales overlap until PostgreSQL reports the waiting transaction.
+Checks cover newly committed stock becoming available, exact FIFO COGS,
+insufficient-stock rollback after voiding, consumed-stock refusal with unchanged
+bill/PO status and journals, and replacement-item correction before a sale.
+An actual PO receive-route request runs concurrently with un-receiving a prior
+receipt, checking net received quantity, stock and GR/IR. All cases check lot
+balances, lot/ledger/GL reconciliation and trial balance. The existing
+`purchase-receipt.spec.ts` and `accounting-journeys.spec.ts` browser suites cover
+receipt/finalization forms and inventory bill/sale workflows. No migration is
+needed for purchase item locks.
+
+The PO helper re-post regression holds journal numbering after reversing a
+GR/IR-only bill, then starts a sale that holds the item's stock lock. The re-post
+must finish without attempting that item lock, allowing the sale to proceed;
+GR/IR, FIFO/COGS and remaining inventory reconcile. This exercises the helpers
+directly: the edit API continues to reject posted PO-linked bill corrections.
+Normal GR/IR-only bills and already-booked receipts also skip item locking;
+direct bills still lock all newly written stock-layer items before journal posting.
+
 ### Stock adjustment and count contention
 
 Run `npm run test:int -- stock-adjustment stock-count inventory-invoice-corrections`

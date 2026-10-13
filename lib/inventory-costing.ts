@@ -217,12 +217,21 @@ export async function reverseAddedLayers(
  * Back-compat wrapper: reverse the PURCHASE cost layers a bill / goods receipt
  * booked. Delegates to {@link reverseAddedLayers} with documentType PURCHASE.
  */
-export function reversePurchaseLayers(
+export async function reversePurchaseLayers(
   tx: Prisma.TransactionClient,
   orgId: string,
   documentId: string,
   date: Date,
+  additionalItemIds: readonly string[] = [],
 ): Promise<number> {
+  // Read identities only before waiting; reverseAddedLayers re-reads balances
+  // under these locks. Corrections include replacement items up front so no new
+  // item lock is acquired after journal numbering or out of sorted order.
+  const sourceLots = await tx.inventoryLot.findMany({
+    where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId },
+    select: { itemId: true },
+  })
+  await lockInventoryItems(tx, orgId, [...sourceLots.map(lot => lot.itemId), ...additionalItemIds])
   return reverseAddedLayers(tx, orgId, InventoryDocumentType.PURCHASE, documentId, date)
 }
 

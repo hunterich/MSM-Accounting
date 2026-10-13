@@ -92,11 +92,11 @@ export async function voidBill(
     throw new ApiError('Bill is already voided', 409);
   }
 
-  await reverseJournalEntry(tx, journalEntryId, { date: opts.date, memo: `Void bill: ${bill.number}` });
-
   // Only bills that booked inventory directly own their cost layers. PO-sourced
   // bills cleared GR/IR without creating layers, so leave inventory alone.
   if (!bill.poId) {
     await reversePurchaseLayers(tx, orgId, bill.id, opts.date);
   }
+  // Inventory locks precede journal numbering, matching purchase/sale posting.
+  await reverseJournalEntry(tx, journalEntryId, { date: opts.date, memo: `Void bill: ${bill.number}` });
 }

@@ -39,6 +39,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Rejection atomically claims the pending request before locking and reverting the note, matching approval's lock order and preventing concurrent approval/rejection from both succeeding. Draft notes remain editable without an early balance check; the live balance is enforced at application.
 - Isolated PostgreSQL approval races and AR/AP API recovery journeys passed; no migration is required.
 
+### Fixed — purchase stock contention
+- Direct inventory bills lock only the items whose stock layers they create; GR/IR-only bills and already-booked receipts take no item locks. PO goods receipts acquire sorted item locks before stock writes and journal numbering. Purchase-layer reversals discover affected items first, then re-read balances under those locks so consumed stock cannot be deleted using a stale snapshot.
+- Bill voids and corrections remove stock before reversing journals. Corrections lock original and replacement item IDs together, including edits that introduce stock into an expense bill. Goods un-receipts serialize with receiving the same PO and update PO quantities before item locks; any consumed-stock failure rolls back PO changes, soft-delete and journals together.
+- Eight isolated PostgreSQL races verify stock visibility, FIFO costs, bill and un-receipt rollback, replacement-item corrections, concurrent PO receiving/un-receiving and a GR/IR-only helper re-post holding journal numbering while a sale holds the item. Posted PO bill editing remains blocked by the API. No migration, historical rewrite or change to costing rules is required.
+
 ### Added — corrections to posted inventory invoices
 - Sent/Overdue invoice forms offer Save correction within open accounting periods. Corrections restore original stock lots, reverse only the current posting journals and re-post the edited lines atomically. A later void restores only the current sale, preserving lot identity and FIFO order across repeated edits.
 - New sales record exact lot draws and current posting journal IDs. Invoice locks serialize corrections with receipts/voids; item locks are taken in sorted order before journal numbering. Linked note/return creation also locks the source invoice. Status-only requests cannot revive a void invoice or change a posted invoice's derived status.

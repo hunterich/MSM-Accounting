@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
 import { toNumber, asMoney } from './money';
-import { addCostLayer } from './inventory-costing';
+import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
 import { ensurePphPayableAccount } from './withholding';
@@ -180,6 +180,11 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
 
   const apTotal = asMoney(grirNet + inventoryNet + expenseTotal + chargesTotal + inputTaxTotal - withholding);
 
+  // GR/IR-only bills never change stock. In particular, a PO re-post may
+  // already hold journal numbering: it must not acquire unrelated item locks.
+  if (manualInventoryLines.length) {
+    await lockInventoryItems(tx, orgId, manualInventoryLines.map(line => line.itemId));
+  }
   for (const m of manualInventoryLines) {
     await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate);
   }

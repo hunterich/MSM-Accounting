@@ -132,7 +132,7 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
         await reverseBillPosting(
           tx, orgId,
           { id: existing.id, number: existing.number, poId: existing.poId, journalEntryId: existing.journalEntryId },
-          { date: newDate },
+          { date: newDate, replacementItemIds: (lines ?? existing.lines).flatMap(line => line.itemId ? [line.itemId] : []) },
         );
       }
       if (header.vendorId) {

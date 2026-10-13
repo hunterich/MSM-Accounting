@@ -24,7 +24,7 @@ export async function reverseBillPosting(
   tx: Tx,
   orgId: string,
   bill: { id: string; number: string; poId: string | null; journalEntryId: string | null },
-  opts: { date: Date },
+  opts: { date: Date; replacementItemIds?: readonly string[] },
 ): Promise<void> {
   // Resolve the posting entry: tracked journalEntryId, else the deterministic
   // memo `Bill: <number>` (legacy bills posted before the column existed).
@@ -39,13 +39,16 @@ export async function reverseBillPosting(
   if (!journalEntryId) {
     throw new ApiError('No posting journal entry found for this bill — nothing to reverse', 422);
   }
-  await reverseJournalEntry(tx, journalEntryId, { date: opts.date, memo: `Re-post bill: ${bill.number}` });
-
   // Only bills that booked inventory directly own cost layers. PO-sourced bills
   // cleared GR/IR without creating layers, so leave inventory alone.
   if (!bill.poId) {
-    await reversePurchaseLayers(tx, orgId, bill.id, opts.date);
+    if (opts.replacementItemIds) {
+      await reversePurchaseLayers(tx, orgId, bill.id, opts.date, opts.replacementItemIds);
+    } else {
+      await reversePurchaseLayers(tx, orgId, bill.id, opts.date);
+    }
   }
+  await reverseJournalEntry(tx, journalEntryId, { date: opts.date, memo: `Re-post bill: ${bill.number}` });
 }
 
 /** Reverse a posted invoice's AR + COGS entries and put the sold stock back. */
