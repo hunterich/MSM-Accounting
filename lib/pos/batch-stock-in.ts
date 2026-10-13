@@ -1,8 +1,9 @@
 import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
-import { addCostLayer } from '@/lib/inventory-costing';
+import { addCostLayer, lockInventoryItems } from '@/lib/inventory-costing';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
+import { ApiError } from '@/lib/errors';
 
 export interface ReceiveBatchInput {
   itemId: string;
@@ -25,6 +26,24 @@ export async function receiveBatch(
   input: ReceiveBatchInput,
 ): Promise<string> {
   const { itemId, warehouseId, batchNumber, expiryDate, qty, unitCost, date } = input;
+  await lockInventoryItems(tx, orgId, [itemId]);
+
+  const value = Math.round((qty * unitCost + Number.EPSILON) * 100) / 100;
+  let inventoryAccountId: string | null = null;
+  let equityAccountId: string | null = null;
+  if (value > 0) {
+    const accounts = await tx.account.findMany({
+      where: { organizationId: orgId, isActive: true },
+      select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+    });
+    const settings = await loadOrgAccountDefaults(tx, orgId);
+    inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+    equityAccountId = resolveAccountDefaultId(accounts, settings, 'openingBalanceEquity');
+    // Validate BEFORE a physical batch, cost layer or movement is changed.
+    if (!inventoryAccountId || !equityAccountId) {
+      throw new ApiError('Cannot receive opening batch stock: configure Inventory Asset and Opening Balance Equity accounts in Settings first.', 422);
+    }
+  }
 
   const existing = await tx.stockBatch.findFirst({
     where: { organizationId: orgId, itemId, warehouseId, batchNumber, expiryDate },
@@ -43,26 +62,16 @@ export async function receiveBatch(
 
   await addCostLayer(tx, orgId, itemId, warehouseId, qty, unitCost, InventoryDocumentType.OPENING, batchId, date);
 
-  const value = Math.round((qty * unitCost + Number.EPSILON) * 100) / 100;
-  if (value > 0) {
-    const accounts = await tx.account.findMany({
-      where: { organizationId: orgId, isActive: true },
-      select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+  if (value > 0 && inventoryAccountId && equityAccountId) {
+    await postJournalEntry(tx, {
+      organizationId: orgId,
+      date,
+      memo: `POS batch receipt: ${batchNumber}`,
+      lines: [
+        { accountId: inventoryAccountId, description: `Inventory receipt - ${batchNumber}`, debit: value, credit: 0 },
+        { accountId: equityAccountId, description: `Opening equity - ${batchNumber}`, debit: 0, credit: value },
+      ],
     });
-    const settings = await loadOrgAccountDefaults(tx, orgId);
-    const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-    const equityAccountId = resolveAccountDefaultId(accounts, settings, 'openingBalanceEquity');
-    if (inventoryAccountId && equityAccountId) {
-      await postJournalEntry(tx, {
-        organizationId: orgId,
-        date,
-        memo: `POS batch receipt: ${batchNumber}`,
-        lines: [
-          { accountId: inventoryAccountId, description: `Inventory receipt - ${batchNumber}`, debit: value, credit: 0 },
-          { accountId: equityAccountId, description: `Opening equity - ${batchNumber}`, debit: 0, credit: value },
-        ],
-      });
-    }
   }
 
   return batchId;
