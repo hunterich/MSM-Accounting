@@ -343,6 +343,17 @@ export async function reverseAdjustmentInventory(
   documentId: string,
   date: Date,
 ): Promise<number> {
+  // Discover item identities first, then re-read quantities under the shared
+  // item locks. A sale/return must not consume an increase while it is removed.
+  const movements = await tx.inventoryLedgerEntry.findMany({
+    where: { organizationId: orgId, documentType: InventoryDocumentType.ADJUSTMENT, documentId },
+    select: { itemId: true },
+  })
+  const sourceLots = await tx.inventoryLot.findMany({
+    where: { organizationId: orgId, documentType: InventoryDocumentType.ADJUSTMENT, documentId },
+    select: { itemId: true },
+  })
+  await lockInventoryItems(tx, orgId, [...movements, ...sourceLots].map(row => row.itemId))
   // Snapshot the adjustment's original outbound (decrease) movements first.
   const outbound = (
     await tx.inventoryLedgerEntry.findMany({

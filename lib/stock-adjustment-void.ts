@@ -54,6 +54,11 @@ export async function voidStockAdjustment(
     throw new ApiError('Stock adjustment is already voided', 409);
   }
 
+  // Unwind under sorted item locks BEFORE journal numbering, matching forward
+  // posting and invoice correction/void. Any consumed-layer guard rolls back
+  // the VOID claim without ever posting a reversal.
+  await reverseAdjustmentInventory(tx, orgId, id, opts.date);
+
   const entry = await tx.journalEntry.findFirst({
     where: { organizationId: orgId, status: 'POSTED', memo: `Stock adjustment: ${adj.number}` },
     select: { id: true },
@@ -62,8 +67,4 @@ export async function voidStockAdjustment(
     await reverseJournalEntry(tx, entry.id, { date: opts.date, memo: `Void stock adjustment: ${adj.number}` });
   }
 
-  // Unwind both directions in one snapshot-first pass (removes increases,
-  // restores decreases) — avoids the two generic primitives colliding on the
-  // shared ADJUSTMENT documentId.
-  await reverseAdjustmentInventory(tx, orgId, id, opts.date);
 }

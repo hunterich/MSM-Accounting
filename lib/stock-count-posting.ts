@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { toNumber, asMoney } from './money';
 import { nextNumber } from './api-utils';
 import { postStockAdjustmentToLedger, type StockAdjustmentPostingLine } from './stock-adjustment-posting';
+import { lockInventoryItems } from './inventory-costing';
 
 const QTY_EPSILON = 1e-6;
 
@@ -48,6 +49,9 @@ export async function postStockCount(
   count: { id: string; number: string; date: Date; warehouseId: string | null; lines: CountLineInput[] },
 ): Promise<string | null> {
   const itemIds = count.lines.map((l) => l.itemId);
+  // The count's live quantity and its resulting adjustment must observe one
+  // stock state, protected until commit. Acquire before adjustment numbering.
+  await lockInventoryItems(tx, orgId, itemIds);
   // Scope live on-hand to the counted warehouse so the variance is measured
   // against THAT warehouse's stock — not company-wide totals. A null warehouseId
   // (org-wide / single-warehouse count) sums every layer, as before.

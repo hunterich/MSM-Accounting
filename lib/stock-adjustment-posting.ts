@@ -3,7 +3,7 @@ import { InventoryDocumentType } from '@prisma/client';
 import { asMoney, toNumber } from './money';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
-import { addCostLayer, relieveCostLayers } from './inventory-costing';
+import { addCostLayer, relieveCostLayers, lockInventoryItems } from './inventory-costing';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
@@ -57,6 +57,9 @@ export async function postStockAdjustmentToLedger(
   // create-as-APPROVED, the approval finalizer, and stock-count posting (which
   // routes through here). The void path guards separately.
   await assertPeriodOpen(tx, orgId, args.date, opts);
+  // Hold every affected item in the same order as sales/returns before reading
+  // cost layers or taking the journal-number lock, including increase-only lines.
+  await lockInventoryItems(tx, orgId, lines.map(line => line.itemId));
 
   let netValue = 0;
   for (const l of lines) {
