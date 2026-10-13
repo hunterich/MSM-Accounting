@@ -51,7 +51,11 @@ describe('database report aggregation', () => {
     expect(query.values).toContain('org-a');
     expect(query.text).not.toContain(search);
     expect(query.text).toContain("IN ('SENT', 'OVERDUE', 'PAID')");
-    expect(query.text).toContain('SUM(i."totalAmount")');
+    expect(query.text).toContain('SUM(total)');
+    expect(query.text).toContain('-n.amount AS total');
+    expect(query.text).toContain("n.status = 'APPLIED'");
+    expect(query.text).toContain('n."organizationId" =');
+    expect(query.text).toContain('source."organizationId" =');
   });
 
   it('uses explicit Jakarta calendar buckets and a parameterized customer scope', async () => {

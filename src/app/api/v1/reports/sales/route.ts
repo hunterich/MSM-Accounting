@@ -4,6 +4,7 @@ import { readCustomerSales, readItemSales, readTopProducts, readItemCustomerSale
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { reportDate } from '@/lib/subledger-history';
 
 export const runtime = 'nodejs';
 export async function OPTIONS() { return corsPreflightResponse(); }
@@ -38,11 +39,14 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     organizationId: orgId,
     status: { in: ['SENT', 'OVERDUE', 'PAID'] },
   };
-  if (dateFrom) dateFilter.issueDate = { ...dateFilter.issueDate, gte: new Date(dateFrom) };
-  if (dateTo) {
-    const end = new Date(dateTo); end.setHours(23, 59, 59, 999);
-    dateFilter.issueDate = { ...dateFilter.issueDate, lte: end };
-  }
+  let from: Date | undefined, to: Date | undefined;
+  try {
+    from = dateFrom ? reportDate(dateFrom, false) : undefined;
+    to = dateTo ? reportDate(dateTo, true) : undefined;
+  } catch { return err('Invalid report date', 400); }
+  if (from && to && from > to) return err('dateFrom must be before or equal to dateTo', 400);
+  if (from) dateFilter.issueDate = { ...dateFilter.issueDate, gte: from };
+  if (to) dateFilter.issueDate = { ...dateFilter.issueDate, lte: to };
 
   const summaryFilter = {
     organizationId: orgId,
@@ -115,11 +119,8 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       organizationId: orgId,
       status: { in: ['APPROVED', 'PENDING_CREDIT_NOTE', 'APPLIED'] },
     };
-    if (dateFrom) returnWhere.returnDate = { ...returnWhere.returnDate, gte: new Date(dateFrom) };
-    if (dateTo) {
-      const end = new Date(dateTo); end.setHours(23, 59, 59, 999);
-      returnWhere.returnDate = { ...returnWhere.returnDate, lte: end };
-    }
+    if (from) returnWhere.returnDate = { ...returnWhere.returnDate, gte: from };
+    if (to) returnWhere.returnDate = { ...returnWhere.returnDate, lte: to };
     if (customerSearch) {
       returnWhere.customer = { name: { contains: customerSearch, mode: 'insensitive' } };
     }

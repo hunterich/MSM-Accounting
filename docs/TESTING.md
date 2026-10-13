@@ -289,6 +289,57 @@ automated accounting tests should not be run against their production company.
 
 ## Report reconciliation checks
 
+Dashboard return-date regressions compare monthly sales, customer totals and
+calendar buckets for full/partial returns, later-month refunds, standalone
+refund notes, note voids, held/void/foreign notes and Jakarta month boundaries.
+Returns reduce their credit-note period and are excluded from paid settlements;
+refunds still do not settle unpaid AR. Gross notes already include PPN.
+
+Read-only timing on an existing company: set `DATABASE_URL` for that environment,
+then run `npx tsx scripts/benchmark-dashboard-sales.ts ORG_ID YYYY-MM-DD YYYY-MM-DD`.
+The command reports invoice count, first-read timing, warm samples and PostgreSQL
+`EXPLAIN (ANALYZE, BUFFERS)` in a read-only transaction. It seeds no fixtures and
+changes no company data. Historical-company timing has not been run in this
+session because the local terminal cannot start.
+
+POS sale regressions cover configured `Kasir 1` / `Laci Kasir` drawers, sale
+replay and whole-sale rollback for foreign, inactive, non-postable and non-asset
+register accounts. Marketplace import regressions cover non-default `Saldo
+Shopee` / `Shopee Wallet` holding assets and import replay. Payment-account
+PostgreSQL checks require Banking configuration before accepting a named
+non-default bank and reject invalid or mismatched internal configured-deposit
+contexts. Unit checks cover the shared Banking-mapped picker/posting selector.
+These regressions were added after the historical verification below; consult
+CI for the current PR head.
+
+The AR/AP account regressions in `payment-safeguards.spec.ts` cover foreign,
+inactive, non-postable, wrong-type and Kasbon cash accounts; configured and
+unconfigured preferred-code bank defaults; and control, discount and penalty
+accounts. They check rollback at creation, draft completion and approval, valid
+four-line discounted settlements, and posting retries.
+`payment-posting-accounts.int.test.ts` checks the same journal-account guards
+against PostgreSQL, verifies failed creations roll back, and posts a keyword-free
+preferred-code bank default. Cash/default unit tests cover whole-word matching,
+parent classification, preferred codes 112/111/113 and the absence of an
+arbitrary-asset fallback. The verification recorded below predates these added
+regressions; consult CI for the current PR head. Local execution was unavailable
+because the terminal failed during workspace setup.
+
+`dashboard-aging.int.test.ts` checks applied credit-note gross amounts, excluded
+refund/draft/pending/void/foreign notes, mixed receipt/discount/note settlement,
+note reversal, calendar aging boundaries and Jakarta midnight. It compares aging
+to the sales widget and repeats the query in a non-UTC PostgreSQL session.
+The receipt-account journey in `payment-safeguards.spec.ts` rejects foreign,
+revenue, receivable, inactive and non-postable deposit accounts, checks rollback
+at creation/completion/approval, and confirms valid child/default cash accounts
+and unchanged posting retries. These use isolated QA databases and do not amend
+historical journals.
+
+Receipt/aging follow-up verification (2026-10-09): all 1,201 unit tests,
+18 PostgreSQL checks, three payment-safeguard journeys and the existing real-form
+invoice-to-receipt journey passed. Both TypeScript projects and the frontend
+production build passed. The timezone check also passed after its final change.
+
 `lib/__tests__/integration/report-reconciliation.int.test.ts` compares real
 statement, aging and party-balance endpoints with posted control-account journal
 lines at the same cutoff. It covers gross/tax note amounts, monetary refunds,
