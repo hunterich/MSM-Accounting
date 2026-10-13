@@ -545,3 +545,39 @@ both TypeScript projects and frontend/backend production builds passed. The
 frontend build reports existing static/dynamic import chunking warnings. The
 database migration was applied only to a disposable QA container. No production
 migrations, scheduler enablement, real email sends or recovery restore were performed.
+
+## Linked return / financial note safeguards — ACC-02, 2026-10-13
+
+`lib/__tests__/integration/linked-return-note.int.test.ts` runs 34 cases against
+isolated PostgreSQL. Each scenario is covered for customer/credit notes and
+supplier/debit notes. Real bill, invoice and return posting create the stock and
+GL fixtures; assertions compare exact lot quantity/value, inventory ledger,
+Inventory GL, COGS, AR/AP, cash, supplier-return clearing and journal counts.
+
+Coverage includes Draft/Void return refusal, party/source/company mismatch,
+create-with-APPLIED payload remaining Draft, actual PUT application/submission,
+`approveRequest` and `rejectRequest` engine transactions, pending-note void
+refusal, rejection then void, standalone notes, paid-source cash refunds and
+note-void-then-return-void. Race tests observe PostgreSQL blocking before
+releasing the first transaction: both application/void orders, both pending
+submission/void orders, changed draft links after note-lock waits and changed
+return identity after return-lock waits. The submission-first race calls the
+same guard and approval-routing engine inside the held transaction; the
+void-first race drives the actual PUT route. No timing-only race assertions.
+
+Four sequential regressions (Draft note after return void and pending note
+blocking return void, on both sides) fail against pre-fix `main` and pass with
+the guards restored. Existing production data is not rewritten by this change.
+
+```powershell
+# Supply only an isolated QA database URL; the harness derives <db>_test.
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts lib/__tests__/integration/linked-return-note.int.test.ts
+```
+
+Local verification: 1,240 unit tests and 354 PostgreSQL tests pass, plus one
+existing expected Weighted Average failure. Two backup suites were excluded
+because this Windows environment lacks `pg_dump`; they remain CI checks.
+Seven focused Chromium journeys pass (returns, note settlement and note/payment
+concurrency), along with both TypeScript projects and frontend/backend builds.
+The broader milestone/checklist proposal remains in separate draft PR #160;
+the ACC-02 and merged INV-01 states are recorded in this branch's ROADMAP.md.

@@ -28,6 +28,7 @@ interface VoidConfig {
    * BEFORE the GL reversal + inventory unwind so only the winner reverses.
    */
   claimVoid: (tx: Tx, orgId: string, id: string) => Promise<{ count: number }>;
+  blockingNotes: (tx: Tx, orgId: string, id: string) => Promise<{ status: string }[]>;
 }
 
 /**
@@ -71,6 +72,17 @@ async function voidReturn(
     throw new ApiError(`${cfg.label} is already voided`, 409);
   }
 
+  // The claim holds the return row, shared with note application/submission.
+  // Re-read after waiting; an earlier relation snapshot can miss a new note.
+  // Do not lock note rows here: note posting acquires note -> return.
+  const notes = await cfg.blockingNotes(tx, orgId, id);
+  if (notes.some(note => note.status === 'PENDING_APPROVAL')) {
+    throw new ApiError(`Cannot void this ${cfg.label} — approve or reject the pending linked ${cfg.noteLabel} first`, 422);
+  }
+  if (notes.some(note => note.status === 'APPLIED')) {
+    throw new ApiError(`Cannot void this ${cfg.label} — void the linked ${cfg.noteLabel} first`, 422);
+  }
+
   // Unwind under item locks before journal numbering. Any consumed-layer
   // refusal rolls back the status claim without creating a reversal journal.
   await cfg.unwindInventory(tx, orgId, id, opts.date);
@@ -110,6 +122,9 @@ const SR_CONFIG: VoidConfig = {
   unwindInventory: (tx, orgId, id, date) => reverseAddedLayers(tx, orgId, InventoryDocumentType.SALES_RETURN, id, date),
   claimVoid: (tx, orgId, id) =>
     tx.salesReturn.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
+  blockingNotes: (tx, orgId, id) => tx.creditNote.findMany({
+    where: { organizationId: orgId, salesReturnId: id, status: { in: ['APPLIED', 'PENDING_APPROVAL'] } }, select: { status: true },
+  }),
 };
 
 const PR_CONFIG: VoidConfig = {
@@ -131,6 +146,9 @@ const PR_CONFIG: VoidConfig = {
   unwindInventory: (tx, orgId, id, date) => restoreConsumedLayers(tx, orgId, InventoryDocumentType.PURCHASE_RETURN, id, date),
   claimVoid: (tx, orgId, id) =>
     tx.purchaseReturn.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
+  blockingNotes: (tx, orgId, id) => tx.debitNote.findMany({
+    where: { organizationId: orgId, purchaseReturnId: id, status: { in: ['APPLIED', 'PENDING_APPROVAL'] } }, select: { status: true },
+  }),
 };
 
 export function voidSalesReturn(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {

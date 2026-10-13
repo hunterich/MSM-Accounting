@@ -21,6 +21,7 @@ import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { validatePaymentAllocations } from './payment-validation';
 import { syncDebitNoteSettlement } from './settlement-status';
+import { lockEligibleNoteReturn } from './note-return-eligibility';
 
 type Tx = Prisma.TransactionClient;
 
@@ -48,6 +49,7 @@ export async function postDebitNoteOnApply(
       status: true,
       vendorId: true,
       sourceBillId: true,
+      purchaseReturnId: true,
       date: true,
       amount: true,
       taxAmount: true,
@@ -64,6 +66,10 @@ export async function postDebitNoteOnApply(
 
   // Idempotency token — already posted, nothing to do.
   if (dn.journalEntryId) return;
+  await lockEligibleNoteReturn(tx, 'debit', {
+    organizationId: dn.organizationId, partyId: dn.vendorId,
+    sourceId: dn.sourceBillId, returnId: dn.purchaseReturnId,
+  });
   if (dn.sourceBillId && dn.settlementType === 'APPLY_TO_BILL') {
     await validatePaymentAllocations(tx, dn.organizationId, 'ap', {
       vendorId: dn.vendorId, totalAmount: dn.amount,

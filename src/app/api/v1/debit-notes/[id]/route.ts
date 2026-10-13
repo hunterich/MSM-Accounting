@@ -6,6 +6,7 @@ import { asMoney, toNumber } from '@/lib/money';
 import { updateDebitNoteInputSchema } from '@/types/api';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
+import { lockEligibleNoteReturn } from '@/lib/note-return-eligibility';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
 export const runtime = 'nodejs';
@@ -80,7 +81,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.debitNote.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, journalEntryId: true },
+        select: { id: true, status: true, journalEntryId: true, vendorId: true, sourceBillId: true, purchaseReturnId: true },
       });
       if (!prior) {
         throw Object.assign(new Error('Not found'), { status: 404 });
@@ -106,6 +107,13 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
         );
       }
 
+      if (prior.status === 'DRAFT' && nextStatus === 'APPLIED') {
+        await lockEligibleNoteReturn(tx, 'debit', {
+          organizationId: orgId, partyId: d.vendorId ?? prior.vendorId,
+          sourceId: d.sourceBillId !== undefined ? d.sourceBillId : prior.sourceBillId,
+          returnId: d.purchaseReturnId !== undefined ? d.purchaseReturnId : prior.purchaseReturnId,
+        });
+      }
       if (d.vendorId) await validateForeignKey(tx.vendor, { id: d.vendorId, organizationId: orgId }, 'Vendor not found in organization');
       if (d.sourceBillId) await validateForeignKey(tx.bill, { id: d.sourceBillId, organizationId: orgId }, 'Source bill not found in organization');
       if (d.purchaseReturnId) await validateForeignKey(tx.purchaseReturn, { id: d.purchaseReturnId, organizationId: orgId }, 'Purchase return not found in organization');
