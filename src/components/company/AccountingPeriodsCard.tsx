@@ -7,6 +7,8 @@ import StatusTag from '../UI/StatusTag';
 import Table, { TableColumn } from '../UI/Table';
 import { formatDateID } from '../../utils/formatters';
 import { useToastStore } from '../../stores/useToastStore';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { translate } from '../../i18n/language';
 import {
     useAccountingPeriods,
     useCloseChecklist,
@@ -37,6 +39,7 @@ interface Props {
 }
 
 const AccountingPeriodsCard = ({ canManage }: Props): React.ReactElement => {
+    const language = useLanguageStore((s) => s.language) ?? 'en';
     const pushToast = useToastStore((s) => s.pushToast);
     const { data: periods = [], isLoading, error } = useAccountingPeriods();
     const [pending, setPending] = useState<Pending | null>(null);
@@ -197,7 +200,7 @@ const AccountingPeriodsCard = ({ canManage }: Props): React.ReactElement => {
                                         {checklist.items.map((item) => (
                                             <li key={item.key} className="flex items-center justify-between px-3 py-2 text-sm">
                                                 <span className="text-neutral-700">
-                                                    {item.label}
+                                                    {translate(language, item.label)}
                                                     {item.blocking && item.count > 0 && (
                                                         <span className="ml-2 text-xs font-medium text-danger-600">blocks close</span>
                                                     )}
@@ -219,7 +222,7 @@ const AccountingPeriodsCard = ({ canManage }: Props): React.ReactElement => {
                                 ) : null}
                                 {checklist && !checklist.canClose && (
                                     <p className="rounded-md border border-danger-200 bg-danger-50 px-3 py-2 text-sm text-danger-600">
-                                        Post the outstanding journal entries before closing this period.
+                                        {translate(language, 'Resolve blocking items before closing: post outstanding journals and approve or reject pending financial documents dated in this period.')}
                                     </p>
                                 )}
                             </>

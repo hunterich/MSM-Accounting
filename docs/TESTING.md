@@ -604,3 +604,55 @@ review with finance: reject pending requests before editing their Draft notes,
 and correct the link or document intent. Do not bulk-unlink or rewrite postings.
 Draft-return deletion and preservation of financial-note links is tracked in
 issue #166, separately from the aggregate value-cap policy in #164.
+
+## ACC-02 approved control/close policies — 2026-10-13
+
+Finance approved blocking ordinary manual/bank control postings while retaining
+controlled opening/migration entries, and blocking monthly close over financial
+documents awaiting approval with a posting date inside the period. No automatic
+redating. This is the first bounded implementation in issue #167; independent
+per-control reconciliation and complete migration/month-end acceptance remain open.
+
+`control-close-policy.int.test.ts` has 26 real PostgreSQL cases. Manual POST/PUT
+and source-label spoofing cannot post to configured/auto-resolved AR/AP controls
+or additional accounts explicitly designated by document overrides. Bank create
+and edit use the same restriction; an edit refusal rolls back its attempted
+reversal, journal and cached balance changes. Ordinary expense journals and the
+actual `opening-journal` import remain available. No public source label grants
+the controlled-import exemption; internal document posting is unchanged.
+
+Close and checklist count pending financial document statuses by their posting
+dates, including orphaned holds without a request. Covered: invoice, bill,
+credit/debit note, AR/AP payment, sales/purchase return, stock adjustment and
+payroll (period end). Other periods/companies and non-posting order approvals do
+not block this month. Tests exercise rejection for all ten types and invoice
+approval through the genuine engine. The same date/period-row lock governs
+submission and closing; both race orders observe a PostgreSQL blocking wait
+before releasing the winner. Rejected submission creates no request or journal.
+Period-close logic is shared with the actual close API, not copied into tests.
+
+Two focused regressions fail against pre-fix main (manual AR posting and closing
+over an in-period pending invoice). Existing approval, return, opening and bank
+regressions pass. Full local suites: 1,240 unit tests and 380 PostgreSQL tests,
+plus the existing expected Weighted Average failure; two backup suites are
+excluded locally because `pg_dump` is unavailable and remain CI checks.
+
+Fifteen focused Chromium cases passed across the initial run and a focused rerun
+(accounting journeys/edge cases, period close and the two new policy cases).
+The initial run had two sign-in timeouts and a new exact-text locator miss;
+the locator and account fixture names were corrected, and all three cases passed
+on rerun. New UI coverage proves the close button is disabled for an in-period
+hold, the API also refuses, and rejection allows close; authenticated manual
+source spoofing refuses while an ordinary expense journal posts. Both TypeScript
+projects and frontend/backend builds are checked. English/Bahasa close guidance
+uses the translation function. No production postings, period changes, data
+rewrites, migration or deployment were performed.
+
+Before release, finance should review existing direct-control GL differences
+and any financial holds already dated in closed months. The new rules do not
+repair historical postings or silently redate pending documents.
+
+```powershell
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts control-close-policy period-close approval-engine bank-transaction linked-return-note
+node node_modules/@playwright/test/cli.js test e2e/control-close-policy.spec.ts e2e/period-close.spec.ts --project=chromium
+```

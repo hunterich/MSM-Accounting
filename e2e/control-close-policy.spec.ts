@@ -1,0 +1,45 @@
+import { test, expect } from '@playwright/test'
+import { accountingCompany, cleanupAccountingCompany, api, DATE, db } from './accounting-helpers'
+
+test.setTimeout(120_000)
+test.afterEach(cleanupAccountingCompany)
+test.afterAll(async () => { await db.$disconnect() })
+
+test('close dialog blocks an in-period approval until the approver rejects it', async ({ page }) => {
+  const { orgId, customer } = await accountingCompany(page)
+  await db.organization.update({ where: { id: orgId }, data: { approvalRequirements: { ar_credits: true } } })
+  const note = await api(page, '/credit-notes', { customerId: customer.id, date: DATE, amount: 100 }, 'POST')
+  await api(page, `/credit-notes/${note.id}`, { status: 'APPLIED' }, 'PUT')
+  const period = await db.accountingPeriod.findFirstOrThrow({ where: { organizationId: orgId, name: '2026-09' } })
+  await page.goto('/company-setup')
+  const row = page.getByRole('row').filter({ hasText: period.name })
+  await row.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByText('Pending financial approvals dated in this period', { exact: false })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close period', exact: true })).toBeDisabled()
+  await expect(page.getByText('Resolve blocking items before closing:', { exact: false })).toBeVisible()
+  const bypass = await page.request.post(`http://localhost:3100/api/v1/accounting-periods/${period.id}/close`, { data: {} })
+  expect(bypass.status()).toBe(422)
+  const approval = await db.approvalRequest.findFirstOrThrow({ where: { organizationId: orgId, documentId: note.id, status: 'PENDING' } })
+  await api(page, `/approvals/${approval.id}/reject`, { note: 'Revise before closing' }, 'POST')
+  await page.reload()
+  await row.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Close period', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Close period', exact: true }).click()
+  await expect(row.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible()
+  expect((await db.creditNote.findUniqueOrThrow({ where: { id: note.id } })).status).toBe('DRAFT')
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(0)
+})
+
+test('authenticated manual API refuses source spoofing but accepts ordinary expense journals', async ({ page }) => {
+  const { orgId } = await accountingCompany(page)
+  const account = (name: string) => db.account.findFirstOrThrow({ where: { organizationId: orgId, name, isPostable: true } })
+  const ar = await account('Accounts Receivable'), expense = await account('Cost of Goods Sold'), bank = await account('Cash and Bank')
+  const payload = (id: string, source: string) => ({ date: DATE, memo: 'Policy browser test', source, status: 'POSTED',
+    lines: [{ accountId: id, debit: 100, credit: 0 }, { accountId: bank.id, debit: 0, credit: 100 }] })
+  const denied = await page.request.post('http://localhost:3100/api/v1/journal-entries', { data: payload(ar.id, 'OPENING') })
+  expect(denied.status()).toBe(422)
+  expect(await denied.text()).toContain('customer/vendor documents')
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(0)
+  await api(page, '/journal-entries', payload(expense.id, 'MANUAL'), 'POST')
+  expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(1)
+})

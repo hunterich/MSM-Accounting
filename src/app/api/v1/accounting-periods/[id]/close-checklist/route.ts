@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, ok, requireOrg, withHandler } from '@/lib/api-utils';
 import { countUnpostedInPeriod } from '@/lib/period-close';
+import { pendingFinancialInPeriod } from '@/lib/approval/financial-period';
 
 export const runtime = 'nodejs';
 
@@ -35,9 +36,7 @@ export const GET = withHandler(async function GET(
           date: { gte: period.startDate, lte: period.endDate },
         },
       }),
-      prisma.approvalRequest.count({
-        where: { organizationId: orgId, status: 'PENDING' },
-      }),
+      pendingFinancialInPeriod(prisma, orgId, period.startDate, period.endDate),
       prisma.salesInvoice.count({
         where: { organizationId: orgId, status: 'OVERDUE' },
       }),
@@ -58,9 +57,10 @@ export const GET = withHandler(async function GET(
     },
     {
       key: 'pending_approvals',
-      label: 'Pending approvals',
-      count: pendingApprovals,
-      blocking: false,
+      label: 'Pending financial approvals dated in this period',
+      count: pendingApprovals.reduce((sum, item) => sum + item.count, 0),
+      blocking: true,
+      documentTypes: pendingApprovals.filter(item => item.count > 0),
     },
     {
       key: 'overdue_invoices',
