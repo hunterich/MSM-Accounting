@@ -17,7 +17,7 @@ import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
-import { addCostLayer } from './inventory-costing';
+import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { lockSalesReturns, prepareSalesReturnLines, originalSalesLineCost } from './sales-return-lines';
 import { ApiError } from './errors';
 import { toNumber, asMoney } from './money';
@@ -70,6 +70,9 @@ export async function postSalesReturnOnApproval(
       })
     : [];
   const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
+  // Shared by direct creation, draft finalization and approval finalization:
+  // invoice-return lock -> sorted items -> journal numbering.
+  await lockInventoryItems(tx, sr.organizationId, [...inventoryItemIds]);
 
   const priorLines = await tx.salesReturnLine.findMany({
     where: { salesReturn: {

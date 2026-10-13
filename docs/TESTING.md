@@ -1,5 +1,26 @@
 # Testing transactions and accounting
 
+## Opening stock and batch receipt coordination
+
+Opening/batch coordination is covered by
+`lib/__tests__/integration/opening-batch-concurrency.int.test.ts`. Run
+`npm run test:int -- opening-batch-concurrency pos-batch-stock-in pos-sale-posting import-opening-stock opening-period-guard migration-opening-stock-nogl oversell-overpay-concurrency`
+against the disposable database. Nine cases prove valued receipts refuse missing
+usable Inventory/Opening Equity accounts before changing new or existing batches
+(the error is caught inside the transaction to verify pre-write validation),
+zero-cost stock remains valid, overlapping receipts accumulate into one physical
+batch, and existing opening idempotency posts once. Real overlapping opening/invoice
+and batch/POS postings check fixed quantities, COGS, inventory GL and physical
+batch stock, plus lot/ledger/GL reconciliation and trial balance.
+
+Additions previously could safely report less available stock while a receipt
+was uncommitted; these tests validate coordination, not a newly fixed oversell
+claim. The existing migration-mode test still ensures opening stock does not
+post GL twice when the migrated trial balance already includes inventory.
+The batch helper is currently used for opening/setup/test data, not live AP
+purchasing; its equity offset is preserved. It has no production route and does
+not introduce a new purchasing flow. No production data is changed by these tests.
+
 ## Account security
 
 Run `npm run test:security` for database-free regression tests of current session
@@ -116,6 +137,24 @@ legacy status reconciliation against isolated PostgreSQL: dry runs persist no
 changes, application is idempotent and scoped by company, and partial amounts,
 refunds, pending/void notes and draft documents are excluded. Notes, payments
 and journals remain unchanged.
+
+### Return stock and reversal contention
+
+Return stock contention is covered by
+`lib/__tests__/integration/return-stock-concurrency.int.test.ts`. Run
+`npm run test:int -- return-stock-concurrency return-void-invariants sales-return-original-cost void-concurrency inventory-invoice-corrections purchase-stock-concurrency`
+against the disposable PostgreSQL database. Eight cases hold real transactions
+uncommitted until PostgreSQL reports a blocked contender. The reversal-primitive
+case catches a stale untouched-lot check followed by deletion after a sale commits,
+independent of a caller's journal lock. Other cases verify consumed-stock refusal,
+sale rollback after void, replacement/partial returns sharing invoice totals,
+existing repeated-void protection and supplier-return restoration at recorded
+cost. A draft moved and finalized against another invoice while void waits must
+refuse with 409 before any VOID claim or reversal under the old invoice lock.
+Fixed expected stock, inventory/COGS/control values, journal counts and
+status/movement rollback reconcile lots, ledger and GL, with a balanced trial
+balance. The existing returns-to-ledger browser journey retains the separate
+credit-note financial treatment. No production records are amended.
 
 ### Purchase stock contention
 
@@ -506,3 +545,62 @@ both TypeScript projects and frontend/backend production builds passed. The
 frontend build reports existing static/dynamic import chunking warnings. The
 database migration was applied only to a disposable QA container. No production
 migrations, scheduler enablement, real email sends or recovery restore were performed.
+
+## Linked return / financial note safeguards — ACC-02, 2026-10-13
+
+`lib/__tests__/integration/linked-return-note.int.test.ts` runs 34 cases against
+isolated PostgreSQL. Each scenario is covered for customer/credit notes and
+supplier/debit notes. Real bill, invoice and return posting create the stock and
+GL fixtures; assertions compare exact lot quantity/value, inventory ledger,
+Inventory GL, COGS, AR/AP, cash, supplier-return clearing and journal counts.
+
+Coverage includes Draft/Void return refusal, party/source/company mismatch,
+create-with-APPLIED payload remaining Draft, actual PUT application/submission,
+`approveRequest` and `rejectRequest` engine transactions, pending-note void
+refusal, rejection then void, standalone notes, paid-source cash refunds and
+note-void-then-return-void. Race tests observe PostgreSQL blocking before
+releasing the first transaction: both application/void orders, both pending
+submission/void orders, changed draft links after note-lock waits and changed
+return identity after return-lock waits. The submission-first race calls the
+same guard and approval-routing engine inside the held transaction; the
+void-first race drives the actual PUT route. No timing-only race assertions.
+
+Four sequential regressions (Draft note after return void and pending note
+blocking return void, on both sides) fail against pre-fix `main` and pass with
+the guards restored. Existing production data is not rewritten by this change.
+
+```powershell
+# Supply only an isolated QA database URL; the harness derives <db>_test.
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts lib/__tests__/integration/linked-return-note.int.test.ts
+```
+
+Local verification: 1,240 unit tests and 354 PostgreSQL tests pass, plus one
+existing expected Weighted Average failure. Two backup suites were excluded
+because this Windows environment lacks `pg_dump`; they remain CI checks.
+Seven focused Chromium journeys pass (returns, note settlement and note/payment
+concurrency), along with both TypeScript projects and frontend/backend builds.
+The broader milestone/checklist proposal remains in separate draft PR #160;
+the ACC-02 and merged INV-01 states are recorded in this branch's ROADMAP.md.
+
+### Pre-release linked-note audit
+
+Run `scripts/audit-linked-note-returns.sql` against each production database
+before releasing #165. It uses a repeatable-read, read-only transaction and a
+15-second statement timeout, then rolls back. It reports linked Draft/Pending
+notes with missing returns, wrong company/party/source, or Draft/Void returns;
+missing source invoice/bill IDs are included. Counts cover all matching notes;
+details are capped at 200. No documents or journals are amended.
+
+For the local Docker deployment:
+
+```powershell
+Get-Content -Raw scripts/audit-linked-note-returns.sql | docker exec -i msm-accounting-db-1 sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
+```
+
+Observed 2026-10-13 at 11:23 WIB: local production `msm_accounting` had zero
+linked Draft/Pending notes and zero invalid notes. This snapshot does not cover
+other servers or notes created later; rerun before deployment. If rows appear,
+review with finance: reject pending requests before editing their Draft notes,
+and correct the link or document intent. Do not bulk-unlink or rewrite postings.
+Draft-return deletion and preservation of financial-note links is tracked in
+issue #166, separately from the aggregate value-cap policy in #164.

@@ -4,6 +4,7 @@ import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
 import { reverseAddedLayers, restoreConsumedLayers } from './inventory-costing';
+import { lockSalesReturns } from './sales-return-lines';
 
 type Tx = Prisma.TransactionClient;
 
@@ -27,6 +28,7 @@ interface VoidConfig {
    * BEFORE the GL reversal + inventory unwind so only the winner reverses.
    */
   claimVoid: (tx: Tx, orgId: string, id: string) => Promise<{ count: number }>;
+  blockingNotes: (tx: Tx, orgId: string, id: string) => Promise<{ status: string }[]>;
 }
 
 /**
@@ -70,31 +72,59 @@ async function voidReturn(
     throw new ApiError(`${cfg.label} is already voided`, 409);
   }
 
+  // The claim holds the return row, shared with note application/submission.
+  // Re-read after waiting; an earlier relation snapshot can miss a new note.
+  // Do not lock note rows here: note posting acquires note -> return.
+  const notes = await cfg.blockingNotes(tx, orgId, id);
+  if (notes.some(note => note.status === 'PENDING_APPROVAL')) {
+    throw new ApiError(`Cannot void this ${cfg.label} — approve or reject the pending linked ${cfg.noteLabel} first`, 422);
+  }
+  if (notes.some(note => note.status === 'APPLIED')) {
+    throw new ApiError(`Cannot void this ${cfg.label} — void the linked ${cfg.noteLabel} first`, 422);
+  }
+
+  // Unwind under item locks before journal numbering. Any consumed-layer
+  // refusal rolls back the status claim without creating a reversal journal.
+  await cfg.unwindInventory(tx, orgId, id, opts.date);
   if (ret.journalEntryId) {
     await reverseJournalEntry(tx, ret.journalEntryId, { date: opts.date, memo: `Void ${cfg.label}: ${ret.number}` });
   }
-  await cfg.unwindInventory(tx, orgId, id, opts.date);
 }
 
 const SR_CONFIG: VoidConfig = {
   label: 'sales return',
   noteLabel: 'credit note',
   find: async (tx, orgId, id) => {
+    const initial = await tx.salesReturn.findFirst({
+      where: { id, organizationId: orgId }, select: { invoiceId: true },
+    });
+    if (!initial) return null;
+    // Match posting/editing before reading status and claimed return totals.
+    await lockSalesReturns(tx, orgId, initial.invoiceId);
     const r = await tx.salesReturn.findFirst({
       where: { id, organizationId: orgId },
       select: {
         id: true,
+        invoiceId: true,
         number: true,
         status: true,
         journalEntryId: true,
         creditNotes: { where: { status: 'APPLIED' }, select: { id: true } },
       },
     });
+    // A draft could have been moved to another invoice and finalized while
+    // we waited. Never void it while holding the old invoice's return lock.
+    if (r && r.invoiceId !== initial.invoiceId) {
+      throw new ApiError('Sales return changed its source invoice; retry the void action', 409);
+    }
     return r ? { id: r.id, number: r.number, status: r.status, journalEntryId: r.journalEntryId, appliedNotes: r.creditNotes } : null;
   },
   unwindInventory: (tx, orgId, id, date) => reverseAddedLayers(tx, orgId, InventoryDocumentType.SALES_RETURN, id, date),
   claimVoid: (tx, orgId, id) =>
     tx.salesReturn.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
+  blockingNotes: (tx, orgId, id) => tx.creditNote.findMany({
+    where: { organizationId: orgId, salesReturnId: id, status: { in: ['APPLIED', 'PENDING_APPROVAL'] } }, select: { status: true },
+  }),
 };
 
 const PR_CONFIG: VoidConfig = {
@@ -116,6 +146,9 @@ const PR_CONFIG: VoidConfig = {
   unwindInventory: (tx, orgId, id, date) => restoreConsumedLayers(tx, orgId, InventoryDocumentType.PURCHASE_RETURN, id, date),
   claimVoid: (tx, orgId, id) =>
     tx.purchaseReturn.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
+  blockingNotes: (tx, orgId, id) => tx.debitNote.findMany({
+    where: { organizationId: orgId, purchaseReturnId: id, status: { in: ['APPLIED', 'PENDING_APPROVAL'] } }, select: { status: true },
+  }),
 };
 
 export function voidSalesReturn(tx: Tx, orgId: string, id: string, opts: { date: Date }): Promise<void> {

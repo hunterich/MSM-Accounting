@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — linked return and credit/debit-note eligibility
+- Applying or submitting a linked credit/debit note requires the same company, customer/vendor and source invoice/bill as its return. Draft or voided returns are refused, including through approval finalization and cash refunds. Standalone notes retain their existing behavior; note creation still saves Draft.
+- API integrations must supply the return's source invoice/bill on a linked note; an omitted or mismatched source now returns 422 when applying or submitting. The app forms already copy this source from the return.
+- Note application/submission holds the return row before source-document and journal locks. Return voids recheck applied and pending linked notes after claiming that row, before reversing stock or journals. Pending approval blocks voiding until the approver decides; rejection returns the note to Draft and permits the return void. Draft notes do not block voiding, but cannot subsequently be applied against that voided return.
+- Isolated PostgreSQL regressions cover both race orders, approval/rejection, changed links after lock waits, refunds and exact stock/lot/ledger/control/clearing rollback. No schema migration or historical journal rewrite is required. Aggregate note-value caps remain a separate finance-policy decision in #164.
+
+### Fixed — return stock and reversal concurrency
+- Customer-return voids take the same per-invoice return lock as posting/editing before re-reading status and checking eligibility. Return posting then acquires sorted item locks; reversals re-read lot balances or stock movements under those locks before journal numbering.
+- A consumed return layer cannot be deleted using a pre-sale snapshot. Supplier-return voids lock their restored items as well. Failure rolls back status, inventory and journals; existing one-time void claims, original return costs and separate credit/debit-note settlement remain intact.
+- Eight isolated PostgreSQL races/regressions check the deletion primitive, sale/void overlap, per-invoice return totals, a changed source invoice while void waits and supplier-return restoration, with exact lot/ledger/GL reconciliation. A changed invoice identity refuses the void with 409 before claiming status or reversing stock. No schema migration or historical data rewrite is required.
+
 ### Fixed — concurrent stock adjustments and counts
 - Stock adjustments acquire sorted item locks before reading or changing cost layers and before journal numbering. Voids use the same order, re-read stock under those locks and roll back when an added layer has been consumed.
 - Stock counts lock items before reading live on-hand and generating their variance adjustment. Direct adjustment creation uses item locks before adjustment numbering, avoiding a lock cycle with counts.
@@ -38,6 +49,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Over-allocation during credit/debit-note approval now explains how to recover: reject the approval to return the note to Draft, then edit or delete it. The failed approval still rolls back without posting.
 - Rejection atomically claims the pending request before locking and reverting the note, matching approval's lock order and preventing concurrent approval/rejection from both succeeding. Draft notes remain editable without an early balance check; the live balance is enforced at application.
 - Isolated PostgreSQL approval races and AR/AP API recovery journeys passed; no migration is required.
+
+### Fixed — opening stock and POS batch receipt coordination
+- Opening-stock posting keeps its existing per-item opening claim, then acquires the shared item lock before stock reads/writes and journal numbering. POS batch receiving takes the item lock before reading physical batch quantity, updating it and adding valued stock.
+- Valued opening batch receipts refuse with 422 when no usable Inventory Asset or Opening Balance Equity account is available, before any physical batch, cost-layer or movement write. Zero-cost quantities remain valid without a journal. The migration-only opening-stock option still avoids duplicate GL posting.
+- Nine isolated PostgreSQL tests cover account refusal on new/existing batches, zero-cost stock, overlapping receipts to one batch, existing once-only opening behavior and invoice/POS overlap. This coordinates additions and prepares valuation work; it does not claim additions previously oversold stock. The batch helper remains an opening/setup helper, not ordinary AP purchasing. No migration or historical rewrite is required.
 
 ### Fixed — purchase stock contention
 - Direct inventory bills lock only the items whose stock layers they create; GR/IR-only bills and already-booked receipts take no item locks. PO goods receipts acquire sorted item locks before stock writes and journal numbering. Purchase-layer reversals discover affected items first, then re-read balances under those locks so consumed stock cannot be deleted using a stale snapshot.

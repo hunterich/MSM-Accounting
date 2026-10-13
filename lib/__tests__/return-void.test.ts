@@ -21,16 +21,25 @@ import { voidSalesReturn, voidPurchaseReturn } from '../return-void';
 const DATE = new Date('2026-06-20');
 
 function makeSrTx(ret: any) {
-  return { salesReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
+  return { $executeRaw: vi.fn(), creditNote: { findMany: vi.fn(async () => []) }, salesReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
 function makePrTx(ret: any) {
-  return { purchaseReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
+  return { debitNote: { findMany: vi.fn(async () => []) }, purchaseReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
-const sr = (over: any = {}) => ({ id: 'sr-1', number: 'SR-0001', status: 'APPROVED', journalEntryId: 'je-1', creditNotes: [], ...over });
+const sr = (over: any = {}) => ({ id: 'sr-1', invoiceId: 'inv-1', number: 'SR-0001', status: 'APPROVED', journalEntryId: 'je-1', creditNotes: [], ...over });
 const pr = (over: any = {}) => ({ id: 'pr-1', number: 'PR-0001', status: 'APPROVED', journalEntryId: 'je-2', debitNotes: [], ...over });
 
 describe('voidSalesReturn', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('refuses a changed invoice identity without claiming VOID or reversing stock/journals', async () => {
+    const tx = makeSrTx(sr());
+    tx.salesReturn.findFirst.mockResolvedValueOnce({ invoiceId: 'old-invoice' }).mockResolvedValueOnce(sr({ invoiceId: 'new-invoice' }));
+    await expect(voidSalesReturn(tx as never, 'org-a', 'sr-1', { date: DATE })).rejects.toMatchObject({ status: 409 });
+    expect(tx.salesReturn.updateMany).not.toHaveBeenCalled();
+    expect(reverseAddedLayers).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+  });
 
   it('reverses the JE, removes the restock, and marks VOID', async () => {
     const tx = makeSrTx(sr());
