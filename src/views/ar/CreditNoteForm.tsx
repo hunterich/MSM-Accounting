@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
+import { translate } from '../../i18n/language';
+import { useLanguageStore } from '../../stores/useLanguageStore';
 import StatusTag from '../../components/UI/StatusTag';
 
 interface CreditNoteLine {
@@ -77,6 +79,7 @@ const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
 interface CreditNoteFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
 
 const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNoteFormProps = {}) => {
+    const language = useLanguageStore(state => state.language) ?? 'en';
     const navigate = useNavigate();
     const location = useLocation();
     // In the workspace, identity comes from the owning tab (props), not router
@@ -262,8 +265,9 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     }, [chartOfAccounts]);
 
     const settlementAccountOptions = useMemo(() => {
-        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, [chartOfAccounts]);
+        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset' &&
+            !account.isPartyControlAccount && account.id !== formData.arAccountId);
+    }, [chartOfAccounts, formData.arAccountId]);
 
     const openInvoicesForCustomer = useMemo(() => {
         if (!formData.sourceInvoiceId) return [];
@@ -342,7 +346,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
     const renderAccountField = (label: string, key: CreditNoteAccountField, options: any[], disabled = false) => {
-        if (isAccountLegacy(formData[key])) {
+        if (key !== 'settlementAccountId' && isAccountLegacy(formData[key])) {
             return (
                 <div>
                     <label className="form-label">{label}</label>
@@ -358,11 +362,15 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
             <div>
                 <label className="form-label">{label}</label>
                 <select
+                    aria-label={label}
                     className={fcBase}
                     value={formData[key]}
                     onChange={(event) => setFormData((prev) => ({ ...prev, [key]: event.target.value }))}
                     disabled={isView || disabled}
                 >
+                    {key === 'settlementAccountId' && !options.some(account => account.id === formData[key]) && (
+                        <option value={formData[key]} disabled>{formatAccountOption(formData[key])} — {translate(language, 'Unavailable for refunds')}</option>
+                    )}
                     {options.map((account) => (
                         <option key={account.id} value={account.id}>
                             {account.code} - {account.name}

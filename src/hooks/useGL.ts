@@ -54,6 +54,7 @@ function normalizeAccount(raw: RawAccount): Account {
     parentId:       raw.parentId || null,
     isPostable:     raw.isPostable  ?? true,
     isActive:       raw.isActive    ?? true,
+    isPartyControlAccount: raw.isPartyControlAccount ?? false,
     reportGroup:    raw.reportGroup    || '',
     reportSubGroup: raw.reportSubGroup || '',
     normalSide:     raw.normalSide ? fromPrismaNormalSide(raw.normalSide) : '',
