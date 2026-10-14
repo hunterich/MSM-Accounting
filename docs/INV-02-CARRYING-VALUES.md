@@ -75,6 +75,16 @@ No browser, full migration/recovery or production acceptance is claimed.
 
 ## Read-only diagnostic and remaining gates
 
+Monthly-close acceptance now has two real PostgreSQL races in
+`costing-switch-period-close.int.test.ts`. The winning transaction holds its
+locks until the competing backend is verified blocked. Close-first refuses the
+method change with 422 and preserves the complete lot snapshot; change-first
+allows close after waiting. Both preserve receipt identities, all stock ledger
+and journal rows, and exact lot/ledger/Inventory GL value 7,802.50. The targeted
+close/method/warehouse suite passes 16 cases; TypeScript passes. This proves
+monthly-close coordination for method changes, not fiscal-year closing or the
+remaining receipt/return/void race matrix.
+
 The preview CLI remains database-enforced read-only:
 
 ```text

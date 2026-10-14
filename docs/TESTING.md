@@ -1,5 +1,15 @@
 # Testing transactions and accounting
 
+## Costing-method change versus monthly close (INV-02 work in progress)
+
+Run `npm run test:int -- costing-switch-period-close costing-switch-book-value warehouse-carrying-values period-close`.
+Sixteen PostgreSQL cases pass, including two new races with verified blocked
+backend IDs. Close-first refuses the change with 422 and preserves complete lots;
+change-first makes close wait and then succeed. Both preserve original receipt
+identities, exact stock ledger and journal rows, and lot/ledger/GL value 7,802.50.
+No extra valuation journal is created. These cases do not prove fiscal-year
+close or the full inventory/month-end acceptance matrix.
+
 ## Independent Inventory book diagnostic (INV-02 work in progress)
 
 Run `npm run test:int -- inventory-book-audit inventory-carrying-preview` against
