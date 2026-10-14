@@ -88,8 +88,15 @@ proposal, not authorization to initialize production or repair historic COGS.
 does not require the new columns. Review any legacy unscoped/mismatched or
 negative pools before an authorized release; do not guess warehouse history.
 
+Migration transaction coordination is now isolated in draft PR #173, independent
+of this schema. Thirteen new PostgreSQL overlap cases and seven existing migration
+cases pass; its main-schema integration run passes 400 cases with one existing
+expected failure. It covers staging/commit rechecks, zero-value dependencies,
+serializable rollback, closed cutover periods and shared journal numbering.
+Review/merge and migration/recovery acceptance remain pending.
+
 Remaining gates: negative-stock posting/replenishment policy, legacy initialization
-and independent GL audit, migration commit/rollback writer coordination, full
+and independent GL audit, migration safeguard review/recovery, full
 return/receipt/void races, period/month-end and browser acceptance, upgrade/recovery
 checks and an authorized release. Nullable carrying values require explicit
 initialization/diagnostics for old data; a current allocation cannot certify past

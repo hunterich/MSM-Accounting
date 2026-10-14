@@ -11,6 +11,8 @@ The first target customers are small distribution and e-commerce companies in In
 
 ## Release validation still required
 
+- [~] **Migration transaction safeguards — [draft PR #173](https://github.com/hunterich/MSM-Accounting/pull/173)** — batch staging/commit rechecks and serializable rollback guard against live activity, including zero-value stock movements. Closed cutover periods refuse rollback; manual/automatic/migration journals share numbering. Thirteen new PostgreSQL overlap cases plus seven existing migration cases pass. Review/merge and migration/recovery acceptance remain pending; this fix is independent of the unfinished INV-02 schema.
+
 - [ ] **P1 — full filtered CSV exports** — add permission- and tenant-scoped server exports for paginated document catalogs, preserving active filters and stable ordering across all matching rows. Offer separate Export all matching CSV and Export page CSV actions; cover multi-page exports, totals and CSV escaping. Page export remains the current behavior.
 - [ ] **P1 — bulk-payment alert digest** — above a per-company scan threshold, combine posted AR/AP payments into a bounded digest with counts, amounts and a link to the filtered payment list. Preserve per-payment deduplication across overlap/restarts and test import/retry races. Current alerts remain one email per payment.
 - [ ] **P1 — visible automation run results** — persist last run, generated counts and per-template/subscription failures; show permission-scoped status/errors with document links on Recurring and Subscription screens. Explain period/item/account failures and avoid notification storms or automatic period overrides. Current failures remain in backend logs.
