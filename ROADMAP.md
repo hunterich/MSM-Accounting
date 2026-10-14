@@ -37,8 +37,6 @@ The first target customers are small distribution and e-commerce companies in In
 - [~] **INV-02 — Weighted Average valuation (#170)** — finance approved remaining book value / remaining quantity, preserving original purchase prices. PostgreSQL reproduction confirms successive partial sales overstate COGS (11,000 receipts → 11,466.67 COGS, zero stock and -466.67 Inventory). First bounded implementation in [draft PR #171](https://github.com/hunterich/MSM-Accounting/pull/171) uses the recorded pool and refuses inconsistent scope/residuals; ten regressions cover concurrent sales, recorded-value invoice void, new receipts, rounding and warehouses. Review/merge, separate lot carrying values, negative-stock/historical diagnostics and receipt/return/adjustment/correction/reversal acceptance remain outstanding. Replace the existing expected-failure regression only when lot carrying values reconcile to ledger/GL. Deployment and finance acceptance remain pending; see #170 and docs/TESTING.md.
 - [~] **ACC-02 — full settlement and close acceptance** — #165 completes linked-note safeguards; existing tests also cover historical voids, penalties and some opening balances. AR/AP acceptance can proceed before INV-02; full inventory/month-end acceptance still depends on INV-02. Remaining scope and two finance decisions are listed below.
 
-### ACC-02 acceptance scope and decisions
-
 INV-02 implementation continues on `codex/inv02-lot-carrying-values` after draft
 #171. The exact carrying-value allocator and read-only preview have 19 arithmetic
 and two PostgreSQL/CLI tests passing. Warehouse scope needs finance confirmation
@@ -46,6 +44,8 @@ before persisted allocation is enabled. A hard method-switch regression remains
 failing: 7,802.50 receipts become 7,802.48 in lots/GL while the movement ledger stays
 7,802.50; the switch also replaces receipt lots. See
 `docs/INV-02-CARRYING-VALUES.md` and #170. This unfinished branch is not merge-ready.
+
+### ACC-02 acceptance scope and decisions
 
 Before changing posting or close behavior, resolve these decisions explicitly:
 
