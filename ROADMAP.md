@@ -39,6 +39,14 @@ The first target customers are small distribution and e-commerce companies in In
 
 ### ACC-02 acceptance scope and decisions
 
+INV-02 implementation continues on `codex/inv02-lot-carrying-values` after draft
+#171. The exact carrying-value allocator and read-only preview have 19 arithmetic
+and two PostgreSQL/CLI tests passing. Warehouse scope needs finance confirmation
+before persisted allocation is enabled. A hard method-switch regression remains
+failing: 7,802.50 receipts become 7,802.48 in lots/GL while the movement ledger stays
+7,802.50; the switch also replaces receipt lots. See
+`docs/INV-02-CARRYING-VALUES.md` and #170. This unfinished branch is not merge-ready.
+
 Before changing posting or close behavior, resolve these decisions explicitly:
 
 - [x] **Control-account posting policy — finance approved 2026-10-13.** Block ordinary manual journals and direct bank categorisation to designated AR/AP controls; preserve controlled opening/migration paths. Public requests cannot gain an exemption by choosing an Opening/System source label. Cover configured and additional document control-account overrides; expose historical differences without rewriting them.
