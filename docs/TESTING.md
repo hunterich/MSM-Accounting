@@ -6,10 +6,14 @@ The next unfinished carrying-value branch has 19 passing arithmetic tests in
 `lib/__tests__/inventory-carrying-allocation.test.ts` and two passing PostgreSQL/CLI
 cases in `lib/__tests__/integration/inventory-carrying-preview.int.test.ts`.
 The proposal is database-enforced read-only and preserves receipts/postings.
-`costing-switch-book-value.int.test.ts` is a hard, currently failing regression
-for the method-switch rounding/history defect; the unfinished branch is not
-merge-ready and its complete integration suite is not claimed green. See
-`docs/INV-02-CARRYING-VALUES.md` for evidence, CLI usage and the confirmed separate-warehouse policy awaiting implementation.
+Stored carrying values and monetary sale draws are now implemented on the
+unfinished branch with the additive `20261014060000_inventory_carrying_values`
+migration (isolated `_test` database only). The method-switch regression passes;
+warehouse/method/POS/correction tests prove actual carrying/ledger/GL amounts.
+`weighted-average-negative-stock.int.test.ts` is a new hard, currently failing
+compatibility regression. The branch is not merge-ready and its complete suite
+is not claimed green. See `docs/INV-02-CARRYING-VALUES.md` for precise evidence,
+CLI scope, pending negative-stock treatment and remaining acceptance gates.
 
 Run `npm run test:int -- weighted-average-pool` only against the disposable
 PostgreSQL database. Ten cases cover the reproduced 11,000 receipt / successive
@@ -21,12 +25,12 @@ trial balance; rounding/warehouse primitive cases assert the movement pool only.
 
 Before an authorized release, run `scripts/audit-weighted-average-pools.sql`
 read-only on each database and review any findings with finance. This diagnostic
-checks company and named-warehouse quantity/value pools, including negative-stock
+checks separate warehouse and unassigned-stock quantity/value pools, including negative-stock
 pools requiring separate review. It neither repairs records nor independently
 reconciles the GL. Unscoped draws can leave a named warehouse inconsistent; those
 named scopes refuse rather than use the wrong average. Original-price lot totals
-are still not carrying values: the existing expected-failure regression remains
-until the separate lot-value design and broader reversal acceptance in #170.
+are still not carrying values; the old expected-failure regression has become
+a passing stored-carrying/ledger/GL check. Full acceptance remains open in #170.
 
 ## Opening stock and batch receipt coordination
 

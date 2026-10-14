@@ -1,89 +1,96 @@
-# INV-02 carrying-value implementation
+# INV-02 carrying values — unfinished implementation
 
-Finance approved remaining recorded book value / remaining quantity on
-2026-10-14, retaining original receipt prices. Draft PR #171 fixes repeated-sale
-consumption. This document tracks the remaining model; it is not a readiness or
-deployment claim.
+Finance approved remaining book value / remaining quantity and separate warehouse
+averages on 2026-10-14. Draft #171 is the earlier consumption fix. This isolated
+branch builds the full value model; it is not merge-ready or deployed.
 
-## The amounts we must keep separate
+## Implemented on the branch
 
-For 5 units received at 1,000 and 5 at 1,200, the booked pool is 11,000.
-Selling four at the 1,100 average leaves six units and 6,600. Physical oldest-first
-draws leave one unit from the first receipt and five from the second. Their
-original prices stay 1,000 and 1,200. Their proposed carrying values are 1,100 and
-5,500, totaling exactly 6,600. Allocating that value is not a new purchase, sale,
-expense or GL entry.
+The additive migration `20261014060000_inventory_carrying_values` adds nullable
+`InventoryLot.initialValue`, `InventoryLot.carryingValue` and
+`InventoryLotDraw.costValue`. Existing receipt prices, quantities, dates and
+journals are unchanged. The migration was applied only to the isolated `_test`
+database; no production schema/data was changed. Legacy NULLs are not a guessed
+historical backfill.
 
-`lib/inventory-carrying-allocation.ts` performs this allocation with integer
-four-decimal quantity units and integer cents. Largest fractional remainders
-receive remaining cents, with stable lot IDs breaking ties. Depleted lots get
-zero. Negative values, invalid precision, duplicate identities and value without
-quantity refuse. Original purchase costs are not inputs to this allocation.
+Receipts retain their original booked amount and unit price. Eligible Weighted
+Average movements allocate the pool's current book value across remaining lots
+in exact cents. For 5 units at 1,000 and 5 at 1,200, selling four costs 4,400 and
+leaves 6,600. The original-price lots remain one unit at 1,000 and five at 1,200;
+their stored carrying values become 1,100 and 5,500. No valuation journal is
+created by internal allocation. The previous expected-failure test now makes
+passing assertions against those actual stored values, the movement ledger and GL.
 
-## Read-only preview
+Each named warehouse has its own pool; NULL is the unassigned-stock pool.
+An invoice without a specified warehouse still selects stock oldest-first, but
+costs and records each actual source warehouse separately. Company reports sum
+the resulting pools. POS passes the register warehouse into invoice costing so
+batch stock and cost layers use the same location.
 
-`lib/inventory-carrying-preview.ts` compares recorded quantity with physical lot
-quantity using exact Decimal arithmetic, then proposes current carrying values.
-It refuses inconsistent or negative pools. It does not initialize or persist a
-field, reconstruct history, change a receipt or post a balancing journal.
+Sales record monetary costs on their lot draws. Corrections and voids restore
+the original lot quantities and recorded cost, then recalculate carrying values.
+New complete draws support unequal-price Weighted Average corrections; legacy
+draws without monetary tracking still refuse where exact restoration cannot be
+proved. The invoice notice is updated in English/Bahasa. Customer restocks use
+the recorded sale cost and selected return destination, while supplier returns
+use warehouse carrying cost and clearing. Financial notes remain separate.
 
-Provide an explicitly reviewed DATABASE_URL, then run:
+Stock writers pin the company configuration FOR SHARE before sorted item locks
+and journal numbering. Method changes hold the company FOR UPDATE, then the same
+item order. Both the dedicated switch API and ordinary settings edits coordinate
+through one helper. The switch preserves receipt identities and stock book value,
+posts no rounding journal, and validates its effective date against period rules.
+Weighted Average → FIFO freezes current lot carrying bases for future consumption.
+FIFO receipt reversals refuse if a prior valuation change makes their carrying
+amount differ from the original amount; they do not silently leave a difference.
+
+## Evidence and known failure
+
+Passing isolated tests cover five initial warehouse cases plus customer/supplier
+return/void checks, mixed fulfillment, explicit warehouse refusal with document
+rollback, impossible receipt removal, and real method-change/sale lock waits in
+both orders. Method-switch tests cover unchanged 7,802.50 ledger/lots/GL,
+unchanged receipt identities, closed periods, invalid dates, incomplete legacy
+pools and FIFO exhaustion after a Weighted Average transition. POS also proves
+an older, cheaper warehouse cannot supply the register's batch/cost movement.
+Correction tests prove 200 and 171.43 corrected costs with exact subsequent void.
+
+The hard compatibility regression
+`weighted-average-negative-stock.int.test.ts` is currently FAILING. With negative
+stock explicitly enabled, 5 units at 100 followed by a sale of 7 should preserve
+the existing estimated 700 COGS / -200 inventory posting; the new positive-pool
+allocator currently refuses it and rolls back. This is not marked as an expected
+failure, hidden or counted as passing. Finance has been asked how a later receipt
+at a different price should settle estimated cost: post the difference to COGS
+on receipt while preserving the original sale, or disable negative stock for WA.
+Do not merge this branch until compatibility and the selected treatment pass.
+
+The latest broad run has 414 passing cases and exactly the negative-stock case
+failing. Old correction-policy assertions have been replaced with successful
+recorded-cost correction/void cases while retaining a legacy refusal regression.
+The full suite must pass before review/merge readiness. Unit tests passed 1,259
+cases and TypeScript passed with the new tests; the latest UI copy still needs
+its final check.
+No browser, full migration/recovery or production acceptance is claimed.
+
+## Read-only diagnostic and remaining gates
+
+The preview CLI remains database-enforced read-only:
 
 ```text
-node node_modules/tsx/dist/cli.mjs scripts/preview-inventory-carrying.ts --company COMPANY_ID --item ITEM_ID
+node node_modules/tsx/dist/cli.mjs scripts/preview-inventory-carrying.ts --company COMPANY_ID --item ITEM_ID [--warehouse WAREHOUSE_ID]
 ```
 
-Use `--warehouse WAREHOUSE_ID` for the existing named-warehouse scope. Without it,
-the current company scope includes all warehouses. The command validates company
-method and ownership and opens a repeatable-read transaction with database-enforced
-READ ONLY. Output is labelled READ_ONLY_PROPOSAL; do not treat it as an authorized
-backfill. Allocation tests cover large decimal amounts and sub-unit quantities;
-real PostgreSQL tests exercise the CLI, verify the read-only transaction and
-compare stock/movement records before and after.
+Provide DATABASE_URL explicitly for the reviewed database. Omitted warehouse
+means the unassigned pool, not a company-wide average. Output is a current-value
+proposal, not authorization to initialize production or repair historic COGS.
+`scripts/audit-weighted-average-pools.sql` now checks the same separate pools and
+does not require the new columns. Review any legacy unscoped/mismatched or
+negative pools before an authorized release; do not guess warehouse history.
 
-## Decisions and unfinished engineering
-
-- Finance confirmed separate Weighted Average pools per warehouse on 2026-10-14.
-  Implement that policy consistently in physical draws, movement-ledger warehouse
-  identities and carrying allocations, including unassigned stock. The current
-  prototype still illustrates the old optional scope; it must be updated before
-  activation. Preserve legitimate fulfillment across warehouses rather than
-  silently assigning the first warehouse's identity. Company inventory reporting
-  must sum the separate pools, not recalculate a pooled sale cost.
-- Add a separately named carrying-value field only with a reviewed migration and
-  initialization plan. Legacy receipt prices are not carrying values. A current
-  allocation cannot certify that legacy COGS was correct.
-- Every receipt, sale, restock, adjustment, restoration and reversal must maintain
-  carrying values under sorted item locks before journal numbering. Include
-  migration commit/rollback and costing-method changes in the writer audit.
-- A receipt reversal restores/removes its original recorded amount, not its newly
-  allocated carrying amount. Recalculate remaining allocations and refuse any
-  impossible residual. No guessed COGS adjustment to force reconciliation.
-- Track exact monetary draw amounts where needed for FIFO transitions and exact
-  corrections. Original receipt prices remain available for audit and original
-  document reversals. Allocation does not itself authorize Weighted Average
-  invoice corrections currently refused by exact-restoration checks.
-- Cover zero-cost stock, final cents, negative-stock recovery, cross-warehouse
-  movements, both concurrency orders, price changes, taxes and explicit rollback
-  of stock, ledger, document status and GL. Replace the existing expected-failure
-  only when stored lot carrying values reconcile through the full matrix.
-
-## Confirmed costing-method switch defect
-
-The new hard regression in
-`lib/__tests__/integration/costing-switch-book-value.int.test.ts` receives real
-bills for 3 × 1,000.50 and 4 × 1,200.25, then calls the actual method-switch API.
-Expected Inventory ledger/GL/value is 7,802.50. Current FIFO → Weighted Average
-rounds the average to 1,114.64 and replaces the receipt lots: lot value and GL become
-7,802.48, while the movement ledger remains 7,802.50. The API also lacks the shared
-sorted item locks. The hard regression is intentionally still failing on the
-unfinished branch, not converted to an expected failure or counted as passing.
-
-The repair must preserve value and receipt identities, coordinate method changes
-with writers and decide how the new method consumes future stock at carrying
-value. Ordinary organization-settings edits can also change `costingMethod`;
-they must not bypass that coordinated path. Re-test existing switch tests with
-real receipts/GL rather than relying only on manually seeded lots.
-
-No production schema, records or settings were changed by this work. Issue #170
-remains open; full INV-02 and inventory/month-end acceptance are unproven.
+Remaining gates: negative-stock posting/replenishment policy, legacy initialization
+and independent GL audit, migration commit/rollback writer coordination, full
+return/receipt/void races, period/month-end and browser acceptance, upgrade/recovery
+checks and an authorized release. Nullable carrying values require explicit
+initialization/diagnostics for old data; a current allocation cannot certify past
+cost of sales. Issue #170 and the overall Accurate-replacement goal remain open.

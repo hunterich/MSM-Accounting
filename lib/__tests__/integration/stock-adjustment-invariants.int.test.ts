@@ -204,7 +204,7 @@ describe('GL invariant: weighted-average adjustment', () => {
   // WA values consumption at the blended rate, so lots != ledger under WA. This is
   // not specific to adjustments (sales COGS has it too). Flip to passing when the
   // WA cost-layer model is fixed (collapse to a single blended layer).
-  it.fails('under WA, lot value should reconcile with the ledger (pre-existing divergence)', async () => {
+  it('under WA, stored lot carrying value reconciles with the ledger and Inventory GL', async () => {
     const org = await createTestOrg();
     await setWeightedAverage(org.orgId);
     const itemId = await createItem(org.orgId);
@@ -213,7 +213,11 @@ describe('GL invariant: weighted-average adjustment', () => {
     await receiveStock(org, itemId, 5, 1200, DATE_B);
     await postAdjustment(org, [{ itemId, oldQty: 10, newQty: 6, unitCost: 9999 }]);
 
-    expect(await inventoryLotValue(org.orgId)).toBeCloseTo(await inventoryLedgerValue(org.orgId), 2);
+    expect(await inventoryLotValue(org.orgId)).toBe(6600);
+    expect(await inventoryLedgerValue(org.orgId)).toBe(6600);
+    expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(6600);
+    const lots = await prisma.inventoryLot.findMany({ where: { organizationId: org.orgId } });
+    expect(lots.every(lot => lot.carryingValue != null)).toBe(true);
 
     await cleanupOrg(org.orgId);
   });

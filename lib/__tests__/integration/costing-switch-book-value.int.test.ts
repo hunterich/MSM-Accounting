@@ -30,7 +30,10 @@ describe('INV-02: changing the valuation method preserves recorded stock and rec
       expect({ ledger: await inventoryLedgerValue(org.orgId), gl: await accountBalance(org.orgId, org.accounts.inventoryAsset),
         lots: await inventoryLotValue(org.orgId) }).toEqual({ ledger: 7802.5, gl: 7802.5, lots: 7802.5 });
       const lotsAfter = await prisma.inventoryLot.findMany({ where: { organizationId: org.orgId }, orderBy: { id: 'asc' } });
-      expect(lotsAfter).toEqual(lotsBefore);
+      const receiptHistory = (lots: typeof lotsBefore) => lots.map(lot => ({ id: lot.id, documentId: lot.documentId,
+        warehouseId: lot.warehouseId, date: lot.date, qtyIn: lot.qtyIn.toString(), qtyOut: lot.qtyOut.toString(),
+        qtyBalance: lot.qtyBalance.toString(), unitCost: lot.unitCost.toString() }));
+      expect(receiptHistory(lotsAfter)).toEqual(receiptHistory(lotsBefore));
     } finally { await cleanupOrg(org.orgId); }
   });
 });

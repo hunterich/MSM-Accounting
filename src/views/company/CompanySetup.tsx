@@ -4,6 +4,8 @@ import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
 import Modal from '../../components/UI/Modal';
+import { translate } from '../../i18n/language';
+import { useLanguageStore } from '../../stores/useLanguageStore';
 import StatusTag from '../../components/UI/StatusTag';
 import ListPage from '../../components/Layout/ListPage';
 import { formatDateID } from '../../utils/formatters';
@@ -44,6 +46,7 @@ interface FormErrors {
 }
 
 const CompanySetup = () => {
+    const language = useLanguageStore(state => state.language) ?? 'en';
     const navigate = useNavigate();
     const location = useLocation();
     const [searchParams] = useSearchParams();
@@ -502,9 +505,9 @@ const CompanySetup = () => {
 
             {/* Recalculation Result Modal */}
             {recalcResult && (
-                <Modal isOpen title="Costing Recalculation Complete" onClose={() => setRecalcResult(null)} size="sm">
+                <Modal isOpen title={translate(language, 'Costing method updated')} onClose={() => setRecalcResult(null)} size="sm">
                     <div className="p-4 space-y-3">
-                        <p className="text-sm text-neutral-700">Inventory costing has been recalculated successfully.</p>
+                        <p className="text-sm text-neutral-700">{translate(language, 'The new method applies to future stock postings. Receipt history and book value are preserved.')}</p>
                         <div className="grid grid-cols-2 gap-2 text-sm">
                             <div className="text-neutral-500">Items Recalculated</div>
                             <div className="font-medium">{recalcResult.itemsRecalculated}</div>
@@ -513,7 +516,7 @@ const CompanySetup = () => {
                                 {recalcResult.totalValueChange >= 0 ? '+' : ''}{formatIDR(recalcResult.totalValueChange)}
                             </div>
                             <div className="text-neutral-500">Journal Entry</div>
-                            <div className="font-mono text-xs">{recalcResult.journalEntryId}</div>
+                            <div className="font-mono text-xs">{recalcResult.journalEntryId || translate(language, 'No value adjustment')}</div>
                         </div>
                         <div className="flex justify-end pt-2">
                             <Button text="Close" variant="secondary" onClick={() => setRecalcResult(null)} />

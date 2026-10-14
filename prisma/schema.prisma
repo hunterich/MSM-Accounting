@@ -2119,6 +2119,8 @@ model InventoryLot {
   qtyOut         Decimal               @default(0) @db.Decimal(15, 4)
   qtyBalance     Decimal               @db.Decimal(15, 4)
   unitCost       Decimal               @db.Decimal(15, 6)
+  initialValue   Decimal?              @db.Decimal(18, 2)
+  carryingValue  Decimal?              @db.Decimal(18, 2)
   migrationBatchId String?
   createdAt      DateTime              @default(now())
   draws          InventoryLotDraw[]
@@ -2138,6 +2140,7 @@ model InventoryLotDraw {
   ledgerEntryId String
   lotId         String?
   quantity      Decimal @db.Decimal(15, 4)
+  costValue     Decimal? @db.Decimal(18, 2)
   ledgerEntry   InventoryLedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Cascade)
   lot           InventoryLot? @relation(fields: [lotId], references: [id], onDelete: SetNull)
 

@@ -784,7 +784,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     <ClosedPeriodBanner date={formData.issueDate} className="mt-4" />
                     {isPostedCorrection && organizationSettings?.costingMethod === 'WEIGHTED_AVERAGE' && (
                         <div role="note" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                            {translate(language, 'Weighted Average corrections require the original stock-lot value to match the recorded cost of goods sold. Purchases at different costs can prevent a correction; void and replace the invoice in that case.')}
+                            {translate(language, 'Corrections require original stock-lot and recorded-cost tracking. Older invoices without complete tracking must be voided and replaced.')}
                         </div>
                     )}
 

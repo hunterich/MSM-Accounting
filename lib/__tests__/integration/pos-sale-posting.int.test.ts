@@ -11,6 +11,7 @@ import { lockInventoryItems } from '@/lib/inventory-costing';
 import { advisoryLockKey } from '@/lib/advisory-lock';
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
 import { assertInventoryReconciled } from './harness';
+import { changeInventoryCostingMethod } from '@/lib/inventory-costing-switch';
 
 afterAll(async () => {
   await disconnect();
@@ -68,6 +69,23 @@ function saleInput(itemId: string, registerId: string, shiftId: string, clientSa
 }
 
 describe('postPosSale', () => {
+  it('Weighted Average uses the register warehouse for both batches and inventory cost', async () => {
+    const { org, itemId, registerId, shiftId } = await setup();
+    try {
+      const other = await prisma.warehouse.create({ data: { organizationId: org.orgId, code: 'OTHER', name: 'Other warehouse' } });
+      await prisma.$transaction(tx => receiveBatch(tx, org.orgId, { itemId, warehouseId: other.id, batchNumber: 'OTHER-OLDER',
+        expiryDate: new Date('2027-10-01'), qty: 20, unitCost: 1000, date: new Date('2026-06-01') }));
+      await prisma.$transaction(tx => changeInventoryCostingMethod(tx, org.orgId, 'WEIGHTED_AVERAGE', new Date('2026-07-03')));
+      const result = await prisma.$transaction(tx => postPosSale(tx, org.orgId, saleInput(itemId, registerId, shiftId, 'warehouse-wa')));
+      const entries = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: org.orgId, documentType: 'SALES', documentId: result.salesInvoiceId } });
+      expect(entries.map(entry => [entry.warehouseId, Number(entry.qtyOut), Number(entry.valueChange)])).toEqual([[org.warehouseId, 6, -12000]]);
+      const otherStock = await prisma.stockBatch.aggregate({ where: { organizationId: org.orgId, warehouseId: other.id }, _sum: { qtyOnHand: true } });
+      expect(Number(otherStock._sum.qtyOnHand)).toBe(20);
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(218000);
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(12000);
+      await assertInventoryReconciled(org.orgId); await assertTrialBalanced(org.orgId);
+    } finally { await cleanupOrg(org.orgId); }
+  });
   it('a reverse-order batch cart and sorted adjustment finish without an item-lock cycle', async () => {
     const { org, itemId, registerId, shiftId } = await setup();
     try {

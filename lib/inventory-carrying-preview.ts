@@ -13,7 +13,7 @@ export async function previewInventoryCarryingValues(
   itemId: string,
   warehouseId: string | null,
 ) {
-  const where = { organizationId: orgId, itemId, ...(warehouseId ? { warehouseId } : {}) }
+  const where = { organizationId: orgId, itemId, warehouseId }
   const pool = await tx.inventoryLedgerEntry.aggregate({ where, _sum: { qtyIn: true, qtyOut: true, valueChange: true } })
   const lots = await tx.inventoryLot.findMany({ where, orderBy: { id: 'asc' }, select: {
     id: true, warehouseId: true, qtyBalance: true, unitCost: true,

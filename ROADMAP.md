@@ -38,11 +38,14 @@ The first target customers are small distribution and e-commerce companies in In
 - [~] **ACC-02 — full settlement and close acceptance** — #165 completes linked-note safeguards; existing tests also cover historical voids, penalties and some opening balances. AR/AP acceptance can proceed before INV-02; full inventory/month-end acceptance still depends on INV-02. Remaining scope and two finance decisions are listed below.
 
 INV-02 implementation continues on `codex/inv02-lot-carrying-values` after draft
-#171. The exact carrying-value allocator and read-only preview have 19 arithmetic
-and two PostgreSQL/CLI tests passing. Finance confirmed separate warehouse averages
-on 2026-10-14; implement that scope before persisted allocation is enabled. A hard method-switch regression remains
-failing: 7,802.50 receipts become 7,802.48 in lots/GL while the movement ledger stays
-7,802.50; the switch also replaces receipt lots. See
+#171. Stored lot carrying values, monetary draws, separate warehouse movement costs
+and coordinated prospective method changes are implemented on the unfinished
+branch. The additive migration was applied only to isolated QA. Warehouse/return/
+void/POS/correction and method-switch tests pass, including unchanged 7,802.50
+ledger/lots/GL and retained receipt identities. The old expected-failure now passes
+against actual stored values. A NEW hard negative-stock compatibility regression
+still fails; receipt treatment is pending finance's decision. Migration/legacy
+initialization, remaining races, browser and release acceptance are outstanding. See
 `docs/INV-02-CARRYING-VALUES.md` and #170. This unfinished branch is not merge-ready.
 
 ### ACC-02 acceptance scope and decisions
