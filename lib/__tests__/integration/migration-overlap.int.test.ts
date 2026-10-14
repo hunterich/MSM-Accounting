@@ -2,11 +2,14 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST as commitApi } from '@/src/app/api/v1/migration/batches/[id]/commit/route';
 import { POST as stageApi } from '@/src/app/api/v1/migration/batches/[id]/stage/route';
+import { POST as createJournalApi } from '@/src/app/api/v1/journal-entries/route';
+import { advisoryLockKey } from '@/lib/advisory-lock';
 import { createBatch, stageEntity } from '@/lib/migration/batch-service';
 import { commitBatch, resolveControlCodes } from '@/lib/migration/commit';
 import { rollbackBatch, rollbackBatchInTransaction } from '@/lib/migration/rollback';
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
 import { postJournalEntry } from '@/lib/journal-posting';
+import { closeAccountingPeriod } from '@/lib/period-close';
 import { prisma, createTestOrg, cleanupOrg, disconnect, accountBalance, assertTrialBalanced } from './harness';
 
 afterAll(disconnect);
@@ -50,6 +53,74 @@ async function snapshot(f: F) {
   };
 }
 describe('migration state and live stock overlap', () => {
+  it('the real manual journal API waits on migration numbering and both entries commit distinctly', async () => {
+    const f = await prepared(), ready = signal<void>(), release = signal<void>();
+    let gateResult: Promise<unknown> | undefined, commitResult: Promise<any> | undefined, manualResult: Promise<any> | undefined;
+    try {
+      const user = await prisma.user.create({ data: { email: `${f.org.orgId}-numbering@test.local`, fullName: 'Poster', passwordHash: 'x', status: 'ACTIVE' } });
+      const gate = prisma.$transaction(async tx => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`je-seq:${f.org.orgId}`)})`;
+        ready.resolve(); await release.promise;
+      }, { timeout: 15000 });
+      gateResult = gate.then(() => null, error => error);
+      await Promise.race([ready.promise, gate.then(() => { throw new Error('Numbering gate did not wait'); })]);
+      commitResult = commitBatch(f.org.orgId, f.batch.id, null).then(value => value, error => error);
+      await waiting('pg_advisory_xact_lock');
+      const req = new NextRequest('http://localhost/api/v1/journal-entries', { method: 'POST', headers: {
+        'x-org-id': f.org.orgId, 'x-user-id': user.id, 'x-role-type': 'ADMIN', 'content-type': 'application/json',
+      }, body: JSON.stringify({ date: '2026-01-02', memo: 'Live manual expense', source: 'MANUAL', status: 'POSTED',
+        lines: [{ accountId: f.org.accounts.inventoryAdjustment, debit: 100, credit: 0 }, { accountId: f.org.accounts.bankAsset, debit: 0, credit: 100 }] }) });
+      manualResult = createJournalApi(req).then(value => value, error => error);
+      await waiting('pg_advisory_xact_lock', 2); release.resolve();
+      expect(await gateResult).toBeNull(); expect(await commitResult).toMatchObject({ committed: true });
+      const response = await manualResult; expect(response.status).toBe(201);
+      const state = await snapshot(f); expect(state.journals.map(entry => entry.entryNo).sort()).toEqual(['JE-000001', 'JE-000002']);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(1000);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.bankAsset)).toBe(-100);
+      await assertTrialBalanced(f.org.orgId);
+    } finally { release.resolve(); if (gateResult) await gateResult; if (commitResult) await commitResult; if (manualResult) await manualResult; await cleanupOrg(f.org.orgId); }
+  });
+  it('a closed cutover month refuses rollback with an unchanged opening ledger and stock', async () => {
+    const f = await prepared();
+    try {
+      await commitBatch(f.org.orgId, f.batch.id, null);
+      await prisma.accountingPeriod.create({ data: { organizationId: f.org.orgId, name: 'January', startDate: CUTOVER,
+        endDate: new Date('2026-01-31T23:59:59Z'), status: 'CLOSED', isLocked: true } });
+      const before = await snapshot(f);
+      await expect(rollbackBatch(f.org.orgId, f.batch.id)).rejects.toMatchObject({ status: 422 });
+      expect(await snapshot(f)).toEqual(before);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
+  for (const closeFirst of [true, false]) it(`period close versus rollback: ${closeFirst ? 'close' : 'rollback'} wins with a verified lock wait`, async () => {
+    const f = await prepared(), ready = signal<void>(), release = signal<void>();
+    let firstResult: Promise<unknown> | undefined, secondResult: Promise<any> | undefined;
+    try {
+      await commitBatch(f.org.orgId, f.batch.id, null);
+      const period = await prisma.accountingPeriod.create({ data: { organizationId: f.org.orgId, name: 'January', startDate: CUTOVER,
+        endDate: new Date('2026-01-31T23:59:59Z'), status: 'OPEN' } });
+      const user = await prisma.user.create({ data: { email: `${f.org.orgId}@test.local`, fullName: 'Closer', passwordHash: 'x', status: 'ACTIVE' } });
+      const first = prisma.$transaction(async tx => {
+        if (closeFirst) await closeAccountingPeriod(tx, f.org.orgId, user.id, period.id);
+        else expect((await rollbackBatchInTransaction(tx, f.org.orgId, f.batch.id)).rolledBack).toBe(true);
+        ready.resolve(); await release.promise;
+      }, { isolationLevel: closeFirst ? 'ReadCommitted' : 'Serializable', timeout: 15000 });
+      firstResult = first.then(() => null, error => error);
+      await Promise.race([ready.promise, first.then(() => { throw new Error('First operation did not wait'); })]);
+      const second = closeFirst ? rollbackBatch(f.org.orgId, f.batch.id)
+        : prisma.$transaction(tx => closeAccountingPeriod(tx, f.org.orgId, user.id, period.id), { timeout: 15000 });
+      secondResult = second.then(value => value, error => error);
+      await waiting('AccountingPeriod'); release.resolve(); expect(await firstResult).toBeNull();
+      const outcome = await secondResult;
+      if (closeFirst) expect(outcome).toMatchObject({ status: 422 });
+      else expect(outcome.status).toBe('CLOSED');
+      const state = await snapshot(f);
+      expect(state.batch.status).toBe(closeFirst ? 'COMMITTED' : 'ROLLED_BACK');
+      expect(state.journals).toHaveLength(closeFirst ? 1 : 0); expect(state.lots).toHaveLength(closeFirst ? 1 : 0);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(closeFirst ? 1000 : 0);
+      expect((await prisma.accountingPeriod.findUniqueOrThrow({ where: { id: period.id } })).status).toBe('CLOSED');
+    } finally { release.resolve(); if (firstResult) await firstResult; if (secondResult) await secondResult; await cleanupOrg(f.org.orgId); }
+  });
   it('live journal and migration opening serialize their numbering without collisions or lost postings', async () => {
     const f = await prepared(), ready = signal<void>(), release = signal<void>();
     let postingResult: Promise<unknown> | undefined, commitResult: Promise<any> | undefined;
