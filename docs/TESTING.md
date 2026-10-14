@@ -1,5 +1,24 @@
 # Testing transactions and accounting
 
+## Weighted Average remaining book value (INV-02 first increment)
+
+Run `npm run test:int -- weighted-average-pool` only against the disposable
+PostgreSQL database. Ten cases cover the reproduced 11,000 receipt / successive
+4, 4, 2 sale defect, concurrent partial sales, invoice void at recorded cost,
+later receipts, exact cent exhaustion, warehouse separation and refusal of
+inconsistent quantities or legacy residual values. Receipt unit prices remain
+unchanged. Full posting cases assert Inventory ledger, Inventory GL, COGS and
+trial balance; rounding/warehouse primitive cases assert the movement pool only.
+
+Before an authorized release, run `scripts/audit-weighted-average-pools.sql`
+read-only on each database and review any findings with finance. This diagnostic
+checks company and named-warehouse quantity/value pools, including negative-stock
+pools requiring separate review. It neither repairs records nor independently
+reconciles the GL. Unscoped draws can leave a named warehouse inconsistent; those
+named scopes refuse rather than use the wrong average. Original-price lot totals
+are still not carrying values: the existing expected-failure regression remains
+until the separate lot-value design and broader reversal acceptance in #170.
+
 ## Opening stock and batch receipt coordination
 
 Opening/batch coordination is covered by

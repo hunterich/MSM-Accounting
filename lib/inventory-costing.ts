@@ -528,8 +528,9 @@ export async function consumeFIFO(
 }
 
 /**
- * Calculate the weighted-average unit cost for an item.
- * Returns item.costPrice if no lots exist.
+ * Moving average follows booked movement value, not original receipt prices.
+ * Receipt prices remain on lots for traceability; oldest-first quantity draws
+ * must not change the average of the remaining book-value pool.
  */
 export async function getWeightedAverageCost(
   tx: Prisma.TransactionClient,
@@ -537,17 +538,28 @@ export async function getWeightedAverageCost(
   itemId: string,
   warehouseId: string | null
 ): Promise<number> {
-  const lots = await tx.inventoryLot.findMany({
+  const pool = await tx.inventoryLedgerEntry.aggregate({
     where: {
       organizationId: orgId,
       itemId,
       ...(warehouseId ? { warehouseId } : {}),
-      qtyBalance: { gt: 0 },
     },
-    select: { qtyBalance: true, unitCost: true },
+    _sum: { qtyIn: true, qtyOut: true, valueChange: true },
   })
-
-  if (lots.length === 0) {
+  const quantity = toNumber(pool._sum.qtyIn) - toNumber(pool._sum.qtyOut)
+  const value = toNumber(pool._sum.valueChange)
+  const physical = await tx.inventoryLot.aggregate({
+    where: { organizationId: orgId, itemId, ...(warehouseId ? { warehouseId } : {}), qtyBalance: { gt: 0 } },
+    _sum: { qtyBalance: true },
+  })
+  const physicalQuantity = toNumber(physical._sum.qtyBalance)
+  if (Math.abs(quantity) <= QTY_EPSILON && Math.abs(value) > 0.001) {
+    throw new ApiError('Inventory has value but no quantity. Reconcile the recorded inventory movements before posting.', 422)
+  }
+  if (quantity >= -QTY_EPSILON && Math.abs(physicalQuantity - quantity) > QTY_EPSILON) {
+    throw new ApiError('Inventory quantity or value does not reconcile in this costing scope. Reconcile the recorded movements before posting.', 422)
+  }
+  if (quantity <= QTY_EPSILON) {
     const item = await tx.item.findUnique({
       where: { id: itemId },
       select: { costPrice: true },
@@ -555,16 +567,10 @@ export async function getWeightedAverageCost(
     return toNumber(item?.costPrice)
   }
 
-  let totalValue = 0
-  let totalQty = 0
-  for (const lot of lots) {
-    const balance = toNumber(lot.qtyBalance)
-    const cost = toNumber(lot.unitCost)
-    totalValue += balance * cost
-    totalQty += balance
+  if (value < 0) {
+    throw new ApiError('Inventory quantity or value does not reconcile in this costing scope. Reconcile the recorded movements before posting.', 422)
   }
-
-  return totalQty > 0 ? totalValue / totalQty : 0
+  return value / quantity
 }
 
 /**
