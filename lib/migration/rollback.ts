@@ -22,6 +22,7 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { ApiError } from '../errors';
+import { lockOpenAccountingPeriod } from '../period-guard';
 
 export interface RollbackResult {
   rolledBack: boolean;
@@ -36,7 +37,10 @@ export async function rollbackBatch(orgId: string, batchId: string): Promise<Rol
     try {
       return await prisma.$transaction(tx => rollbackBatchInTransaction(tx, orgId, batchId), { isolationLevel: 'Serializable' });
     } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || !['P2034', 'P2003'].includes(error.code)) throw error;
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError)) throw error;
+      const sqlState = error.meta?.code;
+      const rawConflict = error.code === 'P2010' && (sqlState === '40001' || sqlState === '40P01');
+      if (!rawConflict && !['P2034', 'P2003'].includes(error.code)) throw error;
     }
   }
   return { rolledBack: false, reason: 'Dependent or concurrent activity prevented rollback; no migration data was removed. Review activity before retrying.' };
@@ -52,6 +56,8 @@ export async function rollbackBatchInTransaction(tx: Prisma.TransactionClient, o
   if (batch.status !== 'COMMITTED') {
     throw new ApiError('Only a committed batch can be rolled back', 409);
   }
+  // Undoing the opening ledger must respect its signed-off month as well.
+  await lockOpenAccountingPeriod(tx, orgId, batch.cutoverDate);
 
   // Post-cutover activity guard. `{ not: batchId }` on a nullable column does not
   // reliably include NULLs across engines, and manual/foreign entries carry a
