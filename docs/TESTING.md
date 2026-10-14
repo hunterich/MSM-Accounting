@@ -1,5 +1,16 @@
 # Testing transactions and accounting
 
+## Weighted Average customer-return/sale races (INV-02 work in progress)
+
+Run `npm run test:int -- warehouse-carrying-values return-void-invariants return-stock-concurrency`.
+Twenty-four PostgreSQL cases pass, including six new customer-return cases with
+verified backend lock waits. Both restock/sale and untouched-return-void/sale
+orders preserve fixed warehouse costing, original returned cost, COGS and AR.
+Both consumed-stock refusal orders preserve complete lot/draw, stock ledger,
+document and journal snapshots after rollback. The unrelated warehouse stays
+unchanged. Supplier-return/receipt race acceptance and negative-stock policy
+remain separate outstanding work.
+
 ## Costing-method change versus monthly close (INV-02 work in progress)
 
 Run `npm run test:int -- costing-switch-period-close costing-switch-book-value warehouse-carrying-values period-close`.

@@ -24,8 +24,8 @@ async function receive(f: F, warehouseId: string | null, qty: number, price: num
   await prisma.$transaction(tx => postStockAdjustmentToLedger(tx, f.org.orgId, { id: number, number, date: new Date(`2026-09-0${day}`), warehouseId,
     lines: [{ itemId: f.itemId, oldQty: 0, newQty: qty, unitCost: price }] }));
 }
-async function invoice(f: F, quantity: number) {
-  return prisma.salesInvoice.create({ data: { organizationId: f.org.orgId, customerId: f.customerId, number: 'SALE', issueDate: DATE,
+async function invoice(f: F, quantity: number, number = 'SALE') {
+  return prisma.salesInvoice.create({ data: { organizationId: f.org.orgId, customerId: f.customerId, number, issueDate: DATE,
     status: 'DRAFT', subtotal: quantity * 3000, totalAmount: quantity * 3000,
     lines: { create: { lineNo: 1, itemId: f.itemId, description: 'Stock', quantity, price: 3000, lineSubtotal: quantity * 3000 } } } });
 }
@@ -41,8 +41,94 @@ async function pool(f: F, warehouseId: string | null) {
   return { quantity: Number(ledger._sum.qtyIn) - Number(ledger._sum.qtyOut), value: Number(ledger._sum.valueChange),
     lotQuantity: lots.reduce((sum, lot) => sum + Number(lot.qtyBalance), 0), lotValue: lots.reduce((sum, lot) => sum + Number(lot.carryingValue), 0) };
 }
+async function stockSnapshot(tx: Prisma.TransactionClient, orgId: string) {
+  const where = { organizationId: orgId }, orderBy = { id: 'asc' as const };
+  return { lots: await tx.inventoryLot.findMany({ where, orderBy }),
+    ledger: await tx.inventoryLedgerEntry.findMany({ where, orderBy, include: { lotDraws: { orderBy } } }),
+    journals: await tx.journalEntry.findMany({ where, orderBy, include: { lines: { orderBy } } }),
+    invoices: await tx.salesInvoice.findMany({ where, orderBy }),
+    returns: await tx.salesReturn.findMany({ where, orderBy }),
+  };
+}
 
 describe('warehouse book value, carrying lots and source identity', () => {
+  for (const { voiding, consumed } of [{ voiding: false, consumed: false }, { voiding: true, consumed: false }, { voiding: true, consumed: true }]) for (const returnFirst of [true, false]) {
+    it(`${voiding ? 'return void' : 'return restock'} versus ${consumed ? 'dependent' : 'independent'} sale: ${returnFirst ? 'return' : 'sale'} wins with exact warehouse cost`, async () => {
+      const f = await fixture();
+      let release!: () => void, firstResult: Promise<unknown> | undefined, secondResult: Promise<unknown> | undefined;
+      try {
+        await receive(f, f.a, 5, 1000, 'FIRST');
+        // Keep another warehouse at an unrelated cost to expose scope leakage.
+        await receive(f, f.b, 2, 9000, 'OTHER', 2);
+        const source = await invoice(f, 2);
+        await prisma.$transaction(tx => send(tx, f, source.id, f.a));
+        await receive(f, f.a, 3, 2000, 'LATER', 3);
+        const sourceLine = await prisma.salesInvoiceLine.findFirstOrThrow({ where: { invoiceId: source.id } });
+        const ret = await prisma.salesReturn.create({ data: { organizationId: f.org.orgId, customerId: f.customerId, invoiceId: source.id,
+          number: 'RETURN-RACE', returnDate: DATE, status: 'APPROVED', warehouseId: f.a,
+          lines: { create: { lineNo: 1, itemId: f.itemId, itemName: 'Stock', sourceInvoiceLineId: sourceLine.id, qtyReturn: 2, goodsReceived: true } } } });
+        if (voiding) await prisma.$transaction(tx => postSalesReturnOnApproval(tx, ret.id));
+        const sale = await invoice(f, consumed ? 7 : 2, 'NEXT-SALE');
+        const returnAction = (tx: Prisma.TransactionClient) => voiding
+          ? voidSalesReturn(tx, f.org.orgId, ret.id, { date: DATE })
+          : postSalesReturnOnApproval(tx, ret.id);
+        const saleAction = (tx: Prisma.TransactionClient) => send(tx, f, sale.id, f.a);
+        let ready!: () => void, identify!: (pid: number) => void;
+        const started = new Promise<void>(done => { ready = done; });
+        const hold = new Promise<void>(done => { release = done; });
+        const identified = new Promise<number>(done => { identify = done; });
+        let winningSnapshot: Awaited<ReturnType<typeof stockSnapshot>> | undefined;
+        const first = prisma.$transaction(async tx => {
+          await (returnFirst ? returnAction(tx) : saleAction(tx));
+          if (consumed) winningSnapshot = await stockSnapshot(tx, f.org.orgId);
+          ready(); await hold;
+        }, { timeout: 15000 });
+        firstResult = first.then(() => null, error => error);
+        await Promise.race([started, first.then(() => { throw new Error('First operation did not hold its locks'); })]);
+        secondResult = prisma.$transaction(async tx => {
+          const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+          identify(row.pid); await (returnFirst ? saleAction(tx) : returnAction(tx));
+        }, { timeout: 15000 }).then(() => null, error => error);
+        const pid = await identified, deadline = Date.now() + 3000;
+        let blocked = false;
+        while (Date.now() < deadline) {
+          const [row] = await prisma.$queryRaw<Array<{ blocked: boolean }>>`SELECT cardinality(pg_blocking_pids(${pid}::int)) > 0 AS blocked`;
+          if (row.blocked) { blocked = true; break; }
+          await new Promise(done => setTimeout(done, 10));
+        }
+        expect(blocked).toBe(true); release();
+        expect(await firstResult).toBeNull();
+        if (consumed) {
+          expect(await secondResult).toMatchObject({ status: 422 });
+          expect((await secondResult as Error).message).toContain(returnFirst ? 'Insufficient stock' : 'already been consumed');
+          expect(await prisma.$transaction(tx => stockSnapshot(tx, f.org.orgId))).toEqual(winningSnapshot);
+        } else expect(await secondResult).toBeNull();
+        // Restock adds the old 2,000 sale cost, never the new 1,500 average.
+        // Return-first: 11,000/8 × 2 = 2,750; sale-first: 9,000/6 × 2 = 3,000.
+        // Void-first uses 9,000/6; sale-first uses 11,000/8, then removes 2,000.
+        const value = consumed ? (returnFirst ? 9000 : 1375) : voiding ? (returnFirst ? 6000 : 6250) : (returnFirst ? 8250 : 8000);
+        const quantity = consumed ? (returnFirst ? 6 : 1) : voiding ? 4 : 6;
+        const saleCost = consumed ? (returnFirst ? 0 : 9625) : voiding ? (returnFirst ? 3000 : 2750) : (returnFirst ? 2750 : 3000);
+        expect(await pool(f, f.a)).toEqual({ quantity, lotQuantity: quantity, value, lotValue: value });
+        expect(await pool(f, f.b)).toEqual({ quantity: 2, lotQuantity: 2, value: 18000, lotValue: 18000 });
+        expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(value + 18000);
+        const returnVoided = voiding && (!consumed || returnFirst);
+        expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(saleCost + (returnVoided ? 2000 : 0));
+        expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(consumed ? (returnFirst ? 6000 : 27000) : 12000);
+        expect((await prisma.salesReturn.findUniqueOrThrow({ where: { id: ret.id } })).status).toBe(returnVoided ? 'VOID' : 'APPROVED');
+        const movements = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: f.org.orgId, documentType: 'SALES', documentId: sale.id } });
+        if (consumed && returnFirst) {
+          expect(movements).toHaveLength(0);
+          expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: sale.id } })).status).toBe('DRAFT');
+        } else {
+          expect(movements).toHaveLength(1);
+          expect(Number(movements[0].valueChange)).toBe(-saleCost);
+          expect(movements[0].warehouseId).toBe(f.a);
+        }
+        await assertTrialBalanced(f.org.orgId);
+      } finally { if (release) release(); await firstResult; await secondResult; await cleanupOrg(f.org.orgId); }
+    });
+  }
   it('mixed fulfillment costs each warehouse independently, then void restores the exact warehouses and values', async () => {
     const f = await fixture();
     try {

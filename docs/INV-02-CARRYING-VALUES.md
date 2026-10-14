@@ -75,6 +75,20 @@ No browser, full migration/recovery or production acceptance is claimed.
 
 ## Read-only diagnostic and remaining gates
 
+Six new warehouse-scoped Weighted Average races cover customer restocking and
+return voids versus a sale, in both winning orders. Returned quantity uses its
+original 2,000 sale cost even after a higher-price receipt changes the pool average.
+Return-first and sale-first legitimately produce different later sale costs;
+each is checked against fixed expected values, exact carrying/ledger/GL and COGS,
+an unchanged second warehouse and AR unaffected by restocking/void.
+When a sale consumes returned lots first, void refuses; when void removes stock
+first, a dependent sale refuses and remains Draft. Complete lots, monetary lot
+draws, ledger, document and journal snapshots equal the winning transaction's
+state after the losing transaction rolls back. Real backend lock waits are
+verified. The combined warehouse/return-invariant/return-stock suite passes
+24 cases. These are acceptance evidence for existing code, not a new posting
+policy; supplier-return/receipt races and full month-end remain open.
+
 Monthly-close acceptance now has two real PostgreSQL races in
 `costing-switch-period-close.int.test.ts`. The winning transaction holds its
 locks until the competing backend is verified blocked. Close-first refuses the

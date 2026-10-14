@@ -11,6 +11,8 @@ The first target customers are small distribution and e-commerce companies in In
 
 ## Release validation still required
 
+- [~] **INV-02 — customer-return concurrency acceptance** — six additional Weighted Average restock/void-versus-sale races pass in both orders, including exact rollback when a dependent sale or consumed-return void is refused. Original returned cost, warehouse isolation, COGS and AR are checked; 24 targeted return/warehouse cases pass. Supplier-return/receipt races, negative-stock policy and full release acceptance remain pending.
+
 - [~] **INV-02 — method-change monthly-close acceptance** — both real PostgreSQL lock orders pass: close-first refuses the change without stock changes; change-first makes close wait. Receipt identities, ledger/journal rows and exact lot/Inventory GL values are preserved. Sixteen targeted method/warehouse/monthly-close cases pass. Fiscal-year close, full race matrix and release acceptance remain open.
 
 - [~] **INV-02 — independent current-book diagnostic** — read-only CLI compares all inventory ledger value with finance-selected historical Inventory accounts, and flags warehouse quantity/value problems independently. Three new PostgreSQL cases pass, including unexplained GL value and offsetting warehouse errors. Account-set completeness still requires finance review; no historical warehouse GL, carrying initialization or production/release acceptance is implied. See `docs/INV-02-CARRYING-VALUES.md`.
