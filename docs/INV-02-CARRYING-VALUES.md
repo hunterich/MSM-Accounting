@@ -84,6 +84,28 @@ node node_modules/tsx/dist/cli.mjs scripts/preview-inventory-carrying.ts --compa
 Provide DATABASE_URL explicitly for the reviewed database. Omitted warehouse
 means the unassigned pool, not a company-wide average. Output is a current-value
 proposal, not authorization to initialize production or repair historic COGS.
+
+An independent current-book diagnostic is also available:
+
+```text
+node node_modules/tsx/dist/cli.mjs scripts/audit-inventory-books.ts --company COMPANY_ID --accounts INVENTORY_ACCOUNT_ID[,OTHER_HISTORICAL_INVENTORY_ACCOUNT_ID]
+```
+
+The CLI uses a database-enforced read-only, repeatable-read transaction. Supply
+the complete historical Inventory account set after finance review; today's
+default does not establish that set. It independently totals all posted journal
+debits minus credits and compares them with inventory ledger value. Draft journals
+are excluded; inactive accounts/items and compensating reversals remain included.
+Warehouse pools (including unassigned stock) separately expose physical/ledger
+quantity mismatches, negative lots/stock/value and residual value without stock.
+A zero company difference does not clear those warnings or certify history.
+Journal lines have no warehouse identity, so no warehouse GL reconciliation is
+claimed. This diagnostic neither initializes carrying values nor repairs data.
+Three PostgreSQL tests exercise real receipt postings, unexplained journal value,
+multiple/inactive controls, draft exclusion, tenant checks, CLI preservation and
+offsetting warehouse/negative-lot defects. Together with the existing proposal's
+two cases, five pass. Production has not been queried by this increment.
+
 `scripts/audit-weighted-average-pools.sql` now checks the same separate pools and
 does not require the new columns. Review any legacy unscoped/mismatched or
 negative pools before an authorized release; do not guess warehouse history.

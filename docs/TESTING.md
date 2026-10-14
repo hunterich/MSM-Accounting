@@ -1,5 +1,18 @@
 # Testing transactions and accounting
 
+## Independent Inventory book diagnostic (INV-02 work in progress)
+
+Run `npm run test:int -- inventory-book-audit inventory-carrying-preview` against
+isolated PostgreSQL: three independent book-audit cases plus two current-value
+proposal cases pass. The read-only CLI compares ledger value with explicitly
+reviewed historical Inventory accounts, including inactive accounts/items and
+posted reversals, excluding drafts. Fixed examples detect unexplained GL value,
+incomplete account selection, foreign account IDs and warehouse/negative-lot
+warnings even when the company total difference is zero. See
+`docs/INV-02-CARRYING-VALUES.md` for scope and CLI arguments. No historical
+warehouse GL attribution, initialization, production audit or release acceptance
+is established by these cases.
+
 ## Weighted Average remaining book value (INV-02 first increment)
 
 The next unfinished carrying-value branch has 19 passing arithmetic tests in

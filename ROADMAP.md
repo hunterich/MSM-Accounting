@@ -11,6 +11,8 @@ The first target customers are small distribution and e-commerce companies in In
 
 ## Release validation still required
 
+- [~] **INV-02 — independent current-book diagnostic** — read-only CLI compares all inventory ledger value with finance-selected historical Inventory accounts, and flags warehouse quantity/value problems independently. Three new PostgreSQL cases pass, including unexplained GL value and offsetting warehouse errors. Account-set completeness still requires finance review; no historical warehouse GL, carrying initialization or production/release acceptance is implied. See `docs/INV-02-CARRYING-VALUES.md`.
+
 - [~] **Migration transaction safeguards — [draft PR #173](https://github.com/hunterich/MSM-Accounting/pull/173)** — batch staging/commit rechecks and serializable rollback guard against live activity, including zero-value stock movements. Closed cutover periods refuse rollback; manual/automatic/migration journals share numbering. Thirteen new PostgreSQL overlap cases plus seven existing migration cases pass. Review/merge and migration/recovery acceptance remain pending; this fix is independent of the unfinished INV-02 schema.
 
 - [ ] **P1 — full filtered CSV exports** — add permission- and tenant-scoped server exports for paginated document catalogs, preserving active filters and stable ordering across all matching rows. Offer separate Export all matching CSV and Export page CSV actions; cover multi-page exports, totals and CSV escaping. Page export remains the current behavior.
