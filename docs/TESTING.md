@@ -1,5 +1,31 @@
 # Testing transactions and accounting
 
+## Refund settlement accounts (ACC-02, #169 first increment)
+
+Run `npm run test:int -- refund-control-account` against the disposable database.
+Twenty-five PostgreSQL cases cover customer/supplier default and alternate controls,
+configured controls, foreign/inactive/nonpostable/non-asset accounts, create/edit
+refusal, real approval rollback, cash/holding refunds, exact source-control balances,
+legitimate voids and reversal of historical incorrect refunds. The two core refusal
+cases fail on the original posting helpers. The account-list metadata is tenant
+scoped, including bad foreign historical references. The read-only CLI is exercised
+against the same isolated fixtures and preserves their stock and posting snapshots.
+
+Run `npm run test:e2e -- e2e/refund-account-role.spec.ts --project=chromium` for the
+two browser cases: disabled historical selection, exclusion of additional controls,
+available bank/holding choices, API refusal/recoding and actual Bahasa guidance.
+This proves picker selection and API repair, not a complete standalone-note form
+creation journey.
+
+Before an authorized release, provide the reviewed DATABASE_URL explicitly and run
+`node node_modules/tsx/dist/cli.mjs scripts/audit-note-refund-accounts.ts --company COMPANY_ID`.
+It uses a repeatable-read, database-enforced READ ONLY transaction and reports invalid
+Draft/Pending/Applied/Void refund accounts without repairing them. Review Drafts with
+finance; reject invalid pending requests before editing their Draft. Posted differences
+belong in reconciliation (#167) and require a reviewed correction/reversal. This audit
+does not calculate or certify a per-control GL reconciliation. Bill/invoice charges and
+stock-adjustment offsets remain open in #169. No production audit/deployment is implied.
+
 ## Weighted Average inbound void uses stock posting order
 
 `npm run test:int -- inventory-carrying-void-guard warehouse-carrying-values`

@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — refund notes cannot bypass customer/vendor control balances
+- Credit/debit-note refunds refuse designated AR/AP control accounts when creating, editing, submitting or posting through approval. Active, postable cash/bank and holding asset accounts remain available; a cash refund does not reduce source invoice/bill debt or restock goods.
+- Refund pickers exclude configured and document-designated controls. Existing invalid selections remain visible as disabled history, with English/Bahasa guidance and valid replacement choices. Approval refusal rolls back its claim and journals; legitimate refunds and reversals, including reversal of an old incorrect refund, remain available.
+- The company-scoped read-only `scripts/audit-note-refund-accounts.ts` identifies existing invalid refund accounts before an authorized release. No migration or historical rewrite. Bill/invoice charge and stock-adjustment offset validation remains separate work in #169.
+
 ### Fixed — Weighted Average inbound void follows stock issue order (INV-02 WIP)
 - Mixed-price receipts alone no longer block WA bill/receipt/return/adjustment reversals or posted bill edits. The original value is removed and the remaining pool reallocated, provided no later stock issue exists for that item and warehouse. A later issue blocks the action with its document identifier. FIFO retains the carrying-value guard.
 - Requires `20261016093000_inventory_posting_order`: future stock movements receive a database posting sequence and new lots link to their inbound movement. Legacy chronology stays unset and uncertain reversals require review. No historical value rewrite, receipt-void COGS variance or production migration is performed.
