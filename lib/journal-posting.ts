@@ -39,7 +39,7 @@ export const BALANCE_TOLERANCE = 0.005; // half a cent — covers Decimal roundi
  * raw query so it sees uncommitted rows in the same transaction and stays
  * monotonic under sequential POSTs (one transaction at a time per request).
  */
-async function nextEntryNo(tx: Tx, organizationId: string): Promise<string> {
+export async function allocateJournalEntryNumber(tx: Tx, organizationId: string): Promise<string> {
   // Serialize entryNo allocation per org (mirrors nextInvoiceNumber). Without
   // it, two concurrent posts read the same MAX and both derive the same next
   // number, colliding on @@unique([organizationId, entryNo]) → one legitimate
@@ -77,7 +77,7 @@ export async function postJournalEntry(
     );
   }
 
-  const entryNo = await nextEntryNo(tx, args.organizationId);
+  const entryNo = await allocateJournalEntryNumber(tx, args.organizationId);
 
   const created = await tx.journalEntry.create({
     data: {

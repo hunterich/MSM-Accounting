@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — migration staging, cutover and rollback coordination
+- Concurrent staging edits merge the latest batch data under a row lock. Commit rechecks the batch status, staged snapshot and current control-account reconciliation before opening writes; stale requests return 409 and leave records unchanged.
+- Rollback performs its checks and batch-scoped deletions in one serializable transaction. Existing financial or stock activity, including zero-value movements with no journal, blocks rollback. A closed/locked cutover month refuses it; close/rollback overlap follows the same period lock.
+- Migration openings, manual journal creation and ordinary automatic postings share the journal-number allocator. Retryable database conflicts recheck rollback eligibility; dependent records remain protected. No schema migration is required for these safeguards; production rollback and deployment remain operator-controlled.
+
 ### Fixed — AR/AP control posting and financial approval close policy
 - Ordinary manual journal creation/editing and direct bank categorisation refuse designated AR/AP controls, including document-level alternate controls. Use customer/vendor documents for settlements; controlled opening/migration imports remain supported. Setting a public journal's source to Opening or System grants no exemption. Bank edit refusal rolls back its reversal, journal and cached balance changes.
 - Monthly close and its checklist block pending financial documents dated in that period, including valued-stock returns/adjustments and payroll period-end postings. Orders that post no GL, other periods and other companies do not block close. Approve or reject the pending documents first; nothing is automatically redated.

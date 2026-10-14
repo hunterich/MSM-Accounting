@@ -1,5 +1,32 @@
 # Testing transactions and accounting
 
+## Migration staging, cutover and rollback coordination
+
+Run `npm run test:int -- migration-overlap migration-rollback migration-commit`
+against the disposable PostgreSQL database. Thirteen new cases in
+`migration-overlap.int.test.ts`, plus seven existing commit/rollback cases, cover
+zero-value stock activity, actual rollback-service retry, rollback winning against
+a stale stock movement, concurrent staging edits, stale snapshots/defaults after a
+lock wait, double commit, API 409 responses, live journal and actual manual-API
+numbering, closed cutover refusal and both close/rollback orders. Lock waits are
+verified through PostgreSQL, not inferred from a timing delay. Snapshots and fixed
+GL/stock assertions show that refusal preserves opening records and successful
+rollback removes only its stamped batch. The lost-staging-edit regression fails
+against the original batch service.
+
+Rollback checks run in the same serializable transaction as deletion; its exported
+transaction primitive refuses weaker isolation. Retries handle ORM and raw-query
+serialization/deadlock errors; eligible foreign-key conflicts are retried/reported
+without removing dependent data. Commit pins company configuration with a shared
+row lock, then locks/rechecks its batch and reconciles current account defaults.
+Period locks precede stock and shared journal numbering. A rollback of a closed
+cutover month requires an authorized reopen through the existing workflow.
+
+This work is independent of the unfinished stored-carrying-value INV-02 branch.
+It does not apply that schema or resolve negative-stock receipt treatment. Local
+backup suites require PostgreSQL client tools and are excluded; no production
+rollback, migration/recovery rehearsal or browser acceptance is claimed here.
+
 ## Opening stock and batch receipt coordination
 
 Opening/batch coordination is covered by
