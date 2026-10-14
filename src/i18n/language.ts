@@ -3,6 +3,7 @@ export type AppLanguage = 'en' | 'id';
 // Keys are the existing English UI labels. Unknown labels deliberately stay in
 // English so untranslated screens never display a broken key.
 const indonesian: Record<string, string> = {
+  'Unavailable for refunds': 'Tidak dapat digunakan untuk pengembalian dana',
   'Pending financial approvals dated in this period': 'Persetujuan dokumen keuangan yang tertunda dan bertanggal dalam periode ini',
   'Resolve blocking items before closing: post outstanding journals and approve or reject pending financial documents dated in this period.': 'Selesaikan hal yang menghalangi tutup buku: posting jurnal yang tertunda dan setujui atau tolak dokumen keuangan yang menunggu persetujuan dan bertanggal dalam periode ini.',
   'Save correction': 'Simpan koreksi',
