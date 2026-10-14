@@ -9,7 +9,7 @@ The proposal is database-enforced read-only and preserves receipts/postings.
 `costing-switch-book-value.int.test.ts` is a hard, currently failing regression
 for the method-switch rounding/history defect; the unfinished branch is not
 merge-ready and its complete integration suite is not claimed green. See
-`docs/INV-02-CARRYING-VALUES.md` for evidence, CLI usage and pending warehouse policy.
+`docs/INV-02-CARRYING-VALUES.md` for evidence, CLI usage and the confirmed separate-warehouse policy awaiting implementation.
 
 Run `npm run test:int -- weighted-average-pool` only against the disposable
 PostgreSQL database. Ten cases cover the reproduced 11,000 receipt / successive

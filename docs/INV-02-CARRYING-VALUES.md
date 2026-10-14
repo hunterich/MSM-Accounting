@@ -43,11 +43,13 @@ compare stock/movement records before and after.
 
 ## Decisions and unfinished engineering
 
-- Warehouse policy is pending finance confirmation: separate warehouse averages
-  or one company-wide average. The current mixture cannot assign warehouse values
-  consistently after an unscoped draw. Do not activate a persisted allocation model
-  until this is resolved. Preserve legitimate physical fulfillment across
-  warehouses rather than silently assigning the first warehouse's identity.
+- Finance confirmed separate Weighted Average pools per warehouse on 2026-10-14.
+  Implement that policy consistently in physical draws, movement-ledger warehouse
+  identities and carrying allocations, including unassigned stock. The current
+  prototype still illustrates the old optional scope; it must be updated before
+  activation. Preserve legitimate fulfillment across warehouses rather than
+  silently assigning the first warehouse's identity. Company inventory reporting
+  must sum the separate pools, not recalculate a pooled sale cost.
 - Add a separately named carrying-value field only with a reviewed migration and
   initialization plan. Legacy receipt prices are not carrying values. A current
   allocation cannot certify that legacy COGS was correct.
