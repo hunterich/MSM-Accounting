@@ -45,12 +45,13 @@ async function getAvailableQty(
   orgId: string,
   itemId: string,
   warehouseId: string | null,
+  fulfillAcrossWarehouses = false,
 ): Promise<number> {
   const lots = await tx.inventoryLot.findMany({
     where: {
       organizationId: orgId,
       itemId,
-      ...(warehouseId ? { warehouseId } : {}),
+      ...(!warehouseId && fulfillAcrossWarehouses ? {} : { warehouseId }),
       qtyBalance: { gt: 0 },
     },
     select: { qtyBalance: true },
@@ -71,6 +72,7 @@ async function assertSufficientStock(
   warehouseId: string | null,
   qty: number,
   allowNegativeStockOverride = false,
+  fulfillAcrossWarehouses = false,
 ): Promise<void> {
   if (allowNegativeStockOverride) return
   const org = await tx.organization.findUnique({
@@ -79,7 +81,7 @@ async function assertSufficientStock(
   })
   if (org?.allowNegativeStock) return
 
-  const available = await getAvailableQty(tx, orgId, itemId, warehouseId)
+  const available = await getAvailableQty(tx, orgId, itemId, warehouseId, fulfillAcrossWarehouses)
   if (qty > available + QTY_EPSILON) {
     const item = await tx.item.findUnique({
       where: { id: itemId },
@@ -635,9 +637,10 @@ export async function relieveCostLayers(
   await lockInventoryItems(tx, orgId, [itemId])
   const method = await getOrgCostingMethod(tx, orgId)
   const lots = await tx.inventoryLot.findMany({ where: { organizationId: orgId, itemId,
-    ...(warehouseId ? { warehouseId } : {}), qtyBalance: { gt: 0 } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] })
-  // Unassigned fulfillment still chooses physical lots oldest-first. Cost and
-  // movement identity belong to EACH actual warehouse, never a company average.
+    ...(docType === 'SALES' && !warehouseId ? {} : { warehouseId }), qtyBalance: { gt: 0 } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] })
+  // Sales without an explicit warehouse choose physical lots oldest-first.
+  // Other documents' null warehouse identifies only the unassigned stock pool.
+  // Cost and movement identity belong to each actual warehouse.
   const groups = new Map<string | null, { quantity: number; draws: Array<{ lotId: string | null; quantity: number }> }>()
   let remaining = qty
   for (const lot of lots) {
@@ -712,6 +715,6 @@ export async function calculateAndPostCOGS(
   // and re-read the winner's committed balance, so its sufficiency check
   // correctly fails. (The lock is txn-scoped — released at commit/rollback.)
   await lockInventoryItems(tx, orgId, [itemId])
-  await assertSufficientStock(tx, orgId, itemId, warehouseId, qty, opts.allowNegativeStock ?? false)
+  await assertSufficientStock(tx, orgId, itemId, warehouseId, qty, opts.allowNegativeStock ?? false, docType === 'SALES')
   return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date)
 }

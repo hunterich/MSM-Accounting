@@ -1,5 +1,18 @@
 # Testing transactions and accounting
 
+## Unassigned supplier-return and adjustment warehouse isolation (INV-02 WIP)
+
+Run `npm run test:int -- warehouse-carrying-values return-void-invariants return-stock-concurrency`.
+Thirty PostgreSQL cases pass, including four new supplier-return posting/void
+races versus direct stock-bill receipts and two FIFO/WA isolation/refusal cases.
+The pre-fix races removed 18,000 from an older unrelated warehouse instead of
+2,000 from unassigned stock. Non-sale NULL warehouse now means the unassigned
+pool; sufficient-stock checks use the same scope as consumption. Unspecified
+sales keep their separate source-warehouse fulfillment. Fixed ledger/lot/GL,
+clearing/AP and original-value reversal assertions verify both orders, with
+complete rollback snapshots for insufficient returns. PO goods-receipt races,
+negative-stock compatibility and historical remediation remain outstanding.
+
 ## Weighted Average customer-return/sale races (INV-02 work in progress)
 
 Run `npm run test:int -- warehouse-carrying-values return-void-invariants return-stock-concurrency`.

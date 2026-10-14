@@ -75,6 +75,29 @@ No browser, full migration/recovery or production acceptance is claimed.
 
 ## Read-only diagnostic and remaining gates
 
+Supplier-return/direct-stock-bill receipt races exposed a new warehouse leak:
+an unassigned return consumed older stock from another warehouse (18,000 instead
+of the unassigned 2,000). Non-sale outbound documents now treat NULL as the
+unassigned pool for both sufficiency and lot selection. Unspecified sales retain
+cross-warehouse fulfillment, valuing each actual source separately. This also
+corrects unassigned stock-adjustment decreases; it does not move historical lots
+or change the negative-stock policy.
+
+Four real PostgreSQL supplier-return posting/void versus direct bill receipt
+races pass in both orders, with fixed pool/clearing/AP values and unaffected
+other-warehouse stock. Voids restore their original removal value after receipt,
+not the new average. Two additional FIFO/WA cases prove unassigned adjustments
+use that pool and insufficient supplier returns refuse despite other warehouse
+stock, preserving complete lot/draw/ledger/document/journal snapshots. The
+targeted warehouse/return suite passes 30 cases; 1,259 unit cases and TypeScript
+pass. These direct-bill stock receipts do not cover PO goods-receipt journeys.
+
+Latest broad PostgreSQL run after this fix: 444 pass and one hard failure,
+the existing opt-in WA negative-stock compatibility case. Local backup suites
+remain excluded for missing PostgreSQL client tools. No new integration failure
+appeared; the branch remains unready to merge until the policy and compatibility
+are resolved. This is not production/migration/recovery/browser acceptance.
+
 Six new warehouse-scoped Weighted Average races cover customer restocking and
 return voids versus a sale, in both winning orders. Returned quantity uses its
 original 2,000 sale cost even after a higher-price receipt changes the pool average.

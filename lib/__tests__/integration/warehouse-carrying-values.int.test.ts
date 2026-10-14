@@ -48,10 +48,111 @@ async function stockSnapshot(tx: Prisma.TransactionClient, orgId: string) {
     journals: await tx.journalEntry.findMany({ where, orderBy, include: { lines: { orderBy } } }),
     invoices: await tx.salesInvoice.findMany({ where, orderBy }),
     returns: await tx.salesReturn.findMany({ where, orderBy }),
+    bills: await tx.bill.findMany({ where, orderBy }),
+    purchaseReturns: await tx.purchaseReturn.findMany({ where, orderBy }),
   };
+}
+async function lockedPair(firstAction: (tx: Prisma.TransactionClient) => Promise<void>, secondAction: (tx: Prisma.TransactionClient) => Promise<void>) {
+  let ready!: () => void, release!: () => void, identify!: (pid: number) => void;
+  const started = new Promise<void>(done => { ready = done; }), hold = new Promise<void>(done => { release = done; });
+  const identified = new Promise<number>(done => { identify = done; });
+  const first = prisma.$transaction(async tx => { await firstAction(tx); ready(); await hold; }, { timeout: 15000 });
+  const firstResult = first.then(() => null, error => error);
+  let secondResult: Promise<unknown> | undefined;
+  try {
+    await Promise.race([started, first.then(() => { throw new Error('First transaction did not hold its locks'); })]);
+    secondResult = prisma.$transaction(async tx => {
+      const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+      identify(row.pid); await secondAction(tx);
+    }, { timeout: 15000 }).then(() => null, error => error);
+    const pid = await identified, deadline = Date.now() + 3000;
+    let blocked = false;
+    while (Date.now() < deadline) {
+      const [row] = await prisma.$queryRaw<Array<{ blocked: boolean }>>`SELECT cardinality(pg_blocking_pids(${pid}::int)) > 0 AS blocked`;
+      if (row.blocked) { blocked = true; break; }
+      await new Promise(done => setTimeout(done, 10));
+    }
+    expect(blocked).toBe(true);
+  } finally { release(); await firstResult; await secondResult; }
+  expect(await firstResult).toBeNull(); expect(await secondResult).toBeNull();
 }
 
 describe('warehouse book value, carrying lots and source identity', () => {
+  for (const method of ['FIFO', 'WEIGHTED_AVERAGE'] as const) it(`${method}: unassigned adjustment and supplier-return guard never borrow warehouse stock`, async () => {
+    const f = await fixture(method);
+    try {
+      await receive(f, f.b, 2, 9000, 'OLDER-WAREHOUSE');
+      const vendorId = await createVendor(f.org.orgId);
+      const bill = await prisma.bill.create({ data: { organizationId: f.org.orgId, vendorId, number: 'UNASSIGNED', issueDate: DATE, status: 'OPEN', totalAmount: 3000,
+        lines: { create: { lineNo: 1, itemId: f.itemId, description: 'Stock', quantity: 3, price: 1000, lineTotal: 3000 } } }, include: { lines: true } });
+      await prisma.$transaction(tx => postBillToLedger(tx, f.org.orgId, bill));
+      await prisma.$transaction(tx => postStockAdjustmentToLedger(tx, f.org.orgId, {
+        id: 'COUNT', number: 'COUNT', date: DATE, warehouseId: null,
+        lines: [{ itemId: f.itemId, oldQty: 3, newQty: 1, unitCost: 9999 }],
+      }));
+      expect(await pool(f, null)).toEqual({ quantity: 1, lotQuantity: 1, value: 1000, lotValue: 1000 });
+      expect(await pool(f, f.b)).toEqual({ quantity: 2, lotQuantity: 2, value: 18000, lotValue: 18000 });
+      expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(19000);
+      const ret = await prisma.purchaseReturn.create({ data: { organizationId: f.org.orgId, vendorId, number: 'TOO-MUCH', billId: bill.id,
+        returnDate: DATE, status: 'APPROVED', warehouseId: null, returnAccountId: f.org.accounts.grIrClearing,
+        lines: { create: { lineNo: 1, itemId: f.itemId, description: 'Stock', qtyReturn: 2 } } } });
+      const before = await prisma.$transaction(tx => stockSnapshot(tx, f.org.orgId));
+      await expect(prisma.$transaction(tx => postPurchaseReturnOnApproval(tx, ret.id))).rejects.toThrow('available 1');
+      expect(await prisma.$transaction(tx => stockSnapshot(tx, f.org.orgId))).toEqual(before);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.apControl)).toBe(-3000);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.grIrClearing)).toBe(0);
+      await assertTrialBalanced(f.org.orgId);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  for (const voiding of [false, true]) for (const returnFirst of [true, false]) {
+    it(`supplier-return ${voiding ? 'void' : 'posting'} versus direct bill receipt: ${returnFirst ? 'return' : 'receipt'} wins`, async () => {
+      const f = await fixture();
+      try {
+        // Direct stock bills book into the unassigned warehouse pool.
+        // A separate physical warehouse must not leak its 9,000 unit cost.
+        await receive(f, f.b, 2, 9000, 'OTHER');
+        const vendorId = await createVendor(f.org.orgId);
+        const bill = async (number: string, quantity: number, price: number) => prisma.bill.create({ data: {
+          organizationId: f.org.orgId, vendorId, number, issueDate: DATE, status: 'OPEN', totalAmount: quantity * price,
+          lines: { create: { lineNo: 1, itemId: f.itemId, description: 'Stock', quantity, price, lineTotal: quantity * price } },
+        }, include: { lines: true } });
+        const original = await bill('ORIGINAL', 5, 1000);
+        await prisma.$transaction(tx => postBillToLedger(tx, f.org.orgId, original));
+        const originalLot = await prisma.inventoryLot.findFirstOrThrow({ where: { organizationId: f.org.orgId, documentId: original.id } });
+        const ret = await prisma.purchaseReturn.create({ data: { organizationId: f.org.orgId, vendorId, number: 'SUPPLIER-RACE', billId: original.id,
+          returnDate: DATE, status: 'APPROVED', warehouseId: null, returnAccountId: f.org.accounts.grIrClearing,
+          lines: { create: { lineNo: 1, itemId: f.itemId, description: 'Stock', qtyReturn: 2 } } } });
+        if (voiding) await prisma.$transaction(tx => postPurchaseReturnOnApproval(tx, ret.id));
+        const incoming = await bill('INCOMING', 3, 2000);
+        const returnAction = (tx: Prisma.TransactionClient) => voiding
+          ? voidPurchaseReturn(tx, f.org.orgId, ret.id, { date: DATE })
+          : postPurchaseReturnOnApproval(tx, ret.id);
+        const receiptAction = (tx: Prisma.TransactionClient) => postBillToLedger(tx, f.org.orgId, incoming);
+        await lockedPair(returnFirst ? returnAction : receiptAction, returnFirst ? receiptAction : returnAction);
+        const removed = returnFirst ? 2000 : 2750;
+        const value = voiding ? 11000 : 11000 - removed, quantity = voiding ? 8 : 6;
+        expect(await pool(f, null)).toEqual({ quantity, lotQuantity: quantity, value, lotValue: value });
+        expect(await pool(f, f.b)).toEqual({ quantity: 2, lotQuantity: 2, value: 18000, lotValue: 18000 });
+        expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(value + 18000);
+        expect(await accountBalance(f.org.orgId, f.org.accounts.grIrClearing)).toBe(voiding ? 0 : removed);
+        // Physical return never clears the original payable; only the receipt
+        // creates an additional payable. No debit note is posted in these cases.
+        expect(await accountBalance(f.org.orgId, f.org.accounts.apControl)).toBe(-11000);
+        expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(0);
+        const posted = await prisma.purchaseReturn.findUniqueOrThrow({ where: { id: ret.id } });
+        expect(posted.status).toBe(voiding ? 'VOID' : 'APPROVED'); expect(posted.postedAt).not.toBeNull();
+        expect((await prisma.inventoryLot.findUniqueOrThrow({ where: { id: originalLot.id } })).unitCost.toString()).toBe(originalLot.unitCost.toString());
+        const outbound = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: f.org.orgId, documentType: 'PURCHASE_RETURN', documentId: ret.id } });
+        expect(outbound).toHaveLength(1); expect(Number(outbound[0].valueChange)).toBe(voiding ? -2000 : -removed);
+        expect(outbound[0].warehouseId).toBeNull();
+        if (voiding) {
+          const restored = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: f.org.orgId, documentType: 'ADJUSTMENT', documentId: ret.id } });
+          expect(restored).toHaveLength(1); expect(Number(restored[0].valueChange)).toBe(2000); expect(restored[0].warehouseId).toBeNull();
+        }
+        await assertTrialBalanced(f.org.orgId);
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+  }
   for (const { voiding, consumed } of [{ voiding: false, consumed: false }, { voiding: true, consumed: false }, { voiding: true, consumed: true }]) for (const returnFirst of [true, false]) {
     it(`${voiding ? 'return void' : 'return restock'} versus ${consumed ? 'dependent' : 'independent'} sale: ${returnFirst ? 'return' : 'sale'} wins with exact warehouse cost`, async () => {
       const f = await fixture();
