@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Weighted Average successive-sale book value
+- Weighted Average outbound cost uses the remaining inventory ledger value divided by its remaining quantity. Oldest-first physical lot draws no longer change the average merely because original purchase prices differ; successive sales and final-unit rounding consume the booked value exactly. Original receipt prices and historical postings are preserved.
+- Positive or zero-quantity pools that disagree with physical stock, negative values with positive stock, and value remaining without quantity refuse posting with reconciliation guidance. Mixed warehouse/unscoped history may trigger this refusal; run the read-only `scripts/audit-weighted-average-pools.sql` before release. No automatic repair or schema migration. Separate lot carrying values, negative-stock acceptance and full INV-02 reversal/release verification remain tracked in #170.
+
 ### Fixed — AR/AP control posting and financial approval close policy
 - Ordinary manual journal creation/editing and direct bank categorisation refuse designated AR/AP controls, including document-level alternate controls. Use customer/vendor documents for settlements; controlled opening/migration imports remain supported. Setting a public journal's source to Opening or System grants no exemption. Bank edit refusal rolls back its reversal, journal and cached balance changes.
 - Monthly close and its checklist block pending financial documents dated in that period, including valued-stock returns/adjustments and payroll period-end postings. Orders that post no GL, other periods and other companies do not block close. Approve or reject the pending documents first; nothing is automatically redated.
