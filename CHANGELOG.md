@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — exact stock receipt line values (INV-02 work in progress)
+- Direct bills and PO goods receipts retain their exact net line values when creating inventory layers and ledger movements, rather than reconstructing value from a unit price rounded to two decimals. Six-decimal receipt unit prices remain traceable; customer-return layers also receive their exact recorded restock value. Three units net 1,000 now book stock value 1,000, matching Inventory GL, rather than 999.99.
+- This unfinished branch requires the carrying-value schema migration and remaining negative-stock acceptance; existing historical values are not rewritten or silently balanced.
+
 ### Fixed — Weighted Average successive-sale book value
 - Weighted Average outbound cost uses the remaining inventory ledger value divided by its remaining quantity. Oldest-first physical lot draws no longer change the average merely because original purchase prices differ; successive sales and final-unit rounding consume the booked value exactly. Original receipt prices and historical postings are preserved.
 - Positive or zero-quantity pools that disagree with physical stock, negative values with positive stock, and value remaining without quantity refuse posting with reconciliation guidance. Mixed warehouse/unscoped history may trigger this refusal; run the read-only `scripts/audit-weighted-average-pools.sql` before release. No automatic repair or schema migration. Separate lot carrying values, negative-stock acceptance and full INV-02 reversal/release verification remain tracked in #170.

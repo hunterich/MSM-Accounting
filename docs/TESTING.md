@@ -1,5 +1,16 @@
 # Testing transactions and accounting
 
+## Exact booked receipt value (INV-02 WIP)
+
+Run `npm run test:int -- receipt-exact-value`. Eight new PostgreSQL regressions
+cover FIFO/WA, direct stock bills/PO receipt-then-bill, and untaxed/VAT-inclusive
+lines. Before the fix, 3 units net 1,000 became 999.99 in the stock ledger because
+unit cost was rounded before multiplication, while Inventory GL remained 1,000.
+After the fix, exact line value is retained separately from six-decimal unit
+price. Fixed Inventory/GRIR/AP/Input Tax, stock depletion/COGS and exact sale-void
+restoration assertions pass. These are posting-service tests, not receive-route,
+browser or PO receipt/return concurrency acceptance.
+
 ## Unassigned supplier-return and adjustment warehouse isolation (INV-02 WIP)
 
 Run `npm run test:int -- warehouse-carrying-values return-void-invariants return-stock-concurrency`.

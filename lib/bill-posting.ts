@@ -111,7 +111,7 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   // fall back to the org's cogsExpense default. Keyed by accountId so multiple
   // lines hitting the same account collapse into one balanced debit.
   const expenseByAccount = new Map<string, number>();
-  const manualInventoryLines: Array<{ itemId: string; qty: number; unitCost: number }> = [];
+  const manualInventoryLines: Array<{ itemId: string; qty: number; unitCost: number; value: number }> = [];
 
   for (const line of lines) {
     const gross = toNumber(line.lineTotal);
@@ -125,7 +125,7 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
     } else if (isInventory) {
       inventoryNet += net;
       const qty = toNumber(line.quantity);
-      if (qty > 0) manualInventoryLines.push({ itemId: line.itemId as string, qty, unitCost: asMoney(net / qty) });
+      if (qty > 0) manualInventoryLines.push({ itemId: line.itemId as string, qty, unitCost: net / qty, value: asMoney(net) });
     } else {
       const codedId = line.accountId && postableById.has(line.accountId) ? line.accountId : expenseAccountId;
       if (codedId) expenseByAccount.set(codedId, (expenseByAccount.get(codedId) ?? 0) + net);
@@ -186,7 +186,7 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
     await lockInventoryItems(tx, orgId, manualInventoryLines.map(line => line.itemId));
   }
   for (const m of manualInventoryLines) {
-    await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate);
+    await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate, m.value);
   }
 
   const journalLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [];

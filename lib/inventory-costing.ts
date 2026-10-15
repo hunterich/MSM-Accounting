@@ -125,10 +125,12 @@ export async function addCostLayer(
   unitCost: number,
   docType: InventoryDocumentType,
   docId: string,
-  date: Date
+  date: Date,
+  bookedValue?: number,
 ): Promise<void> {
   await lockInventoryItems(tx, orgId, [itemId])
-  const initialValue = asMoney(qty * unitCost)
+  // A rounded unit price cannot reconstruct every exact document line value.
+  const initialValue = asMoney(bookedValue ?? qty * unitCost)
   await tx.inventoryLot.create({
     data: {
       organizationId: orgId,

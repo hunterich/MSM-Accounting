@@ -11,6 +11,8 @@ The first target customers are small distribution and e-commerce companies in In
 
 ## Release validation still required
 
+- [~] **INV-02 — exact receipt line value** — direct bills and PO receipts now preserve booked line value separately from unit-price precision; eight FIFO/WA and tax-mode regressions reproduce the old 999.99-stock/1,000-GL mismatch and pass after the fix. Full depletion and reversal retain exact cost and receipt identity. Historical remediation, PO receive-route/race/browser acceptance and negative-stock compatibility remain open.
+
 - [~] **INV-02 — unassigned outbound warehouse isolation** — new supplier-return/receipt races exposed consumption from another warehouse when the return's warehouse was NULL. Non-sale outbound paths now use only the unassigned pool for availability and consumption; unspecified sales preserve actual-source fulfillment. Four supplier-return/direct-bill-receipt races and two FIFO/WA adjustment/refusal cases pass; 30 targeted cases pass. Historical audit/remediation, PO receipts, negative-stock compatibility and release acceptance remain open.
 
 - [~] **INV-02 — customer-return concurrency acceptance** — six additional Weighted Average restock/void-versus-sale races pass in both orders, including exact rollback when a dependent sale or consumed-return void is refused. Original returned cost, warehouse isolation, COGS and AR are checked; 24 targeted return/warehouse cases pass. Supplier-return/receipt races, negative-stock policy and full release acceptance remain pending.

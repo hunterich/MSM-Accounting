@@ -65,7 +65,7 @@ at a different price should settle estimated cost: post the difference to COGS
 on receipt while preserving the original sale, or disable negative stock for WA.
 Do not merge this branch until compatibility and the selected treatment pass.
 
-The latest broad run has 414 passing cases and exactly the negative-stock case
+The earlier stored-model broad run had 414 passing cases and exactly the negative-stock case
 failing. Old correction-policy assertions have been replaced with successful
 recorded-cost correction/void cases while retaining a legacy refusal regression.
 The full suite must pass before review/merge readiness. Unit tests passed 1,259
@@ -74,6 +74,24 @@ its final check.
 No browser, full migration/recovery or production acceptance is claimed.
 
 ## Read-only diagnostic and remaining gates
+
+Receipt tests exposed another existing value gap: direct bills and PO goods
+receipts rounded the unit cost to two decimals before adding stock. Three units
+with net line value 1,000 produced stock ledger/carrying value 999.99 while GL
+Inventory was 1,000. Both now pass the exact booked line value into the cost layer;
+original unit cost retains database six-decimal precision. Sales-return restocking
+also supplies its exact recorded total. No historical postings are rewritten.
+
+Eight new PostgreSQL tests fail before the fix and pass after it, covering FIFO
+and WA, direct bill and PO receipt-then-bill, untaxed and VAT-inclusive values.
+Fixed expectations prove exact Inventory/GRIR/AP/Input Tax, full stock depletion
+at COGS 1,000 and sale reversal restoring 1,000 into the same receipt lot. These
+tests call the actual posting services, not the PO receive route/browser, and
+do not complete PO receipt/return race acceptance. Unit tests and TypeScript
+pass. Latest broad PostgreSQL run: 452 pass, with the one existing HARD failure
+in opt-in WA negative-stock compatibility; backup suites remain excluded due
+missing local client tools. All 1,259 unit cases and TypeScript pass. The
+unresolved negative-stock policy still prevents branch merge.
 
 Supplier-return/direct-stock-bill receipt races exposed a new warehouse leak:
 an unassigned return consumed older stock from another warehouse (18,000 instead
@@ -92,7 +110,7 @@ stock, preserving complete lot/draw/ledger/document/journal snapshots. The
 targeted warehouse/return suite passes 30 cases; 1,259 unit cases and TypeScript
 pass. These direct-bill stock receipts do not cover PO goods-receipt journeys.
 
-Latest broad PostgreSQL run after this fix: 444 pass and one hard failure,
+The earlier broad PostgreSQL run after the warehouse fix had 444 pass and one hard failure,
 the existing opt-in WA negative-stock compatibility case. Local backup suites
 remain excluded for missing PostgreSQL client tools. No new integration failure
 appeared; the branch remains unready to merge until the policy and compatibility
