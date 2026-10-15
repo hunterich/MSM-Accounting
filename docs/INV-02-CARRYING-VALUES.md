@@ -60,9 +60,9 @@ The hard compatibility regression
 stock explicitly enabled, 5 units at 100 followed by a sale of 7 should preserve
 the existing estimated 700 COGS / -200 inventory posting; the new positive-pool
 allocator currently refuses it and rolls back. This is not marked as an expected
-failure, hidden or counted as passing. Finance has been asked how a later receipt
-at a different price should settle estimated cost: post the difference to COGS
-on receipt while preserving the original sale, or disable negative stock for WA.
+failure, hidden or counted as passing. Finance approved receipt-date COGS
+adjustments on 2026-10-15: a later receipt at a different price settles estimated
+cost through COGS while preserving the original sale. Implementation is pending.
 Do not merge this branch until compatibility and the selected treatment pass.
 
 The earlier stored-model broad run had 414 passing cases and exactly the negative-stock case
@@ -91,7 +91,7 @@ do not complete PO receipt/return race acceptance. Unit tests and TypeScript
 pass. Latest broad PostgreSQL run: 452 pass, with the one existing HARD failure
 in opt-in WA negative-stock compatibility; backup suites remain excluded due
 missing local client tools. All 1,259 unit cases and TypeScript pass. The
-unresolved negative-stock policy still prevents branch merge.
+unfinished negative-stock implementation still prevents branch merge.
 
 Supplier-return/direct-stock-bill receipt races exposed a new warehouse leak:
 an unassigned return consumed older stock from another warehouse (18,000 instead
@@ -113,8 +113,8 @@ pass. These direct-bill stock receipts do not cover PO goods-receipt journeys.
 The earlier broad PostgreSQL run after the warehouse fix had 444 pass and one hard failure,
 the existing opt-in WA negative-stock compatibility case. Local backup suites
 remain excluded for missing PostgreSQL client tools. No new integration failure
-appeared; the branch remains unready to merge until the policy and compatibility
-are resolved. This is not production/migration/recovery/browser acceptance.
+appeared; the branch remains unready to merge until the approved policy is
+implemented and compatibility passes. This is not production/migration/recovery/browser acceptance.
 
 Six new warehouse-scoped Weighted Average races cover customer restocking and
 return voids versus a sale, in both winning orders. Returned quantity uses its
@@ -182,7 +182,7 @@ expected failure. It covers staging/commit rechecks, zero-value dependencies,
 serializable rollback, closed cutover periods and shared journal numbering.
 Review/merge and migration/recovery acceptance remain pending.
 
-Remaining gates: negative-stock posting/replenishment policy, legacy initialization
+Remaining gates: approved negative-stock posting/replenishment implementation, legacy initialization
 and independent GL audit, migration safeguard review/recovery, full
 return/receipt/void races, period/month-end and browser acceptance, upgrade/recovery
 checks and an authorized release. Nullable carrying values require explicit

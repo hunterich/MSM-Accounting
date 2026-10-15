@@ -11,6 +11,8 @@ The first target customers are small distribution and e-commerce companies in In
 
 ## Release validation still required
 
+- [~] **INV-02 — approved negative-stock receipt policy (2026-10-15)** — finance selected receipt-date COGS adjustments while preserving the original estimated sale. Example: two units sold at estimated 100, received at 120, add 40 COGS on receipt. Exact cumulative allocation has eleven passing unit cases for partial receipts, excess stock, cheaper receipts, fractional quantities and rounding. Posting, persisted settlement links, reversals, warehouse concurrency and real-database acceptance remain to implement; the existing negative-stock integration case still fails.
+
 - [~] **INV-02 — exact receipt line value** — direct bills and PO receipts now preserve booked line value separately from unit-price precision; eight FIFO/WA and tax-mode regressions reproduce the old 999.99-stock/1,000-GL mismatch and pass after the fix. Full depletion and reversal retain exact cost and receipt identity. Historical remediation, PO receive-route/race/browser acceptance and negative-stock compatibility remain open.
 
 - [~] **INV-02 — unassigned outbound warehouse isolation** — new supplier-return/receipt races exposed consumption from another warehouse when the return's warehouse was NULL. Non-sale outbound paths now use only the unassigned pool for availability and consumption; unspecified sales preserve actual-source fulfillment. Four supplier-return/direct-bill-receipt races and two FIFO/WA adjustment/refusal cases pass; 30 targeted cases pass. Historical audit/remediation, PO receipts, negative-stock compatibility and release acceptance remain open.
@@ -56,7 +58,7 @@ branch. The additive migration was applied only to isolated QA. Warehouse/return
 void/POS/correction and method-switch tests pass, including unchanged 7,802.50
 ledger/lots/GL and retained receipt identities. The old expected-failure now passes
 against actual stored values. A NEW hard negative-stock compatibility regression
-still fails; receipt treatment is pending finance's decision. Migration/legacy
+still fails; finance approved receipt-date COGS adjustments, with implementation pending. Migration/legacy
 initialization, remaining races, browser and release acceptance are outstanding. See
 `docs/INV-02-CARRYING-VALUES.md` and #170. This unfinished branch is not merge-ready.
 
