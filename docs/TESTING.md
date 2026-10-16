@@ -1,5 +1,16 @@
 # Testing transactions and accounting
 
+## Carrying-value guard on Weighted Average inbound voids
+
+`npm run test:int -- inventory-carrying-void-guard warehouse-carrying-values`
+covers six new real-posting regressions: bill receipt, customer return and stock
+adjustment, each after selling four or five of ten mixed-price units. All six
+fail before the fix. Stored carrying value 5,500 cannot be removed by reversing
+an original 6,000 posting. Refusal preserves full lot/draw, ledger, document and
+journal snapshots, leaving exact lot/ledger/GL value intact. No new COGS variance
+policy for inbound voids is implemented. Eligible return-void races use unchanged
+carrying values; mixed-price return restocking has a separate atomic-refusal test.
+
 ## Exact booked receipt value (INV-02 WIP)
 
 Run `npm run test:int -- receipt-exact-value`. Eight new PostgreSQL regressions

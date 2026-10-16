@@ -33,7 +33,7 @@ async function fixture(method: 'FIFO' | 'WEIGHTED_AVERAGE' = 'FIFO', costs = [10
 
 describe('sales return at original sale cost', () => {
   for (const method of ['FIFO', 'WEIGHTED_AVERAGE'] as const) {
-    it(`${method}: retains original COGS after purchase costs change and voids cleanly`, async () => {
+    it(`${method}: retains original COGS and only voids when its carrying value is unchanged`, async () => {
       const f = await fixture(method, [100, 300]);
       try {
         const source = await prisma.salesInvoiceLine.findUniqueOrThrow({ where: { id: f.sourceId } });
@@ -47,8 +47,20 @@ describe('sales return at original sale cost', () => {
         const lots = await prisma.inventoryLot.findMany({ where: { documentId: ret.id, organizationId: f.orgId } });
         expect(Number(lots[0].unitCost)).toBe(method === 'FIFO' ? 100 : 200);
         await assertTrialBalanced(f.orgId);
-        await prisma.$transaction((tx) => voidSalesReturn(tx, f.orgId, ret.id, { date: DATE }));
-        expect(await prisma.inventoryLot.count({ where: { documentId: ret.id, organizationId: f.orgId } })).toBe(0);
+        if (method === 'WEIGHTED_AVERAGE') {
+          const snapshot = async () => ({
+            lots: await prisma.inventoryLot.findMany({ where: { organizationId: f.orgId }, orderBy: { id: 'asc' } }),
+            ledger: await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: f.orgId }, orderBy: { id: 'asc' } }),
+            entries: await prisma.journalEntry.findMany({ where: { organizationId: f.orgId }, orderBy: { id: 'asc' }, include: { lines: { orderBy: { id: 'asc' } } } }),
+            returned: await prisma.salesReturn.findUniqueOrThrow({ where: { id: ret.id } }),
+          });
+          const before = await snapshot();
+          await expect(prisma.$transaction((tx) => voidSalesReturn(tx, f.orgId, ret.id, { date: DATE }))).rejects.toThrow('different carrying value');
+          expect(await snapshot()).toEqual(before);
+        } else {
+          await prisma.$transaction((tx) => voidSalesReturn(tx, f.orgId, ret.id, { date: DATE }));
+          expect(await prisma.inventoryLot.count({ where: { documentId: ret.id, organizationId: f.orgId } })).toBe(0);
+        }
         await assertTrialBalanced(f.orgId);
       } finally { await cleanupOrg(f.orgId); }
     });

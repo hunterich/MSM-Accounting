@@ -201,8 +201,6 @@ export async function reverseAddedLayers(
     where: { organizationId: orgId, documentType, documentId },
   })
   if (lots.length === 0) return 0
-  const costingMethod = await getOrgCostingMethod(tx, orgId)
-
   for (const lot of lots) {
     if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
       throw new ApiError(
@@ -211,7 +209,7 @@ export async function reverseAddedLayers(
       )
     }
     const originalValue = lot.initialValue != null ? toNumber(lot.initialValue) : asMoney(toNumber(lot.qtyIn) * toNumber(lot.unitCost))
-    if (costingMethod === 'FIFO' && lot.carryingValue != null && Math.abs(toNumber(lot.carryingValue) - originalValue) > 0.001) {
+    if (lot.carryingValue != null && Math.abs(toNumber(lot.carryingValue) - originalValue) > 0.001) {
       throw new ApiError('Cannot reverse: this receipt has a different carrying value after valuation changes. Reverse the dependent transactions first.', 422)
     }
   }
@@ -415,7 +413,6 @@ export async function reverseAdjustmentInventory(
   const addedLots = await tx.inventoryLot.findMany({
     where: { organizationId: orgId, documentType: InventoryDocumentType.ADJUSTMENT, documentId },
   })
-  const costingMethod = await getOrgCostingMethod(tx, orgId)
   for (const lot of addedLots) {
     if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
       throw new ApiError(
@@ -424,8 +421,8 @@ export async function reverseAdjustmentInventory(
       )
     }
     const originalValue = lot.initialValue != null ? toNumber(lot.initialValue) : asMoney(toNumber(lot.qtyIn) * toNumber(lot.unitCost))
-    if (costingMethod === 'FIFO' && lot.carryingValue != null && Math.abs(toNumber(lot.carryingValue) - originalValue) > 0.001) {
-      throw new ApiError('Cannot void: stock carrying value changed after a valuation method change. Reverse the dependent transactions first.', 422)
+    if (lot.carryingValue != null && Math.abs(toNumber(lot.carryingValue) - originalValue) > 0.001) {
+      throw new ApiError('Cannot void: stock carrying value differs from its original posted value. Reverse the dependent transactions first.', 422)
     }
   }
 

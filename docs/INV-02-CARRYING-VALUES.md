@@ -41,8 +41,34 @@ item order. Both the dedicated switch API and ordinary settings edits coordinate
 through one helper. The switch preserves receipt identities and stock book value,
 posts no rounding journal, and validates its effective date against period rules.
 Weighted Average → FIFO freezes current lot carrying bases for future consumption.
-FIFO receipt reversals refuse if a prior valuation change makes their carrying
-amount differ from the original amount; they do not silently leave a difference.
+FIFO and Weighted Average inbound reversals refuse when a stored lot carrying
+amount differs from its original posted amount. This includes purchase receipts,
+customer-return additions and stock-adjustment increases. No new receipt-void
+COGS variance policy is introduced; legacy NULL initialization remains separate.
+
+## Review correction: changed carrying values on inbound voids (2026-10-16)
+
+The previous FIFO-only guard allowed a WA void to remove original value after
+pool allocation changed that lot's carrying value. Receive 5 at 1,000 and 5 at
+1,200, then sell 4: the untouched expensive lot carries 5,500 but the old void
+removed 6,000, leaving one unit valued at 600. Six PostgreSQL regressions recreate
+the four/five-unit cases for actual bill, customer-return and adjustment voids.
+All six fail on the earlier code. The corrected pre-write guard gives a clear
+carrying-value refusal and preserves complete lots, monetary draws, inventory
+ledger, document status and journals. Four-unit stock stays 6 at 6,600; five-unit
+stock stays 5 at 5,500. No mutation or auto-balancing journal is made.
+
+Existing race fixtures for eligible return voids now use equal-price receipts;
+changed-value refusals are tested separately. The mixed-price customer-restock
+test now proves atomic refusal rather than the previously unsafe successful void.
+Thirty targeted void/warehouse/original-cost PostgreSQL cases pass, plus all
+1,270 unit cases and TypeScript. The full run before updating the last unsafe
+original-cost test had 457 passes and two failures: that obsolete success
+expectation (now corrected and passing in the targeted run), and the still-open
+negative-stock case. No full-green integration claim is made.
+Negative-stock posting is still unfinished. Migration commits are also in draft
+PR #173; do not stack this branch onto #171 unchanged. Resolve that dependency
+and clean up WIP commit titles when preparing the review history.
 
 ## Evidence and known failure
 

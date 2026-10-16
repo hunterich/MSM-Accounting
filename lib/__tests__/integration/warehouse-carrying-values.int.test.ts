@@ -163,7 +163,9 @@ describe('warehouse book value, carrying lots and source identity', () => {
         await receive(f, f.b, 2, 9000, 'OTHER', 2);
         const source = await invoice(f, 2);
         await prisma.$transaction(tx => send(tx, f, source.id, f.a));
-        await receive(f, f.a, 3, 2000, 'LATER', 3);
+        // A void needs unchanged carrying value. Revalued-return refusals
+        // are covered separately; these void races use equal-price receipts.
+        await receive(f, f.a, 3, voiding ? 1000 : 2000, 'LATER', 3);
         const sourceLine = await prisma.salesInvoiceLine.findFirstOrThrow({ where: { invoiceId: source.id } });
         const ret = await prisma.salesReturn.create({ data: { organizationId: f.org.orgId, customerId: f.customerId, invoiceId: source.id,
           number: 'RETURN-RACE', returnDate: DATE, status: 'APPROVED', warehouseId: f.a,
@@ -206,10 +208,10 @@ describe('warehouse book value, carrying lots and source identity', () => {
         } else expect(await secondResult).toBeNull();
         // Restock adds the old 2,000 sale cost, never the new 1,500 average.
         // Return-first: 11,000/8 × 2 = 2,750; sale-first: 9,000/6 × 2 = 3,000.
-        // Void-first uses 9,000/6; sale-first uses 11,000/8, then removes 2,000.
-        const value = consumed ? (returnFirst ? 9000 : 1375) : voiding ? (returnFirst ? 6000 : 6250) : (returnFirst ? 8250 : 8000);
+        // Void cases keep a 1,000 average so the untouched return is eligible.
+        const value = consumed ? (returnFirst ? 6000 : 1000) : voiding ? 4000 : (returnFirst ? 8250 : 8000);
         const quantity = consumed ? (returnFirst ? 6 : 1) : voiding ? 4 : 6;
-        const saleCost = consumed ? (returnFirst ? 0 : 9625) : voiding ? (returnFirst ? 3000 : 2750) : (returnFirst ? 2750 : 3000);
+        const saleCost = consumed ? (returnFirst ? 0 : 7000) : voiding ? 2000 : (returnFirst ? 2750 : 3000);
         expect(await pool(f, f.a)).toEqual({ quantity, lotQuantity: quantity, value, lotValue: value });
         expect(await pool(f, f.b)).toEqual({ quantity: 2, lotQuantity: 2, value: 18000, lotValue: 18000 });
         expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(value + 18000);
@@ -267,7 +269,7 @@ describe('warehouse book value, carrying lots and source identity', () => {
     } finally { await cleanupOrg(f.org.orgId); }
   });
 
-  it('customer restocking and its void preserve original sale cost and destination pool without reducing AR', async () => {
+  it('customer restocking preserves original sale cost and refuses a void after carrying-value reallocation', async () => {
     const f = await fixture();
     try {
       await receive(f, f.a, 5, 1000, 'A'); await receive(f, f.b, 5, 1200, 'B', 2);
@@ -282,10 +284,12 @@ describe('warehouse book value, carrying lots and source identity', () => {
       expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(5714.29);
       expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(5285.71);
       expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(21000);
-      await prisma.$transaction(tx => voidSalesReturn(tx, f.org.orgId, ret.id, { date: DATE }));
-      expect(await pool(f, f.b)).toEqual({ quantity: 3, lotQuantity: 3, value: 3600, lotValue: 3600 });
-      expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(3600);
-      expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(7400);
+      const before = await prisma.$transaction(tx => stockSnapshot(tx, f.org.orgId));
+      await expect(prisma.$transaction(tx => voidSalesReturn(tx, f.org.orgId, ret.id, { date: DATE }))).rejects.toThrow('different carrying value');
+      expect(await prisma.$transaction(tx => stockSnapshot(tx, f.org.orgId))).toEqual(before);
+      expect(await pool(f, f.b)).toEqual({ quantity: 5, lotQuantity: 5, value: 5714.29, lotValue: 5714.29 });
+      expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(5714.29);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(5285.71);
       expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(21000);
       await assertTrialBalanced(f.org.orgId);
     } finally { await cleanupOrg(f.org.orgId); }
@@ -321,7 +325,7 @@ describe('warehouse book value, carrying lots and source identity', () => {
       await receive(f, f.a, 5, 1000, 'CHEAP'); await receive(f, f.a, 5, 5000, 'EXPENSIVE', 2);
       const sale = await invoice(f, 4); await prisma.$transaction(tx => send(tx, f, sale.id, f.a));
       const before = await prisma.inventoryLot.findMany({ where: { organizationId: f.org.orgId }, orderBy: { id: 'asc' } });
-      await expect(prisma.$transaction(tx => reverseAddedLayers(tx, f.org.orgId, 'ADJUSTMENT', 'EXPENSIVE', DATE))).rejects.toThrow('requires reconciliation');
+      await expect(prisma.$transaction(tx => reverseAddedLayers(tx, f.org.orgId, 'ADJUSTMENT', 'EXPENSIVE', DATE))).rejects.toThrow('different carrying value');
       expect(await prisma.inventoryLot.findMany({ where: { organizationId: f.org.orgId }, orderBy: { id: 'asc' } })).toEqual(before);
       expect(await inventoryLedgerValue(f.org.orgId)).toBe(18000);
       expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(18000);

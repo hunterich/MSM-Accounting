@@ -11,6 +11,8 @@ The first target customers are small distribution and e-commerce companies in In
 
 ## Release validation still required
 
+- [~] **INV-02 — inbound-void carrying-value guard (2026-10-16)** — extend the stored-value guard to WA bill receipts, customer returns and adjustment increases. Six regressions reproduce unsafe 6,000 reversals of 5,500 carrying value and now require clear refusal with exact rollback. Receipt-void COGS differences are not automatically booked; negative-stock posting remains unfinished. Keep #171 unmerged and resolve the duplicate #173 migration history before preparing this branch for review.
+
 - [~] **INV-02 — approved negative-stock receipt policy (2026-10-15)** — finance selected receipt-date COGS adjustments while preserving the original estimated sale. Example: two units sold at estimated 100, received at 120, add 40 COGS on receipt. Exact cumulative allocation has eleven passing unit cases for partial receipts, excess stock, cheaper receipts, fractional quantities and rounding. Posting, persisted settlement links, reversals, warehouse concurrency and real-database acceptance remain to implement; the existing negative-stock integration case still fails.
 
 - [~] **INV-02 — exact receipt line value** — direct bills and PO receipts now preserve booked line value separately from unit-price precision; eight FIFO/WA and tax-mode regressions reproduce the old 999.99-stock/1,000-GL mismatch and pass after the fix. Full depletion and reversal retain exact cost and receipt identity. Historical remediation, PO receive-route/race/browser acceptance and negative-stock compatibility remain open.
