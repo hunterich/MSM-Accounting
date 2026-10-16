@@ -41,31 +41,43 @@ item order. Both the dedicated switch API and ordinary settings edits coordinate
 through one helper. The switch preserves receipt identities and stock book value,
 posts no rounding journal, and validates its effective date against period rules.
 Weighted Average → FIFO freezes current lot carrying bases for future consumption.
-FIFO and Weighted Average inbound reversals refuse when a stored lot carrying
-amount differs from its original posted amount. This includes purchase receipts,
-customer-return additions and stock-adjustment increases. No new receipt-void
-COGS variance policy is introduced; legacy NULL initialization remains separate.
+FIFO retains its carrying-versus-original-value guard. WA instead removes original
+value when no later stock issue exists for that item and warehouse; later receipts
+at different prices do not prevent voiding. No receipt-void COGS policy is added.
 
-## Review correction: changed carrying values on inbound voids (2026-10-16)
+## Review correction: actual posting order on inbound voids (2026-10-16)
 
-The previous FIFO-only guard allowed a WA void to remove original value after
-pool allocation changed that lot's carrying value. Receive 5 at 1,000 and 5 at
-1,200, then sell 4: the untouched expensive lot carries 5,500 but the old void
-removed 6,000, leaving one unit valued at 600. Six PostgreSQL regressions recreate
-the four/five-unit cases for actual bill, customer-return and adjustment voids.
-All six fail on the earlier code. The corrected pre-write guard gives a clear
-carrying-value refusal and preserves complete lots, monetary draws, inventory
-ledger, document status and journals. Four-unit stock stays 6 at 6,600; five-unit
-stock stays 5 at 5,500. No mutation or auto-balancing journal is made.
+Commit 82405a4's carrying-value guard was too broad for WA: mixed-price receipts
+alone redistribute carrying values. That commit also incorrectly changed the
+original-cost return test to expect an immediate void refusal. The test now again
+requires the legitimate immediate void to succeed.
 
-Existing race fixtures for eligible return voids now use equal-price receipts;
-changed-value refusals are tested separately. The mixed-price customer-restock
-test now proves atomic refusal rather than the previously unsafe successful void.
-Thirty targeted void/warehouse/original-cost PostgreSQL cases pass, plus all
-1,270 unit cases and TypeScript. The full run before updating the last unsafe
-original-cost test had 457 passes and two failures: that obsolete success
-expectation (now corrected and passing in the targeted run), and the still-open
-negative-stock case. No full-green integration claim is made.
+WA reversal now checks the exact inbound movement under the item lock and
+refuses a later outbound for the same item/warehouse, naming its document. It
+otherwise removes the original value and reallocates the remaining pool. Bill,
+customer-return and adjustment sell-four/sell-five cases still refuse with exact
+rollback, even when the sale is backdated and timestamps deliberately tied.
+Immediate mixed-price voids succeed for all three sources; older and newer bill
+voids return to 6,000 and 5,000 respectively. The real bill PUT route succeeds
+through two successive price edits without mistaking an earlier correction's
+reversal for a new dependency. Immediate mixed-price customer returns void again.
+
+Migration `20261016093000_inventory_posting_order` gives future ledger inserts a
+database sequence and links newly created lots to their exact inbound movement.
+Transaction-start timestamps and business dates are not used as posting order.
+Legacy order/link fields stay NULL: uncertain WA reversals refuse with legacy
+review guidance, rather than guessing chronology. All 17 migrations apply to a
+fresh isolated database. Existing QA's previously manually added carrying-value
+columns were verified against their migration and its history reconciled before
+applying this migration. No production schema or data changed.
+
+The inbound-link FK moves a migration rollback race's wait earlier, into ledger
+deletion. That regression still verifies a real inventory lock wait and exact
+stock/GL preservation after the serializable rollback refusal.
+Final verification: 49 targeted PostgreSQL cases pass; broad integration has
+464 passes and only the known negative-stock hard failure. All 1,309 workspace
+unit cases and TypeScript pass. Backup suites remain excluded for unavailable
+local client tools. Unrelated local report/UI edits are not part of this change.
 Negative-stock posting is still unfinished. Migration commits are also in draft
 PR #173; do not stack this branch onto #171 unchanged. Resolve that dependency
 and clean up WIP commit titles when preparing the review history.

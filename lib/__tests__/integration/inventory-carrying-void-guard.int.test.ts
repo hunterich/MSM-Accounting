@@ -7,6 +7,8 @@ import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting'
 import { voidBill } from '@/lib/bill-void'
 import { voidSalesReturn } from '@/lib/return-void'
 import { voidStockAdjustment } from '@/lib/stock-adjustment-void'
+import { NextRequest } from 'next/server'
+import { PUT as editBill } from '@/src/app/api/v1/bills/[id]/route'
 import { prisma, createTestOrg, createItem, createCustomer, createVendor, cleanupOrg, disconnect, accountBalance, inventoryLedgerValue, inventoryLotValue } from './harness'
 
 afterAll(disconnect)
@@ -19,9 +21,50 @@ async function snapshot(tx: Prisma.TransactionClient, organizationId: string) {
     bills: await tx.bill.findMany({ where, orderBy }), returns: await tx.salesReturn.findMany({ where, orderBy }),
     adjustments: await tx.stockAdjustment.findMany({ where, orderBy }) }
 }
-describe('WA inbound void refuses a changed carrying value before any side effects', () => {
-  for (const kind of ['bill', 'customer-return', 'adjustment'] as const) for (const sold of [4, 5]) {
-    it(`${kind}, after selling ${sold}: refuses clearly and preserves all stock/documents/journals`, async () => {
+describe('WA inbound void follows actual stock issue order', () => {
+  for (const older of [true, false]) it(`immediate void of ${older ? 'older' : 'newer'} mixed-price bill succeeds`, async () => {
+    const org = await createTestOrg({ costingMethod: 'WEIGHTED_AVERAGE' })
+    try {
+      const itemId = await createItem(org.orgId), vendorId = await createVendor(org.orgId)
+      const bills: Array<{ id: string }> = []
+      for (const [number, price] of [['CHEAP', 1000], ['EXPENSIVE', 1200]] as const) {
+        const bill = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, number, vendorInvoiceNo: number, issueDate: date, status: 'OPEN', totalAmount: price * 5,
+          lines: { create: { lineNo: 1, itemId, description: 'Stock', quantity: 5, price, lineTotal: price * 5 } } }, include: { lines: true } })
+        await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, bill)); bills.push(bill)
+      }
+      await prisma.$transaction(tx => voidBill(tx, org.orgId, bills[older ? 0 : 1].id, { date }))
+      const remaining = older ? 6000 : 5000
+      expect(await inventoryLedgerValue(org.orgId)).toBe(remaining)
+      expect(await inventoryLotValue(org.orgId)).toBe(remaining)
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(remaining)
+      expect(await accountBalance(org.orgId, org.accounts.apControl)).toBe(-remaining)
+    } finally { await cleanupOrg(org.orgId) }
+  })
+  it('actual posted-bill edit can be repeated across mixed-price stock', async () => {
+    const org = await createTestOrg({ costingMethod: 'WEIGHTED_AVERAGE' })
+    try {
+      const itemId = await createItem(org.orgId), vendorId = await createVendor(org.orgId)
+      let targetId = ''
+      for (const [number, price] of [['CHEAP', 1000], ['EXPENSIVE', 1200]] as const) {
+        const bill = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, number, vendorInvoiceNo: number, issueDate: date, status: 'OPEN', totalAmount: price * 5,
+          lines: { create: { lineNo: 1, itemId, description: 'Stock', quantity: 5, price, lineTotal: price * 5 } } }, include: { lines: true } })
+        await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, bill)); targetId = bill.id
+      }
+      for (const price of [1400, 1300]) {
+        const response = await editBill(new NextRequest(`http://localhost/api/v1/bills/${targetId}`, { method: 'PUT',
+          headers: { 'x-org-id': org.orgId, 'x-user-id': 'reviewer', 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
+          body: JSON.stringify({ totalAmount: price * 5, subtotal: price * 5,
+            lines: [{ lineNo: 1, itemId, description: 'Corrected', quantity: 5, price, lineTotal: price * 5 }] }) }), { params: Promise.resolve({ id: targetId }) })
+        expect(response.status, JSON.stringify(await response.json())).toBe(200)
+        expect(await inventoryLedgerValue(org.orgId)).toBe(5000 + price * 5)
+        expect(await inventoryLotValue(org.orgId)).toBe(5000 + price * 5)
+        expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(5000 + price * 5)
+        expect(await accountBalance(org.orgId, org.accounts.apControl)).toBe(-5000 - price * 5)
+      }
+    } finally { await cleanupOrg(org.orgId) }
+  })
+  for (const kind of ['bill', 'customer-return', 'adjustment'] as const) for (const sold of [0, 4, 5]) {
+    it(`${kind}: ${sold ? `after selling ${sold}, refuses with exact rollback` : 'immediate mixed-price void succeeds'}`, async () => {
       const org = await createTestOrg({ costingMethod: 'WEIGHTED_AVERAGE' })
       try {
         const itemId = await createItem(org.orgId), vendorId = await createVendor(org.orgId), customerId = await createCustomer(org.orgId)
@@ -31,7 +74,7 @@ describe('WA inbound void refuses a changed carrying value before any side effec
           await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, bill)); return bill
         }
         const sell = async (number: string, quantity: number) => {
-          const sale = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number, issueDate: date, status: 'SENT', subtotal: quantity * 3000, totalAmount: quantity * 3000,
+          const sale = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number, issueDate: new Date('2026-09-09'), status: 'SENT', subtotal: quantity * 3000, totalAmount: quantity * 3000,
             lines: { create: { lineNo: 1, itemId, description: 'Stock', quantity, price: 3000, lineSubtotal: quantity * 3000 } } }, include: { lines: true } })
           await prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, sale.id)); return sale
         }
@@ -49,14 +92,25 @@ describe('WA inbound void refuses a changed carrying value before any side effec
           await prisma.$transaction(tx => postStockAdjustmentToLedger(tx, org.orgId, { id: adj.id, number: adj.number, date, warehouseId: null,
             lines: [{ itemId, oldQty: 0, newQty: 5, unitCost: 1200 }] })); targetId = adj.id; documentType = 'ADJUSTMENT'
         }
-        await sell('LATER-SALE', sold)
+        if (sold) await sell('LATER-SALE', sold)
+        // Business dates are backdated and all timestamps deliberately tied;
+        // insertion sequence under the stock lock must still find the issue.
+        await prisma.inventoryLedgerEntry.updateMany({ where: { organizationId: org.orgId }, data: { createdAt: new Date('2026-01-01') } })
         const lot = await prisma.inventoryLot.findFirstOrThrow({ where: { organizationId: org.orgId, documentId: targetId, documentType } })
         expect(lot.qtyBalance.toFixed(4)).toBe('5.0000')
         expect(lot.initialValue?.toFixed(2)).toBe('6000.00')
         expect(lot.carryingValue?.toFixed(2)).toBe('5500.00')
+        const voidTarget = (tx: Prisma.TransactionClient) => kind === 'bill' ? voidBill(tx, org.orgId, targetId, { date })
+          : kind === 'customer-return' ? voidSalesReturn(tx, org.orgId, targetId, { date }) : voidStockAdjustment(tx, org.orgId, targetId, { date })
+        if (!sold) {
+          await prisma.$transaction(voidTarget)
+          expect(await inventoryLedgerValue(org.orgId)).toBe(5000)
+          expect(await inventoryLotValue(org.orgId)).toBe(5000)
+          expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(5000)
+          return
+        }
         const before = await prisma.$transaction(tx => snapshot(tx, org.orgId))
-        await expect(prisma.$transaction(tx => kind === 'bill' ? voidBill(tx, org.orgId, targetId, { date })
-          : kind === 'customer-return' ? voidSalesReturn(tx, org.orgId, targetId, { date }) : voidStockAdjustment(tx, org.orgId, targetId, { date }))).rejects.toThrow(/Cannot (reverse|void): .*carrying value/)
+        await expect(prisma.$transaction(voidTarget)).rejects.toThrow('later SALES LATER-SALE')
         expect(await prisma.$transaction(tx => snapshot(tx, org.orgId))).toEqual(before)
         expect(await inventoryLedgerValue(org.orgId)).toBe((10 - sold) * 1100)
         expect(await inventoryLotValue(org.orgId)).toBe((10 - sold) * 1100)

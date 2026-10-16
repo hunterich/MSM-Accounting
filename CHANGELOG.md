@@ -7,8 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Fixed — refuse inbound voids with changed carrying values (INV-02 WIP)
-- Weighted Average now shares FIFO's stored-value guard before reversing purchase receipt, customer-return or stock-adjustment increase layers. If a lot's carrying value differs from its original posted value, the void refuses with guidance before changing stock or reversing journals. No receipt-void COGS variance or historical correction is posted automatically.
+### Fixed — Weighted Average inbound void follows stock issue order (INV-02 WIP)
+- Mixed-price receipts alone no longer block WA bill/receipt/return/adjustment reversals or posted bill edits. The original value is removed and the remaining pool reallocated, provided no later stock issue exists for that item and warehouse. A later issue blocks the action with its document identifier. FIFO retains the carrying-value guard.
+- Requires `20261016093000_inventory_posting_order`: future stock movements receive a database posting sequence and new lots link to their inbound movement. Legacy chronology stays unset and uncertain reversals require review. No historical value rewrite, receipt-void COGS variance or production migration is performed.
 
 ### Fixed — exact stock receipt line values (INV-02 work in progress)
 - Direct bills and PO goods receipts retain their exact net line values when creating inventory layers and ledger movements, rather than reconstructing value from a unit price rounded to two decimals. Six-decimal receipt unit prices remain traceable; customer-return layers also receive their exact recorded restock value. Three units net 1,000 now book stock value 1,000, matching Inventory GL, rather than 999.99.

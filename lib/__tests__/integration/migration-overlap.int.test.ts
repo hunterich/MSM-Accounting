@@ -186,7 +186,9 @@ describe('migration state and live stock overlap', () => {
       settledStock = stock.then(() => null, error => error);
       await Promise.race([ready.promise, stock.then(() => { throw new Error('Stock transaction did not wait'); })]);
       settledRollback = rollbackBatch(f.org.orgId, f.batch.id).then(value => value, error => error);
-      await waiting('InventoryLot'); release.resolve();
+      // The inbound-link FK can make rollback wait during ledger deletion
+      // before it reaches lot deletion. Both waits protect this same stock.
+      await waiting('Inventory'); release.resolve();
       expect(await settledStock).toBeNull(); expect(await settledRollback).toMatchObject({ rolledBack: false });
       const state = await snapshot(f);
       expect(state.batch.status).toBe('COMMITTED'); expect(state.items).toHaveLength(1); expect(state.invoices).toHaveLength(1);

@@ -1,15 +1,17 @@
 # Testing transactions and accounting
 
-## Carrying-value guard on Weighted Average inbound voids
+## Weighted Average inbound void uses stock posting order
 
 `npm run test:int -- inventory-carrying-void-guard warehouse-carrying-values`
-covers six new real-posting regressions: bill receipt, customer return and stock
-adjustment, each after selling four or five of ten mixed-price units. All six
-fail before the fix. Stored carrying value 5,500 cannot be removed by reversing
-an original 6,000 posting. Refusal preserves full lot/draw, ledger, document and
-journal snapshots, leaving exact lot/ledger/GL value intact. No new COGS variance
-policy for inbound voids is implemented. Eligible return-void races use unchanged
-carrying values; mixed-price return restocking has a separate atomic-refusal test.
+covers actual bill, customer-return and adjustment immediate mixed-price voids;
+both older/newer bill voids; two successive actual bill PUT edits; and six later
+sale refusal cases with full rollback snapshots. Sales are deliberately backdated
+and timestamps tied to verify use of posting sequence, not dates. WA allows later
+receipts but refuses later issues of that item/warehouse, naming the issue. FIFO
+retains the carrying-value guard. Original-cost immediate return-void success is
+restored. New lots link to their inbound movement; legacy missing chronology
+refuses with review guidance. All 17 migrations apply on a fresh isolated database;
+this does not establish production migration/recovery acceptance.
 
 ## Exact booked receipt value (INV-02 WIP)
 
