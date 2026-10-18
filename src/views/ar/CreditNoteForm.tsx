@@ -88,7 +88,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = invoicesData?.data ?? [];
-    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts({ withControlFlags: 1 });
     const { data: cnData, isLoading: creditNotesLoading } = useCreditNotes();
     const creditNotes = cnData?.data ?? [];
     const { data: srData, isLoading: salesReturnsLoading } = useSalesReturns();
@@ -159,7 +159,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                 arAccountId: draft.arAccountId || prev.arAccountId || resolvedAccountDefaults.arControl,
                 returnAccountId: draft.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.arReturn,
                 taxAccountId: draft.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
-                settlementAccountId: draft.arAccountId || prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
+                settlementAccountId: prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
                 amount: toReturnTotals(draft).total,
                 lines: (draft.lines || []) as CreditNoteLine[],
                 applyTax: draft.applyTax,
@@ -368,7 +368,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                     onChange={(event) => setFormData((prev) => ({ ...prev, [key]: event.target.value }))}
                     disabled={isView || disabled}
                 >
-                    {key === 'settlementAccountId' && !options.some(account => account.id === formData[key]) && (
+                    {key === 'settlementAccountId' && formData[key] && !options.some(account => account.id === formData[key]) && (
                         <option value={formData[key]} disabled>{formatAccountOption(formData[key])} — {translate(language, 'Unavailable for refunds')}</option>
                     )}
                     {options.map((account) => (

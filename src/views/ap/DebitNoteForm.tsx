@@ -114,7 +114,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const { data: billsData, isLoading: billsLoading } = useBills();
     const bills = billsData?.data ?? [];
-    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts({ withControlFlags: 1 });
     const { data: dnData, isLoading: debitNotesLoading } = useDebitNotes();
     const debitNotes = dnData?.data ?? [];
     const { data: prData, isLoading: purchaseReturnsLoading } = usePurchaseReturns();
@@ -364,7 +364,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                     onChange={(event) => setFormData((prev) => ({ ...prev, [key]: event.target.value }))}
                     disabled={isView || disabled}
                 >
-                    {key === 'settlementAccountId' && !options.some(account => account.id === formData[key]) && (
+                    {key === 'settlementAccountId' && formData[key] && !options.some(account => account.id === formData[key]) && (
                         <option value={formData[key]} disabled>{formatAccountOption(formData[key])} — {translate(language, 'Unavailable for refunds')}</option>
                     )}
                     {options.map((account) => (

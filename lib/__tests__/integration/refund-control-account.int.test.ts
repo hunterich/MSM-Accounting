@@ -196,7 +196,9 @@ describe('refund account controls and party balances', () => {
       const before = await snapshot(f);
       await expect(apply(f)).rejects.toMatchObject({ status: 422 });
       expect(await snapshot(f)).toEqual(before);
-      const response = await accountsGet(new NextRequest('http://localhost/api/v1/accounts?limit=1000', { headers: { 'x-org-id': f.org.orgId } }));
+      const ordinary = await accountsGet(new NextRequest('http://localhost/api/v1/accounts?limit=1000', { headers: { 'x-org-id': f.org.orgId } }));
+      expect((await ordinary.json()).data.every((account: any) => !Object.hasOwn(account, 'isPartyControlAccount'))).toBe(true);
+      const response = await accountsGet(new NextRequest('http://localhost/api/v1/accounts?limit=1000&withControlFlags=1', { headers: { 'x-org-id': f.org.orgId } }));
       const body = await response.json();
       expect(body.data.find((account: any) => account.id === asset.id).isPartyControlAccount).toBe(true);
       expect(body.data.find((account: any) => account.id === f.org.accounts.bankAsset).isPartyControlAccount).toBe(false);
