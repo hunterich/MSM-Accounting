@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — migration staging, cutover and rollback coordination
+- Concurrent staging edits merge the latest batch data under a row lock. Commit rechecks the batch status, staged snapshot and current control-account reconciliation before opening writes; stale requests return 409 and leave records unchanged.
+- Rollback performs its checks and batch-scoped deletions in one serializable transaction. Existing financial or stock activity, including zero-value movements with no journal, blocks rollback. A closed/locked cutover month refuses it; close/rollback overlap follows the same period lock.
+- Migration openings, manual journal creation and ordinary automatic postings share the journal-number allocator. Retryable database conflicts recheck rollback eligibility; dependent records remain protected. No schema migration is required for these safeguards; production rollback and deployment remain operator-controlled.
+
 ### Fixed — Weighted Average inbound void follows stock issue order (INV-02 WIP)
 - Mixed-price receipts alone no longer block WA bill/receipt/return/adjustment reversals or posted bill edits. The original value is removed and the remaining pool reallocated, provided no later stock issue exists for that item and warehouse. A later issue blocks the action with its document identifier. FIFO retains the carrying-value guard.
 - Requires `20261016093000_inventory_posting_order`: future stock movements receive a database posting sequence and new lots link to their inbound movement. Legacy chronology stays unset and uncertain reversals require review. No historical value rewrite, receipt-void COGS variance or production migration is performed.
