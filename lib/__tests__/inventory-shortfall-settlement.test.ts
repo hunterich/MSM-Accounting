@@ -180,7 +180,7 @@ describe('reversing shortage settlements', () => {
     expect(state.lotUpdates[1]).toEqual({ where: { id: 'lot-r', organizationId: 'org-1', qtyOut: { gte: D(2) } },
       data: { qtyOut: { decrement: D(2) }, qtyBalance: { increment: D(2) } } })
     expect(state.ledger[1]).toMatchObject({ documentType: 'SHORTFALL_SETTLEMENT', documentId: 'bill-1', date: VOID_DATE,
-      qtyIn: 0, qtyOut: 0, valueChange: D(40), reversesLedgerEntryId: 'move-1' })
+      qtyIn: 0, qtyOut: 0, valueChange: D(40) })
     expect(state.journals[1]).toMatchObject({ date: VOID_DATE, source: 'REVERSAL' })
     expect(journalLines(state.journals[1])).toEqual([{ accountId: 'cogs', debit: 0, credit: 40 }, { accountId: 'inv', debit: 40, credit: 0 }])
     expect(state.settlements[0]).toMatchObject({ reversedAt: VOID_DATE, reversalLedgerEntryId: 'move-2', reversalJournalEntryId: 'je-2' })

@@ -197,7 +197,6 @@ async function unwindSettlements(
       organizationId: orgId, itemId: row.itemId, warehouseId: row.warehouseId, date: reversal.date,
       documentType: InventoryDocumentType.SHORTFALL_SETTLEMENT, documentId: reversal.documentId,
       qtyIn: 0, qtyOut: 0, unitCost: 0, valueChange: row.cogsAdjustment,
-      reversesLedgerEntryId: row.adjustmentLedgerEntryId,
     }, select: { id: true } })).id)
   }
   const net = rows.reduce((sum, row) => sum.plus(row.cogsAdjustment), ZERO)

@@ -197,7 +197,7 @@ describe('INV-02 approved WA negative stock: reversals', () => {
       const [row] = await f.settlements();
       expect(row.reversedAt).toEqual(VOID_DATE);
       const reversal = await prisma.inventoryLedgerEntry.findUniqueOrThrow({ where: { id: row.reversalLedgerEntryId! } });
-      expect(reversal).toMatchObject({ reversesLedgerEntryId: row.adjustmentLedgerEntryId, date: VOID_DATE });
+      expect(reversal).toMatchObject({ documentType: 'SHORTFALL_SETTLEMENT', documentId: receipt.id, date: VOID_DATE });
       expect(Number(reversal.valueChange)).toBe(40);
       expect((await prisma.journalEntry.findUniqueOrThrow({ where: { id: row.reversalJournalEntryId! } })).date).toEqual(VOID_DATE);
       expect(await f.preview()).toMatchObject({ outstandingShortfallQuantity: '2.0000', outstandingShortfallEstimate: '200.00' });
@@ -299,7 +299,9 @@ describe('INV-02 approved WA negative stock: overlapping writers', () => {
       const rows = await f.settlements();
       expect(rows).toHaveLength(1);
       expect(rows[0].reversedAt).toEqual(VOID_DATE);
-      expect(await prisma.inventoryLedgerEntry.count({ where: { organizationId: f.org.orgId, reversesLedgerEntryId: rows[0].adjustmentLedgerEntryId } })).toBe(1);
+      // One settlement movement (-40) and exactly one reversal of it (+40).
+      expect((await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: f.org.orgId, documentType: 'SHORTFALL_SETTLEMENT' } }))
+        .map(row => Number(row.valueChange)).sort((a, b) => a - b)).toEqual([-40, 40]);
       await assertTrialBalanced(f.org.orgId);
     } finally { await cleanupOrg(f.org.orgId); }
   });

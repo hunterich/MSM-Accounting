@@ -9,7 +9,7 @@ receipt credits COGS instead. If three units arrive, one remains valued at 120.
 
 ## What is implemented (branch `claude/inv02-negative-stock-settlement`)
 
-Additive migration `20261018090000_inventory_shortfall_settlements` adds the
+Additive migration `20261018130000_inventory_shortfall_settlements` adds the
 `SHORTFALL_SETTLEMENT` stock movement type, an explicit `shortfall` flag on
 `InventoryLotDraw` and the `InventoryShortfallSettlement` link table. Existing
 rows are not backfilled.

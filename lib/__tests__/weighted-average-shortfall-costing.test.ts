@@ -135,7 +135,8 @@ describe('Weighted Average voids with estimated shortages', () => {
     expect(tx.inventoryLot.updateMany).toHaveBeenCalledTimes(1)
     expect(tx.inventoryLot.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: 'lot-a' }, data: { qtyBalance: { increment: D(5) } } })
     expect(tx.inventoryLot.create).not.toHaveBeenCalled()
-    expect(tx.inventoryLedgerEntry.create.mock.calls[0][0].data).toMatchObject({ qtyIn: 7, valueChange: 700, reversesLedgerEntryId: 'sale-entry' })
+    expect(tx.inventoryLedgerEntry.create.mock.calls[0][0].data).toMatchObject({ qtyIn: 7, valueChange: 700 })
+    expect(tx.inventoryLedgerEntry.update.mock.calls[0][0]).toEqual({ where: { id: 'sale-entry' }, data: { reversedAt: DATE } })
   })
 
   it('voids a later shortage line before an earlier stocked line of the same invoice', async () => {
