@@ -62,6 +62,14 @@ voids return to 6,000 and 5,000 respectively. The real bill PUT route succeeds
 through two successive price edits without mistaking an earlier correction's
 reversal for a new dependency. Immediate mixed-price customer returns void again.
 
+Review follow-up: the guard counted reversed movements as live issues. Voiding
+the later sale (or supplier return/adjustment decrease) still blocked the receipt
+void, and so did voiding a later bill, whose removal row is an outbound movement.
+Outbound rows now carry `reversedAt` when a void/correction undoes them and when
+they remove a reversed inbound; the guard ignores those rows because each pair
+nets to zero quantity and value. No column changes; rows from before this fix are
+unmarked. A live issue after a voided one still refuses.
+
 Migration `20261016093000_inventory_posting_order` gives future ledger inserts a
 database sequence and links newly created lots to their exact inbound movement.
 Transaction-start timestamps and business dates are not used as posting order.
@@ -81,38 +89,6 @@ local client tools. Unrelated local report/UI edits are not part of this change.
 Negative-stock posting is still unfinished. Migration commits are also in draft
 PR #173; do not stack this branch onto #171 unchanged. Resolve that dependency
 and clean up WIP commit titles when preparing the review history.
-
-## Review correction: reversed issues no longer block inbound voids (2026-10-18)
-
-The posting-order guard treated every later outbound row as a dependency. Two
-kinds leave the Weighted Average pool exactly as if they never happened, yet
-blocked the void with no way forward:
-
-- an issue fully restored by its own void (sale, supplier return or stock
-  decrease): the restore returns its recorded value, so the pool is unchanged;
-- the removal row of another inbound void: that inbound left at its original
-  value after passing this same guard, so the remaining stock is unaffected.
-
-Receive 5 at 1,000, 5 at 1,200 and 5 at 1,400; void the 1,400 bill, then the
-1,200 bill. Previously the second void refused with an internal row ID; it now
-leaves 5 units at 5,000 in the stock ledger, lots and Inventory GL. Selling four
-and voiding the sale now also allows the 1,200 void, ending at 5,000.
-
-Migration `20261018020000_inventory_ledger_reversal_link` adds
-`InventoryLedgerEntry.reversesLedgerEntryId`. Inbound voids set it on their
-removal row (pointing at the lot's inbound movement); sale, supplier-return and
-adjustment voids set it on their restore row (pointing at the outbound row).
-It is a plain indexed column, not a foreign key, so migration rollback deletes
-take no extra row locks. Legacy compensating rows stay NULL and still block;
-legacy sale voids are recognised through their existing `reversedAt` marker.
-A later active issue still refuses, naming the first one that is not reversed.
-
-Four PostgreSQL regressions cover the receipt chain, the voided sale, a voided
-stock-count loss (which is named while active) and an active sale after a voided
-one (with full rollback snapshot). All four fail on dc35891 and pass now. The
-void-guard file has 16 passing cases; broad integration has 468 passes and only
-the known negative-stock hard failure. TypeScript and all 1,270 unit cases pass
-(the period-guard policy case times out only under full parallel load).
 
 ## Evidence and known failure
 

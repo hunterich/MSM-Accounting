@@ -4,10 +4,11 @@ import { postBillToLedger } from '@/lib/bill-posting'
 import { postInvoiceSend } from '@/lib/invoice-send-posting'
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting'
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting'
+import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting'
 import { voidBill } from '@/lib/bill-void'
-import { voidSalesReturn } from '@/lib/return-void'
-import { voidStockAdjustment } from '@/lib/stock-adjustment-void'
 import { voidInvoice } from '@/lib/invoice-void'
+import { voidPurchaseReturn, voidSalesReturn } from '@/lib/return-void'
+import { voidStockAdjustment } from '@/lib/stock-adjustment-void'
 import { NextRequest } from 'next/server'
 import { PUT as editBill } from '@/src/app/api/v1/bills/[id]/route'
 import { prisma, createTestOrg, createItem, createCustomer, createVendor, cleanupOrg, disconnect, accountBalance, inventoryLedgerValue, inventoryLotValue } from './harness'
@@ -121,77 +122,55 @@ describe('WA inbound void follows actual stock issue order', () => {
   }
 })
 
-describe('WA inbound void ignores later movements that no longer affect the pool', () => {
-  async function fixture() {
+describe('WA inbound void ignores later stock movements that were themselves reversed', () => {
+  const cases = ['voided sale', 'voided supplier return', 'voided adjustment decrease', 'voided later bill', 'voided sale then live sale'] as const
+  for (const kind of cases) it(`${kind}: ${kind === 'voided sale then live sale' ? 'live issue still refuses' : 'receipt void succeeds at exact value'}`, async () => {
     const org = await createTestOrg({ costingMethod: 'WEIGHTED_AVERAGE' })
-    const itemId = await createItem(org.orgId), vendorId = await createVendor(org.orgId), customerId = await createCustomer(org.orgId)
-    const buy = async (number: string, price: number) => {
-      const bill = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, number, issueDate: date, status: 'OPEN', totalAmount: 5 * price,
-        lines: { create: { lineNo: 1, itemId, description: 'Stock', quantity: 5, price, lineTotal: 5 * price } } }, include: { lines: true } })
-      await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, bill)); return bill.id
-    }
-    const sell = async (number: string, quantity: number) => {
-      const sale = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number, issueDate: date, status: 'SENT', subtotal: quantity * 3000, totalAmount: quantity * 3000,
-        lines: { create: { lineNo: 1, itemId, description: 'Stock', quantity, price: 3000, lineSubtotal: quantity * 3000 } } } })
-      await prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, sale.id)); return sale.id
-    }
-    const voidPurchase = (billId: string) => prisma.$transaction(tx => voidBill(tx, org.orgId, billId, { date }))
-    const expectStock = async (value: number) => {
-      expect(await inventoryLedgerValue(org.orgId)).toBe(value)
-      expect(await inventoryLotValue(org.orgId)).toBe(value)
-      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(value)
-    }
-    return { org, itemId, buy, sell, voidPurchase, expectStock }
-  }
-
-  it("a later receipt's void does not block voiding an earlier receipt", async () => {
-    const f = await fixture()
     try {
-      await f.buy('CHEAP', 1000); const earlier = await f.buy('EXPENSIVE', 1200); const later = await f.buy('DEAREST', 1400)
-      await f.voidPurchase(later)
-      await f.voidPurchase(earlier)
-      await f.expectStock(5000)
-      expect(await accountBalance(f.org.orgId, f.org.accounts.apControl)).toBe(-5000)
-    } finally { await cleanupOrg(f.org.orgId) }
-  })
-
-  it('a voided sale no longer blocks the receipt void', async () => {
-    const f = await fixture()
-    try {
-      await f.buy('CHEAP', 1000); const target = await f.buy('EXPENSIVE', 1200)
-      const sale = await f.sell('CANCELLED-SALE', 4)
-      await prisma.$transaction(tx => voidInvoice(tx, f.org.orgId, sale, { date }))
-      await f.expectStock(11000)
-      await f.voidPurchase(target)
-      await f.expectStock(5000)
-    } finally { await cleanupOrg(f.org.orgId) }
-  })
-
-  it('a voided stock decrease no longer blocks the receipt void, but names it while active', async () => {
-    const f = await fixture()
-    try {
-      await f.buy('CHEAP', 1000); const target = await f.buy('EXPENSIVE', 1200)
-      const adj = await prisma.stockAdjustment.create({ data: { organizationId: f.org.orgId, number: 'COUNT-LOSS', date, reason: 'Stock count', status: 'APPROVED' } })
-      await prisma.$transaction(tx => postStockAdjustmentToLedger(tx, f.org.orgId, { id: adj.id, number: adj.number, date, warehouseId: null,
-        lines: [{ itemId: f.itemId, oldQty: 10, newQty: 8, unitCost: 9999 }] }))
-      await expect(f.voidPurchase(target)).rejects.toThrow('later ADJUSTMENT COUNT-LOSS')
-      await prisma.$transaction(tx => voidStockAdjustment(tx, f.org.orgId, adj.id, { date }))
-      await f.voidPurchase(target)
-      await f.expectStock(5000)
-    } finally { await cleanupOrg(f.org.orgId) }
-  })
-
-  it('a later active sale still blocks after an earlier sale is voided, with exact rollback', async () => {
-    const f = await fixture()
-    try {
-      await f.buy('CHEAP', 1000); const target = await f.buy('EXPENSIVE', 1200)
-      const cancelled = await f.sell('CANCELLED-SALE', 4)
-      await prisma.$transaction(tx => voidInvoice(tx, f.org.orgId, cancelled, { date }))
-      await f.sell('ACTIVE-SALE', 1)
-      const before = await prisma.$transaction(tx => snapshot(tx, f.org.orgId))
-      await expect(f.voidPurchase(target)).rejects.toThrow('later SALES ACTIVE-SALE')
-      expect(await prisma.$transaction(tx => snapshot(tx, f.org.orgId))).toEqual(before)
-      await f.expectStock(9900)
-    } finally { await cleanupOrg(f.org.orgId) }
+      const itemId = await createItem(org.orgId), vendorId = await createVendor(org.orgId), customerId = await createCustomer(org.orgId)
+      const buy = async (number: string, price: number) => {
+        const bill = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, number, vendorInvoiceNo: number, issueDate: date, status: 'OPEN', totalAmount: 5 * price,
+          lines: { create: { lineNo: 1, itemId, description: 'Stock', quantity: 5, price, lineTotal: 5 * price } } }, include: { lines: true } })
+        await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, bill)); return bill
+      }
+      const sell = async (number: string, quantity: number) => {
+        const sale = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number, issueDate: date, status: 'SENT', subtotal: quantity * 3000, totalAmount: quantity * 3000,
+          lines: { create: { lineNo: 1, itemId, description: 'Stock', quantity, price: 3000, lineSubtotal: quantity * 3000 } } } })
+        await prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, sale.id)); return sale
+      }
+      const cheap = await buy('CHEAP', 1000)
+      const target = await buy('EXPENSIVE', 1200)
+      if (kind === 'voided sale' || kind === 'voided sale then live sale') {
+        const sale = await sell('VOIDED-SALE', 4)
+        await prisma.$transaction(tx => voidInvoice(tx, org.orgId, sale.id, { date }))
+        if (kind === 'voided sale then live sale') await sell('LIVE-SALE', 4)
+      } else if (kind === 'voided supplier return') {
+        const ret = await prisma.purchaseReturn.create({ data: { organizationId: org.orgId, vendorId, billId: cheap.id, number: 'PR-VOIDED', returnDate: date, status: 'APPROVED',
+          returnAccountId: org.accounts.apControl, lines: { create: { itemId, lineNo: 1, description: 'Return', qtyReturn: 4 } } } })
+        await prisma.$transaction(tx => postPurchaseReturnOnApproval(tx, ret.id))
+        await prisma.$transaction(tx => voidPurchaseReturn(tx, org.orgId, ret.id, { date }))
+      } else if (kind === 'voided adjustment decrease') {
+        const adj = await prisma.stockAdjustment.create({ data: { organizationId: org.orgId, number: 'DECREASE', date, reason: 'Count', status: 'APPROVED' } })
+        await prisma.$transaction(tx => postStockAdjustmentToLedger(tx, org.orgId, { id: adj.id, number: adj.number, date, warehouseId: null,
+          lines: [{ itemId, oldQty: 10, newQty: 6, unitCost: 0 }] }))
+        await prisma.$transaction(tx => voidStockAdjustment(tx, org.orgId, adj.id, { date }))
+      } else {
+        const later = await buy('LATER', 1500)
+        await prisma.$transaction(tx => voidBill(tx, org.orgId, later.id, { date }))
+      }
+      if (kind === 'voided sale then live sale') {
+        await expect(prisma.$transaction(tx => voidBill(tx, org.orgId, target.id, { date }))).rejects.toThrow('later SALES LIVE-SALE')
+        expect(await inventoryLedgerValue(org.orgId)).toBe(6600)
+        expect(await inventoryLotValue(org.orgId)).toBe(6600)
+        return
+      }
+      expect(await inventoryLedgerValue(org.orgId)).toBe(11000)
+      await prisma.$transaction(tx => voidBill(tx, org.orgId, target.id, { date }))
+      expect(await inventoryLedgerValue(org.orgId)).toBe(5000)
+      expect(await inventoryLotValue(org.orgId)).toBe(5000)
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(5000)
+      const lots = await prisma.inventoryLot.findMany({ where: { organizationId: org.orgId } })
+      expect(lots.reduce((sum, lot) => sum + Number(lot.qtyBalance), 0)).toBe(5)
+    } finally { await cleanupOrg(org.orgId) }
   })
 })

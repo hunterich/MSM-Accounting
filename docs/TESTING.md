@@ -13,12 +13,11 @@ restored. New lots link to their inbound movement; legacy missing chronology
 refuses with review guidance. All 17 migrations apply on a fresh isolated database;
 this does not establish production migration/recovery acceptance.
 
-The same file also proves that reversed issues stop blocking: voiding a later
-receipt and then an earlier one, voiding a sale and then the receipt, and voiding
-a stock-count loss and then the receipt all succeed with exact stock ledger, lot
-and Inventory GL values. An active sale after a voided one still refuses by name,
-with a full rollback snapshot. These four cases fail on dc35891. All 18 migrations
-apply to a fresh isolated database.
+The same file also covers reversed later movements: a voided sale, voided
+supplier return, voided adjustment decrease and voided later bill no longer block
+the receipt void, which returns Inventory, lots and GL to 5,000. A live sale
+posted after a voided one still refuses by name. These five cases were written
+without a local PostgreSQL run; run them before relying on the result.
 
 ## Exact booked receipt value (INV-02 WIP)
 
