@@ -123,8 +123,9 @@ describe('WA inbound void follows actual stock issue order', () => {
 })
 
 describe('WA inbound void ignores later stock movements that were themselves reversed', () => {
-  const cases = ['voided sale', 'voided supplier return', 'voided adjustment decrease', 'voided later bill', 'voided sale then live sale'] as const
-  for (const kind of cases) it(`${kind}: ${kind === 'voided sale then live sale' ? 'live issue still refuses' : 'receipt void succeeds at exact value'}`, async () => {
+  const cases = ['voided sale', 'voided supplier return', 'voided adjustment decrease', 'voided later bill', 'voided sale then live sale', 'legacy unmarked void row'] as const
+  const refuses = (kind: typeof cases[number]) => kind === 'voided sale then live sale' || kind === 'legacy unmarked void row'
+  for (const kind of cases) it(`${kind}: ${refuses(kind) ? 'still refuses with exact rollback' : 'receipt void succeeds at exact value'}`, async () => {
     const org = await createTestOrg({ costingMethod: 'WEIGHTED_AVERAGE' })
     try {
       const itemId = await createItem(org.orgId), vendorId = await createVendor(org.orgId), customerId = await createCustomer(org.orgId)
@@ -153,15 +154,26 @@ describe('WA inbound void ignores later stock movements that were themselves rev
         const adj = await prisma.stockAdjustment.create({ data: { organizationId: org.orgId, number: 'DECREASE', date, reason: 'Count', status: 'APPROVED' } })
         await prisma.$transaction(tx => postStockAdjustmentToLedger(tx, org.orgId, { id: adj.id, number: adj.number, date, warehouseId: null,
           lines: [{ itemId, oldQty: 10, newQty: 6, unitCost: 0 }] }))
+        // While active, the decrease blocks and is named by its document number.
+        await expect(prisma.$transaction(tx => voidBill(tx, org.orgId, target.id, { date }))).rejects.toThrow('later ADJUSTMENT DECREASE')
         await prisma.$transaction(tx => voidStockAdjustment(tx, org.orgId, adj.id, { date }))
       } else {
         const later = await buy('LATER', 1500)
         await prisma.$transaction(tx => voidBill(tx, org.orgId, later.id, { date }))
+        // A void row written before reversedAt marking carries the voided bill's
+        // ID under ADJUSTMENT; it must still block and must not show that raw ID.
+        if (kind === 'legacy unmarked void row') await prisma.inventoryLedgerEntry.updateMany({
+          where: { organizationId: org.orgId, documentType: 'ADJUSTMENT', documentId: later.id }, data: { reversedAt: null } })
       }
-      if (kind === 'voided sale then live sale') {
-        await expect(prisma.$transaction(tx => voidBill(tx, org.orgId, target.id, { date }))).rejects.toThrow('later SALES LIVE-SALE')
-        expect(await inventoryLedgerValue(org.orgId)).toBe(6600)
-        expect(await inventoryLotValue(org.orgId)).toBe(6600)
+      if (refuses(kind)) {
+        const value = kind === 'legacy unmarked void row' ? 11000 : 6600
+        const before = await prisma.$transaction(tx => snapshot(tx, org.orgId))
+        await expect(prisma.$transaction(tx => voidBill(tx, org.orgId, target.id, { date }))).rejects.toThrow(
+          kind === 'legacy unmarked void row' ? 'later stock movement dated 2026-09-10' : 'later SALES LIVE-SALE')
+        expect(await prisma.$transaction(tx => snapshot(tx, org.orgId))).toEqual(before)
+        expect(await inventoryLedgerValue(org.orgId)).toBe(value)
+        expect(await inventoryLotValue(org.orgId)).toBe(value)
+        expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(value)
         return
       }
       expect(await inventoryLedgerValue(org.orgId)).toBe(11000)

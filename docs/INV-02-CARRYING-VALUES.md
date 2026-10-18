@@ -69,6 +69,10 @@ Outbound rows now carry `reversedAt` when a void/correction undoes them and when
 they remove a reversed inbound; the guard ignores those rows because each pair
 nets to zero quantity and value. No column changes; rows from before this fix are
 unmarked. A live issue after a voided one still refuses.
+Legacy void rows reuse the voided document's ID under ADJUSTMENT, so the refusal
+now names the movement date when no document number matches, instead of showing
+an internal ID. An earlier review variant (ddfe99e) added a reversal-link column
+for the same result; it was reverted in favour of this migration-free marking.
 
 Migration `20261016093000_inventory_posting_order` gives future ledger inserts a
 database sequence and links newly created lots to their exact inbound movement.
