@@ -67,8 +67,15 @@ the later sale (or supplier return/adjustment decrease) still blocked the receip
 void, and so did voiding a later bill, whose removal row is an outbound movement.
 Outbound rows now carry `reversedAt` when a void/correction undoes them and when
 they remove a reversed inbound; the guard ignores those rows because each pair
-nets to zero quantity and value. No column changes; rows from before this fix are
-unmarked. A live issue after a voided one still refuses.
+nets to zero quantity and value. Rows written before either fix are
+unmarked and keep blocking. A live issue after a voided one still refuses.
+Legacy void rows reuse the voided document's ID under ADJUSTMENT, so the refusal
+now names the movement date when no document number matches, instead of showing
+an internal ID. #174 merged an earlier variant (ddfe99e) that linked rows through a
+`reversesLedgerEntryId` column. Migration `20261018120000_inventory_reversal_marking`
+copies those links into `reversedAt` (the removal row, and the outbound row a
+restore row pointed at), then drops the column; the earlier migration stays in
+history so databases that applied it remain consistent.
 
 Migration `20261016093000_inventory_posting_order` gives future ledger inserts a
 database sequence and links newly created lots to their exact inbound movement.

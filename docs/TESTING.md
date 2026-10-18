@@ -16,8 +16,12 @@ this does not establish production migration/recovery acceptance.
 The same file also covers reversed later movements: a voided sale, voided
 supplier return, voided adjustment decrease and voided later bill no longer block
 the receipt void, which returns Inventory, lots and GL to 5,000. A live sale
-posted after a voided one still refuses by name. These five cases were written
-without a local PostgreSQL run; run them before relying on the result.
+posted after a voided one still refuses by name, with a full rollback snapshot.
+An active adjustment decrease is named by its number before it is voided, and a
+legacy unmarked void row still refuses, naming its date instead of an internal
+ID. All six cases fail on dc35891 and pass on isolated PostgreSQL; the file has
+18 passing cases and broad integration has 470 passes plus the known
+negative-stock hard failure.
 
 ## Exact booked receipt value (INV-02 WIP)
 

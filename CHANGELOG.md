@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — reversed stock issues no longer block WA inbound voids (INV-02 WIP)
+- A sale, supplier return or stock decrease that has since been voided, and the removal row of another receipt's void, no longer block a Weighted Average receipt void. Such rows are now marked `reversedAt`; each pair nets to zero, so the pool stays exact. Voiding a later bill and then an earlier one, or a receipt after its sale was cancelled, now succeeds. Active later issues still refuse. This replaces the `reversesLedgerEntryId` link merged in #174: `20261018120000_inventory_reversal_marking` copies existing links into `reversedAt`, then drops the column. Legacy unmarked rows still block, and the refusal names their date instead of an internal ID.
+
 ### Fixed — Weighted Average inbound void follows stock issue order (INV-02 WIP)
 - Mixed-price receipts alone no longer block WA bill/receipt/return/adjustment reversals or posted bill edits. The original value is removed and the remaining pool reallocated, provided no later stock issue exists for that item and warehouse. A later issue blocks the action with its document identifier. FIFO retains the carrying-value guard.
 - Requires `20261016093000_inventory_posting_order`: future stock movements receive a database posting sequence and new lots link to their inbound movement. Legacy chronology stays unset and uncertain reversals require review. No historical value rewrite, receipt-void COGS variance or production migration is performed.

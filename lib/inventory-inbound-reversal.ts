@@ -19,11 +19,14 @@ export async function assertNoLaterStockIssue(tx: Prisma.TransactionClient, orgI
     organizationId: orgId, itemId: lot.itemId, warehouseId: lot.warehouseId, qtyOut: { gt: 0 },
     postingSequence: { gt: inbound.postingSequence }, reversedAt: null,
     NOT: { documentType: lot.documentType, documentId: lot.documentId },
-  }, orderBy: { postingSequence: 'asc' }, select: { documentType: true, documentId: true } })
+  }, orderBy: { postingSequence: 'asc' }, select: { documentType: true, documentId: true, date: true } })
   if (!issue) return
   const where = { id: issue.documentId, organizationId: orgId }, select = { number: true as const }
   const document = issue.documentType === 'SALES' ? await tx.salesInvoice.findFirst({ where, select })
     : issue.documentType === 'PURCHASE_RETURN' ? await tx.purchaseReturn.findFirst({ where, select })
     : issue.documentType === 'ADJUSTMENT' ? await tx.stockAdjustment.findFirst({ where, select }) : null
-  throw new ApiError(`Cannot reverse: later ${issue.documentType} ${document?.number ?? issue.documentId} issued stock from this item's warehouse after this receipt. Reverse or review that stock issue first.`, 422)
+  // Legacy void rows reuse the voided document's ID under ADJUSTMENT; a raw ID
+  // means nothing to users, so fall back to the movement's business date.
+  const label = document ? `${issue.documentType} ${document.number}` : `stock movement dated ${issue.date.toISOString().slice(0, 10)}`
+  throw new ApiError(`Cannot reverse: later ${label} issued stock from this item's warehouse after this receipt. Reverse or review that stock issue first.`, 422)
 }
