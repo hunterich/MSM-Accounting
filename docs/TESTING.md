@@ -10,6 +10,10 @@ legitimate voids and reversal of historical incorrect refunds. The two core refu
 cases fail on the original posting helpers. The account-list metadata is tenant
 scoped, including bad foreign historical references. The read-only CLI is exercised
 against the same isolated fixtures and preserves their stock and posting snapshots.
+Account metadata is opt-in (`withControlFlags=1`): the database case also verifies
+ordinary requests omit control flags, and both refund forms explicitly request
+them. Return-created credit notes default to the bank account; blank selections
+do not display an unavailable historical account option.
 
 Run `npm run test:e2e -- e2e/refund-account-role.spec.ts --project=chromium` for the
 two browser cases: disabled historical selection, exclusion of additional controls,
@@ -25,6 +29,31 @@ finance; reject invalid pending requests before editing their Draft. Posted diff
 belong in reconciliation (#167) and require a reviewed correction/reversal. This audit
 does not calculate or certify a per-control GL reconciliation. Bill/invoice charges and
 stock-adjustment offsets remain open in #169. No production audit/deployment is implied.
+## Migration staging, cutover and rollback coordination
+
+Run `npm run test:int -- migration-overlap migration-rollback migration-commit`
+against the disposable PostgreSQL database. Thirteen new cases in
+`migration-overlap.int.test.ts`, plus seven existing commit/rollback cases, cover
+zero-value stock activity, actual rollback-service retry, rollback winning against
+a stale stock movement, concurrent staging edits, stale snapshots/defaults after a
+lock wait, double commit, API 409 responses, live journal and actual manual-API
+numbering, closed cutover refusal and both close/rollback orders. Lock waits are
+verified through PostgreSQL, not inferred from a timing delay. Snapshots and fixed
+GL/stock assertions show that refusal preserves opening records and successful
+rollback removes only its stamped batch. The lost-staging-edit regression fails
+against the original batch service.
+
+Rollback checks run in the same serializable transaction as deletion; its exported
+transaction primitive refuses weaker isolation. Retries handle ORM and raw-query
+serialization/deadlock errors; eligible foreign-key conflicts are retried/reported
+without removing dependent data. Commit pins company configuration with a shared
+row lock, then locks/rechecks its batch and reconciles current account defaults.
+Period locks precede stock and shared journal numbering. A rollback of a closed
+cutover month requires an authorized reopen through the existing workflow.
+
+These safeguards merged with #174 and need no schema migration of their own. They
+do not resolve negative-stock receipt treatment. Local backup suites require PostgreSQL client tools and are excluded; no production
+rollback, migration/recovery rehearsal or browser acceptance is claimed here.
 
 ## Weighted Average inbound void uses stock posting order
 
@@ -39,12 +68,15 @@ restored. New lots link to their inbound movement; legacy missing chronology
 refuses with review guidance. All 17 migrations apply on a fresh isolated database;
 this does not establish production migration/recovery acceptance.
 
-The same file also proves that reversed issues stop blocking: voiding a later
-receipt and then an earlier one, voiding a sale and then the receipt, and voiding
-a stock-count loss and then the receipt all succeed with exact stock ledger, lot
-and Inventory GL values. An active sale after a voided one still refuses by name,
-with a full rollback snapshot. These four cases fail on dc35891. All 18 migrations
-apply to a fresh isolated database.
+The same file also covers reversed later movements: a voided sale, voided
+supplier return, voided adjustment decrease and voided later bill no longer block
+the receipt void, which returns Inventory, lots and GL to 5,000. A live sale
+posted after a voided one still refuses by name, with a full rollback snapshot.
+An active adjustment decrease is named by its number before it is voided, and a
+legacy unmarked void row still refuses, naming its date instead of an internal
+ID. All six cases fail on dc35891 and pass on isolated PostgreSQL; the file has
+18 passing cases and broad integration has 470 passes plus the known
+negative-stock hard failure.
 
 ## Exact booked receipt value (INV-02 WIP)
 
