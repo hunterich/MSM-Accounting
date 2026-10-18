@@ -152,8 +152,11 @@ test('Weighted Average tracking notice is visible; a tracked unequal-cost correc
   expect(await balance(orgId, '1-1200')).toBe(3000)
   expect(await balance(orgId, '5-1000')).toBeCloseTo(12000 / 7, 1)
   await assertBalanced(page)
+  // Workspace navigation may normalize the URL to /. Wait for the saved
+  // editor to close, then explicitly reopen it for the language assertions.
+  await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toHaveCount(0)
   await page.evaluate(() => localStorage.setItem('msm-ui-language', JSON.stringify({ state: { language: 'id' }, version: 0 })))
-  await page.reload()
+  await page.goto(`/ar/invoices/edit?invoiceId=${invoice.id}`)
   await expect(page.getByRole('button', { name: 'Simpan koreksi', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toHaveCount(0)
   await expect(page.getByRole('note').filter({ hasText: 'Koreksi memerlukan pelacakan lot stok asal' })).toBeVisible()
