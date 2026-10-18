@@ -13,6 +13,13 @@ restored. New lots link to their inbound movement; legacy missing chronology
 refuses with review guidance. All 17 migrations apply on a fresh isolated database;
 this does not establish production migration/recovery acceptance.
 
+The same file also proves that reversed issues stop blocking: voiding a later
+receipt and then an earlier one, voiding a sale and then the receipt, and voiding
+a stock-count loss and then the receipt all succeed with exact stock ledger, lot
+and Inventory GL values. An active sale after a voided one still refuses by name,
+with a full rollback snapshot. These four cases fail on dc35891. All 18 migrations
+apply to a fresh isolated database.
+
 ## Exact booked receipt value (INV-02 WIP)
 
 Run `npm run test:int -- receipt-exact-value`. Eight new PostgreSQL regressions
