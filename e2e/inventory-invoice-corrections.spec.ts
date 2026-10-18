@@ -118,12 +118,15 @@ test('closed original/repost periods, linked credit notes and returns block a co
   expect((await api(page, `/invoices/${invoice.id}`)).totalAmount).toBe('9000')
 })
 
-test('Weighted Average limit is visible before Save correction and a refused save changes nothing', async ({ page }) => {
+test('Weighted Average correction notice is visible and an untracked legacy sale refuses without changes', async ({ page }) => {
   const { orgId, invoice } = await fixture(page, 'WEIGHTED_AVERAGE')
+  // Tracked WA sales now correct exactly (see inventory-invoice-corrections.int).
+  // Simulate a legacy sale without lot-draw tracking, which must still refuse.
+  await db.inventoryLedgerEntry.updateMany({ where: { organizationId: orgId, documentType: 'SALES', documentId: invoice.id }, data: { drawsTracked: false } })
   await page.goto(`/ar/invoices/edit?invoiceId=${invoice.id}`)
-  const notice = page.getByRole('note').filter({ hasText: 'Weighted Average corrections require' })
+  const notice = page.getByRole('note').filter({ hasText: 'Corrections require original stock-lot and recorded-cost tracking' })
   await expect(notice).toBeVisible()
-  await expect(notice).toContainText('Purchases at different costs can prevent a correction')
+  await expect(notice).toContainText('Older invoices without complete tracking must be voided and replaced')
   await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toBeVisible()
   await page.reload()
   await expect(notice).toBeVisible()
@@ -141,7 +144,7 @@ test('Weighted Average limit is visible before Save correction and a refused sav
   await page.reload()
   await expect(page.getByRole('button', { name: 'Simpan koreksi', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('note').filter({ hasText: 'Koreksi dengan metode Rata-rata Tertimbang' })).toBeVisible()
+  await expect(page.getByRole('note').filter({ hasText: 'Koreksi memerlukan pelacakan lot stok asal' })).toBeVisible()
 })
 
 test('voided credit notes preserve their audit history and no longer block correction; active notes still block', async ({ page }) => {
