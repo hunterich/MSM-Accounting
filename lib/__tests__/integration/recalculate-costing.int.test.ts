@@ -1,229 +1,89 @@
-/**
- * Integration tests for the inventory costing-method switch
- * (src/app/api/v1/inventory/recalculate-costing/route.ts), run against the real
- * `<db>_test` database.
- *
- * BUG BEING PINNED: the switch posted its audit journal entry to two HARD-CODED
- * fake account ids ('costing-adjustment' / 'inventory-valuation-adjustment') that
- * are not real Account rows. JournalLine.account is a Restrict FK, so the
- * `tx.journalEntry.create` threw a Postgres FK violation, the whole
- * `$transaction` rolled back, and the `Organization.costingMethod` update + the
- * recreated lots all rolled back. The switch could never persist whenever the
- * method change produced a non-zero valuation delta.
- *
- * The route imports the shared `@/lib/prisma` client; the setupFiles entry
- * (setup-test-db-env.ts) repoints that client at `_test` before any module
- * loads, so handler writes and harness seeds hit the same DB.
- *
- * Run with:  npm run test:int -- recalculate-costing
- */
 import { afterAll, describe, expect, it } from 'vitest';
-import { randomUUID } from 'node:crypto';
 import { NextRequest } from 'next/server';
-import {
-  prisma,
-  createTestOrg,
-  createItem,
-  assertTrialBalanced,
-  journalEntryCount,
-  cleanupOrg,
-  disconnect,
-  type TestOrg,
-} from './harness';
-import { POST as recalculateCosting } from '@/src/app/api/v1/inventory/recalculate-costing/route';
+import { postBillToLedger } from '@/lib/bill-posting';
+import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { POST as changeMethod } from '@/src/app/api/v1/inventory/recalculate-costing/route';
+import { prisma, createTestOrg, createItem, createVendor, createCustomer, cleanupOrg, disconnect,
+  inventoryLotValue, inventoryLedgerValue, accountBalance, assertTrialBalanced } from './harness';
 
-afterAll(async () => {
-  await disconnect();
-});
-
-const EFFECTIVE = '2026-03-20';
-const EFFECTIVE_DATE = new Date(`${EFFECTIVE}T00:00:00.000Z`);
-
-/**
- * Build a NextRequest carrying the org header + JSON body the route reads. The
- * actor is an ADMIN (production middleware injects `x-role-type: 'ADMIN'` from
- * the verified JWT, which makes the route's `requirePermission` SETTINGS:edit
- * check bypass). The route is keyed by orgId and never looks the user up, so a
- * synthetic `x-user-id` (required by `authActor`) is sufficient here.
- */
-function buildRequest(orgId: string, body: unknown): NextRequest {
-  const h = new Headers({
-    'x-org-id': orgId,
-    'x-user-id': `costing-admin-${randomUUID()}`,
-    'x-role-type': 'ADMIN',
-    'content-type': 'application/json',
-  });
-  return new NextRequest(new URL('http://localhost/api/v1/inventory/recalculate-costing'), {
-    method: 'POST',
-    headers: h,
-    body: JSON.stringify(body),
-  });
+afterAll(disconnect);
+const DATE = new Date('2026-09-10');
+function request(orgId: string, newMethod: string, effectiveDate = '2026-09-10') {
+  return new NextRequest('http://localhost/api/v1/inventory/recalculate-costing', { method: 'POST', headers: {
+    'x-org-id': orgId, 'x-user-id': 'finance-reviewer', 'x-role-type': 'ADMIN', 'content-type': 'application/json',
+  }, body: JSON.stringify({ newMethod, effectiveDate }) });
 }
-
-/**
- * Seed two open FIFO cost layers at different unit costs so a FIFO→WA switch
- * collapses them into one weighted-average lot. The valuation delta is non-zero
- * because WA rounds the blended unit cost to money precision while the original
- * layers carry higher-precision costs (and, in general, the consolidation can
- * move value), which is exactly the case the bug rolled back.
- */
-async function seedTwoLayers(org: TestOrg, itemId: string) {
-  // 3 @ 1000.50 and 4 @ 1200.25 → WA = (3001.50 + 4801.00) / 7 = 1114.642857…
-  await prisma.inventoryLot.create({
-    data: {
-      organizationId: org.orgId,
-      itemId,
-      warehouseId: org.warehouseId,
-      documentType: 'ADJUSTMENT',
-      documentId: 'SEED-A',
-      date: new Date('2026-03-18T00:00:00.000Z'),
-      qtyIn: 3,
-      qtyOut: 0,
-      qtyBalance: 3,
-      unitCost: 1000.5,
-    },
-  });
-  await prisma.inventoryLot.create({
-    data: {
-      organizationId: org.orgId,
-      itemId,
-      warehouseId: org.warehouseId,
-      documentType: 'ADJUSTMENT',
-      documentId: 'SEED-B',
-      date: new Date('2026-03-19T00:00:00.000Z'),
-      qtyIn: 4,
-      qtyOut: 0,
-      qtyBalance: 4,
-      unitCost: 1200.25,
-    },
-  });
+async function fixture() {
+  const org = await createTestOrg(), itemId = await createItem(org.orgId), vendorId = await createVendor(org.orgId), customerId = await createCustomer(org.orgId);
+  for (const [number, quantity, price] of [['A', 3, 1000.5], ['B', 4, 1200.25]] as const) {
+    const bill = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, number, issueDate: DATE, status: 'OPEN', totalAmount: quantity * price,
+      lines: { create: { itemId, lineNo: 1, description: 'Stock', quantity, price, lineTotal: quantity * price } } }, include: { lines: true } });
+    await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, bill));
+  }
+  return { org, itemId, customerId };
 }
-
-describe('inventory costing-method switch — posts to REAL accounts + period guard', () => {
-  it('FIFO→WEIGHTED_AVERAGE persists the method, collapses lots, and posts a balanced JE on real accounts', async () => {
-    const org = await createTestOrg({ costingMethod: 'FIFO' });
-    const itemId = await createItem(org.orgId);
-    await seedTwoLayers(org, itemId);
-
-    const jeBefore = await journalEntryCount(org.orgId);
-
-    const res = await recalculateCosting(
-      buildRequest(org.orgId, { newMethod: 'WEIGHTED_AVERAGE', effectiveDate: EFFECTIVE }),
-    );
-
-    // Before the fix: the FK violation rejects the whole transaction → 500.
-    expect(res.status).toBe(200);
-
-    // (1) The method switch PERSISTED (rolled back before the fix).
-    const orgAfter = await prisma.organization.findUnique({
-      where: { id: org.orgId },
-      select: { costingMethod: true },
-    });
-    expect(orgAfter?.costingMethod).toBe('WEIGHTED_AVERAGE');
-
-    // (2) Lots collapsed to a single WA lot.
-    const lots = await prisma.inventoryLot.findMany({
-      where: { organizationId: org.orgId, itemId, qtyBalance: { gt: 0 } },
-    });
-    expect(lots).toHaveLength(1);
-    expect(Number(lots[0].qtyBalance)).toBeCloseTo(7, 4);
-
-    // (3) Exactly one new, balanced audit JE on REAL accounts.
-    expect((await journalEntryCount(org.orgId)) - jeBefore).toBe(1);
-    await assertTrialBalanced(org.orgId, 'costing switch');
-
-    // (4) The JE lines reference resolvable accounts — never the fake ids.
-    const lines = await prisma.journalLine.findMany({
-      where: { entry: { organizationId: org.orgId } },
-      select: { accountId: true },
-    });
-    const accountIds = lines.map((l) => l.accountId);
-    expect(accountIds).not.toContain('costing-adjustment');
-    expect(accountIds).not.toContain('inventory-valuation-adjustment');
-    const realAccounts = await prisma.account.findMany({
-      where: { organizationId: org.orgId },
-      select: { id: true },
-    });
-    const realIds = new Set(realAccounts.map((a) => a.id));
-    for (const id of accountIds) expect(realIds.has(id)).toBe(true);
-    // Specifically the inventory + variance accounts the resolver should pick.
-    expect(accountIds).toContain(org.accounts.inventoryAsset);
-
-    await cleanupOrg(org.orgId);
+type F = Awaited<ReturnType<typeof fixture>>;
+async function sell(f: F, quantity: number, number: string) {
+  const invoice = await prisma.salesInvoice.create({ data: { organizationId: f.org.orgId, customerId: f.customerId, number,
+    issueDate: DATE, status: 'SENT', totalAmount: quantity * 3000, subtotal: quantity * 3000,
+    lines: { create: { itemId: f.itemId, lineNo: 1, description: 'Stock', quantity, price: 3000, lineSubtotal: quantity * 3000 } } } });
+  await prisma.$transaction(tx => postInvoiceSend(tx, f.org.orgId, invoice.id));
+}
+describe('prospective inventory method change at unchanged book value', () => {
+  it('blends carrying values without replacing receipts or creating rounding journals', async () => {
+    const f = await fixture();
+    try {
+      const lots = await prisma.inventoryLot.findMany({ where: { organizationId: f.org.orgId }, orderBy: { id: 'asc' } });
+      const journals = await prisma.journalEntry.count({ where: { organizationId: f.org.orgId } });
+      const response = await changeMethod(request(f.org.orgId, 'WEIGHTED_AVERAGE'));
+      expect(response.status).toBe(200);
+      expect((await response.json()).totalValueChange).toBe(0);
+      const after = await prisma.inventoryLot.findMany({ where: { organizationId: f.org.orgId }, orderBy: { id: 'asc' } });
+      expect(after.map(lot => lot.id)).toEqual(lots.map(lot => lot.id));
+      expect(after.map(lot => lot.unitCost.toString())).toEqual(lots.map(lot => lot.unitCost.toString()));
+      expect(await inventoryLotValue(f.org.orgId)).toBe(7802.5);
+      expect(await inventoryLedgerValue(f.org.orgId)).toBe(7802.5);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(7802.5);
+      expect(await prisma.journalEntry.count({ where: { organizationId: f.org.orgId } })).toBe(journals);
+    } finally { await cleanupOrg(f.org.orgId); }
   });
-
-  it('refuses to post into a CLOSED period (422) and changes nothing', async () => {
-    const org = await createTestOrg({ costingMethod: 'FIFO' });
-    const itemId = await createItem(org.orgId);
-    await seedTwoLayers(org, itemId);
-
-    await prisma.accountingPeriod.create({
-      data: {
-        organizationId: org.orgId,
-        name: 'Mar 2026',
-        startDate: new Date('2026-03-01T00:00:00.000Z'),
-        endDate: new Date('2026-03-31T23:59:59.000Z'),
-        status: 'CLOSED',
-      },
-    });
-
-    const jeBefore = await journalEntryCount(org.orgId);
-
-    const res = await recalculateCosting(
-      buildRequest(org.orgId, { newMethod: 'WEIGHTED_AVERAGE', effectiveDate: EFFECTIVE }),
-    );
-
-    expect(res.status).toBe(422);
-
-    // Nothing changed: method still FIFO, lots untouched, no JE.
-    const orgAfter = await prisma.organization.findUnique({
-      where: { id: org.orgId },
-      select: { costingMethod: true },
-    });
-    expect(orgAfter?.costingMethod).toBe('FIFO');
-    expect(await journalEntryCount(org.orgId)).toBe(jeBefore);
-    const lots = await prisma.inventoryLot.findMany({
-      where: { organizationId: org.orgId, itemId, qtyBalance: { gt: 0 } },
-    });
-    expect(lots).toHaveLength(2);
-
-    await cleanupOrg(org.orgId);
+  it('WA to FIFO freezes current carrying value and later sales exhaust it exactly', async () => {
+    const f = await fixture();
+    try {
+      expect((await changeMethod(request(f.org.orgId, 'WEIGHTED_AVERAGE'))).status).toBe(200);
+      await sell(f, 4, 'WA');
+      expect(await inventoryLedgerValue(f.org.orgId)).toBe(3343.93);
+      expect((await changeMethod(request(f.org.orgId, 'FIFO'))).status).toBe(200);
+      await sell(f, 1, 'FIFO-A'); await sell(f, 2, 'FIFO-B');
+      expect(await inventoryLotValue(f.org.orgId)).toBe(0);
+      expect(await inventoryLedgerValue(f.org.orgId)).toBe(0);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(0);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(7802.5);
+      await assertTrialBalanced(f.org.orgId);
+    } finally { await cleanupOrg(f.org.orgId); }
   });
-
-  // Sanity: a switch with zero valuation delta still persists the method and
-  // posts NO journal entry (no zero-value entry, no fake account).
-  it('skips the JE entirely when the valuation delta is zero', async () => {
-    const org = await createTestOrg({ costingMethod: 'FIFO' });
-    const itemId = await createItem(org.orgId);
-    // Single layer at a clean cost → WA == FIFO, valueChange === 0.
-    await prisma.inventoryLot.create({
-      data: {
-        organizationId: org.orgId,
-        itemId,
-        warehouseId: org.warehouseId,
-        documentType: 'ADJUSTMENT',
-        documentId: 'SEED-ZERO',
-        date: new Date('2026-03-18T00:00:00.000Z'),
-        qtyIn: 5,
-        qtyOut: 0,
-        qtyBalance: 5,
-        unitCost: 1000,
-      },
-    });
-
-    const jeBefore = await journalEntryCount(org.orgId);
-    const res = await recalculateCosting(
-      buildRequest(org.orgId, { newMethod: 'WEIGHTED_AVERAGE', effectiveDate: EFFECTIVE }),
-    );
-
-    expect(res.status).toBe(200);
-    expect((await journalEntryCount(org.orgId)) - jeBefore).toBe(0);
-    const orgAfter = await prisma.organization.findUnique({
-      where: { id: org.orgId },
-      select: { costingMethod: true },
-    });
-    expect(orgAfter?.costingMethod).toBe('WEIGHTED_AVERAGE');
-
-    await cleanupOrg(org.orgId);
+  it('closed-period method change rolls back method, carrying values and journals', async () => {
+    const f = await fixture();
+    try {
+      await prisma.accountingPeriod.create({ data: { organizationId: f.org.orgId, name: 'September', startDate: new Date('2026-09-01'), endDate: new Date('2026-09-30T23:59:59Z'), status: 'CLOSED' } });
+      const before = await prisma.inventoryLot.findMany({ where: { organizationId: f.org.orgId }, orderBy: { id: 'asc' } });
+      expect((await changeMethod(request(f.org.orgId, 'WEIGHTED_AVERAGE'))).status).toBe(422);
+      expect(await prisma.inventoryLot.findMany({ where: { organizationId: f.org.orgId }, orderBy: { id: 'asc' } })).toEqual(before);
+      expect((await prisma.organization.findUniqueOrThrow({ where: { id: f.org.orgId } })).costingMethod).toBe('FIFO');
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+  it('unrecorded physical lots refuse instead of inventing a migration value', async () => {
+    const org = await createTestOrg();
+    try {
+      const itemId = await createItem(org.orgId);
+      await prisma.inventoryLot.create({ data: { organizationId: org.orgId, itemId, date: DATE, documentType: 'ADJUSTMENT', documentId: 'LEGACY', qtyIn: 1, qtyBalance: 1, unitCost: 1000 } });
+      expect((await changeMethod(request(org.orgId, 'WEIGHTED_AVERAGE'))).status).toBe(422);
+      expect((await prisma.organization.findUniqueOrThrow({ where: { id: org.orgId } })).costingMethod).toBe('FIFO');
+    } finally { await cleanupOrg(org.orgId); }
+  });
+  it.each(['2026-02-30', 'not-a-date', '2026-09-10T00:00:00Z'])('rejects invalid effective date %s', async effective => {
+    const org = await createTestOrg();
+    try { expect((await changeMethod(request(org.orgId, 'WEIGHTED_AVERAGE', effective))).status).toBe(400); }
+    finally { await cleanupOrg(org.orgId); }
   });
 });

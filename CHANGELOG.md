@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Weighted Average inbound void follows stock issue order (INV-02 WIP)
+- Mixed-price receipts alone no longer block WA bill/receipt/return/adjustment reversals or posted bill edits. The original value is removed and the remaining pool reallocated, provided no later stock issue exists for that item and warehouse. A later issue blocks the action with its document identifier. FIFO retains the carrying-value guard.
+- Requires `20261016093000_inventory_posting_order`: future stock movements receive a database posting sequence and new lots link to their inbound movement. Legacy chronology stays unset and uncertain reversals require review. No historical value rewrite, receipt-void COGS variance or production migration is performed.
+- Later stock issues that no longer affect the pool no longer block: a sale, supplier return or stock decrease that has since been voided, and the removal row of another receipt's void. Voiding receipt C then the earlier receipt B now succeeds, and a cancelled sale no longer leaves the receipt unvoidable. Requires `20261018020000_inventory_ledger_reversal_link`, which links each future void's compensating row to the movement it reverses; unlinked legacy rows still block. Refusals name the document number, or the movement date when no document matches, instead of an internal ID.
+
+### Fixed — exact stock receipt line values (INV-02 work in progress)
+- Direct bills and PO goods receipts retain their exact net line values when creating inventory layers and ledger movements, rather than reconstructing value from a unit price rounded to two decimals. Six-decimal receipt unit prices remain traceable; customer-return layers also receive their exact recorded restock value. Three units net 1,000 now book stock value 1,000, matching Inventory GL, rather than 999.99.
+- This unfinished branch requires the carrying-value schema migration and remaining negative-stock acceptance; existing historical values are not rewritten or silently balanced.
+
+### Fixed — Weighted Average successive-sale book value
+- Weighted Average outbound cost uses the remaining inventory ledger value divided by its remaining quantity. Oldest-first physical lot draws no longer change the average merely because original purchase prices differ; successive sales and final-unit rounding consume the booked value exactly. Original receipt prices and historical postings are preserved.
+- Positive or zero-quantity pools that disagree with physical stock, negative values with positive stock, and value remaining without quantity refuse posting with reconciliation guidance. Mixed warehouse/unscoped history may trigger this refusal; run the read-only `scripts/audit-weighted-average-pools.sql` before release. No automatic repair or schema migration. Separate lot carrying values, negative-stock acceptance and full INV-02 reversal/release verification remain tracked in #170.
+
 ### Fixed — AR/AP control posting and financial approval close policy
 - Ordinary manual journal creation/editing and direct bank categorisation refuse designated AR/AP controls, including document-level alternate controls. Use customer/vendor documents for settlements; controlled opening/migration imports remain supported. Setting a public journal's source to Opening or System grants no exemption. Bank edit refusal rolls back its reversal, journal and cached balance changes.
 - Monthly close and its checklist block pending financial documents dated in that period, including valued-stock returns/adjustments and payroll period-end postings. Orders that post no GL, other periods and other companies do not block close. Approve or reject the pending documents first; nothing is automatically redated.

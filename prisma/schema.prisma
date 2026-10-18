@@ -1388,6 +1388,8 @@ model StockCountLine {
 
 model InventoryLedgerEntry {
   id             String      @id @default(cuid())
+  postingSequence Int?       @unique @default(autoincrement())
+  receiptLots     InventoryLot[] @relation("LotInboundMovement")
   organizationId String
   itemId         String
   warehouseId    String?
@@ -1402,6 +1404,9 @@ model InventoryLedgerEntry {
   createdAt      DateTime    @default(now())
   drawsTracked   Boolean     @default(false)
   reversedAt     DateTime?
+  // Compensating row of a void: the inbound it removed or the outbound it
+  // restored. Plain column (no FK) so rollback deletes take no extra row locks.
+  reversesLedgerEntryId String?
   lotDraws       InventoryLotDraw[]
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1412,6 +1417,7 @@ model InventoryLedgerEntry {
   @@index([organizationId, date])
   @@index([itemId, warehouseId, date])
   @@index([migrationBatchId])
+  @@index([reversesLedgerEntryId])
 }
 
 enum MigrationBatchStatus {
@@ -2109,6 +2115,8 @@ model DeliveryNoteLine {
 
 model InventoryLot {
   id             String                @id @default(cuid())
+  inboundLedgerEntryId String?
+  inboundLedgerEntry InventoryLedgerEntry? @relation("LotInboundMovement", fields: [inboundLedgerEntryId], references: [id], onDelete: SetNull)
   organizationId String
   itemId         String
   warehouseId    String?
@@ -2119,6 +2127,8 @@ model InventoryLot {
   qtyOut         Decimal               @default(0) @db.Decimal(15, 4)
   qtyBalance     Decimal               @db.Decimal(15, 4)
   unitCost       Decimal               @db.Decimal(15, 6)
+  initialValue   Decimal?              @db.Decimal(18, 2)
+  carryingValue  Decimal?              @db.Decimal(18, 2)
   migrationBatchId String?
   createdAt      DateTime              @default(now())
   draws          InventoryLotDraw[]
@@ -2129,6 +2139,7 @@ model InventoryLot {
   @@index([organizationId, itemId, date])
   @@index([itemId, warehouseId, date])
   @@index([migrationBatchId])
+  @@index([inboundLedgerEntryId])
 }
 
 // Exact quantity relief for a sale. Historical draws survive lot deletion;
@@ -2138,6 +2149,7 @@ model InventoryLotDraw {
   ledgerEntryId String
   lotId         String?
   quantity      Decimal @db.Decimal(15, 4)
+  costValue     Decimal? @db.Decimal(18, 2)
   ledgerEntry   InventoryLedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Cascade)
   lot           InventoryLot? @relation(fields: [lotId], references: [id], onDelete: SetNull)
 
