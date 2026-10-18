@@ -1403,6 +1403,8 @@ model InventoryLedgerEntry {
   migrationBatchId String?
   createdAt      DateTime    @default(now())
   drawsTracked   Boolean     @default(false)
+  // Outbound row that no longer issues stock: undone by a void/correction, or
+  // itself the removal of a reversed inbound. No database column change.
   reversedAt     DateTime?
   lotDraws       InventoryLotDraw[]
 

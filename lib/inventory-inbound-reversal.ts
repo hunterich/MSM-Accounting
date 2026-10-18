@@ -4,6 +4,8 @@ import { ApiError } from './errors'
 /** Caller holds the sorted item lock. WA can undo an inbound at original value
  * across later receipts, but cannot revise the basis of a later stock issue.
  * Sequence is assigned at insertion under that lock, not at transaction start.
+ * Reversed issues and inbound-removal rows (reversedAt set) net to zero in
+ * quantity and value, so they no longer depend on this receipt's basis.
  */
 export async function assertNoLaterStockIssue(tx: Prisma.TransactionClient, orgId: string, lot: InventoryLot) {
   const inbound = lot.inboundLedgerEntryId ? await tx.inventoryLedgerEntry.findFirst({ where: {
@@ -15,7 +17,7 @@ export async function assertNoLaterStockIssue(tx: Prisma.TransactionClient, orgI
   }
   const issue = await tx.inventoryLedgerEntry.findFirst({ where: {
     organizationId: orgId, itemId: lot.itemId, warehouseId: lot.warehouseId, qtyOut: { gt: 0 },
-    postingSequence: { gt: inbound.postingSequence },
+    postingSequence: { gt: inbound.postingSequence }, reversedAt: null,
     NOT: { documentType: lot.documentType, documentId: lot.documentId },
   }, orderBy: { postingSequence: 'asc' }, select: { documentType: true, documentId: true } })
   if (!issue) return

@@ -62,6 +62,14 @@ voids return to 6,000 and 5,000 respectively. The real bill PUT route succeeds
 through two successive price edits without mistaking an earlier correction's
 reversal for a new dependency. Immediate mixed-price customer returns void again.
 
+Review follow-up: the guard counted reversed movements as live issues. Voiding
+the later sale (or supplier return/adjustment decrease) still blocked the receipt
+void, and so did voiding a later bill, whose removal row is an outbound movement.
+Outbound rows now carry `reversedAt` when a void/correction undoes them and when
+they remove a reversed inbound; the guard ignores those rows because each pair
+nets to zero quantity and value. No column changes; rows from before this fix are
+unmarked. A live issue after a voided one still refuses.
+
 Migration `20261016093000_inventory_posting_order` gives future ledger inserts a
 database sequence and links newly created lots to their exact inbound movement.
 Transaction-start timestamps and business dates are not used as posting order.

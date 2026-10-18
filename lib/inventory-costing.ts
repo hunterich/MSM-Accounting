@@ -226,6 +226,7 @@ export async function reverseAddedLayers(
         qtyOut: qty,
         unitCost,
         valueChange: -value,
+        reversedAt: date, // removes a reversed inbound; never a stock issue
       },
     })
     await tx.inventoryLot.delete({ where: { id: lot.id } })
@@ -286,7 +287,7 @@ export async function restoreConsumedLayers(
   date: Date,
   opts: { requireExact?: boolean } = {},
 ): Promise<number> {
-  const where = { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 }, ...(documentType === 'SALES' ? { reversedAt: null } : {}) }
+  const where = { organizationId: orgId, documentType, documentId, qtyOut: { gt: 0 }, reversedAt: null }
   const identities = await tx.inventoryLedgerEntry.findMany({ where, select: { itemId: true } })
   // Applies to supplier-return restoration too. Re-read tracked lot details
   // and movements only after waiting for every affected item in sorted order.
@@ -358,7 +359,7 @@ export async function restoreConsumedLayers(
         valueChange: value,
       },
     })
-    if (documentType === 'SALES') await tx.inventoryLedgerEntry.update({ where: { id: entry.id }, data: { reversedAt: date } })
+    await tx.inventoryLedgerEntry.update({ where: { id: entry.id }, data: { reversedAt: date } })
     if (await getOrgCostingMethod(tx, orgId) === 'WEIGHTED_AVERAGE') {
       await refreshWarehouseCarryingValues(tx, orgId, entry.itemId, entry.warehouseId)
     }
@@ -442,6 +443,7 @@ export async function reverseAdjustmentInventory(
         qtyOut: qty,
         unitCost,
         valueChange: -value,
+        reversedAt: date, // removes a reversed increase; never a stock issue
       },
     })
     await tx.inventoryLot.delete({ where: { id: lot.id } })
@@ -483,6 +485,7 @@ export async function reverseAdjustmentInventory(
         valueChange: value,
       },
     })
+    await tx.inventoryLedgerEntry.update({ where: { id: entry.id }, data: { reversedAt: date } })
   }
 
   if (await getOrgCostingMethod(tx, orgId) === 'WEIGHTED_AVERAGE') {
