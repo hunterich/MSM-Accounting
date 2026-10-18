@@ -226,7 +226,6 @@ export async function reverseAddedLayers(
         qtyOut: qty,
         unitCost,
         valueChange: -value,
-        reversesLedgerEntryId: lot.inboundLedgerEntryId,
       },
     })
     await tx.inventoryLot.delete({ where: { id: lot.id } })
@@ -357,7 +356,6 @@ export async function restoreConsumedLayers(
         qtyOut: 0,
         unitCost,
         valueChange: value,
-        reversesLedgerEntryId: entry.id,
       },
     })
     if (documentType === 'SALES') await tx.inventoryLedgerEntry.update({ where: { id: entry.id }, data: { reversedAt: date } })
@@ -444,7 +442,6 @@ export async function reverseAdjustmentInventory(
         qtyOut: qty,
         unitCost,
         valueChange: -value,
-        reversesLedgerEntryId: lot.inboundLedgerEntryId,
       },
     })
     await tx.inventoryLot.delete({ where: { id: lot.id } })
@@ -484,7 +481,6 @@ export async function reverseAdjustmentInventory(
         qtyOut: 0,
         unitCost,
         valueChange: value,
-        reversesLedgerEntryId: entry.id,
       },
     })
   }
