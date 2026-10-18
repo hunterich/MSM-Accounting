@@ -1403,10 +1403,9 @@ model InventoryLedgerEntry {
   migrationBatchId String?
   createdAt      DateTime    @default(now())
   drawsTracked   Boolean     @default(false)
+  // Outbound row that no longer issues stock: undone by a void/correction, or
+  // itself the removal of a reversed inbound. No database column change.
   reversedAt     DateTime?
-  // Compensating row of a void: the inbound it removed or the outbound it
-  // restored. Plain column (no FK) so rollback deletes take no extra row locks.
-  reversesLedgerEntryId String?
   lotDraws       InventoryLotDraw[]
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1417,7 +1416,6 @@ model InventoryLedgerEntry {
   @@index([organizationId, date])
   @@index([itemId, warehouseId, date])
   @@index([migrationBatchId])
-  @@index([reversesLedgerEntryId])
 }
 
 enum MigrationBatchStatus {
