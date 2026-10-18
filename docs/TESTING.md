@@ -1,5 +1,28 @@
 # Testing transactions and accounting
 
+## Weighted Average negative stock settlement (INV-02, approved 2026-10-15)
+
+Unit coverage runs without a database:
+`npx vitest run lib/__tests__/inventory-shortfall-settlement.test.ts lib/__tests__/weighted-average-shortfall-costing.test.ts lib/__tests__/inventory-carrying-preview.test.ts lib/__tests__/inventory-shortfall-allocation.test.ts`.
+Thirty-one new cases pass with TypeScript and all 1,301 unit tests: the approved
+40 receipt-date COGS difference, cheaper and excess receipts, oldest-first partial
+settlement with cumulative rounding, closed-period and missing-account refusal
+before stock changes, receipt-void and sale-void unwinds with linked reversal
+movements/journals, later-receipt and dependent-sale refusals, shortage sale cost
+split, refused non-sale shortages, edit refusal and negative-pool proposal rules.
+
+Run `npm run test:int -- weighted-average-negative-stock` only against the
+disposable PostgreSQL database after applying
+`20261018090000_inventory_shortfall_settlements`. It keeps the original hard
+regression unchanged and adds 14 cases: receipt into an already-negative pool,
+excess/cheaper/partial receipts, warehouse isolation, closed-period rollback
+snapshot, receipt-void and sale-void unwinds, dependent-sale and later-receipt
+refusals with rollback snapshots, void-and-replace for edits, legacy review
+refusal and overlapping sale/receipt and receipt-void/sale-void. **These have not
+been run**: the authoring machine had no test database or `.env`. The migration
+and the updated `scripts/audit-weighted-average-pools.sql` are likewise unexecuted.
+See `docs/INV-02-NEGATIVE-STOCK.md` for the policy and records.
+
 ## Weighted Average inbound void uses stock posting order
 
 `npm run test:int -- inventory-carrying-void-guard warehouse-carrying-values`
@@ -88,9 +111,9 @@ Stored carrying values and monetary sale draws are now implemented on the
 unfinished branch with the additive `20261014060000_inventory_carrying_values`
 migration (isolated `_test` database only). The method-switch regression passes;
 warehouse/method/POS/correction tests prove actual carrying/ledger/GL amounts.
-`weighted-average-negative-stock.int.test.ts` is a new hard, currently failing
-compatibility regression. The branch is not merge-ready and its complete suite
-is not claimed green. See `docs/INV-02-CARRYING-VALUES.md` for precise evidence,
+`weighted-average-negative-stock.int.test.ts` is a hard compatibility regression;
+it failed on main after #174 and its approved settlement implementation (above)
+has not yet been run against PostgreSQL. The complete suite is not claimed green. See `docs/INV-02-CARRYING-VALUES.md` for precise evidence,
 CLI scope, pending negative-stock treatment and remaining acceptance gates.
 
 Run `npm run test:int -- weighted-average-pool` only against the disposable
