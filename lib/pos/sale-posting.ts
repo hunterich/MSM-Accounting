@@ -278,7 +278,7 @@ export async function postPosSale(
   });
 
   // 7. Post revenue/tax/AR + COGS/inventory-out, then mark SENT.
-  await postInvoiceSend(tx, orgId, invoice.id);
+  await postInvoiceSend(tx, orgId, invoice.id, { warehouseId });
   await tx.salesInvoice.update({ where: { id: invoice.id }, data: { status: 'SENT' } });
 
   // 8. Decrement physical batches per the FEFO allocation.

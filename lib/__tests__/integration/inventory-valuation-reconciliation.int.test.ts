@@ -5,8 +5,8 @@
  * Finding 5b — the valuation report summed open cost layers
  * (`qtyBalance × unitCost`). Under WA the layers keep their original per-layer
  * costs while the ledger/GL relieve consumption at the blended rate, so lot-sum
- * diverges from GL (the pre-existing model gap pinned by an `it.fails` in
- * stock-adjustment-invariants). The fix derives reported value from the same
+ * differed from GL before separate carrying values were introduced. Reporting
+ * still derives value from the same
  * immutable ledger the GL is posted from (`computeLedgerValuation`), so the
  * report reconciles to GL by construction for both FIFO and WA.
  *
@@ -115,7 +115,10 @@ describe('inventory valuation reconciles to GL (weighted-average)', () => {
     const lots = await inventoryLotValue(org.orgId);
     expect(glInventory).toBeCloseTo(6600, 2);
     expect(ledger).toBeCloseTo(6600, 2);
-    expect(lots).toBeCloseTo(7000, 2); // lot-sum diverges under WA (the documented gap)
+    expect(lots).toBeCloseTo(6600, 2);
+    const receipts = await prisma.inventoryLot.findMany({ where: { organizationId: org.orgId } });
+    // Original purchase-price trace remains distinct from carrying value.
+    expect(receipts.reduce((sum, lot) => sum + Number(lot.qtyBalance) * Number(lot.unitCost), 0)).toBe(7000);
 
     // The ledger-derived valuation reconciles to GL (NOT to the diverging lot-sum).
     const valuation = await computeLedgerValuation(prisma, org.orgId);
@@ -146,7 +149,7 @@ describe('inventory valuation reconciles to GL (weighted-average)', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // Report total ties to GL (6600), not the diverging lot-sum (7000).
+    // Report, stored carrying values and GL tie to 6600; receipt-price trace is 7000.
     expect(body.summary.totalValue).toBeCloseTo(6600, 2);
     const row = body.items.find((i: { itemId: string }) => i.itemId === itemId);
     expect(row.totalQty).toBeCloseTo(6, 4);

@@ -274,13 +274,13 @@ export async function inventoryLedgerValue(orgId: string): Promise<number> {
   return asMoney(rows.reduce((s, r) => s + toNumber(r.valueChange), 0));
 }
 
-/** On-hand inventory value from open cost layers (qtyBalance × unitCost). */
+/** Stored carrying value; legacy uninitialized lots retain receipt-price fallback. */
 export async function inventoryLotValue(orgId: string): Promise<number> {
   const lots = await prisma.inventoryLot.findMany({
     where: { organizationId: orgId },
-    select: { qtyBalance: true, unitCost: true },
+    select: { qtyBalance: true, unitCost: true, carryingValue: true },
   });
-  return asMoney(lots.reduce((s, l) => s + toNumber(l.qtyBalance) * toNumber(l.unitCost), 0));
+  return asMoney(lots.reduce((s, l) => s + (l.carryingValue != null ? toNumber(l.carryingValue) : toNumber(l.qtyBalance) * toNumber(l.unitCost)), 0));
 }
 
 export async function journalEntryCount(orgId: string): Promise<number> {

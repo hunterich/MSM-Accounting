@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, err, logAudit } from '@/lib/api-utils';
-import { withPermission } from '@/lib/authz';
+import { withHandler, requireOrg, ok, err, logAudit, ApiError } from '@/lib/api-utils';
+import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
+import { changeInventoryCostingMethod } from '@/lib/inventory-costing-switch';
 import { updateOrganizationSettingsInputSchema } from '@/types/api';
 import {
   ACCOUNT_DEFAULT_SPECS,
@@ -303,9 +304,18 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
     }
   }
 
-  const updated = await prisma.organization.update({
-    where: { id: orgId },
-    data: updateData,
+  const updated = await prisma.$transaction(async tx => {
+    if (parsed.data.costingMethod !== undefined) {
+      await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
+      const current = await tx.organization.findUnique({ where: { id: orgId }, select: { costingMethod: true } });
+      if (parsed.data.costingMethod === null) {
+        if (await tx.inventoryLot.count({ where: { organizationId: orgId } }) || await tx.inventoryLedgerEntry.count({ where: { organizationId: orgId } })) {
+          throw new ApiError('A costing method cannot be cleared after inventory has been recorded. Choose FIFO or Weighted Average.', 422);
+        }
+      } else if (current?.costingMethod !== parsed.data.costingMethod) await changeInventoryCostingMethod(tx, orgId, parsed.data.costingMethod,
+        updateData.costingMethodEffectiveDate as Date, { overrideDateRestriction: await canOverrideTransactionDate(req) });
+    }
+    return tx.organization.update({ where: { id: orgId }, data: updateData });
   }) as unknown as OrganizationSettingsRecord;
 
   logAudit({

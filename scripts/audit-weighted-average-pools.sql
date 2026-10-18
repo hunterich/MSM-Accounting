@@ -1,29 +1,18 @@
 -- Read-only pre-release diagnostic. Original receipt prices are not carrying
 -- values under Weighted Average; this checks booked pools against quantities.
--- Company scope includes all warehouses. Named warehouse scope is separate.
+-- Every warehouse is separate; NULL is the unassigned-stock pool.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL statement_timeout = '30s';
 WITH movements AS (
-  SELECT e."organizationId", e."itemId", NULL::text AS warehouse,
+  SELECT e."organizationId", e."itemId", e."warehouseId" AS warehouse,
          sum(e."qtyIn" - e."qtyOut") AS quantity, sum(e."valueChange") AS value
   FROM "InventoryLedgerEntry" e JOIN "Organization" o ON o.id = e."organizationId"
   WHERE o."costingMethod" = 'WEIGHTED_AVERAGE'
-  GROUP BY e."organizationId", e."itemId"
-  UNION ALL
-  SELECT e."organizationId", e."itemId", e."warehouseId",
-         sum(e."qtyIn" - e."qtyOut"), sum(e."valueChange")
-  FROM "InventoryLedgerEntry" e JOIN "Organization" o ON o.id = e."organizationId"
-  WHERE o."costingMethod" = 'WEIGHTED_AVERAGE' AND e."warehouseId" IS NOT NULL
   GROUP BY e."organizationId", e."itemId", e."warehouseId"
 ), physical AS (
-  SELECT l."organizationId", l."itemId", NULL::text AS warehouse, sum(l."qtyBalance") AS quantity
+  SELECT l."organizationId", l."itemId", l."warehouseId" AS warehouse, sum(l."qtyBalance") AS quantity
   FROM "InventoryLot" l JOIN "Organization" o ON o.id = l."organizationId"
   WHERE o."costingMethod" = 'WEIGHTED_AVERAGE' AND l."qtyBalance" > 0
-  GROUP BY l."organizationId", l."itemId"
-  UNION ALL
-  SELECT l."organizationId", l."itemId", l."warehouseId", sum(l."qtyBalance")
-  FROM "InventoryLot" l JOIN "Organization" o ON o.id = l."organizationId"
-  WHERE o."costingMethod" = 'WEIGHTED_AVERAGE' AND l."qtyBalance" > 0 AND l."warehouseId" IS NOT NULL
   GROUP BY l."organizationId", l."itemId", l."warehouseId"
 ), pools AS (
   SELECT coalesce(m."organizationId", p."organizationId") AS organization_id,

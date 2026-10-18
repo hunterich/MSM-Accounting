@@ -10,6 +10,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { assertNoDirectControlPosting } from '@/lib/control-account-guard';
+import { allocateJournalEntryNumber } from '@/lib/journal-posting';
 import {
   ok,
   err,
@@ -24,9 +25,6 @@ import {
 
 export const runtime = 'nodejs';
 
-const JOURNAL_PREFIX = 'JE';
-const JOURNAL_DIGITS = 6;
-const JOURNAL_REGEX_SOURCE = '^JE-(\\d+)$';
 
 const toNumber = (value: unknown): number => {
   if (value === null || value === undefined) return 0;
@@ -46,41 +44,6 @@ const parseIsoDate = (value: string): Date => {
   return date;
 };
 
-// FNV-1a 32-bit hash — significantly better distribution than the naive * 31 approach,
-// reducing advisory lock collisions across organizations.
-const hashLockKey = (input: string): number => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = (hash * 0x01000193) >>> 0;
-  }
-  return hash || 1;
-};
-
-const getCurrentJournalSequence = async (
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<number> => {
-  const rows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-    SELECT MAX(CAST(SUBSTRING("entryNo" FROM ${JOURNAL_REGEX_SOURCE}) AS INTEGER)) AS max_seq
-    FROM "JournalEntry"
-    WHERE "organizationId" = ${organizationId}
-      AND "entryNo" LIKE ${`${JOURNAL_PREFIX}-%`}
-  `;
-
-  return Number(rows[0]?.max_seq ?? 0);
-};
-
-const nextJournalNumber = async (
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<string> => {
-  const lockKey = hashLockKey(`journal-seq:${organizationId}`);
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-
-  const nextSequence = (await getCurrentJournalSequence(tx, organizationId)) + 1;
-  return `${JOURNAL_PREFIX}-${String(nextSequence).padStart(JOURNAL_DIGITS, '0')}`;
-};
 
 const normalizeLines = (payload: any) => {
   const lines = payload.lines.map((line: any, index: number) => ({
@@ -242,7 +205,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
     }
 
     await assertNoDirectControlPosting(tx, payload.organizationId, accountIds);
-    const entryNo = await nextJournalNumber(tx, payload.organizationId);
+    const entryNo = await allocateJournalEntryNumber(tx, payload.organizationId);
 
     const entry = await tx.journalEntry.create({
       data: {

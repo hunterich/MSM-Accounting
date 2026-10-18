@@ -160,7 +160,7 @@ describe('INV-02: moving-average cost follows the remaining book-value pool', ()
     } finally { await cleanupOrg(org.orgId); }
   });
 
-  it('warehouse pools remain separate; an unscoped draw makes an inconsistent warehouse refuse', async () => {
+  it('warehouse pools remain separate and unscoped fulfillment records its actual source warehouse', async () => {
     const org = await createTestOrg({ costingMethod: 'WEIGHTED_AVERAGE' });
     try {
       const item = await createItem(org.orgId, 999);
@@ -172,11 +172,14 @@ describe('INV-02: moving-average cost follows the remaining book-value pool', ()
         await addCostLayer(tx, org.orgId, item, b.id, 5, 1200, 'PURCHASE', 'WARE-B', DATE);
         expect(await getWeightedAverageCost(tx, org.orgId, item, a.id)).toBe(1000);
         expect(await getWeightedAverageCost(tx, org.orgId, item, b.id)).toBe(1200);
-        expect(await getWeightedAverageCost(tx, org.orgId, item, null)).toBe(1100);
-        await relieveCostLayers(tx, org.orgId, item, null, 4, 'SALES', 'UNSCOPED', DATE);
+        // NULL is the unassigned-stock pool; no stock there uses the empty-pool fallback.
+        expect(await getWeightedAverageCost(tx, org.orgId, item, null)).toBe(999);
+        expect(await relieveCostLayers(tx, org.orgId, item, null, 4, 'SALES', 'UNSCOPED', DATE)).toBe(4000);
       });
-      await expect(prisma.$transaction(tx => getWeightedAverageCost(tx, org.orgId, item, a.id))).rejects.toThrow('does not reconcile');
+      expect(await prisma.$transaction(tx => getWeightedAverageCost(tx, org.orgId, item, a.id))).toBe(1000);
       expect(await prisma.$transaction(tx => getWeightedAverageCost(tx, org.orgId, item, b.id))).toBe(1200);
+      const outbound = await prisma.inventoryLedgerEntry.findFirstOrThrow({ where: { organizationId: org.orgId, documentType: 'SALES' } });
+      expect(outbound.warehouseId).toBe(a.id); expect(Number(outbound.valueChange)).toBe(-4000);
     } finally { await cleanupOrg(org.orgId); }
   });
 

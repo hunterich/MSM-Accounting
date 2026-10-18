@@ -32,7 +32,7 @@ describe('sales return posting', () => {
   it('restocks and reverses original COGS rather than current inventory cost', async () => {
     const { tx } = fixture();
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date));
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 33.33);
     expect(postJournalEntry).toHaveBeenCalledWith(tx, expect.objectContaining({ lines: [
       expect.objectContaining({ accountId: 'inventoryAsset', debit: 33.33, credit: 0 }),
       expect.objectContaining({ accountId: 'cogsExpense', debit: 0, credit: 33.33 }),
@@ -48,13 +48,13 @@ describe('sales return posting', () => {
   it('posts zero-cost stock quantities without a journal entry', async () => {
     const { tx } = fixture({ cost: 0 });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0, 'SALES_RETURN', 'sr-1', expect.any(Date));
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0, 'SALES_RETURN', 'sr-1', expect.any(Date), 0);
     expect(postJournalEntry).not.toHaveBeenCalled();
   });
   it('uses cumulative rounding for repeated partial returns', async () => {
     const { tx } = fixture({ cost: 1, priorQty: 1 });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.34, 'SALES_RETURN', 'sr-1', expect.any(Date));
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.34, 'SALES_RETURN', 'sr-1', expect.any(Date), 0.34);
   });
   it('a second posting of a no-journal return has no side effects', async () => {
     const { tx } = fixture({ postedAt: new Date() });
@@ -65,13 +65,13 @@ describe('sales return posting', () => {
   it('a replacement after void respects the cost of surviving partial returns', async () => {
     const { tx } = fixture({ cost: 1, priorQty: 1, priorCost: 0.34 });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.33, 'SALES_RETURN', 'sr-1', expect.any(Date));
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 0.33);
   });
   it('handles mixed received and kept lines in the same return', async () => {
     const { tx, ret } = fixture({ received: false });
     ret.lines.push({ ...ret.lines[0], id: 'received-line', goodsReceived: true });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
     expect(addCostLayer).toHaveBeenCalledTimes(1);
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date));
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 33.33);
   });
 });

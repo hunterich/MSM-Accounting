@@ -18,7 +18,7 @@ export async function postInvoiceSend(
   tx: Prisma.TransactionClient,
   orgId: string,
   invoiceId: string,
-  opts: { allowNegativeStock?: boolean } & TransactionDateGuardOptions = {},
+  opts: { allowNegativeStock?: boolean; warehouseId?: string | null } & TransactionDateGuardOptions = {},
 ): Promise<void> {
   const invoice = await tx.salesInvoice.findUnique({
     where: { id: invoiceId, organizationId: orgId },
@@ -212,7 +212,7 @@ export async function postInvoiceSend(
             tx,
             orgId,
             line.itemId,
-            null,
+            opts.warehouseId ?? null,
             qty,
             InventoryDocumentType.SALES,
             invoiceId,

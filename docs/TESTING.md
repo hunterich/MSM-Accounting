@@ -1,6 +1,97 @@
 # Testing transactions and accounting
 
+## Weighted Average inbound void uses stock posting order
+
+`npm run test:int -- inventory-carrying-void-guard warehouse-carrying-values`
+covers actual bill, customer-return and adjustment immediate mixed-price voids;
+both older/newer bill voids; two successive actual bill PUT edits; and six later
+sale refusal cases with full rollback snapshots. Sales are deliberately backdated
+and timestamps tied to verify use of posting sequence, not dates. WA allows later
+receipts but refuses later issues of that item/warehouse, naming the issue. FIFO
+retains the carrying-value guard. Original-cost immediate return-void success is
+restored. New lots link to their inbound movement; legacy missing chronology
+refuses with review guidance. All 17 migrations apply on a fresh isolated database;
+this does not establish production migration/recovery acceptance.
+
+The same file also proves that reversed issues stop blocking: voiding a later
+receipt and then an earlier one, voiding a sale and then the receipt, and voiding
+a stock-count loss and then the receipt all succeed with exact stock ledger, lot
+and Inventory GL values. An active sale after a voided one still refuses by name,
+with a full rollback snapshot. These four cases fail on dc35891. All 18 migrations
+apply to a fresh isolated database.
+
+## Exact booked receipt value (INV-02 WIP)
+
+Run `npm run test:int -- receipt-exact-value`. Eight new PostgreSQL regressions
+cover FIFO/WA, direct stock bills/PO receipt-then-bill, and untaxed/VAT-inclusive
+lines. Before the fix, 3 units net 1,000 became 999.99 in the stock ledger because
+unit cost was rounded before multiplication, while Inventory GL remained 1,000.
+After the fix, exact line value is retained separately from six-decimal unit
+price. Fixed Inventory/GRIR/AP/Input Tax, stock depletion/COGS and exact sale-void
+restoration assertions pass. These are posting-service tests, not receive-route,
+browser or PO receipt/return concurrency acceptance.
+
+## Unassigned supplier-return and adjustment warehouse isolation (INV-02 WIP)
+
+Run `npm run test:int -- warehouse-carrying-values return-void-invariants return-stock-concurrency`.
+Thirty PostgreSQL cases pass, including four new supplier-return posting/void
+races versus direct stock-bill receipts and two FIFO/WA isolation/refusal cases.
+The pre-fix races removed 18,000 from an older unrelated warehouse instead of
+2,000 from unassigned stock. Non-sale NULL warehouse now means the unassigned
+pool; sufficient-stock checks use the same scope as consumption. Unspecified
+sales keep their separate source-warehouse fulfillment. Fixed ledger/lot/GL,
+clearing/AP and original-value reversal assertions verify both orders, with
+complete rollback snapshots for insufficient returns. PO goods-receipt races,
+negative-stock compatibility and historical remediation remain outstanding.
+
+## Weighted Average customer-return/sale races (INV-02 work in progress)
+
+Run `npm run test:int -- warehouse-carrying-values return-void-invariants return-stock-concurrency`.
+Twenty-four PostgreSQL cases pass, including six new customer-return cases with
+verified backend lock waits. Both restock/sale and untouched-return-void/sale
+orders preserve fixed warehouse costing, original returned cost, COGS and AR.
+Both consumed-stock refusal orders preserve complete lot/draw, stock ledger,
+document and journal snapshots after rollback. The unrelated warehouse stays
+unchanged. Supplier-return/receipt race acceptance and negative-stock policy
+remain separate outstanding work.
+
+## Costing-method change versus monthly close (INV-02 work in progress)
+
+Run `npm run test:int -- costing-switch-period-close costing-switch-book-value warehouse-carrying-values period-close`.
+Sixteen PostgreSQL cases pass, including two new races with verified blocked
+backend IDs. Close-first refuses the change with 422 and preserves complete lots;
+change-first makes close wait and then succeed. Both preserve original receipt
+identities, exact stock ledger and journal rows, and lot/ledger/GL value 7,802.50.
+No extra valuation journal is created. These cases do not prove fiscal-year
+close or the full inventory/month-end acceptance matrix.
+
+## Independent Inventory book diagnostic (INV-02 work in progress)
+
+Run `npm run test:int -- inventory-book-audit inventory-carrying-preview` against
+isolated PostgreSQL: three independent book-audit cases plus two current-value
+proposal cases pass. The read-only CLI compares ledger value with explicitly
+reviewed historical Inventory accounts, including inactive accounts/items and
+posted reversals, excluding drafts. Fixed examples detect unexplained GL value,
+incomplete account selection, foreign account IDs and warehouse/negative-lot
+warnings even when the company total difference is zero. See
+`docs/INV-02-CARRYING-VALUES.md` for scope and CLI arguments. No historical
+warehouse GL attribution, initialization, production audit or release acceptance
+is established by these cases.
+
 ## Weighted Average remaining book value (INV-02 first increment)
+
+The next unfinished carrying-value branch has 19 passing arithmetic tests in
+`lib/__tests__/inventory-carrying-allocation.test.ts` and two passing PostgreSQL/CLI
+cases in `lib/__tests__/integration/inventory-carrying-preview.int.test.ts`.
+The proposal is database-enforced read-only and preserves receipts/postings.
+Stored carrying values and monetary sale draws are now implemented on the
+unfinished branch with the additive `20261014060000_inventory_carrying_values`
+migration (isolated `_test` database only). The method-switch regression passes;
+warehouse/method/POS/correction tests prove actual carrying/ledger/GL amounts.
+`weighted-average-negative-stock.int.test.ts` is a new hard, currently failing
+compatibility regression. The branch is not merge-ready and its complete suite
+is not claimed green. See `docs/INV-02-CARRYING-VALUES.md` for precise evidence,
+CLI scope, pending negative-stock treatment and remaining acceptance gates.
 
 Run `npm run test:int -- weighted-average-pool` only against the disposable
 PostgreSQL database. Ten cases cover the reproduced 11,000 receipt / successive
@@ -12,12 +103,12 @@ trial balance; rounding/warehouse primitive cases assert the movement pool only.
 
 Before an authorized release, run `scripts/audit-weighted-average-pools.sql`
 read-only on each database and review any findings with finance. This diagnostic
-checks company and named-warehouse quantity/value pools, including negative-stock
+checks separate warehouse and unassigned-stock quantity/value pools, including negative-stock
 pools requiring separate review. It neither repairs records nor independently
 reconciles the GL. Unscoped draws can leave a named warehouse inconsistent; those
 named scopes refuse rather than use the wrong average. Original-price lot totals
-are still not carrying values: the existing expected-failure regression remains
-until the separate lot-value design and broader reversal acceptance in #170.
+are still not carrying values; the old expected-failure regression has become
+a passing stored-carrying/ledger/GL check. Full acceptance remains open in #170.
 
 ## Opening stock and batch receipt coordination
 
