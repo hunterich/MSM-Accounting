@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — independent AR/AP control-account reconciliation (ACC-02)
+- `GET /api/v1/reports/control-reconciliation?kind=ar|ap&asOfDate=YYYY-MM-DD` reconciles each AR or AP control account separately: the configured default, earlier defaults that documents actually posted to, and every document-level override. The subledger side is rebuilt from document amounts (invoice/bill totals, receipt/payment cash + discount - penalty, applied credit/debit notes including standalone notes, unallocated advances, customer/vendor opening seeds and migrated open documents), not from journal lines.
+- Every difference is named rather than netted or forced: postings that differ from their document (legacy refunds that reduced the control, voids never reversed, invoice charges or bill lines coded to the control), journals no customer/vendor document owns (for example historical manual reclasses), and a separate opening line comparing opening journals with opening seeds and migrated documents. A zero company total no longer hides offsetting differences between two control accounts. Documents voided after the cutoff remain in earlier snapshots.
+- The monthly close checklist lists control accounts with named differences at period end. It is informational and does not block close; no blocking policy has been agreed. Read-only: no journal, document or balance is changed. Historical links still use posting memos; structured original/reversal links remain a separate schema follow-up.
+
 ### Fixed — refund notes cannot bypass customer/vendor control balances
 - Credit/debit-note refunds refuse designated AR/AP control accounts when creating, editing, submitting or posting through approval. Active, postable cash/bank and holding asset accounts remain available; a cash refund does not reduce source invoice/bill debt or restock goods.
 - Refund pickers exclude configured and document-designated controls. Existing invalid selections remain visible as disabled history, with English/Bahasa guidance and valid replacement choices. Approval refusal rolls back its claim and journals; legitimate refunds and reversals, including reversal of an old incorrect refund, remain available.
