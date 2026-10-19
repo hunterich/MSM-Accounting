@@ -115,8 +115,8 @@ the existing estimated 700 COGS / -200 inventory posting; the new positive-pool
 allocator currently refuses it and rolls back. This is not marked as an expected
 failure, hidden or counted as passing. Finance approved receipt-date COGS
 adjustments on 2026-10-15: a later receipt at a different price settles estimated
-cost through COGS while preserving the original sale. Implementation is pending.
-Do not merge this branch until compatibility and the selected treatment pass.
+cost through COGS while preserving the original sale. The treatment is now
+implemented in `docs/INV-02-NEGATIVE-STOCK.md`; its PostgreSQL cases have not run yet.
 
 The earlier stored-model broad run had 414 passing cases and exactly the negative-stock case
 failing. Old correction-policy assertions have been replaced with successful
@@ -225,7 +225,8 @@ offsetting warehouse/negative-lot defects. Together with the existing proposal's
 two cases, five pass. Production has not been queried by this increment.
 
 `scripts/audit-weighted-average-pools.sql` now checks the same separate pools and
-does not require the new columns. Review any legacy unscoped/mismatched or
+requires the `20261018130000_inventory_shortfall_settlements` migration to tell
+tracked shortage estimates from legacy negative stock. Review any legacy unscoped/mismatched or
 negative pools before an authorized release; do not guess warehouse history.
 
 Migration transaction coordination is now isolated in draft PR #173, independent
