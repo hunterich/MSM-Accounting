@@ -80,6 +80,10 @@ for (const kind of ['ar', 'ap'] as const) {
         expect(agingResponse.status).toBe(200);
         const aging = await agingResponse.json();
         expect(aging.summary.totalOutstanding).toBe(expected);
+        expect(aging.warnings).toEqual([]);
+        const balanceResponse = await getReport(request(org.orgId, `type=${ar ? 'customer-balance' : 'vendor-balance'}&asOfDate=${asOf}`));
+        expect(balanceResponse.status).toBe(200);
+        expect((await balanceResponse.json()).summary.totalOutstanding).toBe(expected);
         const statementResponse = await getReport(request(org.orgId, `type=statement&${ar ? 'customerId' : 'vendorId'}=${partyId}&dateFrom=2026-09-01&dateTo=${asOf}`));
         const statement = await statementResponse.json();
         expect(statement.summary.closingBalance).toBe(expected);
@@ -107,6 +111,31 @@ for (const kind of ['ar', 'ap'] as const) {
       expect(october.openingBalance).toBe(348);
       expect(october.summary.closingBalance).toBe(0);
       expect(october.rows.map((r: { type: string }) => r.type)).toEqual(['Void Payment', ar ? 'Void Credit Note' : 'Void Debit Note', ar ? 'Void Invoice' : 'Void Bill']);
+      // These literals deliberately do not share a formatter with the writers
+      // or reader: they are the existing memo contract until structured links
+      // are introduced in a separately scoped schema change.
+      for (const [memo, day, label] of [
+        [ar ? 'Void invoice: QA-INVOICE' : 'Void bill: QA-BILL', '2026-10-04', ar ? 'invoice QA-INVOICE' : 'bill QA-BILL'],
+        [ar ? 'Void AR receipt: QA-PAY' : 'Void AP payment: QA-PAY', '2026-10-02', ar ? 'AR receipt QA-PAY' : 'AP payment QA-PAY'],
+        [ar ? 'Void credit note: QA-NOTE' : 'Void debit note: QA-NOTE', '2026-10-03', ar ? 'credit note QA-NOTE' : 'debit note QA-NOTE'],
+      ]) {
+        const reversals = await prisma.journalEntry.findMany({ where: { organizationId: org.orgId, source: 'REVERSAL', status: 'POSTED', memo } });
+        expect(reversals).toHaveLength(1);
+        expect(reversals[0].date).toEqual(date(day));
+        // Simulate an old/unrecognised memo without changing production data.
+        await prisma.journalEntry.update({ where: { id: reversals[0].id }, data: { memo: `${memo} (legacy)` } });
+        const warning = `Historical reversal unavailable for voided ${label}; past balances cannot be confirmed`;
+        for (const query of [
+          'type=aging&asOfDate=2026-09-30',
+          `type=${ar ? 'customer-balance' : 'vendor-balance'}&asOfDate=2026-09-30`,
+          `type=statement&${ar ? 'customerId' : 'vendorId'}=${partyId}&dateFrom=2026-09-01&dateTo=2026-09-30`,
+        ]) {
+          const response = await getReport(request(org.orgId, query));
+          expect(response.status).toBe(200);
+          expect((await response.json()).warnings).toContain(warning);
+        }
+        await prisma.journalEntry.update({ where: { id: reversals[0].id }, data: { memo } });
+      }
       // Simulate a legacy void that permanently deleted its allocation rows.
       if (ar) await prisma.aRPaymentAllocation.deleteMany({ where: { paymentId: payment.id } });
       else await prisma.aPPaymentAllocation.deleteMany({ where: { paymentId: payment.id } });

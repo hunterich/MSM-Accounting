@@ -54,7 +54,7 @@ describe('voidBill', () => {
     expect(claim.where).toMatchObject({ id: 'bill-1', status: { not: 'VOID' }, voidedAt: null });
     expect(claim.data).toMatchObject({ status: 'VOID' });
     expect(claim.data.voidedAt).toBeInstanceOf(Date);
-    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
+    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', { date: DATE, memo: 'Void bill: BILL-0001' });
     expect(reversePurchaseLayers).toHaveBeenCalledWith(tx, 'org-a', 'bill-1', DATE);
   });
 
