@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, resolveActiveOrg, isOrgOptionalPath, COOKIE_NAME } from '../lib/auth';
 import { CORS_HEADERS } from '../lib/cors';
 import { prisma } from '../lib/prisma';
+import { accessScheduleStatus } from '../lib/access-schedule';
 
 const AUTH_PATHS = new Set([
   '/api/v1/auth/login', '/api/v1/auth/google', '/api/v1/auth/me',
@@ -45,7 +46,11 @@ export async function middleware(req: NextRequest) {
       mustChangePassword: true,
       memberships: {
         where: { isActive: true },
-        select: { organizationId: true, role: { select: { roleType: true } } },
+        select: {
+          organizationId: true,
+          organization: { select: { timezone: true } },
+          role: { select: { roleType: true, allowedDays: true, startTime: true, endTime: true } },
+        },
       },
     },
   });
@@ -64,6 +69,25 @@ export async function middleware(req: NextRequest) {
       { error: resolution.error, code: resolution.code },
       { status: resolution.status },
     ));
+  }
+
+  // Authorize once at request admission. An accepted import/save may finish
+  // after closing time; never recheck the wall clock inside its transaction.
+  // Self-service and the status probe stay reachable without granting data access.
+  if (resolution.ok && !isOrgOptionalPath(pathname) && pathname !== '/api/v1/users/me/password') {
+    const membership = user.memberships.find(m => m.organizationId === resolution.orgId)!;
+    const status = accessScheduleStatus(membership.role, membership.organization?.timezone ?? '', new Date());
+    if (pathname === '/api/v1/access-schedule' && req.method === 'GET') {
+      const response = withCors(NextResponse.json(status));
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
+    if (!status.allowed) {
+      return withCors(NextResponse.json({
+        error: 'Outside your role’s access hours. Your unfinished work can be resumed during allowed hours.',
+        code: 'ACCESS_SCHEDULE_DENIED',
+      }, { status: 403 }));
+    }
   }
 
   const requestHeaders = new Headers(req.headers);

@@ -1084,9 +1084,9 @@ export const createRoleInputSchema = z.object({
   roleType: z.enum(['ADMIN', 'ACCOUNTANT', 'VIEWER', 'CUSTOM']).optional(),
   invoiceAccessScope: z.enum(['ALL', 'OWN']).optional(),
   isActive: z.boolean().optional(),
-  allowedDays: z.array(z.string()).nullable().optional(),
-  startTime: z.string().nullable().optional(),
-  endTime: z.string().nullable().optional(),
+  allowedDays: z.array(z.enum(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])).nullable().optional(),
+  startTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+  endTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
   permissions: z.array(permissionRowSchema).optional(),
 });
 

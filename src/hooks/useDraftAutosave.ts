@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { debounce } from '../utils/debounce';
+import { DRAFT_FLUSH_EVENT } from '../stores/useAccessScheduleStore';
 
 /** Persists `snapshot` into the workspace tab `tabId` as a recoverable draft. */
 export function useDraftAutosave(tabId: string | undefined, snapshot: unknown, delay = 600): void {
@@ -20,4 +21,14 @@ export function useDraftAutosave(tabId: string | undefined, snapshot: unknown, d
     }, [tabId, snapshot, writer]);
 
     useEffect(() => () => writer.flush(), [writer]);
+
+    useEffect(() => {
+        const preserve = () => { if (tabId) saveDraft(tabId, latest.current); writer.flush(); };
+        window.addEventListener(DRAFT_FLUSH_EVENT, preserve);
+        window.addEventListener('pagehide', preserve);
+        return () => {
+            window.removeEventListener(DRAFT_FLUSH_EVENT, preserve);
+            window.removeEventListener('pagehide', preserve);
+        };
+    }, [tabId, saveDraft, writer]);
 }
