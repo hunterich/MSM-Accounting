@@ -8,6 +8,7 @@ const indonesian: Record<string, string> = {
   'No value adjustment': 'Tidak ada penyesuaian nilai',
   'Corrections require original stock-lot and recorded-cost tracking. Older invoices without complete tracking must be voided and replaced.': 'Koreksi memerlukan pelacakan lot stok asal dan biaya tercatat. Faktur lama tanpa pelacakan lengkap harus dibatalkan dan dibuat ulang.',
   'Pending financial approvals dated in this period': 'Persetujuan dokumen keuangan yang tertunda dan bertanggal dalam periode ini',
+  'AR/AP control accounts with named differences at period end': 'Akun kontrol piutang/utang dengan selisih teridentifikasi pada akhir periode',
   'Resolve blocking items before closing: post outstanding journals and approve or reject pending financial documents dated in this period.': 'Selesaikan hal yang menghalangi tutup buku: posting jurnal yang tertunda dan setujui atau tolak dokumen keuangan yang menunggu persetujuan dan bertanggal dalam periode ini.',
   'Save correction': 'Simpan koreksi',
   'Weighted Average corrections require the original stock-lot value to match the recorded cost of goods sold. Purchases at different costs can prevent a correction; void and replace the invoice in that case.': 'Koreksi dengan metode Rata-rata Tertimbang memerlukan nilai lot stok asal yang sama dengan harga pokok penjualan tercatat. Pembelian dengan biaya berbeda dapat menghalangi koreksi; batalkan dan buat faktur pengganti jika demikian.',
