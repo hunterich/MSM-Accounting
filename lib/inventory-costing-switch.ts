@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import { ApiError } from './errors'
 import { lockInventoryItems } from './inventory-costing'
 import { refreshWarehouseCarryingValues } from './inventory-carrying-values'
+import { outstandingShortfallTotals } from './inventory-shortfall-settlement'
 import { assertPeriodOpen } from './period-guard'
 import type { TransactionDateGuardOptions } from './transaction-date-policy'
 
@@ -21,7 +22,13 @@ export async function changeInventoryCostingMethod(
   const movements = await tx.inventoryLedgerEntry.groupBy({ by: ['itemId', 'warehouseId'], where: { organizationId: orgId } })
   const scopes = new Map<string, { itemId: string; warehouseId: string | null }>()
   for (const row of [...lots, ...movements]) scopes.set(`${row.itemId}:${row.warehouseId ?? ''}`, { itemId: row.itemId, warehouseId: row.warehouseId })
-  for (const scope of scopes.values()) await refreshWarehouseCarryingValues(tx, orgId, scope.itemId, scope.warehouseId)
+  for (const scope of scopes.values()) {
+    // Only Weighted Average receipts settle estimated shortages.
+    if ((await outstandingShortfallTotals(tx, orgId, scope.itemId, scope.warehouseId)).quantity.gt(0)) {
+      throw new ApiError('Cannot change the costing method while a sale has an uncovered estimated stock shortage. Receive the stock or void the sale first.', 422)
+    }
+    await refreshWarehouseCarryingValues(tx, orgId, scope.itemId, scope.warehouseId)
+  }
   await tx.organization.update({ where: { id: orgId }, data: { costingMethod: method,
     costingMethodSetAt: new Date(), costingMethodEffectiveDate: effectiveDate } })
   return { oldMethod: org.costingMethod, itemsRecalculated: new Set(lots.filter(lot => Number(lot.qtyBalance) > 0).map(lot => lot.itemId)).size,
