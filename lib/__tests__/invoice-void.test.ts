@@ -1,7 +1,8 @@
 /**
  * voidInvoice reverses the invoice's AR + COGS journal entries (resolved by
  * memo), un-consumes the sold stock, and marks the invoice VOID. Refuses
- * unposted, already-void, paid, or receipt-allocated invoices.
+ * unposted, already-void, paid, or receipt-allocated invoices, and non-zero
+ * invoices that have no sales posting of their own to reverse.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -27,13 +28,13 @@ function makeTx(invoice: any, entries: any[] = []) {
     journalEntry: { findMany: vi.fn(async () => entries) },
   };
 }
-const sent = (over: any = {}) => ({ id: 'inv-1', number: 'INV-0001', status: 'SENT', paymentAllocations: [], ...over });
+const sent = (over: any = {}) => ({ id: 'inv-1', number: 'INV-0001', status: 'SENT', totalAmount: 1000, paymentAllocations: [], ...over });
 
 describe('voidInvoice', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reverses every posting entry, un-consumes stock, and marks VOID', async () => {
-    const tx = makeTx(sent(), [{ id: 'je-ar' }, { id: 'je-cogs' }]);
+    const tx = makeTx(sent(), [{ id: 'je-ar', memo: 'Sales recognition: INV-0001' }, { id: 'je-cogs', memo: 'COGS auto-post: INV-0001' }]);
     await voidInvoice(tx as never, 'org-a', 'inv-1', { date: DATE });
 
     expect(assertPeriodOpen).toHaveBeenCalledWith(tx, 'org-a', DATE);
@@ -78,6 +79,21 @@ describe('voidInvoice', () => {
   it('refuses an invoice with receipts applied', async () => {
     const tx = makeTx(sent({ paymentAllocations: [{ id: 'alloc-1' }] }));
     await expect(voidInvoice(tx as never, 'org-a', 'inv-1', { date: DATE })).rejects.toThrow(/receipt|payment|applied|unallocate/i);
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-zero invoice without its own sales posting before claiming VOID', async () => {
+    const tx = makeTx(sent({ number: 'OPEN-INV' }), []);
+    await expect(voidInvoice(tx as never, 'org-a', 'inv-1', { date: DATE })).rejects.toThrow(/no sales posting to reverse/i);
+    expect(tx.salesInvoice.updateMany).not.toHaveBeenCalled();
+    expect(restoreConsumedLayers).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('still voids a zero-value invoice that posted nothing', async () => {
+    const tx = makeTx(sent({ totalAmount: 0 }), []);
+    await voidInvoice(tx as never, 'org-a', 'inv-1', { date: DATE });
+    expect(tx.salesInvoice.updateMany).toHaveBeenCalledTimes(1);
     expect(reverseJournalEntry).not.toHaveBeenCalled();
   });
 });

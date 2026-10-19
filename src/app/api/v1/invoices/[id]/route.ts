@@ -91,7 +91,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       const existing = await tx.salesInvoice.findFirst({
         where: applyInvoiceAccessScope({ id, organizationId: orgId }, access),
         select: {
-          id: true, status: true, number: true, issueDate: true, organizationId: true,
+          id: true, status: true, number: true, issueDate: true, organizationId: true, totalAmount: true,
           postingTracked: true, postingJournalIds: true,
           lines: { select: { itemId: true } },
           _count: { select: { paymentAllocations: true, salesReturns: true,
