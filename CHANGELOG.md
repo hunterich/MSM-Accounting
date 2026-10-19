@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — invoices without a sales posting can no longer be voided or edited as if they had one (ACC-02)
+- Voiding or editing a non-zero invoice now requires its own sales posting. Migrated opening invoices carry no journal of their own (the migration's opening journal holds their receivable), and a send that skipped AR posting left none. Previously a void marked them VOID without any reversal, so the AR control kept the amount while aging, balances and statements dropped the invoice from every date, including dates before the void. An edit re-posted the amount on top of the opening journal. Both now return 422 with guidance to record a reviewed correction with finance, and change nothing.
+- Zero-value invoices that posted nothing still void normally, and invoices with tracked postings keep reversing exactly the entries they recorded. How a migrated opening invoice should be corrected (reversing against opening equity or another account) remains a finance decision; no GL correction is invented and no historical data is rewritten.
+
 ### Fixed — refund notes cannot bypass customer/vendor control balances
 - Credit/debit-note refunds refuse designated AR/AP control accounts when creating, editing, submitting or posting through approval. Active, postable cash/bank and holding asset accounts remain available; a cash refund does not reduce source invoice/bill debt or restock goods.
 - Refund pickers exclude configured and document-designated controls. Existing invalid selections remain visible as disabled history, with English/Bahasa guidance and valid replacement choices. Approval refusal rolls back its claim and journals; legitimate refunds and reversals, including reversal of an old incorrect refund, remain available.

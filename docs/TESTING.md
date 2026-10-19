@@ -1,5 +1,22 @@
 # Testing transactions and accounting
 
+## Invoices without a sales posting (ACC-02)
+
+Run `npm run test:int -- invoice-missing-posting` against the disposable
+PostgreSQL database. Four cases drive the real void and edit routes. A migrated
+opening invoice (real `commitBatch`, opening journal only) and a tracked invoice
+with no AR journal are refused with 422. Snapshots of the invoice, every journal
+and the AR control are unchanged, and March aging still shows the opening 1,000
+with no warnings. Editing the migrated invoice is refused instead of posting
+1,000 a second time. A normally posted invoice still voids with one dated
+reversal, and a zero-value invoice that posted nothing still voids. The three
+refusal cases return 200 on main `4ac9f85`.
+
+Local verification: 1,352 unit tests and 585 of 587 PostgreSQL cases pass with
+TypeScript; the two failures are the backup suites (no `pg_dump` on this Windows
+host). No browser journey or production audit was run, and no existing voided
+opening invoice is detected or repaired by this change.
+
 ## Refund settlement accounts (ACC-02, #169 first increment)
 
 Conflict-resolution verification against main `2529dd9` (2026-10-19): 1,337 unit tests, 581 PostgreSQL tests, both refund Chromium cases, both TypeScript projects and the frontend build pass. PostgreSQL backup suites were excluded because this QA host lacks their required client tools. Tests used a disposable database. The browser cases exposed supplier draft hydration depending on account/note response order; the form now observes the loaded notes, returns and bills with stable empty lists.
