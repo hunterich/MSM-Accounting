@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { loadOrgAccountDefaults, resolveAccountDefaultId } from './account-defaults';
 
-/** Shared account metadata contract from refund PR #172, kept compatible for integration. */
+/** Account-picker metadata uses the same default/override designation as posting. */
 export async function listPartyControlAccountIds(tx: Prisma.TransactionClient, orgId: string): Promise<Set<string>> {
   const accounts = await tx.account.findMany({ where: { organizationId: orgId },
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true } });

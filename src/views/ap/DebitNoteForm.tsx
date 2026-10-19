@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
+import { translate } from '../../i18n/language';
+import { useLanguageStore } from '../../stores/useLanguageStore';
 import StatusTag from '../../components/UI/StatusTag';
 import type { Account, DebitNote, PurchaseReturn } from '../../types';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -104,18 +106,19 @@ const toReturnTotals = (purchaseReturn?: PurchaseReturn | null): ReturnTotals =>
 interface DebitNoteFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
 
 const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFormProps = {}) => {
+    const language = useLanguageStore(state => state.language) ?? 'en';
     const navigate = useNavigate();
     const location = useLocation();
     // In the workspace, identity comes from the owning tab (props), not router state.
     const inWorkspace = workspaceTabId != null;
     const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const { data: billsData, isLoading: billsLoading } = useBills();
-    const bills = billsData?.data ?? [];
-    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const bills = useMemo(() => billsData?.data ?? [], [billsData]);
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts({ withControlFlags: 1 });
     const { data: dnData, isLoading: debitNotesLoading } = useDebitNotes();
-    const debitNotes = dnData?.data ?? [];
+    const debitNotes = useMemo(() => dnData?.data ?? [], [dnData]);
     const { data: prData, isLoading: purchaseReturnsLoading } = usePurchaseReturns();
-    const purchaseReturns = prData?.data ?? [];
+    const purchaseReturns = useMemo(() => prData?.data ?? [], [prData]);
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -189,8 +192,9 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     }, [chartOfAccounts]);
 
     const settlementAccountOptions = useMemo<Account[]>(() => {
-        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, [chartOfAccounts]);
+        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset' &&
+            !account.isPartyControlAccount && account.id !== formData.apAccountId);
+    }, [chartOfAccounts, formData.apAccountId]);
 
     useEffect(() => {
         if (state.returnDraft) {
@@ -248,7 +252,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                 taxRate: linkedReturn?.taxRate ?? 11
             }));
         }
-    }, [state.returnDraft, state.debitId, resolvedAccountDefaults]);
+    }, [state.returnDraft, state.debitId, bills, debitNotes, purchaseReturns, resolvedAccountDefaults]);
 
     useEffect(() => {
         if (state.debitId) return;
@@ -338,7 +342,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
     const renderAccountField = (label: string, key: AccountFieldKey, options: Account[], disabled = false) => {
-        if (isAccountLegacy(formData[key])) {
+        if (key !== 'settlementAccountId' && isAccountLegacy(formData[key])) {
             return (
                 <div>
                     <label className="form-label">{label}</label>
@@ -354,11 +358,15 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
             <div>
                 <label className="form-label">{label}</label>
                 <select
+                    aria-label={label}
                     className={fcBase}
                     value={formData[key]}
                     onChange={(event) => setFormData((prev) => ({ ...prev, [key]: event.target.value }))}
                     disabled={isView || disabled}
                 >
+                    {key === 'settlementAccountId' && formData[key] && !options.some(account => account.id === formData[key]) && (
+                        <option value={formData[key]} disabled>{formatAccountOption(formData[key])} — {translate(language, 'Unavailable for refunds')}</option>
+                    )}
                     {options.map((account) => (
                         <option key={account.id} value={account.id}>{account.code} - {account.name}</option>
                     ))}

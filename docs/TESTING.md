@@ -32,6 +32,38 @@ known: both backup suites (no `pg_dump` on this Windows host) and the
 documented INV-02 negative-stock compatibility regression. After merging #177,
 that negative-stock suite passes alongside these cases.
 
+## Refund settlement accounts (ACC-02, #169 first increment)
+
+Conflict-resolution verification against main `2529dd9` (2026-10-19): 1,337 unit tests, 581 PostgreSQL tests, both refund Chromium cases, both TypeScript projects and the frontend build pass. PostgreSQL backup suites were excluded because this QA host lacks their required client tools. Tests used a disposable database. The browser cases exposed supplier draft hydration depending on account/note response order; the form now observes the loaded notes, returns and bills with stable empty lists.
+
+Run `npm run test:int -- refund-control-account` against the disposable database.
+Twenty-five PostgreSQL cases cover customer/supplier default and alternate controls,
+configured controls, foreign/inactive/nonpostable/non-asset accounts, create/edit
+refusal, real approval rollback, cash/holding refunds, exact source-control balances,
+legitimate voids and reversal of historical incorrect refunds. The two core refusal
+cases fail on the original posting helpers. The account-list metadata is tenant
+scoped, including bad foreign historical references. The read-only CLI is exercised
+against the same isolated fixtures and preserves their stock and posting snapshots.
+Account metadata is opt-in (`withControlFlags=1`): the database case also verifies
+ordinary requests omit control flags, and both refund forms explicitly request
+them. Return-created credit notes default to the bank account; blank selections
+do not display an unavailable historical account option.
+
+Run `npm run test:e2e -- e2e/refund-account-role.spec.ts --project=chromium` for the
+two browser cases: disabled historical selection, exclusion of additional controls,
+available bank/holding choices, API refusal/recoding and actual Bahasa guidance.
+This proves picker selection and API repair, not a complete standalone-note form
+creation journey.
+
+Before an authorized release, provide the reviewed DATABASE_URL explicitly and run
+`node node_modules/tsx/dist/cli.mjs scripts/audit-note-refund-accounts.ts --company COMPANY_ID`.
+It uses a repeatable-read, database-enforced READ ONLY transaction and reports invalid
+Draft/Pending/Applied/Void refund accounts without repairing them. Review Drafts with
+finance; reject invalid pending requests before editing their Draft. Posted differences
+belong in reconciliation (#167) and require a reviewed correction/reversal. This audit
+does not calculate or certify a per-control GL reconciliation. Bill/invoice charges and
+stock-adjustment offsets are covered by merged PR #194. No production audit/deployment is implied.
+
 ## Weighted Average negative stock settlement (INV-02, approved 2026-10-15)
 
 Unit coverage runs without a database:
