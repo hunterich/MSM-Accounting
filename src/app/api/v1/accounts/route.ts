@@ -71,8 +71,8 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     prisma.account.count({ where }),
   ]);
   if (searchParams.get('withControlFlags') !== '1') return listResponse(data, total, page, limit);
-  const controls = await listPartyControlAccountIds(prisma, orgId);
-  return listResponse(data.map(account => ({ ...account, isPartyControlAccount: controls.has(account.id) })), total, page, limit);
+  const controlIds = await listPartyControlAccountIds(prisma, orgId);
+  return listResponse(data.map(account => ({ ...account, isPartyControlAccount: controlIds.has(account.id) })), total, page, limit);
 });
 
 export const POST = withPermission({ module: 'GL_COA', action: 'create' }, async (req: NextRequest) => {

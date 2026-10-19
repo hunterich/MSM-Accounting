@@ -7,6 +7,7 @@ import { updateDebitNoteInputSchema } from '@/types/api';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { lockEligibleNoteReturn } from '@/lib/note-return-eligibility';
+import { validateNoteRefundAccount } from '@/lib/note-refund-account';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
 export const runtime = 'nodejs';
@@ -128,6 +129,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
         },
       });
 
+      await validateNoteRefundAccount(tx, orgId, updated.settlementType, updated.settlementAccountId, updated.apAccountId);
       // Auto-route the DRAFT → APPLIED finalize through the approval engine.
       // The update above may have already stamped status='APPLIED'; if approval
       // is required, hold the note at PENDING_APPROVAL and post NO GL.

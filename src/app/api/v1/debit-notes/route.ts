@@ -5,6 +5,7 @@ import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, req
 import { asMoney, toNumber } from '@/lib/money';
 import { withPermission } from '@/lib/authz';
 import { createDebitNoteInputSchema } from '@/types/api';
+import { validateNoteRefundAccount } from '@/lib/note-refund-account';
 
 export const runtime = 'nodejs';
 
@@ -67,6 +68,7 @@ export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, as
     if (d.purchaseReturnId) {
       await validateForeignKey(tx.purchaseReturn, { id: d.purchaseReturnId, organizationId: orgId }, 'Purchase return not found in organization');
     }
+    await validateNoteRefundAccount(tx, orgId, d.settlementType, d.settlementAccountId, d.apAccountId);
     const number = await nextNumber(tx, 'DebitNote', 'number', 'DBN');
     return tx.debitNote.create({
       data: {
