@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { ApiError } from '../errors';
 import { lockFinancialApprovalPeriod } from './financial-period';
+import { assertStoredDocumentOffsets } from '../document-offset-accounts';
 
 /** Explicit submission is available even when automatic routing is disabled.
  * Invoice row -> period share lock -> request/status, all in one transaction.
@@ -14,6 +15,7 @@ export async function submitInvoiceForApproval(tx: Prisma.TransactionClient, org
     throw new ApiError(`Invoice must be in DRAFT status to submit for approval (current: ${invoice.status})`, 400);
   }
   await lockFinancialApprovalPeriod(tx, orgId, 'INVOICE', id);
+  await assertStoredDocumentOffsets(tx, orgId, 'INVOICE', id);
   const existing = await tx.approvalRequest.findFirst({
     where: { organizationId: orgId, documentType: 'INVOICE', documentId: id, status: 'PENDING' }, select: { id: true },
   });

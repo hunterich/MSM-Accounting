@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { postInvoiceSend } from '../invoice-send-posting';
+// Posting arithmetic isolation; real offset refusal/rollback has PostgreSQL coverage.
+vi.mock('../document-offset-accounts', () => ({ assertDocumentOffsetAccounts: vi.fn(async () => undefined) }));
 
 vi.mock('../period-guard', () => ({ assertPeriodOpen: vi.fn(async () => undefined) }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));

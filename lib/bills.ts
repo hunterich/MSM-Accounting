@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { nextNumber, validateForeignKey } from '@/lib/api-utils';
 import type { BillInput } from '@/types/api';
 import { prepareAssetLines } from './asset-purchases';
+import { assertDocumentOffsetAccounts } from './document-offset-accounts';
 
 type CreateBillOptions = {
   attachment?: {
@@ -93,6 +94,7 @@ export async function createBillRecord(
 
   if (lines && lines.length > 0) {
     const preparedLines = await prepareAssetLines(tx, orgId, created.id, lines, header);
+    await assertDocumentOffsetAccounts(tx, orgId, preparedLines.map(line => line.accountId));
     // Explicit field mapping (no spread): keeps transient inputs like
     // `alreadyReceived` out of the BillLine insert.
     await tx.billLine.createMany({
@@ -128,6 +130,7 @@ export async function createBillRecord(
     effectiveCharges = poCharges.map((c) => ({ label: c.label, accountId: c.accountId, amount: c.amount, taxRate: c.taxRate }));
   }
   if (effectiveCharges.length > 0) {
+    await assertDocumentOffsetAccounts(tx, orgId, effectiveCharges.map(charge => charge.accountId));
     await tx.billCharge.createMany({
       data: effectiveCharges.map((charge, index) => ({
         billId: created.id,

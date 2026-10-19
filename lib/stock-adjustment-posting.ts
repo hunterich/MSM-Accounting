@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { assertDocumentOffsetAccounts } from './document-offset-accounts';
 import { InventoryDocumentType } from '@prisma/client';
 import { asMoney, toNumber } from './money';
 import { postJournalEntry } from './journal-posting';
@@ -10,6 +11,7 @@ import type { TransactionDateGuardOptions } from './transaction-date-policy';
 type Tx = Prisma.TransactionClient;
 
 export interface StockAdjustmentPostingLine {
+  accountId?: string | null;
   itemId: string;
   oldQty: unknown;
   newQty: unknown;
@@ -51,6 +53,7 @@ export async function postStockAdjustmentToLedger(
 ): Promise<void> {
   const lines = args.lines ?? [];
   if (lines.length === 0) return;
+  await assertDocumentOffsetAccounts(tx, orgId, lines.map(line => line.accountId));
 
   // Refuse to move inventory/GL into a closed/locked accounting period. This
   // single guard covers every forward stock-adjustment posting path: direct
@@ -94,6 +97,7 @@ export async function postStockAdjustmentToLedger(
     resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment') ||
     resolveAccountDefaultId(accounts, settings, 'cogsExpense');
   if (!inventoryAccountId || !varianceAccountId) return;
+  await assertDocumentOffsetAccounts(tx, orgId, [inventoryAccountId, varianceAccountId]);
 
   const memo = `Stock adjustment: ${args.number}`;
   if (netRounded > 0) {
@@ -149,6 +153,7 @@ export async function postStockAdjustmentIfNeeded(
     date: adj.date,
     warehouseId: adj.warehouseId,
     lines: adj.lines.map((l) => ({
+      accountId: l.accountId,
       itemId: l.itemId,
       oldQty: l.oldQty,
       newQty: l.newQty,
