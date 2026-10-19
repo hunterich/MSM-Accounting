@@ -126,6 +126,7 @@ export async function postSalesReturnOnApproval(
       InventoryDocumentType.SALES_RETURN,
       sr.id,
       sr.returnDate,
+      cost,
     );
     await tx.salesReturnLine.update({ where: { id: line.id }, data: { inventoryCost: cost } });
     totalRestockValue += cost;

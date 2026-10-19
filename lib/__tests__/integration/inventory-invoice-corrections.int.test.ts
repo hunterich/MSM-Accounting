@@ -46,7 +46,7 @@ async function edit(org: TestOrg, invoiceId: string, itemId: string, quantity: n
 }
 
 describe('posted inventory invoice corrections', () => {
-  it('rolls back when later differently-priced receipts make the corrected WA sale disagree with lot value', async () => {
+  it('corrects at the current booked average after later receipts and can reverse at the recorded corrected cost', async () => {
     const { org, invoice, itemId } = await setup('WEIGHTED_AVERAGE', [100, 100]);
     try {
       const vendorId = await createVendor(org.orgId);
@@ -54,13 +54,16 @@ describe('posted inventory invoice corrections', () => {
       await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, { id: bill.id, number: bill.number, issueDate: DATE,
         apAccountId: null, taxable: false, taxInclusive: false, taxRate: 0,
         lines: [{ id: 'later-wa', itemId, quantity: 7, price: 300, lineTotal: 2100, purchaseOrderLineId: null }] }));
-      const before = { lots: await lots(org.orgId), doc: await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { lines: true } }),
-        journals: await prisma.journalEntry.count({ where: { organizationId: org.orgId } }) };
-      await expect(edit(org, invoice.id, itemId, 1)).rejects.toThrow(/corrected sale cost differs/);
-      expect(await lots(org.orgId)).toEqual(before.lots);
-      expect(await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { lines: true } })).toEqual(before.doc);
-      expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(before.journals);
-      await assertInventoryReconciled(org.orgId, 'after refused later-cost WA correction');
+      await edit(org, invoice.id, itemId, 1);
+      // 7 × 100 + 7 × 300 = 2800 / 14 units; corrected sale costs 200.
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(200);
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(2600);
+      await assertInventoryReconciled(org.orgId, 'after later-cost WA correction');
+      await prisma.$transaction(tx => voidInvoice(tx, org.orgId, invoice.id, { date: DATE }));
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(2800);
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(0);
+      await assertInventoryReconciled(org.orgId, 'after corrected WA void');
+      await assertTrialBalanced(org.orgId);
     } finally { await cleanupOrg(org.orgId); }
   });
 
@@ -178,14 +181,30 @@ describe('posted inventory invoice corrections', () => {
     } finally { await cleanupOrg(org.orgId); }
   });
 
-  it('blocks exact correction when weighted-average COGS differs from the source-lot value', async () => {
+  it('blocks legacy WA correction without recorded monetary draws when receipt prices differ', async () => {
     const { org, invoice, itemId } = await setup('WEIGHTED_AVERAGE');
     try {
+      await prisma.inventoryLotDraw.updateMany({ where: { ledgerEntry: { organizationId: org.orgId } }, data: { costValue: null } });
       const before = await lots(org.orgId);
       const journals = await prisma.journalEntry.count({ where: { organizationId: org.orgId } });
       await expect(edit(org, invoice.id, itemId, 1)).rejects.toThrow(/cannot be restored exactly/);
       expect(await lots(org.orgId)).toEqual(before);
       expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(journals);
+    } finally { await cleanupOrg(org.orgId); }
+  });
+
+  it('new monetary draws support unequal-cost WA correction and exact subsequent void', async () => {
+    const { org, invoice, itemId, originalLots } = await setup('WEIGHTED_AVERAGE');
+    try {
+      await edit(org, invoice.id, itemId, 1);
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(171.43);
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(1028.57);
+      await assertInventoryReconciled(org.orgId);
+      await prisma.$transaction(tx => voidInvoice(tx, org.orgId, invoice.id, { date: DATE }));
+      expect(await lots(org.orgId)).toEqual(originalLots);
+      expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(1200);
+      expect(await accountBalance(org.orgId, org.accounts.cogsExpense)).toBe(0);
+      await assertInventoryReconciled(org.orgId); await assertTrialBalanced(org.orgId);
     } finally { await cleanupOrg(org.orgId); }
   });
 

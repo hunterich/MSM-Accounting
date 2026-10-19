@@ -52,7 +52,7 @@ export async function postGoodsReceiptToLedger(
   const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
 
   let grirNet = 0;
-  const layers: Array<{ itemId: string; qty: number; unitCost: number }> = [];
+  const layers: Array<{ itemId: string; qty: number; unitCost: number; value: number }> = [];
   for (const line of args.lines) {
     if (!line.itemId || !inventoryItemIds.has(line.itemId)) continue;
     const qty = toNumber(line.quantity);
@@ -60,7 +60,7 @@ export async function postGoodsReceiptToLedger(
     const gross = toNumber(line.lineTotal);
     const net = args.taxInclusive ? asMoney(gross / (1 + rate)) : gross;
     grirNet += net;
-    layers.push({ itemId: line.itemId, qty, unitCost: asMoney(net / qty) });
+    layers.push({ itemId: line.itemId, qty, unitCost: net / qty, value: asMoney(net) });
   }
   grirNet = asMoney(grirNet);
   if (grirNet <= 0) return;
@@ -81,7 +81,7 @@ export async function postGoodsReceiptToLedger(
   const grirAccountId = await ensureGrIrAccount(tx, orgId);
 
   for (const layer of layers) {
-    await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date);
+    await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value);
   }
 
   await postJournalEntry(tx, {

@@ -1,4 +1,5 @@
 import React from 'react';
+import OffsetAccountSelect, { type OffsetAccountOption } from '../UI/OffsetAccountSelect';
 import { Search, X } from 'lucide-react';
 import { formatIDR } from '../../utils/formatters';
 import { lineNet } from './computeTotals';
@@ -28,7 +29,7 @@ interface LineItemsTableProps {
      * each line posts to its own account. Host feeds these from the chart of
      * accounts (e.g. Expense accounts). Omitted → no account column (SO/Invoice).
      */
-    accountOptions?: { value: string; label: string }[];
+    accountOptions?: OffsetAccountOption[];
     renderLineDetails?: (line: DocLine) => React.ReactNode;
 }
 
@@ -116,14 +117,13 @@ const LineItemsTable = ({
                                         {l.assetPurchase ? <span className="text-[11px] text-primary-700">From asset category</span> : l.productId ? (
                                             <span className="text-[11px] text-neutral-400 italic">from item</span>
                                         ) : (
-                                            <select
+                                            <OffsetAccountSelect
+                                                label="Bill line account"
                                                 value={l.accountId ?? ''}
-                                                onChange={(e) => onChange(l.id, 'accountId', e.target.value)}
+                                                onChange={value => onChange(l.id, 'accountId', value)}
                                                 className={`${cell} font-mono text-[11px]`}
-                                            >
-                                                <option value="">— expense account —</option>
-                                                {accountOptions!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                            </select>
+                                                options={accountOptions!}
+                                            />
                                         )}
                                     </td>
                                 )}

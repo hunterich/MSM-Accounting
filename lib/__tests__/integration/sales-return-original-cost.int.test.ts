@@ -33,7 +33,7 @@ async function fixture(method: 'FIFO' | 'WEIGHTED_AVERAGE' = 'FIFO', costs = [10
 
 describe('sales return at original sale cost', () => {
   for (const method of ['FIFO', 'WEIGHTED_AVERAGE'] as const) {
-    it(`${method}: retains original COGS after purchase costs change and voids cleanly`, async () => {
+    it(`${method}: retains original COGS and voids immediately despite other purchase costs`, async () => {
       const f = await fixture(method, [100, 300]);
       try {
         const source = await prisma.salesInvoiceLine.findUniqueOrThrow({ where: { id: f.sourceId } });

@@ -5,6 +5,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit, listResponse, parsePaginationParams, withHandler } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { createAccountInputSchema } from '@/types/api';
+import { listPartyControlAccountIds } from '@/lib/control-account-guard';
 import {
   fromPrismaAccountType,
   fromPrismaNormalSide,
@@ -69,7 +70,9 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     }),
     prisma.account.count({ where }),
   ]);
-  return listResponse(data, total, page, limit);
+  if (searchParams.get('withControlFlags') !== '1') return listResponse(data, total, page, limit);
+  const controlIds = await listPartyControlAccountIds(prisma, orgId);
+  return listResponse(data.map(account => ({ ...account, isPartyControlAccount: controlIds.has(account.id) })), total, page, limit);
 });
 
 export const POST = withPermission({ module: 'GL_COA', action: 'create' }, async (req: NextRequest) => {

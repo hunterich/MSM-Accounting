@@ -26,6 +26,8 @@ import { asMoney } from '@/lib/money';
 import { getBatch } from './batch-service';
 import { reconcileMigration, type ReconcileResult, type ReconcileInput } from './reconcile';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { ApiError } from '@/lib/errors';
+import { allocateJournalEntryNumber } from '@/lib/journal-posting';
 import {
   AccountRow,
   CustomerRow,
@@ -68,12 +70,12 @@ export interface ControlCodes {
  * Uses the real `account-defaults` API; throws if any required default is unset,
  * because a migration cannot reconcile without them.
  */
-export async function resolveControlCodes(orgId: string): Promise<ControlCodes> {
-  const accounts = await prisma.account.findMany({
+export async function resolveControlCodes(orgId: string, client: Pick<Tx, 'account' | 'organization'> = prisma): Promise<ControlCodes> {
+  const accounts = await client.account.findMany({
     where: { organizationId: orgId, isActive: true },
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
   });
-  const settings = await loadOrgAccountDefaults(prisma, orgId);
+  const settings = await loadOrgAccountDefaults(client, orgId);
 
   const codeFor = (key: AccountDefaultKey, label: string): string => {
     const id = resolveAccountDefaultId(accounts, settings, key);
@@ -106,8 +108,9 @@ const round2 = (n: number) => asMoney(n);
 export async function buildReconcileInput(
   orgId: string,
   staged: StagedData,
+  client: Pick<Tx, 'account' | 'organization'> = prisma,
 ): Promise<ReconcileInput> {
-  const codes = await resolveControlCodes(orgId);
+  const codes = await resolveControlCodes(orgId, client);
   const journalRows = staged['opening-journal'] ?? [];
   const invoiceRows = staged['opening-invoices'] ?? [];
   const billRows = staged['opening-bills'] ?? [];
@@ -141,9 +144,9 @@ export async function commitBatch(
   _userId: string | null,
 ): Promise<{ committed: boolean; reconcile: ReconcileResult }> {
   const batch = await getBatch(orgId, batchId);
-  if (!batch) throw new Error('Migration batch not found');
+  if (!batch) throw new ApiError('Migration batch not found', 404);
   if (batch.status !== 'DRAFT') {
-    throw new Error(`Migration batch is not committable (status: ${batch.status})`);
+    throw new ApiError(`Migration batch is not committable (status: ${batch.status})`, 409);
   }
 
   const staged = (batch.stagedData ?? {}) as StagedData;
@@ -181,17 +184,26 @@ export async function commitBatch(
   }
 
   // ── All-or-nothing write ────────────────────────────────────────────────────
-  await prisma.$transaction(async (tx) => {
+  let verifiedReconcile = reconcile;
+  const committed = await prisma.$transaction(async (tx) => {
+    // Pin company configuration, then the batch, before opening writes.
+    await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR SHARE`;
+    await tx.$queryRaw`SELECT "id" FROM "MigrationBatch" WHERE "id" = ${batchId} AND "organizationId" = ${orgId} FOR UPDATE`;
     // Re-check status inside the transaction so a concurrent double-commit loses
     // cleanly here instead of blowing up on a journal-number unique violation.
-    const fresh = await tx.migrationBatch.findUnique({
-      where: { id: batchId },
-      select: { status: true },
-    });
+    const fresh = await tx.migrationBatch.findFirst({ where: { id: batchId, organizationId: orgId } });
     if (!fresh || fresh.status !== 'DRAFT') {
-      throw new Error(
-        `Migration batch is no longer committable (status: ${fresh?.status ?? 'MISSING'})`,
-      );
+      throw new ApiError(`Migration batch is no longer committable (status: ${fresh?.status ?? 'MISSING'})`, 409);
+    }
+    if (JSON.stringify(fresh.stagedData) !== JSON.stringify(batch.stagedData) || fresh.cutoverDate.getTime() !== batch.cutoverDate.getTime()) {
+      throw new ApiError('Migration staging changed while commit waited. Reconcile and retry.', 409);
+    }
+    verifiedReconcile = reconcileMigration(await buildReconcileInput(orgId, staged, tx));
+    if (!verifiedReconcile.ok) return false;
+    // Period locks precede stock and journal numbering. Master-only imports
+    // remain independent of a posting date.
+    if ((staged['opening-journal']?.length ?? 0) > 0 || itemRows.some(row => (row.openingStock ?? 0) > 0)) {
+      await assertPeriodOpen(tx, orgId, cutoverDate);
     }
 
     const summary: Record<string, number> = {
@@ -376,18 +388,7 @@ export async function commitBatch(
       totalCredit = round2(totalCredit);
 
       if (journalLines.length > 0) {
-        const maxResult = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-          SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-(\\d+)$') AS INTEGER)) AS max_seq
-          FROM "JournalEntry"
-          WHERE "organizationId" = ${orgId}
-            AND "entryNo" LIKE 'JE-%'
-        `;
-        const nextSeq = Number(maxResult[0]?.max_seq ?? 0) + 1;
-        const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
-
-        // The cutover can be any past date, so this is the one opening-balance
-        // write most likely to land in a month that has since been closed.
-        await assertPeriodOpen(tx, orgId, cutoverDate);
+        const entryNo = await allocateJournalEntryNumber(tx, orgId);
 
         await tx.journalEntry.create({
           data: {
@@ -510,7 +511,8 @@ export async function commitBatch(
         summary: summary as Prisma.InputJsonValue,
       },
     });
+    return true;
   });
 
-  return { committed: true, reconcile };
+  return { committed, reconcile: verifiedReconcile };
 }

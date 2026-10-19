@@ -7,6 +7,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — refund notes cannot bypass customer/vendor control balances
+- Credit/debit-note refunds refuse designated AR/AP control accounts when creating, editing, submitting or posting through approval. Active, postable cash/bank and holding asset accounts remain available; a cash refund does not reduce source invoice/bill debt or restock goods.
+- Refund pickers exclude configured and document-designated controls. Existing invalid selections remain visible as disabled history, with English/Bahasa guidance and valid replacement choices. Approval refusal rolls back its claim and journals; legitimate refunds and reversals, including reversal of an old incorrect refund, remain available.
+- Credit notes created from returns use the bank default for refunds, rather than the return's AR control. Empty selections do not show a historical unavailable-account option. Control metadata is requested only with `withControlFlags=1`; both refund forms opt in, while ordinary account-list requests avoid the historical control lookup.
+- Supplier refund drafts hydrate when notes arrive after account defaults, so an existing refund remains visible and repairable regardless of request order.
+- The company-scoped read-only `scripts/audit-note-refund-accounts.ts` identifies existing invalid refund accounts before an authorized release. No migration or historical rewrite. Bill/invoice charge and stock-adjustment offset validation is already covered by #194.
+
+### Fixed — cent-exact AR/AP settlement (ACC-02)
+- An invoice or bill is marked Paid only when payments, discounts and applied notes clear its full total to the cent. Previously it became Paid with 0.01 still owed, while aging, its settlement panel and the control account still showed that cent outstanding. Such documents stay Sent/Open until the last cent is paid.
+- The over-allocation check rounds each payment, discount and penalty amount half-up to the cent, as the database stores it. Previously an unrounded amount such as 150.105 against a 150.10 balance was accepted and held for approval, stored as 150.11, then refused when approved. It is now refused when submitted.
+- Isolated PostgreSQL acceptance cases drive receipts and payments through the actual create, approve, reject and void routes. They cover cash plus discount minus penalty, partial then full settlement, multi-document allocation, cent rounding, rejected and failed approvals, and voids dated after the cutoff. Each case checks document status, aging, discount/penalty GL and control GL. No schema migration. Existing document statuses are not rewritten: a document already marked Paid with a one-cent balance changes only when another payment or void touches it.
+
+### Fixed — reversed stock issues no longer block WA inbound voids (INV-02 WIP)
+- A sale, supplier return or stock decrease that has since been voided, and the removal row of another receipt's void, no longer block a Weighted Average receipt void. Such rows are now marked `reversedAt`; each pair nets to zero, so the pool stays exact. Voiding a later bill and then an earlier one, or a receipt after its sale was cancelled, now succeeds. Active later issues still refuse. This replaces the `reversesLedgerEntryId` link merged in #174: `20261018120000_inventory_reversal_marking` copies existing links into `reversedAt`, then drops the column. Legacy unmarked rows still block, and the refusal names their date instead of an internal ID.
+
+### Fixed — migration staging, cutover and rollback coordination
+- Concurrent staging edits merge the latest batch data under a row lock. Commit rechecks the batch status, staged snapshot and current control-account reconciliation before opening writes; stale requests return 409 and leave records unchanged.
+- Rollback performs its checks and batch-scoped deletions in one serializable transaction. Existing financial or stock activity, including zero-value movements with no journal, blocks rollback. A closed/locked cutover month refuses it; close/rollback overlap follows the same period lock.
+- Migration openings, manual journal creation and ordinary automatic postings share the journal-number allocator. Retryable database conflicts recheck rollback eligibility; dependent records remain protected. No schema migration is required for these safeguards; production rollback and deployment remain operator-controlled.
+
+### Fixed — Weighted Average inbound void follows stock issue order (INV-02 WIP)
+- Mixed-price receipts alone no longer block WA bill/receipt/return/adjustment reversals or posted bill edits. The original value is removed and the remaining pool reallocated, provided no later stock issue exists for that item and warehouse. A later issue blocks the action with its document identifier. FIFO retains the carrying-value guard.
+- Requires `20261016093000_inventory_posting_order`: future stock movements receive a database posting sequence and new lots link to their inbound movement. Legacy chronology stays unset and uncertain reversals require review. No historical value rewrite, receipt-void COGS variance or production migration is performed.
+
+### Fixed — exact stock receipt line values (INV-02 work in progress)
+- Direct bills and PO goods receipts retain their exact net line values when creating inventory layers and ledger movements, rather than reconstructing value from a unit price rounded to two decimals. Six-decimal receipt unit prices remain traceable; customer-return layers also receive their exact recorded restock value. Three units net 1,000 now book stock value 1,000, matching Inventory GL, rather than 999.99.
+- This unfinished branch requires the carrying-value schema migration and remaining negative-stock acceptance; existing historical values are not rewritten or silently balanced.
+
+### Fixed — Weighted Average successive-sale book value
+- Weighted Average outbound cost uses the remaining inventory ledger value divided by its remaining quantity. Oldest-first physical lot draws no longer change the average merely because original purchase prices differ; successive sales and final-unit rounding consume the booked value exactly. Original receipt prices and historical postings are preserved.
+- Positive or zero-quantity pools that disagree with physical stock, negative values with positive stock, and value remaining without quantity refuse posting with reconciliation guidance. Mixed warehouse/unscoped history may trigger this refusal; run the read-only `scripts/audit-weighted-average-pools.sql` before release. No automatic repair or schema migration. Separate lot carrying values, negative-stock acceptance and full INV-02 reversal/release verification remain tracked in #170.
+
 ### Fixed — AR/AP control posting and financial approval close policy
 - Ordinary manual journal creation/editing and direct bank categorisation refuse designated AR/AP controls, including document-level alternate controls. Use customer/vendor documents for settlements; controlled opening/migration imports remain supported. Setting a public journal's source to Opening or System grants no exemption. Bank edit refusal rolls back its reversal, journal and cached balance changes.
 - Monthly close and its checklist block pending financial documents dated in that period, including valued-stock returns/adjustments and payroll period-end postings. Orders that post no GL, other periods and other companies do not block close. Approve or reject the pending documents first; nothing is automatically redated.

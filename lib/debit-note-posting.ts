@@ -22,6 +22,7 @@ import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { validatePaymentAllocations } from './payment-validation';
 import { syncDebitNoteSettlement } from './settlement-status';
 import { lockEligibleNoteReturn } from './note-return-eligibility';
+import { validateNoteRefundAccount } from './note-refund-account';
 
 type Tx = Prisma.TransactionClient;
 
@@ -104,9 +105,7 @@ export async function postDebitNoteOnApply(
     dn.apAccountId ?? resolveAccountDefaultId(accounts, settings, 'apControl');
   const isRefund = dn.settlementType === 'REFUND_FROM_VENDOR';
   const settlementAccountId = isRefund ? dn.settlementAccountId : apAccountId;
-  if (isRefund && !accounts.some(a => a.id === settlementAccountId && a.isPostable && a.type === 'ASSET')) {
-    throw new ApiError('Choose an active, postable refund asset account in this organization', 422);
-  }
+  await validateNoteRefundAccount(tx, dn.organizationId, dn.settlementType, settlementAccountId, dn.apAccountId);
   const returnAccountId =
     dn.returnAccountId ?? resolveAccountDefaultId(accounts, settings, 'apReturn');
 

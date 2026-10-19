@@ -91,6 +91,7 @@ model Organization {
   salesOrders            SalesOrder[]
   deliveryNotes          DeliveryNote[]
   inventoryLots          InventoryLot[]
+  shortfallSettlements   InventoryShortfallSettlement[]
   bankStatements         BankStatement[]
   recurringInvoices      RecurringInvoice[]
   recurringBills         RecurringBill[]
@@ -1388,6 +1389,8 @@ model StockCountLine {
 
 model InventoryLedgerEntry {
   id             String      @id @default(cuid())
+  postingSequence Int?       @unique @default(autoincrement())
+  receiptLots     InventoryLot[] @relation("LotInboundMovement")
   organizationId String
   itemId         String
   warehouseId    String?
@@ -1401,6 +1404,8 @@ model InventoryLedgerEntry {
   migrationBatchId String?
   createdAt      DateTime    @default(now())
   drawsTracked   Boolean     @default(false)
+  // Outbound row that no longer issues stock: undone by a void/correction, or
+  // itself the removal of a reversed inbound. No database column change.
   reversedAt     DateTime?
   lotDraws       InventoryLotDraw[]
 
@@ -1972,6 +1977,8 @@ enum InventoryDocumentType {
   PURCHASE_RETURN
   ADJUSTMENT
   TRANSFER
+  // Value-only movement: Weighted Average receipt-date shortage cost difference.
+  SHORTFALL_SETTLEMENT
 }
 
 enum BankTxnType {
@@ -2109,6 +2116,8 @@ model DeliveryNoteLine {
 
 model InventoryLot {
   id             String                @id @default(cuid())
+  inboundLedgerEntryId String?
+  inboundLedgerEntry InventoryLedgerEntry? @relation("LotInboundMovement", fields: [inboundLedgerEntryId], references: [id], onDelete: SetNull)
   organizationId String
   itemId         String
   warehouseId    String?
@@ -2119,9 +2128,12 @@ model InventoryLot {
   qtyOut         Decimal               @default(0) @db.Decimal(15, 4)
   qtyBalance     Decimal               @db.Decimal(15, 4)
   unitCost       Decimal               @db.Decimal(15, 6)
+  initialValue   Decimal?              @db.Decimal(18, 2)
+  carryingValue  Decimal?              @db.Decimal(18, 2)
   migrationBatchId String?
   createdAt      DateTime              @default(now())
   draws          InventoryLotDraw[]
+  shortfallSettlements InventoryShortfallSettlement[]
   organization   Organization          @relation(fields: [organizationId], references: [id])
   item           Item                  @relation(fields: [itemId], references: [id])
   warehouse      Warehouse?            @relation(fields: [warehouseId], references: [id])
@@ -2129,6 +2141,7 @@ model InventoryLot {
   @@index([organizationId, itemId, date])
   @@index([itemId, warehouseId, date])
   @@index([migrationBatchId])
+  @@index([inboundLedgerEntryId])
 }
 
 // Exact quantity relief for a sale. Historical draws survive lot deletion;
@@ -2138,11 +2151,53 @@ model InventoryLotDraw {
   ledgerEntryId String
   lotId         String?
   quantity      Decimal @db.Decimal(15, 4)
+  costValue     Decimal? @db.Decimal(18, 2)
+  // Weighted Average sale quantity beyond physical stock, at its estimated cost.
+  // Explicit: a NULL lotId alone may also mean a later-deleted source lot.
+  shortfall     Boolean @default(false)
   ledgerEntry   InventoryLedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Cascade)
   lot           InventoryLot? @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  settlements   InventoryShortfallSettlement[]
 
   @@index([ledgerEntryId])
   @@index([lotId])
+}
+
+// Receipt quantity that covered an estimated Weighted Average sale shortage.
+// The sale draw keeps its original quantity and estimate; each row records the
+// covered part, the receipt's actual value for it and the COGS difference
+// posted on the receipt date (value-only stock movement + journal). Reversal
+// marks the row and links its compensating movement/journal; rows are kept.
+model InventoryShortfallSettlement {
+  id                      String    @id @default(cuid())
+  settlementSequence      Int       @unique @default(autoincrement())
+  organizationId          String
+  itemId                  String
+  warehouseId             String?
+  saleDrawId              String
+  saleLedgerEntryId       String
+  receiptLedgerEntryId    String
+  receiptLotId            String?
+  adjustmentLedgerEntryId String?
+  journalEntryId          String?
+  date                    DateTime
+  quantity                Decimal   @db.Decimal(15, 4)
+  estimatedValue          Decimal   @db.Decimal(18, 2)
+  actualValue             Decimal   @db.Decimal(18, 2)
+  cogsAdjustment          Decimal   @db.Decimal(18, 2)
+  reversedAt              DateTime?
+  reversalLedgerEntryId   String?
+  reversalJournalEntryId  String?
+  createdAt               DateTime  @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  saleDraw     InventoryLotDraw @relation(fields: [saleDrawId], references: [id], onDelete: Restrict)
+  receiptLot   InventoryLot?    @relation(fields: [receiptLotId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, itemId, warehouseId])
+  @@index([saleDrawId])
+  @@index([receiptLedgerEntryId])
+  @@index([receiptLotId])
 }
 
 model BankStatement {

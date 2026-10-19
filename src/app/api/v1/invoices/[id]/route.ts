@@ -5,6 +5,7 @@ import { ApiError, logAudit } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { assertStoredDocumentOffsets } from '@/lib/document-offset-accounts';
 import { reverseInvoicePosting } from '@/lib/repost';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -204,6 +205,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         }
       }
 
+      await assertStoredDocumentOffsets(tx, orgId, 'INVOICE', id);
       // Edit-after-post: re-post AR (+ charges) from the freshly-edited invoice
       // (its prior entries and exact inventory draws were reversed above).
       if (isPostedEdit) {

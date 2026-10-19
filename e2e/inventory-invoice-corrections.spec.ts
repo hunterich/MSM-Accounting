@@ -118,30 +118,48 @@ test('closed original/repost periods, linked credit notes and returns block a co
   expect((await api(page, `/invoices/${invoice.id}`)).totalAmount).toBe('9000')
 })
 
-test('Weighted Average limit is visible before Save correction and a refused save changes nothing', async ({ page }) => {
+test('Weighted Average tracking notice is visible; a tracked unequal-cost correction saves and an untracked one is refused unchanged', async ({ page }) => {
   const { orgId, invoice } = await fixture(page, 'WEIGHTED_AVERAGE')
   await page.goto(`/ar/invoices/edit?invoiceId=${invoice.id}`)
-  const notice = page.getByRole('note').filter({ hasText: 'Weighted Average corrections require' })
+  const notice = page.getByRole('note').filter({ hasText: 'Corrections require original stock-lot and recorded-cost tracking' })
   await expect(notice).toBeVisible()
-  await expect(notice).toContainText('Purchases at different costs can prevent a correction')
+  await expect(notice).toContainText('Older invoices without complete tracking must be voided and replaced')
   await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toBeVisible()
-  await page.reload()
-  await expect(notice).toBeVisible()
-  const before = { doc: await api(page, `/invoices/${invoice.id}`), lots: await currentLots(orgId), journals: await db.journalEntry.count({ where: { organizationId: orgId } }) }
   const row = page.getByRole('row').filter({ has: page.getByPlaceholder('Description').filter({ visible: true }) })
-  await row.locator('input[type="number"]').nth(0).fill('1')
-  page.once('dialog', dialog => dialog.accept())
-  const saved = page.waitForResponse(r => r.url().endsWith(`/api/v1/invoices/${invoice.id}`) && r.request().method() === 'PUT')
-  await page.getByRole('button', { name: 'Save correction', exact: true }).click()
-  expect((await saved).status()).toBe(422)
+  async function saveQuantity(qty: number) {
+    await row.locator('input[type="number"]').nth(0).fill(String(qty))
+    page.once('dialog', dialog => dialog.accept())
+    const saved = page.waitForResponse(r => r.url().endsWith(`/api/v1/invoices/${invoice.id}`) && r.request().method() === 'PUT')
+    await page.getByRole('button', { name: 'Save correction', exact: true }).click()
+    return saved
+  }
+  // A legacy sale without recorded draw values cannot be restored exactly from lots
+  // bought at 1,000 and 2,000, so the correction is refused and nothing changes.
+  const draws = await db.inventoryLotDraw.findMany({ where: { ledgerEntry: { organizationId: orgId } } })
+  await db.inventoryLotDraw.updateMany({ where: { id: { in: draws.map(d => d.id) } }, data: { costValue: null } })
+  const before = { doc: await api(page, `/invoices/${invoice.id}`), lots: await currentLots(orgId), journals: await db.journalEntry.count({ where: { organizationId: orgId } }) }
+  expect((await saveQuantity(1)).status()).toBe(422)
   expect(await api(page, `/invoices/${invoice.id}`)).toEqual(before.doc)
   expect(await currentLots(orgId)).toEqual(before.lots)
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before.journals)
-  await page.evaluate(() => localStorage.setItem('msm-ui-language', JSON.stringify({ state: { language: 'id' }, version: 0 })))
+  // With the recorded draw values, the same unequal-cost correction succeeds and the
+  // corrected unit is costed at the booked average 12,000 / 7.
+  for (const draw of draws) await db.inventoryLotDraw.update({ where: { id: draw.id }, data: { costValue: draw.costValue } })
   await page.reload()
+  await expect(notice).toBeVisible()
+  const corrected = await saveQuantity(1)
+  expect(corrected.ok(), await corrected.text()).toBeTruthy()
+  expect(await balance(orgId, '1-1200')).toBe(3000)
+  expect(await balance(orgId, '5-1000')).toBeCloseTo(12000 / 7, 1)
+  await assertBalanced(page)
+  // Workspace navigation may normalize the URL to /. Wait for the saved
+  // editor to close, then explicitly reopen it for the language assertions.
+  await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toHaveCount(0)
+  await page.evaluate(() => localStorage.setItem('msm-ui-language', JSON.stringify({ state: { language: 'id' }, version: 0 })))
+  await page.goto(`/ar/invoices/edit?invoiceId=${invoice.id}`)
   await expect(page.getByRole('button', { name: 'Simpan koreksi', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save correction', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('note').filter({ hasText: 'Koreksi dengan metode Rata-rata Tertimbang' })).toBeVisible()
+  await expect(page.getByRole('note').filter({ hasText: 'Koreksi memerlukan pelacakan lot stok asal' })).toBeVisible()
 })
 
 test('voided credit notes preserve their audit history and no longer block correction; active notes still block', async ({ page }) => {

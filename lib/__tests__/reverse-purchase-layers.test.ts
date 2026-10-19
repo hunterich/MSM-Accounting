@@ -8,6 +8,7 @@ import { reversePurchaseLayers } from '../inventory-costing';
 
 function makeTx(lots: any[]) {
   return {
+    organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO' })) },
     $executeRaw: vi.fn(async () => 1),
     inventoryLot: {
       findMany: vi.fn(async () => lots),

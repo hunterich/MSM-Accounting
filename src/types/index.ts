@@ -864,6 +864,7 @@ export interface RawAccount {
   parentId?: string | null;
   isPostable?: boolean | null;
   isActive?: boolean | null;
+  isPartyControlAccount?: boolean;
   hasPostings?: boolean | null;
   reportGroup?: string | null;
   reportSubGroup?: string | null;
@@ -882,6 +883,7 @@ export interface Account {
   parentId: string | null;
   isPostable: boolean;
   isActive: boolean;
+  isPartyControlAccount?: boolean;
   reportGroup: string;
   reportSubGroup: string;
   normalSide: string;
