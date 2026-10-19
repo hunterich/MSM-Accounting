@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — migration openings enter once (ACC-02)
+- A migration batch that carries opening balances is refused with 409 while another committed batch already holds openings. Openings are an opening journal, opening invoices/bills or opening stock. Previously, re-importing the same file without invoice numbers committed again and silently doubled the opening trial balance, open documents and customers/vendors. GL and subledger doubled together, so no reconciliation could show a difference. To import openings again, roll back the earlier batch (allowed only before live activity). Batches with only accounts, customers, vendors or items without stock still commit. Concurrent commits are serialized, so exactly one opening batch enters.
+- Acceptance cases run a full cutover through the actual migration routes: an opening trial balance with customers, vendors and open invoices/bills, then later invoices, bills, receipts and payments. They check fixed trial-balance, aging, party-balance, statement and control-GL values. No schema migration and no change to committed batches.
+
 ### Fixed — cent-exact AR/AP settlement (ACC-02)
 - An invoice or bill is marked Paid only when payments, discounts and applied notes clear its full total to the cent. Previously it became Paid with 0.01 still owed, while aging, its settlement panel and the control account still showed that cent outstanding. Such documents stay Sent/Open until the last cent is paid.
 - The over-allocation check rounds each payment, discount and penalty amount half-up to the cent, as the database stores it. Previously an unrounded amount such as 150.105 against a 150.10 balance was accepted and held for approval, stored as 150.11, then refused when approved. It is now refused when submitted.

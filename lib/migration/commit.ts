@@ -28,6 +28,7 @@ import { reconcileMigration, type ReconcileResult, type ReconcileInput } from '.
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { ApiError } from '@/lib/errors';
 import { allocateJournalEntryNumber } from '@/lib/journal-posting';
+import { advisoryLockKey } from '@/lib/advisory-lock';
 import {
   AccountRow,
   CustomerRow,
@@ -128,6 +129,14 @@ export async function buildReconcileInput(
   };
 }
 
+/** True when a batch would post opening balances, not only master data. */
+export function stagedHasOpenings(staged: StagedData): boolean {
+  return (staged['opening-journal']?.length ?? 0) > 0
+    || (staged['opening-invoices']?.length ?? 0) > 0
+    || (staged['opening-bills']?.length ?? 0) > 0
+    || (staged.items ?? []).some((i) => (i.openingStock ?? 0) > 0 || (i.openingValue ?? 0) > 0);
+}
+
 // Only these item types carry inventory value (mirrors STOCKED_TYPES in
 // lib/inventory-opening.ts). A non-stocked item with opening stock/value would
 // let reconcile count inventory value that no cost layer ever backs.
@@ -197,6 +206,24 @@ export async function commitBatch(
     }
     if (JSON.stringify(fresh.stagedData) !== JSON.stringify(batch.stagedData) || fresh.cutoverDate.getTime() !== batch.cutoverDate.getTime()) {
       throw new ApiError('Migration staging changed while commit waited. Reconcile and retry.', 409);
+    }
+    // Openings enter once. A re-imported file reconciles against itself, so a
+    // second opening batch would double GL and subledger together, unseen by
+    // any reconciliation. The company-wide lock serializes concurrent commits.
+    if (stagedHasOpenings(staged)) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`migration-openings:${orgId}`)})`;
+      const committed = await tx.migrationBatch.findMany({
+        where: { organizationId: orgId, status: 'COMMITTED', id: { not: batchId } },
+        select: { cutoverDate: true, stagedData: true },
+      });
+      const prior = committed.find((b) => stagedHasOpenings((b.stagedData ?? {}) as StagedData));
+      if (prior) {
+        throw new ApiError(
+          `Opening balances were already committed by the migration batch with cutover ${prior.cutoverDate.toISOString().slice(0, 10)}. ` +
+            'Roll back that batch before importing openings again, or stage master data only.',
+          409,
+        );
+      }
     }
     verifiedReconcile = reconcileMigration(await buildReconcileInput(orgId, staged, tx));
     if (!verifiedReconcile.ok) return false;

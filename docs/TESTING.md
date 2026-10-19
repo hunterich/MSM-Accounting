@@ -876,3 +876,40 @@ unapplied credits) remains covered by `report-reconciliation.int.test.ts` and
 ```powershell
 node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts settlement-acceptance payment-settlement-status report-reconciliation oversell-overpay-concurrency
 ```
+
+## ACC-02 migration opening acceptance — 2026-10-19
+
+`migration-opening-acceptance.int.test.ts` runs three isolated PostgreSQL cases
+through the actual migration routes (create batch, stage, reconcile, commit,
+rollback). Receipts and payments use the actual payment routes.
+
+- **Cutover then live activity.** Cutover is 2026-01-01. The opening trial balance
+  is cash 300,000, AR 1,500,000, AP 800,000 and opening equity 1,000,000. It also
+  stages two customers, one vendor, two open invoices and one open bill. The
+  reconcile preview ties AR and AP. After commit, the opening journal is the only
+  journal entry. On the cutover day the trial balance equals the import, and aging,
+  party balances and the customer statement show each debt once. In February a new
+  invoice and bill are posted, plus a receipt clearing a migrated invoice with a
+  discount and part-paying the new one. There is also a partial receipt and a
+  supplier payment with a late fee. January still shows only the openings. At
+  28 February, AR 450,000 and AP 300,000 agree with aging and party balances.
+  Rollback is then refused and changes nothing.
+- **Second opening refused.** Re-staging the same unnumbered file returns 409 and
+  writes nothing; a batch with opening stock is refused too. A vendor/account-only
+  batch still commits. After rolling back the first batch, the re-import commits
+  and the opening enters exactly once.
+- **Concurrent commits.** Two different opening batches committed together: one
+  enters, the other gets the same 409. Pre-existing customers and distinct
+  invoice numbers ensure no unique key does the guard's job.
+
+Without the guard, the second and third cases fail: a re-import commits and
+doubles GL and aging. Before the cutover, migrated documents appear in aging
+under their source dates while the GL is empty. Compare reports from the cutover
+date onward. The older CSV import route (`/api/v1/import/...`) writes
+customer/vendor `openingBalance` seeds and an opening journal dated on import,
+with no once-only guard. It is not covered here and remains a follow-up. The
+per-control opening reconciliation line is in draft PR #191.
+
+```powershell
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts migration-opening-acceptance migration opening
+```
