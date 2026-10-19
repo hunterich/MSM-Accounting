@@ -43,8 +43,8 @@ describe('voidInvoice', () => {
       }),
     );
     expect(reverseJournalEntry).toHaveBeenCalledTimes(2);
-    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-ar', expect.objectContaining({ date: DATE }));
-    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-cogs', expect.objectContaining({ date: DATE }));
+    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-ar', { date: DATE, memo: 'Void invoice: INV-0001' });
+    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-cogs', { date: DATE, memo: 'Void invoice: INV-0001' });
     expect(restoreConsumedLayers).toHaveBeenCalledWith(tx, 'org-a', 'SALES', 'inv-1', DATE);
     // VOID is claimed atomically (updateMany guarded by status != VOID).
     expect((tx.salesInvoice.updateMany as any).mock.calls[0][0]).toMatchObject({

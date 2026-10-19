@@ -46,8 +46,24 @@ export async function readSubledgerHistory<T extends Document>(
       OR: [{ source: 'REVERSAL', memo: { in: memos.slice(i * batchSize, (i + 1) * batchSize) } }, { id: { in: journalIds.slice(i * batchSize, (i + 1) * batchSize) } }] },
       select: { id: true, memo: true, source: true, date: true, lines: { select: { description: true, debit: true, credit: true } } } })))).flat();
   const journal = new Map(entries.map(e => [e.id, e]));
-  const reversalDates = new Map(entries.filter(e => e.source === 'REVERSAL').map(e => [e.memo, e.date]));
   const warnings: string[] = [];
+  // Invoice recognition and COGS can share a void memo. They must agree on
+  // the date; choosing an arbitrary row would make the cutoff order-dependent.
+  const reversalDates = new Map<string, Date>();
+  const ambiguousMemos = new Set<string>();
+  for (const entry of entries.filter(e => e.source === 'REVERSAL')) {
+    if (ambiguousMemos.has(entry.memo)) continue;
+    const previous = reversalDates.get(entry.memo);
+    if (previous && previous.getTime() !== entry.date.getTime()) {
+      reversalDates.delete(entry.memo);
+      ambiguousMemos.add(entry.memo);
+    } else reversalDates.set(entry.memo, entry.date);
+  }
+  const hasHistory = (status: string, memo: string, label: string, number: string) => {
+    if (status !== 'VOID' || reversalDates.has(memo)) return true;
+    warnings.push(`Historical reversal ${ambiguousMemos.has(memo) ? 'date is ambiguous' : 'unavailable'} for voided ${label} ${number}; past balances cannot be confirmed`);
+    return false;
+  };
   const active = (status: string, memo: string) => status !== 'VOID' || Boolean(reversalDates.get(memo) && reversalDates.get(memo)! > asOf);
   const txns: StatementTxn[] = [];
   const movement = (date: Date, number: string, type: string, amount: number, credit: boolean, reversal?: Date) => {
@@ -55,13 +71,14 @@ export async function readSubledgerHistory<T extends Document>(
     if (reversal && reversal <= asOf) txns.push({ date: reversal, number, type: `Void ${type}`, debit: credit ? amount : 0, credit: credit ? 0 : amount, order: 2 });
   };
   const postedDocs = documents.filter(d => !['DRAFT', 'PENDING_APPROVAL'].includes(d.status) &&
-    (d.status !== 'VOID' || reversalDates.has(docVoid(d.number))));
+    hasHistory(d.status, docVoid(d.number), ar ? 'invoice' : 'bill', d.number));
   for (const d of postedDocs) movement(d.issueDate, d.number, ar ? 'Invoice' : 'Bill', toNumber(d.totalAmount), false, reversalDates.get(docVoid(d.number)));
   const cleared = new Map<string, number>();
   const unallocated = new Map<string, number>();
   const addCredit = (party: string, amount: number) => unallocated.set(party, asMoney((unallocated.get(party) ?? 0) + amount));
   const add = (id: string, amount: number) => cleared.set(id, asMoney((cleared.get(id) ?? 0) + amount));
   for (const p of payments) {
+    if (!hasHistory(p.status, payVoid(p.number), ar ? 'AR receipt' : 'AP payment', p.number)) continue;
     if (!p.journalEntryId && p.status !== 'COMPLETED') continue;
     const date = journal.get(p.journalEntryId ?? '')?.date ?? p.date;
     if (date > asOf) continue;
@@ -81,6 +98,7 @@ export async function readSubledgerHistory<T extends Document>(
       toNumber(p.totalAmount) + discount - penalty - p.allocations.reduce((s, a) => s + toNumber(a.amountApplied) + toNumber(a.discountAmount), 0));
   }
   for (const n of notes) {
+    if (!hasHistory(n.status, noteVoid(n.number), ar ? 'credit note' : 'debit note', n.number)) continue;
     if (n.settlementType === (ar ? 'REFUND' : 'REFUND_FROM_VENDOR') && journal.get(n.journalEntryId ?? '')?.lines.some(l => l.description?.startsWith(ar ? 'AR reduction - ' : 'AP reduction - '))) {
       warnings.push(`Refund ${n.number} was posted to ${ar ? 'AR' : 'AP'} instead of cash; review and reverse/reissue the original posting`);
     }
