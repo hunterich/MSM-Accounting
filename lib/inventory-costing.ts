@@ -245,9 +245,14 @@ export async function reverseAddedLayers(
       },
     })
     await tx.inventoryLot.delete({ where: { id: lot.id } })
-    if (await getOrgCostingMethod(tx, orgId) === 'WEIGHTED_AVERAGE') {
-      await refreshWarehouseCarryingValues(tx, orgId, lot.itemId, lot.warehouseId)
-    }
+  }
+  if (method === 'WEIGHTED_AVERAGE') {
+    // Settlement unwinds release covered quantity for every receipt line at
+    // once. Reconcile only after all those lines have been removed; a partial
+    // removal temporarily has physical stock beside the reopened shortage.
+    const scopes = new Map<string, { itemId: string; warehouseId: string | null }>()
+    for (const lot of lots) scopes.set(`${lot.itemId}:${lot.warehouseId ?? ''}`, lot)
+    for (const scope of scopes.values()) await refreshWarehouseCarryingValues(tx, orgId, scope.itemId, scope.warehouseId)
   }
   return asMoney(valueRemoved)
 }
