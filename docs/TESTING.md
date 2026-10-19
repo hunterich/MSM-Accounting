@@ -808,3 +808,48 @@ repair historical postings or silently redate pending documents.
 node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts control-close-policy period-close approval-engine bank-transaction linked-return-note
 node node_modules/@playwright/test/cli.js test e2e/control-close-policy.spec.ts e2e/period-close.spec.ts --project=chromium
 ```
+
+## ACC-02 settlement acceptance — 2026-10-19
+
+`settlement-acceptance.int.test.ts` runs eight isolated PostgreSQL cases: four
+scenarios, each on the customer (AR receipt) and supplier (AP payment) side.
+Payments go through the actual create and void routes. Held payments go through
+the actual approve and reject routes, which call the real approval engine.
+Invoices and bills are posted with the same helpers as
+`report-reconciliation.int.test.ts`. Every step asserts fixed values for
+document status, its settlement route, aging (`type=aging`) at dated snapshots,
+the discount and penalty GL accounts, cash and the control account GL.
+
+- **Cash + discount − penalty, partial then full, dated void.** A 1,000,000
+  document is settled by an approved 400,000 partial receipt, then an approved
+  590,500 receipt (588,000 principal + 2,500 penalty, with a 12,000 discount).
+  Nothing posts or settles while a payment awaits approval. The void route runs
+  with its clock at 5 October. September aging and GL stay settled (control 0,
+  discount 12,000, penalty 2,500). From 5 October the 600,000 is owed again and
+  discount/penalty net to zero.
+- **Rejection and failed approval.** Rejecting a held payment returns it to Draft
+  with no journal, so aging, GL and settlement are unchanged. A stale held payment
+  whose document has since been settled fails approval with 422. The request stays
+  Pending and the journal count, GL, aging and status are unchanged; it can then be
+  rejected.
+- **Multi-document allocation.** One payment of 450.41 settles 100.10 and 200.20
+  in full and 150.15 of 300.30, with 0.11 discount and 0.07 penalty. It checks
+  each document, aging per document and every journal line to the cent.
+- **Cent rounding.** An unrounded 150.105 against a 150.10 balance is refused
+  when submitted. One cent short stays Sent/Open with 0.01 in aging and control
+  GL, and the last cent settles the document.
+
+The last case found two defects, fixed here. Documents were marked Paid with
+0.01 still owed: `isSettled` now compares whole cents. The over-allocation guard
+rounded 150.105 down in floating point while PostgreSQL stores 150.11: it now
+rounds half-up in decimal. Both regressions fail against pre-fix `main`. The
+existing payment, settlement, reconciliation and concurrency cases still pass.
+Statuses already saved are not rewritten.
+
+Helper-level arithmetic (notes, refunds, helper-dated voids, opening balances,
+unapplied credits) remains covered by `report-reconciliation.int.test.ts` and
+`payment-settlement-status.int.test.ts`; these cases do not repeat it.
+
+```powershell
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts settlement-acceptance payment-settlement-status report-reconciliation oversell-overpay-concurrency
+```
