@@ -7,6 +7,7 @@ const indonesian: Record<string, string> = {
   'The new method applies to future stock postings. Receipt history and book value are preserved.': 'Metode baru berlaku untuk posting stok berikutnya. Riwayat penerimaan dan nilai buku tetap dipertahankan.',
   'No value adjustment': 'Tidak ada penyesuaian nilai',
   'Corrections require original stock-lot and recorded-cost tracking. Older invoices without complete tracking must be voided and replaced.': 'Koreksi memerlukan pelacakan lot stok asal dan biaya tercatat. Faktur lama tanpa pelacakan lengkap harus dibatalkan dan dibuat ulang.',
+  'Unavailable for refunds': 'Tidak dapat digunakan untuk pengembalian dana',
   'Pending financial approvals dated in this period': 'Persetujuan dokumen keuangan yang tertunda dan bertanggal dalam periode ini',
   'Resolve blocking items before closing: post outstanding journals and approve or reject pending financial documents dated in this period.': 'Selesaikan hal yang menghalangi tutup buku: posting jurnal yang tertunda dan setujui atau tolak dokumen keuangan yang menunggu persetujuan dan bertanggal dalam periode ini.',
   'Save correction': 'Simpan koreksi',

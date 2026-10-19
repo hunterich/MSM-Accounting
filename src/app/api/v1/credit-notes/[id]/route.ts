@@ -8,6 +8,7 @@ import { updateCreditNoteInputSchema } from '@/types/api';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { lockEligibleNoteReturn } from '@/lib/note-return-eligibility';
+import { validateNoteRefundAccount } from '@/lib/note-refund-account';
 
 export const runtime = 'nodejs';
 
@@ -141,6 +142,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         },
       });
 
+      await validateNoteRefundAccount(tx, orgId, updated.settlementType, updated.settlementAccountId, updated.arAccountId);
       // Auto-route the DRAFT → APPLIED finalize through the approval engine.
       // The update above may have already stamped status='APPLIED'; if approval
       // is required, hold the note at PENDING_APPROVAL and post NO GL.

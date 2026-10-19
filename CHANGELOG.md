@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — refund notes cannot bypass customer/vendor control balances
+- Credit/debit-note refunds refuse designated AR/AP control accounts when creating, editing, submitting or posting through approval. Active, postable cash/bank and holding asset accounts remain available; a cash refund does not reduce source invoice/bill debt or restock goods.
+- Refund pickers exclude configured and document-designated controls. Existing invalid selections remain visible as disabled history, with English/Bahasa guidance and valid replacement choices. Approval refusal rolls back its claim and journals; legitimate refunds and reversals, including reversal of an old incorrect refund, remain available.
+- Credit notes created from returns use the bank default for refunds, rather than the return's AR control. Empty selections do not show a historical unavailable-account option. Control metadata is requested only with `withControlFlags=1`; both refund forms opt in, while ordinary account-list requests avoid the historical control lookup.
+- Supplier refund drafts hydrate when notes arrive after account defaults, so an existing refund remains visible and repairable regardless of request order.
+- The company-scoped read-only `scripts/audit-note-refund-accounts.ts` identifies existing invalid refund accounts before an authorized release. No migration or historical rewrite. Bill/invoice charge and stock-adjustment offset validation is already covered by #194.
+
 ### Fixed — cent-exact AR/AP settlement (ACC-02)
 - An invoice or bill is marked Paid only when payments, discounts and applied notes clear its full total to the cent. Previously it became Paid with 0.01 still owed, while aging, its settlement panel and the control account still showed that cent outstanding. Such documents stay Sent/Open until the last cent is paid.
 - The over-allocation check rounds each payment, discount and penalty amount half-up to the cent, as the database stores it. Previously an unrounded amount such as 150.105 against a 150.10 balance was accepted and held for approval, stored as 150.11, then refused when approved. It is now refused when submitted.

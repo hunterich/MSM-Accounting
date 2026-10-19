@@ -5,6 +5,7 @@ import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, req
 import { withPermission } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { createCreditNoteInputSchema } from '@/types/api';
+import { validateNoteRefundAccount } from '@/lib/note-refund-account';
 
 export const runtime = 'nodejs';
 
@@ -68,6 +69,7 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
     if (d.salesReturnId) {
       await validateForeignKey(tx.salesReturn, { id: d.salesReturnId, organizationId: orgId }, 'Sales return not found in organization');
     }
+    await validateNoteRefundAccount(tx, orgId, d.settlementType, d.settlementAccountId, d.arAccountId);
     const number = await nextNumber(tx, 'CreditNote', 'number', 'CRN');
     return tx.creditNote.create({
       data: {
