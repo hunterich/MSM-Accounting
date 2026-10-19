@@ -121,9 +121,10 @@ function normalizeJE(raw: RawJournalEntry): JournalEntry {
  *  reference list, not a feed, so every consumer wants all of it. */
 const ACCOUNT_FETCH_LIMIT = 1000;
 
-export function useChartOfAccounts(filters?: Record<string, unknown>) {
+export function useChartOfAccounts(filters?: Record<string, unknown>, options: { enabled?: boolean } = {}) {
   const query = { limit: ACCOUNT_FETCH_LIMIT, ...filters };
   return useQuery({
+    enabled: options.enabled,
     queryKey: filters ? [...GL_KEYS.accounts, filters] : GL_KEYS.accounts,
     queryFn:  () =>
       api.get<RawAccount[] | { data: RawAccount[] }>('/api/v1/accounts', query).then((res) => {

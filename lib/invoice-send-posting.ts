@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { assertDocumentOffsetAccounts } from './document-offset-accounts';
 import { InventoryDocumentType } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
@@ -40,6 +41,7 @@ export async function postInvoiceSend(
   }
 
   const invoiceNumber = invoice.number;
+  await assertDocumentOffsetAccounts(tx, orgId, invoice.charges.map(charge => charge.accountId));
   const postingJournalIds: string[] = [];
   const invoiceLines = await tx.salesInvoiceLine.findMany({
     where: { invoiceId }, select: { id: true, itemId: true, quantity: true }, orderBy: { lineNo: 'asc' },

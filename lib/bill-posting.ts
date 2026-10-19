@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { assertDocumentOffsetAccounts } from './document-offset-accounts';
 import { InventoryDocumentType } from '@prisma/client';
 import { toNumber, asMoney } from './money';
 import { addCostLayer, lockInventoryItems } from './inventory-costing';
@@ -55,6 +56,7 @@ interface PostableBill {
  */
 export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill): Promise<void> {
   const lines = bill.lines ?? [];
+  await assertDocumentOffsetAccounts(tx, orgId, [...lines, ...(bill.charges ?? [])].map(line => line.accountId));
   if (lines.length === 0) return;
   for (const line of lines.filter(l => l.assetId)) {
     const asset = await tx.asset.findFirst({ where: { id: line.assetId!, organizationId: orgId, deletedAt: null }, include: { category: true, purchaseLine: true } });
@@ -215,6 +217,8 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
     const pphAccountId = await ensurePphPayableAccount(tx, orgId);
     journalLines.push({ accountId: pphAccountId, description: `PPh withholding - ${bill.number}`, debit: 0, credit: withholding });
   }
+  // Validate actual resolved offsets too: omitted accounts use configurable defaults.
+  await assertDocumentOffsetAccounts(tx, orgId, journalLines.map(line => line.accountId));
   if (apTotal > 0 && apAccountId) {
     journalLines.push({ accountId: apAccountId, description: `AP - ${bill.number}`, debit: 0, credit: apTotal });
   }

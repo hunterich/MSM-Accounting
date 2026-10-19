@@ -113,12 +113,12 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     const inWorkspace = workspaceTabId != null;
     const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const { data: billsData, isLoading: billsLoading } = useBills();
-    const bills = billsData?.data ?? [];
+    const bills = useMemo(() => billsData?.data ?? [], [billsData]);
     const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts({ withControlFlags: 1 });
     const { data: dnData, isLoading: debitNotesLoading } = useDebitNotes();
-    const debitNotes = dnData?.data ?? [];
+    const debitNotes = useMemo(() => dnData?.data ?? [], [dnData]);
     const { data: prData, isLoading: purchaseReturnsLoading } = usePurchaseReturns();
-    const purchaseReturns = prData?.data ?? [];
+    const purchaseReturns = useMemo(() => prData?.data ?? [], [prData]);
     const accountDefaultsConfig = useSettingsStore((s) => s.accountDefaults);
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -252,7 +252,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                 taxRate: linkedReturn?.taxRate ?? 11
             }));
         }
-    }, [state.returnDraft, state.debitId, resolvedAccountDefaults]);
+    }, [state.returnDraft, state.debitId, bills, debitNotes, purchaseReturns, resolvedAccountDefaults]);
 
     useEffect(() => {
         if (state.debitId) return;

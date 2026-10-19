@@ -13,6 +13,7 @@ import { nextInvoiceNumber } from '@/lib/invoice-number';
 import { enforceCustomerCreditLimit } from '@/lib/credit-limit';
 import { applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { assertItemsActive } from '@/lib/item-availability';
+import { assertDocumentOffsetAccounts } from '@/lib/document-offset-accounts';
 
 export const runtime = 'nodejs';
 
@@ -125,6 +126,7 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
       taxInclusiveByDefault: organization.taxInclusiveByDefault,
     });
 
+    await assertDocumentOffsetAccounts(tx, orgId, totals.charges.map((charge: { accountId?: string | null }) => charge.accountId));
     await enforceCustomerCreditLimit(tx, {
       organizationId: payload.organizationId,
       customerId: payload.customerId,

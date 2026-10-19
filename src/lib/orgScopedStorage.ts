@@ -19,7 +19,9 @@ export const orgScopedStorage = {
   },
   setItem: (k: string, v: string): void => {
     if (typeof localStorage === 'undefined') return;
-    try { localStorage.setItem(orgKey(k), v); } catch { /* private mode — state simply won't persist */ }
+    try { localStorage.setItem(orgKey(k), v); } catch {
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('msm:draft-storage-failed'));
+    }
   },
   removeItem: (k: string): void => {
     if (typeof localStorage === 'undefined') return;

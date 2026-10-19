@@ -28,6 +28,9 @@ import {
 } from '../../../utils/shopeeImport';
 import { formatIDR } from '../../../utils/formatters';
 import type { EcommerceConnection } from '../../../types';
+import { useAuthStore } from '../../../stores/useAuthStore';
+import { DRAFT_FLUSH_EVENT, useAccessScheduleStore } from '../../../stores/useAccessScheduleStore';
+import { importRecoveryKey, readImportRecovery, writeImportRecovery } from '../../../lib/importRecovery';
 
 // ── Wizard step discriminated union ──────────────────────────────────────────
 
@@ -40,6 +43,17 @@ type WizardStep =
     | 'done';
 
 const STEPS: WizardStep[] = ['upload', 'preview', 'mapping', 'configure', 'importing', 'done'];
+
+interface ImportCheckpoint {
+    step: WizardStep;
+    shopId: string;
+    parseResult: ShopeeParseResult | null;
+    localMappings: Record<string, string>;
+    recordPayment: boolean;
+    dateField: 'completionDate' | 'paymentDate' | 'orderDate';
+    fallbackDate: string;
+    importResult: MarketplaceImportResult | null;
+}
 
 // ── Component props ───────────────────────────────────────────────────────────
 
@@ -73,6 +87,11 @@ interface InactiveBlocked {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClose }) => {
+    const userId = useAuthStore(s => s.user?.id) || '';
+    const orgId = useAuthStore(s => s.org?.id) || '';
+    const recoveryKey = importRecoveryKey(userId, orgId);
+    const scheduleDenied = useAccessScheduleStore(s => s.denied);
+    const [recovered] = useState(() => readImportRecovery<ImportCheckpoint>(recoveryKey));
     const { data: connectionsData } = useEcommerceConnections();
     const shops: EcommerceConnection[] = connectionsData?.data ?? [];
     const updateConnection = useUpdateEcommerceConnection();
@@ -85,23 +104,26 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const { data: skuIndex, refetch: refetchItems } = useItemSkuIndex();
     const createItem = useCreateItem();
 
-    const [step, setStep] = useState<WizardStep>('upload');
-    const [shopId, setShopId] = useState<string>('');
+    // A lost response is ambiguous. Always re-preview an interrupted import;
+    // never automatically repost it or trust old approval/review checkboxes.
+    const [step, setStep] = useState<WizardStep>(recovered?.parseResult
+        ? (recovered.step === 'importing' ? 'configure' : recovered.step) : 'upload');
+    const [shopId, setShopId] = useState<string>(recovered?.shopId || '');
     const [file, setFile] = useState<File | null>(null);
-    const [parseResult, setParseResult] = useState<ShopeeParseResult | null>(null);
+    const [parseResult, setParseResult] = useState<ShopeeParseResult | null>(recovered?.parseResult || null);
     const [parsing, setParsing] = useState<boolean>(false);
     const [parseError, setParseError] = useState<string>('');
     const [headerReport, setHeaderReport] = useState<HeaderResolution | null>(null);
 
     // Item mapping state: { [productKey]: inventoryItemId }
-    const [localMappings, setLocalMappings] = useState<Record<string, string>>({});
+    const [localMappings, setLocalMappings] = useState<Record<string, string>>(recovered?.localMappings || {});
     const [creatingItems, setCreatingItems] = useState<boolean>(false);
     const [createError, setCreateError] = useState<string>('');
 
     // Configure state
-    const [recordPayment, setRecordPayment] = useState<boolean>(true);
-    const [dateField, setDateField] = useState<'completionDate' | 'paymentDate' | 'orderDate'>('completionDate');
-    const [fallbackDate, setFallbackDate] = useState<string>('');
+    const [recordPayment, setRecordPayment] = useState<boolean>(recovered?.recordPayment ?? true);
+    const [dateField, setDateField] = useState<'completionDate' | 'paymentDate' | 'orderDate'>(recovered?.dateField || 'completionDate');
+    const [fallbackDate, setFallbackDate] = useState<string>(recovered?.fallbackDate || '');
     const [reviewState, setReviewState] = useState<{ key: string; result: MarketplaceImportPreviewResult } | null>(null);
     const [reviewLoading, setReviewLoading] = useState<boolean>(false);
     const [reviewError, setReviewError] = useState<string>('');
@@ -110,8 +132,22 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const [alreadyImportedOrderNos, setAlreadyImportedOrderNos] = useState<Set<string>>(new Set());
 
     // Import state
-    const [importResult, setImportResult] = useState<MarketplaceImportResult | null>(null);
+    const [importResult, setImportResult] = useState<MarketplaceImportResult | null>(recovered?.importResult || null);
     const [importError, setImportError] = useState<string>('');
+    const [recoveryFailed, setRecoveryFailed] = useState(false);
+    useEffect(() => {
+        if (!parseResult) return;
+        const preserve = () => {
+            if (!writeImportRecovery(recoveryKey, { step, shopId, parseResult, localMappings, recordPayment, dateField, fallbackDate, importResult } satisfies ImportCheckpoint)) setRecoveryFailed(true);
+        };
+        preserve();
+        window.addEventListener(DRAFT_FLUSH_EVENT, preserve);
+        window.addEventListener('pagehide', preserve);
+        return () => {
+            window.removeEventListener(DRAFT_FLUSH_EVENT, preserve);
+            window.removeEventListener('pagehide', preserve);
+        };
+    }, [recoveryKey, step, shopId, parseResult, localMappings, recordPayment, dateField, fallbackDate, importResult]);
 
     const selectedShop = useMemo<EcommerceConnection | undefined>(
         () => shops.find((s) => s.id === shopId),
@@ -164,6 +200,8 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     }, []);
 
     const handleClose = (): void => {
+        if (step !== 'done' && parseResult && !window.confirm('Discard this unfinished import and its browser recovery copy?')) return;
+        try { localStorage.removeItem(recoveryKey); } catch { /* keep the mounted state */ }
         resetAll();
         onClose();
     };
@@ -442,7 +480,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const currentReview = reviewState?.key === reviewKey ? reviewState.result : null;
 
     useEffect(() => {
-        if ((step !== 'mapping' && step !== 'configure') || !previewRequest) return;
+        if (!isOpen || scheduleDenied || (step !== 'mapping' && step !== 'configure') || !previewRequest) return;
         if (reviewState?.key === reviewKey) return;
         let active = true;
         setReviewState(null);
@@ -465,7 +503,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 setReviewError(error.message);
             });
         return () => { active = false; };
-    }, [step, previewRequest, previewOrders, reviewKey, reviewState]);
+    }, [isOpen, scheduleDenied, step, previewRequest, previewOrders, reviewKey, reviewState]);
 
     // ── Step 2: Bulk-create all unmatched products as inventory items ──────────
 
@@ -519,6 +557,10 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         isActive: true,
                     });
                 } catch (itemErr) {
+                    if ((itemErr as { code?: string }).code === 'ACCESS_SCHEDULE_DENIED') {
+                        setCreateError('Access hours ended. Created item mappings are preserved; resume the remaining items during allowed hours.');
+                        break;
+                    }
                     // Keep going — one bad product shouldn't block the other 150.
                     failures.set(p.key, `${sku || p.productName}: ${(itemErr as Error).message}`);
                     continue;
@@ -1151,7 +1193,9 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             onClose={step === 'importing' ? () => { /* blocked during import */ } : handleClose}
             size="xl"
         >
-            {/* Step indicators */}
+              {recovered?.parseResult && <p role="status" className="mb-3 text-sm text-amber-800">Recovered an import from this browser. Review fresh counts before importing; completed orders are checked for duplicates.</p>}
+              {recoveryFailed && <p role="alert" className="mb-3 text-sm text-red-700">Browser recovery could not be saved. Keep this page open to preserve your import setup.</p>}
+              {/* Step indicators */}
             <div className="flex gap-1 mb-4">
                 {STEPS.slice(0, 4).map((s, i) => (
                     <div
