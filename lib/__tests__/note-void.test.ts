@@ -31,7 +31,7 @@ describe('voidCreditNote', () => {
     await voidCreditNote(tx as never, 'org-a', 'cn-1', { date: DATE });
 
     expect(assertPeriodOpen).toHaveBeenCalledWith(tx, 'org-a', DATE);
-    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
+    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', { date: DATE, memo: 'Void credit note: CN-0001' });
     expect((tx.creditNote.updateMany as any).mock.calls[0][0]).toMatchObject({
       where: expect.objectContaining({ status: { not: 'VOID' } }),
       data: { status: 'VOID' },
@@ -65,7 +65,7 @@ describe('voidDebitNote', () => {
     const tx = makeDnTx(dnApplied());
     await voidDebitNote(tx as never, 'org-a', 'dn-1', { date: DATE });
 
-    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-2', expect.objectContaining({ date: DATE }));
+    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-2', { date: DATE, memo: 'Void debit note: DN-0001' });
     expect((tx.debitNote.updateMany as any).mock.calls[0][0]).toMatchObject({
       where: expect.objectContaining({ status: { not: 'VOID' } }),
       data: { status: 'VOID' },

@@ -49,7 +49,7 @@ describe('voidApPayment', () => {
       where: { id: 'pay-1', status: { not: 'VOID' } },
       data: { status: 'VOID' },
     });
-    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', expect.objectContaining({ date: DATE }));
+    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-1', { date: DATE, memo: 'Void AP payment: PAY-0001' });
     expect(tx.aPPaymentAllocation.deleteMany).not.toHaveBeenCalled();
   });
 
@@ -91,7 +91,7 @@ describe('voidArPayment', () => {
       where: { id: 'rcpt-1', status: { not: 'VOID' } },
       data: { status: 'VOID' },
     });
-    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-2', expect.objectContaining({ date: DATE }));
+    expect(reverseJournalEntry).toHaveBeenCalledWith(tx, 'je-2', { date: DATE, memo: 'Void AR receipt: RCPT-0001' });
     expect(tx.aRPaymentAllocation.deleteMany).not.toHaveBeenCalled();
   });
 });
