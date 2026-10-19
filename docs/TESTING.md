@@ -689,6 +689,26 @@ legacy payment/refund postings. Review the original documents and backup/audit
 evidence before correcting them through approved reversal/reissue procedures.
 This change does not automatically amend existing posted journals.
 
+ACC-02 cutoff/reversal history (#167): `subledger-cutoff-history.test.ts`
+pins all six exact void memo formats, checks cancellation at Jakarta midnight,
+and keeps aging and statement balances consistent before and after cancellation.
+Multiple invoice recognition/COGS reversals may share one memo and date. Missing
+reversal records, unrecognised memo formats, or conflicting reversal dates now
+produce a warning naming the affected invoice, bill, receipt, payment or note.
+Unverifiable items are omitted from reconstructed movements rather than given
+an invented cancellation date; the warning means the report is incomplete and
+its past balances cannot be confirmed. Deleted legacy payment allocations keep
+their existing warning. Structured reversal links remain a separate schema task.
+The database reconciliation regression also pins the actual void writers' memos
+and checks these warnings through aging, party-balance and statement endpoints.
+
+Verification on 2026-10-19: all five `report-reconciliation.int.test.ts` cases
+passed against the existing Docker QA PostgreSQL `_test` database, including
+AR/AP later voids, exact writer memo contracts and missing-history warnings.
+The unit suite passed all 1,357 tests; the four void-writer test files passed
+again after strengthening their exact memo assertions (28 tests). TypeScript
+checking passed. No deployment or production database changes were performed.
+
 Manual control-account journals without a customer/vendor link, imported
 opening balances without matching GL entries, and custom control-account
 configuration still require reconciliation review. These checks are regression

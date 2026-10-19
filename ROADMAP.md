@@ -1,7 +1,6 @@
-# MSM Accounting Software — Improvement Roadmap
+# MSM Accounting — Delivery Plan and Feature Backlog
 
-> Benchmarked against ERPNext (open-source ERP).
-> Created 2026-02-27 | Latest released changelog version: v1.1.0 | Reconciled with code/tests: 2026-10-13
+> Active delivery plan updated 2026-10-19. The older module inventory below includes historical ERPNext comparisons; it is not evidence of Accurate replacement readiness.
 
 ---
 
@@ -9,17 +8,108 @@
 
 The first target customers are small distribution and e-commerce companies in Indonesia. Prioritize purchasing and partial goods receipts, warehouse inventory/costing, sales fulfillment and returns, marketplace settlement reconciliation, and financial reports. The long-term objective is an application that can replace Accurate for these businesses; module presence alone does not prove operational or accounting readiness.
 
+## Active delivery checklist
+
+**First release outcome:** a pilot business can run purchases, stock, sales,
+receipts/payments, returns, marketplace settlements and month-end reporting in
+MSM, with independently reconciled balances and recoverable data. We will verify
+the pilot's actual workflows before claiming it can replace their current system.
+
+Implementation owner: Codex. Scope, workflow acceptance and release approval:
+the business owner. Accounting acceptance: the business's finance reviewer.
+These are responsibilities, not assignments or messages to external people.
+
+### Milestone 1 — Accounting that survives real transactions
+
+- [x] **ACC-01 — receipt/payment account validation and note-aware sales/aging** — merged in #155; deployment verification remains open.
+- [x] **INV-00 — sales, POS, adjustment/count and purchase stock locking** — implemented scopes merged in #153, #157 and #158; this does not cover every inventory writer or prove Weighted Average reconciliation.
+- [x] **INV-01 — remaining inventory writers and reversals** — audited opening stock, POS batch receiving, sales-return restocking and return voids; safeguards merged in #161/#162. Return voids protect consumed layers and per-invoice totals; supplier-return restoration uses item locks; opening/batch additions coordinate with sales; missing usable batch posting accounts refuse before writes. Combined local verification passed 1,240 unit tests and 320 PostgreSQL tests (plus the existing Weighted Average expected failure); both PR heads passed all CI jobs. Deployment/pilot verification remains open.
+- [~] **INV-02 — Weighted Average valuation reconciliation (#170)** — stored lot carrying values, warehouse-scoped consumption, receipt identities and prospective method changes merged in #174; reversal marking/guards merged in #176; approved negative-stock receipt-date COGS settlement merged in #177. The former hard negative-stock regression passes. Historical audit/initialization, migration/recovery and remaining browser/finance/release acceptance stay open; see #170 and the detailed release checklist below. Depends on INV-01.
+- [~] **ACC-02 — settlement and close acceptance (#167)** — linked-note safeguards #165, control/close guards #168 and fixed cash/discount/penalty settlement acceptance #192 are merged. Independent per-control reconciliation is under review in #191, cutoff/reversal history in #196, and actual migration-opening acceptance in #197; open PRs are not completion evidence. Browser/finance and release acceptance remain open. AR/AP acceptance can proceed alongside INV-02; full inventory/month-end acceptance still depends on it. Keep financial posting separate from stock restocking.
+- [x] **ACC-02 — linked return/note eligibility and concurrency (#163)** — merged in [PR #165](https://github.com/hunterich/MSM-Accounting/pull/165), with all three CI jobs green on the final commit. Both AR/AP sides enforce party/source/company matching and refuse Draft/Void returns; pending notes block void and rejection permits it. Thirty-four PostgreSQL cases cover application/submission races, approval/rejection, refunds, changed links after waits and exact accounting/stock rollback. Deployment and pilot verification remain open; the local production read-only audit found zero affected notes at 11:23 WIB on 2026-10-13. Rerun the audit on every server before release.
+- [ ] **ACC-02 policy follow-ups — #164 / #166** — finance must decide aggregate linked-note caps and preservation of financial-note intent when a Draft return is deleted. Track separately; neither is silently included in #165 or the INV-02 scope.
+- [x] **ACC-02 — document offset/refund safeguards (#169, engineering)** — refund controls merged in #172 and document-offset controls in #194. Historical audit, deployment and finance verification remain separate from the merged guards.
+
+**Exit gate:** no unexplained subledger/control-account differences in the agreed
+scenarios; concurrent operations either post once or fail with complete rollback.
+Remaining limitations are explicit and acceptable for the pilot's costing method.
+
+### Milestone 2 — A distributor can complete its working day
+
+- [ ] **DIST-01 — approve the pilot workflow and sample data (#178)** — agree warehouses, costing method, purchase/sale units, pricing tiers, delivery flow, opening balances and representative transactions. Identify which existing screens already satisfy each step before building more.
+- [ ] **DIST-02 — purchase-to-payment and sale-to-receipt acceptance (#179)** — complete browser journeys for partial deliveries, outstanding orders, returns, partial settlements and stock counts; verify quantities, document links and exact accounting. Build only the gaps found in DIST-01.
+- [ ] **DIST-03 — purchase/stock/sales unit conversion (#180)** — support and test the required carton/pack/piece conversions with fractional quantities and cost/price consistency. Depends on DIST-01 and INV-02.
+- [ ] **DIST-04 — wholesale pricing and warehouse fulfillment (#181)** — deliver the pilot's customer price tiers and agreed warehouse movement/fulfillment flow; verify stock and invoice values through forms. Depends on DIST-01; audit existing warehouse functionality first.
+
+**Exit gate:** the pilot can finish one representative business day, including
+returns and corrections, without editing the database or using an external sheet
+to repair stock or accounting balances.
+
+### Milestone 3 — An e-commerce seller can reconcile its payouts
+
+- [ ] **ECOM-01 — order/import reliability (#182)** — validate the existing Shopee/TikTok import workflow with real sanitized files: duplicate/retry prevention, SKU mapping, cancellations and stock posting. Agree supported inputs; automatic live platform ingestion is a separate scope.
+- [ ] **ECOM-02 — settlement-to-bank reconciliation (#183)** — trace orders, gross sales, marketplace fees, discounts, refunds, wallet/clearing balances and bank payouts. Provide a usable mismatch queue and prove each amount reaches the intended ledger account. Depends on ECOM-01 and ACC-02.
+- [ ] **ECOM-03 — SKU/channel margin report (#184)** — show sales, returns, COGS and allocatable marketplace costs for the supported inputs; reconcile report totals to posted transactions and define the treatment of unallocated costs. Depends on ECOM-02 and INV-02.
+
+**Exit gate:** a real sample settlement reconciles from orders through the bank
+payout, with every remaining difference identified and reviewable.
+
+### Milestone 4 — Month-end, migration and release readiness
+
+- [ ] **OPS-01 — full filtered exports and onboarding (#185)** — export all matching rows safely; dry-run customer/vendor/item and opening-balance imports with validation and reconciliation. Page-only CSV remains documented until full export ships.
+- [ ] **OPS-02 — finance operations visibility (#186)** — expose recurring/subscription last-run results and errors, then add bounded bulk-payment digests. Email delivery remains disabled until the operator authorizes setup and verifies delivery.
+- [ ] **OPS-03 — release and recovery gate (#187)** — verify final CI, stage the merged changes, run company-scoped smoke/reconciliation checks, validate backup restore with attachments and permissions, and meet the agreed capacity target in `docs/capacity-target.md`. Deployment is a separate authorized step; merging is not deployment.
+- [ ] **OPS-04 — pilot language and document review (#188)** — verify required English/Bahasa forms, errors and printed documents end to end, using the pilot's approved accounting/tax settings.
+
+### Milestone 5 — Prove replacement with a real pilot
+
+- [ ] **PILOT-01 — parallel run and sign-off (#189)** — use sanitized copies or an explicitly authorized pilot environment for one complete accounting period alongside the current system. Compare opening/closing balances, inventory, AR/AP, marketplace payouts and financial statements; record and resolve differences. Depends on milestones 1–4.
+- [ ] **PILOT-02 — cutover decision (#190)** — business owner and finance reviewer accept the workflow, reconciliations, known limitations, migration and recovery plan before production cutover. Expand to another company only after the first pilot passes.
+
+## How work is tracked
+
+The active checklist above controls execution; the longer sections below are a
+backlog. GitHub milestones M1–M5 mirror these delivery gates; linked issues hold
+current acceptance evidence. `[x]` marks the stated completed scope, `[~]` means
+partial/in progress, and `[ ]` means acceptance remains open. Each engineering
+task gets a GitHub issue or a clearly scoped PR with
+its task ID, acceptance criteria, dependencies and test evidence. Link that issue
+or PR back to its checkbox when created. Do not create a new feature merely
+because its module appears in the backlog.
+
+Work moves through **Ready → In progress → In review → Merged → Deployed →
+Verified with pilot**. Track those states explicitly in task/PR notes. Check an
+implementation checkbox only with evidence; record deployment and operational
+acceptance separately. Keep one feature in progress, incorporate review findings,
+and finish its acceptance checks before selecting the next task. A newly found
+accounting corruption/security blocker can interrupt that order; other findings
+go into a follow-up task rather than expanding the PR indefinitely.
+
+For each PR: fixed example amounts and expected behavior, appropriate unit/
+isolated PostgreSQL/browser checks, current CI evidence, updated documentation,
+and business review where the workflow changes. Never use production data for
+automated tests. Broader CRM, manufacturing, clinic/pharmacy, advanced enterprise
+and new payroll features are outside the initial distribution/e-commerce pilot.
+
+**Next sequence:** finish remaining INV-02 and ACC-02 acceptance (issues #170 /
+#167), including review of #191/#196/#197, then DIST-02 → ECOM-01 → ECOM-02.
+DIST-01 can be clarified alongside the accounting work; DIST-03/DIST-04 move
+ahead of distribution acceptance if the pilot needs them. Distribution and
+e-commerce milestone order can be adjusted when
+the pilot business is selected. Calendar estimates follow scoped acceptance
+criteria and pilot availability, not the number of unchecked backlog entries.
+
 ## Release validation still required
 
-- [~] **INV-02 — inbound-void posting-order guard (2026-10-16)** — WA allows mixed-price inbound voids and posted bill edits when no later stock issue exists for the same item/warehouse; a later issue refuses with its document identifier. Issues already reversed (sale/supplier-return/decrease voids) and other receipts' void removals no longer block (2026-10-18, `reversedAt` marking; replaces the #174 link column via a backfill-and-drop migration). Immediate return void succeeds again; FIFO keeps its value guard. New posting sequence/inbound links require migration; legacy chronology is not guessed. Negative-stock posting remains unfinished. Keep #171 unmerged and resolve duplicate #173 migration history before preparing review.
+- [~] **INV-02 — inbound-void posting-order guard (merged #174/#176)** — WA permits mixed-price inbound voids and bill edits when no later stock issue exists in the same item/warehouse; a later issue is named in the refusal. Reversed issues no longer block. FIFO retains its carrying-value guard. Posting-order and reversal-marking migrations are merged; legacy chronology is not guessed. #171 and duplicate migration PR #173 are closed because their work was incorporated in #174. Authorized migration, legacy audit and release verification remain open.
 
-- [~] **INV-02 — approved negative-stock receipt policy (2026-10-15)** — finance selected receipt-date COGS adjustments while preserving the original estimated sale. Example: two units sold at estimated 100, received at 120, add 40 COGS on receipt. Exact cumulative allocation has eleven passing unit cases for partial receipts, excess stock, cheaper receipts, fractional quantities and rounding. Posting, persisted settlement links, reversals, warehouse concurrency and real-database acceptance remain to implement; the existing negative-stock integration case still fails.
+- [~] **INV-02 — approved negative-stock receipt policy (merged #177)** — finance-approved receipt-date COGS adjustments preserve the original estimated sale. Two units sold at estimated 100 and received at 120 add 40 COGS on receipt. Persisted shortfall/receipt/journal links, partial settlements and atomic reversals are implemented. The final PR passed all three CI jobs, including 487 PostgreSQL cases and 1,301 unit tests; the old hard negative-stock regression now passes. Historical untracked pools require review; production audit, migration and finance/release acceptance remain open.
 
-- [~] **INV-02 — exact receipt line value** — direct bills and PO receipts now preserve booked line value separately from unit-price precision; eight FIFO/WA and tax-mode regressions reproduce the old 999.99-stock/1,000-GL mismatch and pass after the fix. Full depletion and reversal retain exact cost and receipt identity. Historical remediation, PO receive-route/race/browser acceptance and negative-stock compatibility remain open.
+- [~] **INV-02 — exact receipt line value (merged #174)** — direct bills and PO receipts preserve booked line value separately from unit-price precision. Eight FIFO/WA and tax-mode regressions reproduce and fix the old 999.99-stock/1,000-GL mismatch; full depletion and reversal preserve exact cost and receipt identity. Negative-stock settlement subsequently merged in #177. Historical audit, remaining PO receive-route/race/browser and release acceptance stay open.
 
-- [~] **INV-02 — unassigned outbound warehouse isolation** — new supplier-return/receipt races exposed consumption from another warehouse when the return's warehouse was NULL. Non-sale outbound paths now use only the unassigned pool for availability and consumption; unspecified sales preserve actual-source fulfillment. Four supplier-return/direct-bill-receipt races and two FIFO/WA adjustment/refusal cases pass; 30 targeted cases pass. Historical audit/remediation, PO receipts, negative-stock compatibility and release acceptance remain open.
+- [~] **INV-02 — unassigned outbound warehouse isolation (merged #174)** — non-sale outbound paths use only the unassigned pool when warehouse is NULL; unspecified sales preserve actual-source fulfillment. Four supplier-return/direct-bill-receipt races and two FIFO/WA adjustment/refusal cases pass. Negative-stock settlement subsequently merged in #177. Historical audit, remaining PO receipt coverage and finance/release acceptance stay open.
 
-- [~] **INV-02 — customer-return concurrency acceptance** — six additional Weighted Average restock/void-versus-sale races pass in both orders, including exact rollback when a dependent sale or consumed-return void is refused. Original returned cost, warehouse isolation, COGS and AR are checked; 24 targeted return/warehouse cases pass. Supplier-return/receipt races, negative-stock policy and full release acceptance remain pending.
+- [~] **INV-02 — customer-return concurrency acceptance (merged #174)** — six warehouse-scoped restock/void-versus-sale races pass in both orders, checking original return cost, exact stock/GL/COGS, AR isolation and complete rollback on refusal. Supplier-return/direct-bill-receipt races are also covered. Remaining race matrix and full month-end/browser/finance/release acceptance stay open under #170.
 
 - [~] **INV-02 — method-change monthly-close acceptance** — both real PostgreSQL lock orders pass: close-first refuses the change without stock changes; change-first makes close wait. Receipt identities, ledger/journal rows and exact lot/Inventory GL values are preserved. Sixteen targeted method/warehouse/monthly-close cases pass. Fiscal-year close, full race matrix and release acceptance remain open.
 
@@ -50,19 +140,18 @@ The first target customers are small distribution and e-commerce companies in In
 - [ ] **ACC-02 — release verification** — deploy #165 only as an authorized release, rerun `scripts/audit-linked-note-returns.sql` on each production database and verify company-scoped application/approval/refund/void workflows. Local production audit on 2026-10-13 at 11:23 WIB found zero linked Draft/Pending notes and zero invalid notes; other servers and subsequent data changes remain unchecked. Merged engineering work does not certify deployment or pilot readiness.
 - [ ] **ACC-02 — note-value cap policy (#164)** — finance must decide gross/net basis, price adjustments, tax/rounding and whether pending notes reserve value before any aggregate cap is implemented.
 - [ ] **ACC-02 — draft-return deletion/link policy (#166)** — decide whether deletion should be blocked while financial notes are linked or require explicit unlinking with an audit record. Cover AR/AP and concurrent deletion/submission; preserve legitimate standalone notes. Non-blocking follow-up to #165.
-- [~] **INV-02 — Weighted Average valuation (#170)** — finance approved remaining book value / remaining quantity, preserving original purchase prices. PostgreSQL reproduction confirms successive partial sales overstate COGS (11,000 receipts → 11,466.67 COGS, zero stock and -466.67 Inventory). First bounded implementation in [draft PR #171](https://github.com/hunterich/MSM-Accounting/pull/171) uses the recorded pool and refuses inconsistent scope/residuals; ten regressions cover concurrent sales, recorded-value invoice void, new receipts, rounding and warehouses. Review/merge, separate lot carrying values, negative-stock/historical diagnostics and receipt/return/adjustment/correction/reversal acceptance remain outstanding. Replace the existing expected-failure regression only when lot carrying values reconcile to ledger/GL. Deployment and finance acceptance remain pending; see #170 and docs/TESTING.md.
-- [~] **ACC-02 — full settlement and close acceptance** — #165 completes linked-note safeguards; existing tests also cover historical voids, penalties and some opening balances. AR/AP acceptance can proceed before INV-02; full inventory/month-end acceptance still depends on INV-02. Remaining scope and two finance decisions are listed below.
+- [~] **INV-02 — Weighted Average valuation (#170)** — the successive-sale defect (11,000 receipts → 11,466.67 COGS with zero stock) is addressed by stored carrying values and warehouse-scoped book-value consumption in merged #174. #176 fixes reversal chronology and #177 implements approved negative-stock settlement. Original receipt costs remain traceable. #171 is closed as incorporated. Historical audit/initialization, remaining acceptance and authorized release verification stay open; see #170 and docs/TESTING.md.
+- [~] **ACC-02 — full settlement and close acceptance** — #165 completes linked-note safeguards; existing tests also cover historical voids, penalties and some opening balances. AR/AP acceptance can proceed before INV-02; full inventory/month-end acceptance still depends on INV-02. Merged settlement acceptance #192 and the remaining reconciliation, migration, cutoff and browser/finance scope are listed below.
 
-INV-02 implementation continues on `codex/inv02-lot-carrying-values` after draft
-#171. Stored lot carrying values, monetary draws, separate warehouse movement costs
-and coordinated prospective method changes are implemented on the unfinished
-branch. The additive migration was applied only to isolated QA. Warehouse/return/
-void/POS/correction and method-switch tests pass, including unchanged 7,802.50
-ledger/lots/GL and retained receipt identities. The old expected-failure now passes
-against actual stored values. A NEW hard negative-stock compatibility regression
-still fails; finance approved receipt-date COGS adjustments, with implementation pending. Migration/legacy
-initialization, remaining races, browser and release acceptance are outstanding. See
-`docs/INV-02-CARRYING-VALUES.md` and #170. This unfinished branch is not merge-ready.
+INV-02 engineering increments #174, #176 and #177 are merged. Stored lot
+carrying values, monetary draws, warehouse movement costs, coordinated prospective
+method changes and receipt-date shortage settlement now have passing regressions.
+The final #177 head passed all three CI jobs, including 487 PostgreSQL cases;
+the former negative-stock hard failure is resolved. These results do not certify
+legacy inventory initialization or production balances. Keep historical audit,
+authorized migration/recovery, remaining finance/browser/month-end acceptance and
+release verification open under #170. See `docs/INV-02-CARRYING-VALUES.md` and
+`docs/INV-02-NEGATIVE-STOCK.md`.
 
 ### ACC-02 acceptance scope and decisions
 
@@ -72,14 +161,14 @@ Before changing posting or close behavior, resolve these decisions explicitly:
 - [x] **Pending financial approvals at close — finance approved 2026-10-13.** Block close while financial documents dated inside the period await approval; approve or reject them first. Include invoices, bills, credit/debit notes, receipts/payments, returns, stock adjustments and payroll (posting date = payroll period end). Exclude orders whose approval posts no GL. No automatic redating.
 - [x] **Control/close guards — engineering merged ([PR #168](https://github.com/hunterich/MSM-Accounting/pull/168)).** All three CI jobs passed on the final reviewed commit. Manual creation/editing and bank posting enforce the approved control-account policy; checklist and monthly close enforce period-scoped financial holds. Automatic and explicit invoice submission share the period lock and recheck state under row locks. Thirty-three PostgreSQL cases cover both explicit-submit/close orders; ordinary expense journals and actual opening imports remain available. No migration or historical rewrite.
 - [ ] **Control/close guards — release verification.** Deploy #168 only as an authorized release, review historical direct-control differences and existing financial holds in closed months, then verify company-scoped manual/bank refusal, controlled opening entries, approval/rejection and close/reopen. Deployment and pilot acceptance remain pending. Overall ACC-02 is still partial; remaining reconciliation and acceptance are tracked in #167.
-- [~] **Document offset/refund account-role validation (#169)** — bounded refund implementation refuses configured/additional AR/AP controls at save/submission and posting/approval, retaining cash/bank/holding assets. Twenty-five PostgreSQL and two browser cases cover balances, rollback, historical reversal, picker repair and Bahasa guidance; read-only audit supplied. Review/merge and release checks are pending. Bill line/charge accounts, invoice charges and stock-adjustment offsets remain open; explain historical differences through #167 and do not rewrite journals automatically.
+- [x] **Document offset/refund account-role validation (#169) — engineering merged in #172/#194.** Refunds, bill lines/charges, invoice charges and stock-adjustment offsets reject configured/additional AR/AP controls at validation and posting/approval. Valid ordinary accounts and historical reversal paths remain supported. #169 is closed. Historical audits, authorized release checks and finance acceptance remain pending; explain differences through #167 and do not rewrite journals automatically.
 
 Engineering acceptance checklist after those decisions:
 
-- [~] **Independent reconciliation per control account.** Compare dated GL postings with independently calculated customer/vendor positions, including actual invoice/bill/payment/note account overrides, opening balances, advances/unallocated payments and standalone notes. Show named differences; a combined company total must not hide differences between two control accounts. **Engineering on `claude/acc02-control-reconciliation`:** read-only `reports/control-reconciliation` API per AR/AP control plus an informational close-checklist item. Six PostgreSQL cases cover default/override/earlier-default controls, offsetting manual journals, discount/penalty, advances, standalone notes, void after cutoff, legacy refund/unreversed-void/control-coded lines and the actual migration opening path; subledger totals equal aging. Review/merge, a Reports screen, production read-only runs and finance acceptance remain.
+- [ ] **Independent reconciliation per control account.** Compare dated GL postings with independently calculated customer/vendor positions, including actual invoice/bill/payment/note account overrides, opening balances, advances/unallocated payments and standalone notes. Show named differences; a combined company total must not hide differences between two control accounts. Implementation/evidence is under review in PR #191; keep acceptance open until reviewed and merged.
 - [x] **Penalty and discount scenarios — engineering merged ([PR #192](https://github.com/hunterich/MSM-Accounting/pull/192)).** All three CI jobs passed on the final commit. `settlement-acceptance.int.test.ts` adds eight PostgreSQL cases, each on the customer and supplier side, through the actual payment create/void and approve/reject routes. They cover cash + discount − penalty, partial then full settlement, multi-document allocation, cent rounding, rejected and failed approvals with full rollback, and a void dated after the cutoff. Each case checks fixed document status, aging, discount/penalty GL and control GL values. Fixes two defects: documents were marked Paid with 0.01 still owed, and unrounded amounts passed the submission over-allocation check. No migration and no rewrite of existing statuses. Browser/finance acceptance remains under its own item below.
-- [~] **Migration opening balances.** Use the actual opening-trial-balance/migration path, then invoices/bills and payments. Show a separate opening reconciliation line and prove the customer/vendor opening seed agrees with the GL exactly once. Existing synthetic opening-journal tests are a baseline, not complete migration acceptance. The control-reconciliation case commits a real migration batch, settles its opening invoice/bill and shows a duplicate customer/vendor opening seed as a named opening difference; browser import acceptance remains.
-- [ ] **Cutoff and reversal history.** Preserve an invoice/bill in earlier reports when voided after cutoff; verify statement, aging and GL before/after the reversal, Jakarta boundaries and missing legacy history warnings. Fix expected reversal memo formats in regression tests because current history uses memo matching. A structured original/reversal journal link is a separately scoped schema follow-up; no guessed historical backfill in this pass.
+- [ ] **Migration opening balances.** Use the actual opening-trial-balance/migration path, then invoices/bills and payments. Show a separate opening reconciliation line and prove the customer/vendor opening seed agrees with the GL exactly once. Existing synthetic opening-journal tests are a baseline, not complete migration acceptance. Actual migration-route evidence is under review in PR #197; keep this item open until reviewed and merged.
+- [ ] **Cutoff and reversal history.** Preserve an invoice/bill in earlier reports when voided after cutoff; verify statement, aging and GL before/after the reversal, Jakarta boundaries and missing legacy history warnings. Fix expected reversal memo formats in regression tests because current history uses memo matching. A structured original/reversal journal link is a separately scoped schema follow-up; no guessed historical backfill in this pass. Implementation and regression evidence are under review in PR #196, with five Docker PostgreSQL report cases and 1,349 clean-branch unit tests passing locally; merge/release evidence remains separate.
 - [ ] **Approval and close races.** Test genuine approval-engine transactions and close/post overlap with PostgreSQL. Enforce the chosen pending-approval policy, exact rollback, closed-period refusal and authorized reopen behavior. Reuse existing period-close tests; do not reimplement working locks.
 - [ ] **Browser and finance acceptance.** Complete the agreed AR/AP workflow through forms and reports; compare fixed expected values with stock-independent financial postings. Keep cash refunds separate from debt settlement and physical returns separate from financial notes. Record passing evidence, explained exceptions and deployment/pilot verification separately.
 
@@ -629,7 +718,7 @@ See `docs/TESTING.md` for database selection and company-scoped usage.
 
 ---
 
-## Recommended Execution Order
+## Historical version sequence (not the active delivery order)
 
 ```
 v0.5.x — DB infrastructure done (PostgreSQL + Prisma schema applied; customizable dashboard done)
