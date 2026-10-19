@@ -7,6 +7,7 @@ import { createRoleInputSchema } from '@/types/api';
 import { normalizePermissionMatrix, roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
 import type { ModuleKey, RoleType, InvoiceAccessScope } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { scheduleValidationError } from '@/lib/access-schedule';
 
 export const runtime = 'nodejs';
 
@@ -37,6 +38,8 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, asy
   const parsed = createRoleInputSchema.safeParse(await req.json());
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid role payload', 400);
   const d = parsed.data;
+  const scheduleError = scheduleValidationError(d);
+  if (scheduleError) return err(scheduleError, 400);
   const matrix = normalizePermissionMatrix(d.permissions as never);
 
   // Privilege-escalation guard: only an ADMIN actor may mint an admin-capable

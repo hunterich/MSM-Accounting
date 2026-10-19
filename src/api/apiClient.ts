@@ -7,6 +7,7 @@
 
 import { resolveApiBase } from '../lib/apiBase';
 import { getActiveOrgId, clearActiveOrg } from '../lib/activeOrg';
+import { useAccessScheduleStore } from '../stores/useAccessScheduleStore';
 
 const API_BASE = resolveApiBase();
 
@@ -17,7 +18,7 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
   };
 }
 
-async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { headers: extraHeaders, ...rest } = options;
   const isFormData = typeof FormData !== 'undefined' && rest.body instanceof FormData;
   const activeOrg = getActiveOrgId();
@@ -38,10 +39,20 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
       clearActiveOrg();
       window.location.assign('/');
     }
-    throw Object.assign(new Error(body.error || `API error ${res.status}`), { status: res.status });
+    if (res.status === 403 && body.code === 'ACCESS_SCHEDULE_DENIED') {
+      useAccessScheduleStore.getState().deny();
+    }
+    throw Object.assign(new Error(body.error || `API error ${res.status}`), { status: res.status, code: body.code });
   }
 
   return res.json() as Promise<T>;
+}
+
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const write = !!options.method && options.method !== 'GET';
+  if (write) useAccessScheduleStore.getState().pending(1);
+  try { return await request<T>(path, options); }
+  finally { if (write) useAccessScheduleStore.getState().pending(-1); }
 }
 
 function buildUrl(path: string, params?: Record<string, unknown>): string {
