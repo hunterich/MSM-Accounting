@@ -7,6 +7,7 @@ import { getActiveOrgId } from '../../lib/activeOrg';
 import { shouldShowCompanyPicker } from '../../lib/companyPicker';
 import ForcedPasswordChange from './ForcedPasswordChange';
 import CompanyPicker from '../../views/CompanyPicker';
+import AccessScheduleBoundary from './AccessScheduleBoundary';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -82,5 +83,5 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps): React
     }
   }
 
-  return <>{children}</>;
+  return <AccessScheduleBoundary>{children}</AccessScheduleBoundary>;
 }

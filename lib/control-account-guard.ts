@@ -2,6 +2,25 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { loadOrgAccountDefaults, resolveAccountDefaultId } from './account-defaults';
 
+/** Shared account metadata contract from refund PR #172, kept compatible for integration. */
+export async function listPartyControlAccountIds(tx: Prisma.TransactionClient, orgId: string): Promise<Set<string>> {
+  const accounts = await tx.account.findMany({ where: { organizationId: orgId },
+    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true } });
+  const settings = await loadOrgAccountDefaults(tx, orgId);
+  const defaults = [settings.arControl, settings.apControl,
+    resolveAccountDefaultId(accounts, settings, 'arControl'), resolveAccountDefaultId(accounts, settings, 'apControl'),
+    resolveAccountDefaultId(accounts, {}, 'arControl'), resolveAccountDefaultId(accounts, {}, 'apControl')];
+  const references = await tx.$queryRaw<Array<{ id: string | null }>>`
+    SELECT "arAccountId" AS id FROM "ARPayment" WHERE "organizationId" = ${orgId}
+    UNION SELECT "arAccountId" FROM "SalesReturn" WHERE "organizationId" = ${orgId}
+    UNION SELECT "arAccountId" FROM "CreditNote" WHERE "organizationId" = ${orgId}
+    UNION SELECT "apAccountId" FROM "Bill" WHERE "organizationId" = ${orgId}
+    UNION SELECT "apAccountId" FROM "APPayment" WHERE "organizationId" = ${orgId}
+    UNION SELECT "apAccountId" FROM "PurchaseReturn" WHERE "organizationId" = ${orgId}
+    UNION SELECT "apAccountId" FROM "DebitNote" WHERE "organizationId" = ${orgId}`;
+  return new Set([...defaults, ...references.map(row => row.id)].filter((id): id is string => !!id));
+}
+
 /** Public manual/banking writes cannot bypass the customer/vendor subledgers.
  * Internal opening/migration and document posting helpers do not call this.
  * A client-supplied JournalSource never grants an opening/migration exemption.

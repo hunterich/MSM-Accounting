@@ -169,8 +169,16 @@ for (const kind of ['ar', 'ap'] as const) {
       if (ar) await prisma.salesInvoice.update({ where: { id: legacyVoid }, data: { status: 'VOID' } });
       else await prisma.bill.update({ where: { id: legacyVoid }, data: { status: 'VOID' } });
       // A document offset coded to the control itself (#169): invoice charge or bill line.
-      if (ar) await document(org, kind, partyId, 'DOC-CODED', '2026-09-16', 400, { chargeAccountId: control, chargeAmount: 50 });
-      else await document(org, kind, partyId, 'DOC-CODED', '2026-09-16', 400, { lineAccountId: control });
+      // Posting now refuses that (#194), so post normally and move the saved offset
+      // and its journal line to the control, as data saved before the guard looks.
+      const offset = ar ? (await prisma.account.create({ data: { organizationId: org.orgId, code: '4300', name: 'Freight income', type: 'REVENUE', normalSide: 'CREDIT' } })).id
+        : org.accounts.cogsExpense;
+      const coded = ar ? await document(org, kind, partyId, 'DOC-CODED', '2026-09-16', 400, { chargeAccountId: offset, chargeAmount: 50 })
+        : await document(org, kind, partyId, 'DOC-CODED', '2026-09-16', 400);
+      if (ar) await prisma.salesInvoiceCharge.updateMany({ where: { invoiceId: coded }, data: { accountId: control } });
+      else await prisma.billLine.updateMany({ where: { billId: coded }, data: { accountId: control } });
+      const moved = await prisma.journalLine.updateMany({ where: { accountId: offset, entry: { organizationId: org.orgId, memo: ar ? 'Sales recognition: DOC-CODED' : 'Bill: DOC-CODED' } }, data: { accountId: control } });
+      expect(moved.count).toBe(1);
 
       const result = await reconcile(org.orgId, kind, '2026-09-30');
       const row = account(result, control);
@@ -178,10 +186,10 @@ for (const kind of ['ar', 'ap'] as const) {
       const prefix = ar ? 'Invoice' : 'Bill';
       expect(items[`${ar ? 'Credit note' : 'Debit note'} REFUND-1`]).toMatchObject({ category: 'DOCUMENT', amount: -111, message: expect.stringMatching(/refund but its posting moved/) });
       expect(items[`${prefix} DOC-LEGACY-VOID`]).toMatchObject({ category: 'DOCUMENT', amount: 500, message: expect.stringMatching(/void but its posting was never reversed/) });
-      const coded = ar ? -50 : -400;
-      expect(items[`${prefix} DOC-CODED`]).toMatchObject({ category: 'DOCUMENT', amount: coded, message: expect.stringMatching(/posting differs from the document amount/) });
+      const codedDiff = ar ? -50 : -400;
+      expect(items[`${prefix} DOC-CODED`]).toMatchObject({ category: 'DOCUMENT', amount: codedDiff, message: expect.stringMatching(/posting differs from the document amount/) });
       const subledger = ar ? 1000 + 450 : 1000 + 400;
-      expect(row).toMatchObject({ subledgerBalance: subledger, glBalance: subledger - 111 + 500 + coded, difference: -111 + 500 + coded });
+      expect(row).toMatchObject({ subledgerBalance: subledger, glBalance: subledger - 111 + 500 + codedDiff, difference: -111 + 500 + codedDiff });
       expect(row.items).toHaveLength(3);
       expect(await gl(org.orgId, kind, control, '2026-09-30')).toBe(row.glBalance);
       expect(await agingNet(org.orgId, kind, '2026-09-30')).toBe(subledger);

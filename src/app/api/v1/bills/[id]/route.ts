@@ -5,6 +5,7 @@ import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { updateBillInputSchema } from '@/types/api';
 import { postBillToLedger } from '@/lib/bill-posting';
+import { assertStoredDocumentOffsets } from '@/lib/document-offset-accounts';
 import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { reverseBillPosting } from '@/lib/repost';
@@ -199,6 +200,7 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
           });
         }
       }
+      await assertStoredDocumentOffsets(tx, orgId, 'BILL', id);
       // Edit-after-post: re-post the bill's GL + inventory from the freshly-edited
       // lines/charges (the old entry + cost layers were reversed above). No PO
       // receipt — edit-after-post is restricted to non-PO bills.
