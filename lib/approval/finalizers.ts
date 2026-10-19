@@ -25,7 +25,7 @@ export const FINALIZERS: Partial<Record<ApprovalDocumentType, Finalizer>> = {
     await tx.purchaseOrder.update({ where: { id: documentId }, data: { status: 'APPROVED', updatedAt: new Date() } });
   },
   BILL: async (tx, orgId, documentId) => {
-    const bill = await tx.bill.findFirst({ where: { id: documentId, organizationId: orgId }, include: { lines: true } });
+    const bill = await tx.bill.findFirst({ where: { id: documentId, organizationId: orgId }, include: { lines: true, charges: true } });
     if (!bill) throw new ApiError('Bill not found', 404);
     await assertPeriodOpen(tx, orgId, bill.issueDate ? new Date(bill.issueDate) : new Date());
     // Apply the PO receipt FIRST (before postBillToLedger books the inventory
