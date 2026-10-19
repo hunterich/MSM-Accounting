@@ -1,5 +1,37 @@
 # Testing transactions and accounting
 
+## Independent AR/AP control reconciliation (ACC-02)
+
+Run `npm run test:int -- control-reconciliation report-reconciliation control-close-policy`
+against isolated PostgreSQL. The six new cases call the real report route and
+compare it with per-account journal sums and the existing aging report:
+
+- AR and AP across two control accounts (an earlier default and a new default
+  for AR; document overrides for AP): cash 500 + discount 50 - penalty 10
+  clears 540, an unallocated advance, a standalone note and a document voided
+  after the cutoff. A manual reclass of 75 between the controls leaves the
+  company total at zero, while each account shows +75/-75 as a named manual
+  journal. Subledger totals equal aging net outstanding before and after the
+  void; the close checklist lists both accounts without blocking.
+- Legacy defects are named, not absorbed: a refund note whose journal reduced
+  the control, a void never reversed and an invoice charge/bill line coded to
+  the control (#169). Posting now refuses control-coded offsets (#194), so that
+  case rewrites a normal posting to look like data saved before the guard.
+- The real migration commit seeds an opening invoice and bill with one opening
+  journal, later documents and receipts/payments settle them, and the controls
+  reconcile with a separate opening line. A second customer/vendor opening seed
+  for the same debt appears as a named opening difference; GL is unchanged.
+
+Mutating the memo-based journal links or ignoring opening seeds makes three of
+the cases fail. These are API/service tests, not browser or finance acceptance,
+and no production database has been audited with the report yet.
+
+Local verification (2026-10-19): 1,271 unit tests and 474 PostgreSQL cases
+pass; TypeScript passes. Three integration failures are unrelated and already
+known: both backup suites (no `pg_dump` on this Windows host) and the
+documented INV-02 negative-stock compatibility regression. After merging #177,
+that negative-stock suite passes alongside these cases.
+
 ## Refund settlement accounts (ACC-02, #169 first increment)
 
 Conflict-resolution verification against main `2529dd9` (2026-10-19): 1,337 unit tests, 581 PostgreSQL tests, both refund Chromium cases, both TypeScript projects and the frontend build pass. PostgreSQL backup suites were excluded because this QA host lacks their required client tools. Tests used a disposable database. The browser cases exposed supplier draft hydration depending on account/note response order; the form now observes the loaded notes, returns and bills with stable empty lists.
@@ -960,7 +992,7 @@ under their source dates while the GL is empty. Compare reports from the cutover
 date onward. The older CSV import route (`/api/v1/import/...`) writes
 customer/vendor `openingBalance` seeds and an opening journal dated on import,
 with no once-only guard. It is not covered here and remains a follow-up. The
-per-control opening reconciliation line is in draft PR #191.
+per-control opening reconciliation line comes from the merged PR #191.
 
 ```powershell
 node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts migration-opening-acceptance migration opening
