@@ -63,8 +63,18 @@ export async function postGoodsReceiptToLedger(
     layers.push({ itemId: line.itemId, qty, unitCost: net / qty, value: asMoney(net) });
   }
   grirNet = asMoney(grirNet);
-  if (grirNet <= 0) return;
+  if (!layers.length || grirNet < 0) return;
   await lockInventoryItems(tx, orgId, layers.map(layer => layer.itemId));
+
+  // Quantity is independent of price. Free receipts still create stock and
+  // may settle an estimated shortage (whose COGS journal is posted by the
+  // cost-layer service), but require no Inventory/GRIR receipt journal.
+  if (grirNet === 0) {
+    for (const layer of layers) {
+      await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value);
+    }
+    return;
+  }
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },

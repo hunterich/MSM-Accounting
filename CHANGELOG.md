@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — shortage receipt reversals and zero-value PO receipts (INV-02)
+- Voiding a bill or un-receiving a PO receipt with repeated item lines now removes all lines before reconciling their warehouse pools. Settlements reopen atomically, without mistaking the intermediate removal state for corrupt negative stock. Dependent stock issues still refuse reversal.
+- Zero-price PO receipts now record received stock and settle tracked Weighted Average shortages at actual zero cost. They create no zero-value Inventory/GRIR journal; any shortage COGS adjustment and its reversal remain linked to the receipt. Original sale costs stay unchanged.
+
 ### Fixed — invoices without a sales posting can no longer be voided or edited as if they had one (ACC-02)
 - Voiding or editing a non-zero invoice now requires its own sales posting. Migrated opening invoices carry no journal of their own (the migration's opening journal holds their receivable), and a send that skipped AR posting left none. Previously a void marked them VOID without any reversal, so the AR control kept the amount while aging, balances and statements dropped the invoice from every date, including dates before the void. An edit re-posted the amount on top of the opening journal. Both now return 422 with guidance to record a reviewed correction with finance, and change nothing.
 - Zero-value invoices that posted nothing still void normally, and invoices with tracked postings keep reversing exactly the entries they recorded. How a migrated opening invoice should be corrected (reversing against opening equity or another account) remains a finance decision; no GL correction is invented and no historical data is rewritten.

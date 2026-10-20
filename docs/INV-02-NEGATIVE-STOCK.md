@@ -1,4 +1,4 @@
-# Weighted Average negative stock — approved policy, implemented, database acceptance pending
+# Weighted Average negative stock — approved policy and acceptance
 
 Finance approved on 2026-10-15: retain the original estimated sale; recognize
 the difference when actual goods arrive, in that warehouse's pool. Selling two
@@ -7,7 +7,7 @@ posts Dr Inventory 240 / Cr GRIR or AP 240, then Dr COGS 40 / Cr Inventory 40.
 The shortage is cleared, physical stock is zero, and Inventory is zero. A cheaper
 receipt credits COGS instead. If three units arrive, one remains valued at 120.
 
-## What is implemented (branch `claude/inv02-negative-stock-settlement`)
+## Implemented behavior (merged in #177)
 
 Additive migration `20261018130000_inventory_shortfall_settlements` adds the
 `SHORTFALL_SETTLEMENT` stock movement type, an explicit `shortfall` flag on
@@ -62,19 +62,32 @@ production remediation is authorized.
 
 ## Verification status
 
-TypeScript passes. All unit tests pass (1,301 cases in 169 files), including 31
-new cases: settlement, partial receipts, cheaper/excess receipts, closed period,
-missing accounts, inconsistent history, receipt/sale unwinds and ordering
-(`inventory-shortfall-settlement.test.ts`), sale split and void/receipt paths
-(`weighted-average-shortfall-costing.test.ts`) and negative-pool proposal rules
-(`inventory-carrying-preview.test.ts`).
+The final #177 head passed all three CI jobs, including 487 PostgreSQL cases,
+unit/type checks, builds and browsers. Its original "not run" implementation
+notes are superseded by that acceptance evidence.
 
-**Not run:** `weighted-average-negative-stock.int.test.ts` now holds the original
-hard regression unchanged plus 14 new PostgreSQL cases (receipt into a negative
-pool, excess/cheaper/partial receipts, warehouse isolation, closed-period
-rollback, receipt-void and sale-void unwinds, dependent-sale and later-receipt
-refusals, edit refusal, legacy review refusal, and overlapping sale/receipt and
-receipt-void/sale-void). This machine has no PostgreSQL test database or `.env`,
-so neither these, the migration, nor the audit SQL have executed. Full database
-acceptance must keep the hard regression until it passes; no expected-failure
-marker is used.
+The 2026-10-19 follow-up reproduces and fixes two receipt defects:
+
+- A multi-line receipt unwound all settlements, then refreshed carrying values
+  after removing only one lot. The temporary pool state wrongly refused the
+  whole reversal. Refresh now runs once per affected warehouse pool after all
+  receipt lots are removed, inside the existing item locks. Original-value and
+  later-issue guards still run before removal.
+- A PO receipt with total zero returned before creating lots. It now records
+  physical receipt quantity and settles shortages at actual zero cost, including
+  the linked COGS credit. No zero-value receipt journal is invented.
+
+`weighted-average-negative-stock.int.test.ts` has 22 passing PostgreSQL cases,
+including four duplicate-item bill/PO reversal variants and both forced
+sale/receipt void orders. `zero-value-goods-receipt.int.test.ts` adds three
+passing receive-route/un-receive cases for FIFO/WA and a tracked shortage.
+The original negative-stock regression still runs as an ordinary passing test.
+See `TESTING.md` for the broader targeted and browser commands.
+
+All 20 migrations apply successfully to fresh isolated PostgreSQL 16 QA
+databases. This follow-up needs no schema change. Legacy negative pools still
+refuse review; no legacy tracking is fabricated and no historical balancing
+entry or production initialization has been performed. Production diagnostics,
+reviewed remediation, migration/recovery rehearsal, remaining inventory race
+and month-end coverage, finance acceptance and authorized release verification
+remain open under #170.

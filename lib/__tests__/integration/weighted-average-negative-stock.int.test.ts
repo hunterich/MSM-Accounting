@@ -4,6 +4,8 @@ import { postBillToLedger } from '@/lib/bill-posting';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { voidBill } from '@/lib/bill-void';
 import { voidInvoice } from '@/lib/invoice-void';
+import { postGoodsReceiptToLedger } from '@/lib/goods-receipt-posting';
+import { unreceiveGoodsReceipt } from '@/lib/unreceive-goods';
 import { reverseInvoicePosting } from '@/lib/repost';
 import { addCostLayer, lockInventoryItems } from '@/lib/inventory-costing';
 import { previewInventoryCarryingValues } from '@/lib/inventory-carrying-preview';
@@ -78,6 +80,34 @@ async function snapshot(tx: Prisma.TransactionClient | typeof prisma, organizati
     journals: await tx.journalEntry.findMany({ where, orderBy, include: { lines: { orderBy } } }),
     settlements: await tx.inventoryShortfallSettlement.findMany({ where, orderBy }),
     invoices: await tx.salesInvoice.findMany({ where, orderBy }), bills: await tx.bill.findMany({ where, orderBy }) };
+}
+
+// Hold the winner's completed posting until PostgreSQL proves the contender
+// is waiting. Testing both orders must not depend on scheduler timing.
+async function overlapVoids(first: (tx: Prisma.TransactionClient) => Promise<unknown>, second: (tx: Prisma.TransactionClient) => Promise<unknown>) {
+  let ready!: () => void, release!: () => void, identify!: (pid: number) => void;
+  const started = new Promise<void>(done => { ready = done; }), hold = new Promise<void>(done => { release = done; });
+  const identified = new Promise<number>(done => { identify = done; });
+  const winner = prisma.$transaction(async tx => { await first(tx); ready(); await hold; }, { timeout: 15000 });
+  const winnerResult = winner.then(() => null, error => error);
+  let contenderResult: Promise<unknown> | undefined;
+  try {
+    await Promise.race([started, winner.then(() => { throw new Error('Winner did not hold its locks'); })]);
+    contenderResult = prisma.$transaction(async tx => {
+      const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+      identify(row.pid); await second(tx);
+    }, { timeout: 15000 }).then(() => null, error => error);
+    const pid = await identified, deadline = Date.now() + 3000;
+    let blocked = false;
+    while (Date.now() < deadline) {
+      const [row] = await prisma.$queryRaw<Array<{ blocked: boolean }>>`SELECT cardinality(pg_blocking_pids(${pid}::int)) > 0 AS blocked`;
+      if (row.blocked) { blocked = true; break; }
+      await new Promise(done => setTimeout(done, 10));
+    }
+    expect(blocked, 'voids must overlap under a real PostgreSQL lock wait').toBe(true);
+  } finally { release(); await winnerResult; await contenderResult; }
+  expect(await winnerResult).toBeNull();
+  expect(await contenderResult).toBeNull();
 }
 
 describe('INV-02 approved WA negative stock: receipt-date COGS settlement', () => {
@@ -186,6 +216,49 @@ describe('INV-02 approved WA negative stock: receipt-date COGS settlement', () =
 });
 
 describe('INV-02 approved WA negative stock: reversals', () => {
+  for (const poReceipt of [false, true]) for (const excess of [false, true]) it(`reverses a duplicate-item ${poReceipt ? 'PO receipt' : 'bill'} with ${excess ? 'excess stock' : 'no stock remaining'} after shortage settlement`, async () => {
+    const f = await fixture();
+    try {
+      await f.sell(4);
+      const receipt = await f.draftBill(2, 120);
+      const quantity = excess ? 3 : 2, totalAmount = excess ? 630 : 500;
+      await prisma.billLine.create({ data: { billId: receipt.id, itemId: f.itemId, lineNo: 2,
+        description: 'Second delivery line', quantity, price: 130, lineTotal: quantity * 130 } });
+      const current = await prisma.bill.update({ where: { id: receipt.id }, data: { totalAmount }, include: { lines: { orderBy: { lineNo: 'asc' } } } });
+      let poId: string | undefined;
+      if (poReceipt) {
+        const po = await prisma.purchaseOrder.create({ data: { organizationId: f.org.orgId, vendorId: current.vendorId,
+          number: 'PO-DUPLICATE', date: RECEIPT_DATE, status: 'CLOSED', lines: { create: current.lines.map(line => ({
+            lineNo: line.lineNo, itemId: f.itemId, description: line.description, quantity: line.quantity, receivedQty: line.quantity,
+            price: line.price, lineTotal: line.lineTotal,
+          })) } }, include: { lines: true } });
+        poId = po.id;
+        await prisma.bill.update({ where: { id: receipt.id }, data: { poId, status: 'DRAFT' } });
+        for (const line of current.lines) await prisma.billLine.update({ where: { id: line.id },
+          data: { purchaseOrderLineId: po.lines.find(poLine => poLine.lineNo === line.lineNo)!.id } });
+        await prisma.$transaction(tx => postGoodsReceiptToLedger(tx, f.org.orgId, { billId: receipt.id, poNumber: po.number,
+          date: RECEIPT_DATE, taxInclusive: false, taxRate: 0, lines: current.lines }));
+      } else await f.postBill(current);
+      expect(await f.books()).toEqual({ inventoryGl: excess ? 130 : 0, cogs: 500, ledger: excess ? 130 : 0,
+        onHand: excess ? 1 : 0, lotValue: excess ? 130 : 0 });
+      expect(await f.settlements()).toHaveLength(2);
+      await prisma.$transaction(tx => poReceipt ? unreceiveGoodsReceipt(tx, f.org.orgId, receipt.id, { date: VOID_DATE })
+        : voidBill(tx, f.org.orgId, receipt.id, { date: VOID_DATE }));
+      expect(await f.books()).toEqual({ inventoryGl: -400, cogs: 400, ledger: -400, onHand: 0, lotValue: 0 });
+      expect(await accountBalance(f.org.orgId, f.org.accounts.apControl)).toBe(0);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.grIrClearing)).toBe(0);
+      if (poId) {
+        const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: poId }, include: { lines: true } });
+        expect(po.status).toBe('APPROVED');
+        expect(po.lines.map(line => Number(line.receivedQty))).toEqual([0, 0]);
+        expect((await prisma.bill.findUniqueOrThrow({ where: { id: receipt.id } })).deletedAt).toEqual(VOID_DATE);
+      }
+      expect((await f.settlements()).every(row => row.reversedAt?.getTime() === VOID_DATE.getTime())).toBe(true);
+      expect(await f.preview()).toMatchObject({ outstandingShortfallQuantity: '4.0000', outstandingShortfallEstimate: '400.00' });
+      await assertTrialBalanced(f.org.orgId);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
   it('receipt void unwinds the settlement atomically and restores the original estimate', async () => {
     const f = await fixture();
     try {
@@ -274,6 +347,45 @@ describe('INV-02 approved WA negative stock: reversals', () => {
 });
 
 describe('INV-02 approved WA negative stock: overlapping writers', () => {
+  for (const receiptFirst of [false, true]) it(`duplicate-item settlement: ${receiptFirst ? 'receipt' : 'sale'} void wins the verified lock race`, async () => {
+    const f = await fixture();
+    try {
+      const sale = await f.sell(4), receipt = await f.draftBill(2, 120);
+      await prisma.billLine.create({ data: { billId: receipt.id, itemId: f.itemId, lineNo: 2,
+        description: 'Second delivery line', quantity: 2, price: 130, lineTotal: 260 } });
+      await f.postBill(await prisma.bill.update({ where: { id: receipt.id }, data: { totalAmount: 500 }, include: { lines: true } }));
+      const receiptVoid = (tx: Prisma.TransactionClient) => voidBill(tx, f.org.orgId, receipt.id, { date: VOID_DATE });
+      const saleVoid = (tx: Prisma.TransactionClient) => voidInvoice(tx, f.org.orgId, sale.id, { date: VOID_DATE });
+      await overlapVoids(receiptFirst ? receiptVoid : saleVoid, receiptFirst ? saleVoid : receiptVoid);
+      expect(await f.books()).toEqual({ inventoryGl: 0, cogs: 0, ledger: 0, onHand: 0, lotValue: 0 });
+      expect(await accountBalance(f.org.orgId, f.org.accounts.apControl)).toBe(0);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.arControl)).toBe(0);
+      const rows = await f.settlements();
+      expect(rows).toHaveLength(2);
+      expect(rows.every(row => row.reversedAt?.getTime() === VOID_DATE.getTime())).toBe(true);
+      expect((await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: f.org.orgId, documentType: 'SHORTFALL_SETTLEMENT' } }))
+        .map(row => Number(row.valueChange)).sort((a, b) => a - b)).toEqual([-60, -40, 40, 60]);
+      await assertTrialBalanced(f.org.orgId);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
+  it('a later sale still blocks duplicate-item receipt void without unwinding any settlement', async () => {
+    const f = await fixture();
+    try {
+      await f.sell(4);
+      const receipt = await f.draftBill(2, 120);
+      await prisma.billLine.create({ data: { billId: receipt.id, itemId: f.itemId, lineNo: 2,
+        description: 'Second delivery line', quantity: 3, price: 130, lineTotal: 390 } });
+      await f.postBill(await prisma.bill.update({ where: { id: receipt.id }, data: { totalAmount: 630 }, include: { lines: true } }));
+      const later = await f.sell(1);
+      const before = await snapshot(prisma, f.org.orgId);
+      await expect(prisma.$transaction(tx => voidBill(tx, f.org.orgId, receipt.id, { date: VOID_DATE })))
+        .rejects.toThrow(`later SALES ${later.number}`);
+      expect(await snapshot(prisma, f.org.orgId)).toEqual(before);
+      expect(await f.books()).toEqual({ inventoryGl: 0, cogs: 630, ledger: 0, onHand: 0, lotValue: 0 });
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
   it('a concurrent sale and receipt end with the same books in either order', async () => {
     const f = await fixture();
     try {
