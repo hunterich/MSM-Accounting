@@ -1,5 +1,36 @@
 # Testing transactions and accounting
 
+## INV-02 receipt acceptance (2026-10-19)
+
+Run `npm run test:int -- weighted-average-negative-stock zero-value-goods-receipt receipt-exact-value inventory-carrying-void-guard warehouse-carrying-values`.
+The shortage suite includes repeated-item bill voids and PO un-receipts, both
+with and without excess stock; fixed quantity, carrying value, stock ledger,
+Inventory GL, COGS, AP and GRIR assertions; both sale/receipt void orders with
+verified PostgreSQL lock waits; and a later-sale refusal with complete unchanged
+lot/draw/ledger/document/journal/settlement snapshots. Four new
+reproduction failures were demonstrated on the previous implementation: one
+duplicate-item reversal and three zero-value receipt cases. The final cases
+retain the original negative-stock compatibility test without an expected-failure marker.
+
+Run `npm run test:e2e -- e2e/purchase-receipt.spec.ts e2e/inventory-invoice-corrections.spec.ts`.
+Two new journeys receive free stock or two same-item lines through the actual
+Receive Goods dialog, then call the un-receive API. They check restored estimates,
+exact stock/GL/COGS/GRIR, settlement links, PO reopening and unchanged original
+sale costs. The existing correction and partial-receipt journeys remain included.
+
+Local verification on isolated PostgreSQL 16: 1,353 unit tests, both TypeScript
+projects, the frontend build and all 12 receipt/correction browser cases pass.
+The complete integration run passes 599 of 603 cases. Two failures require
+unavailable `pg_dump`/`pg_restore` tools; the other two reproduce unchanged on
+the base `7f0f33e`: `control-close-policy`'s other-period/company checklist case
+and the Jakarta boundary case in `dashboard-sales-returns`. No full-green
+integration claim is made. All ten new PostgreSQL receipt/reversal cases pass.
+
+All 20 migrations apply to fresh isolated PostgreSQL 16 databases. This increment
+adds no migration or historical rewrite. Current negative-stock implementation
+and remaining release gates are described in `INV-02-NEGATIVE-STOCK.md`; earlier
+work-in-progress counts below are historical evidence, not current failure status.
+
 ## Invoices without a sales posting (ACC-02)
 
 Run `npm run test:int -- invoice-missing-posting` against the disposable

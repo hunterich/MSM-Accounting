@@ -1,4 +1,20 @@
-# INV-02 carrying values — unfinished implementation
+# INV-02 carrying values — implementation and acceptance record
+
+## Current status (2026-10-19)
+
+The stored-value implementation merged in #174, reversal chronology in #176,
+and receipt-date negative-stock settlement in #177. The former hard negative-stock
+failure is resolved. #171 and #173 were incorporated; they are no longer pending
+engineering branches. The notes below preserve the design and earlier evidence.
+
+The receipt acceptance follow-up fixes repeated-item receipt voids and free PO
+receipts. See `TESTING.md` and `INV-02-NEGATIVE-STOCK.md` for reproducible cases.
+Historical audit/initialization, reviewed remediation, migration/recovery,
+remaining browser/month-end coverage, finance acceptance and authorized release
+verification remain open under #170. No production balances or historical
+postings are changed by this work.
+
+## Original implementation notes (historical)
 
 Finance approved remaining book value / remaining quantity and separate warehouse
 averages on 2026-10-14. Draft #171 is the earlier consumption fix. This isolated
