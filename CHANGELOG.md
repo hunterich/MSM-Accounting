@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Inventory carrying-value diagnostic (INV-02)
+- The read-only Inventory book audit now compares stored carrying values per item/warehouse with nonnegative ledger book values and names missing initialization for positive stock. Offsetting warehouse errors remain visible even when company ledger and GL totals agree. Original receipt prices remain distinct from carrying values; no balances are repaired.
+- Added PO receipt/outbound/method/monthly-close lock-order acceptance and real Receive Goods, successive Weighted Average sale and reversal journeys. Historical/finance/release acceptance remains open under #170.
+
 ### Fixed — migration openings enter once (ACC-02)
 - A migration batch that carries opening balances is refused with 409 while another committed batch already holds openings. Openings are an opening journal, opening invoices/bills or opening stock. Previously, re-importing the same file without invoice numbers committed again and silently doubled the opening trial balance, open documents and customers/vendors. GL and subledger doubled together, so no reconciliation could show a difference. To import openings again, roll back the earlier batch (allowed only before live activity). Batches with only accounts, customers, vendors or items without stock still commit. Concurrent commits are serialized, so exactly one opening batch enters.
 - Acceptance cases run a full cutover through the actual migration routes: an opening trial balance with customers, vendors and open invoices/bills, then later invoices, bills, receipts and payments. They check fixed trial-balance, aging, party-balance, statement and control-GL values. No schema migration and no change to committed batches.
