@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — Vite development tooling
+- Update Vite from 7.3.6 to patched 7.3.7 for the launch-editor advisories flagged by CI. The npm lockfile audit now reports zero known vulnerabilities; security checks remain enabled.
+
 ### Fixed — Inventory carrying-value diagnostic (INV-02)
 - The read-only Inventory book audit now compares stored carrying values per item/warehouse with nonnegative ledger book values and names missing initialization for positive stock. Offsetting warehouse errors remain visible even when company ledger and GL totals agree. Original receipt prices remain distinct from carrying values; no balances are repaired.
 - Added PO receipt/outbound/method/monthly-close lock-order acceptance and real Receive Goods, successive Weighted Average sale and reversal journeys. Historical/finance/release acceptance remains open under #170.
