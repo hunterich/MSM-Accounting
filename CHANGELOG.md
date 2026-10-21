@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — migration openings enter once (ACC-02)
+- A migration batch that carries opening balances is refused with 409 while another committed batch already holds openings. Openings are an opening journal, opening invoices/bills or opening stock. Previously, re-importing the same file without invoice numbers committed again and silently doubled the opening trial balance, open documents and customers/vendors. GL and subledger doubled together, so no reconciliation could show a difference. To import openings again, roll back the earlier batch (allowed only before live activity). Batches with only accounts, customers, vendors or items without stock still commit. Concurrent commits are serialized, so exactly one opening batch enters.
+- Acceptance cases run a full cutover through the actual migration routes: an opening trial balance with customers, vendors and open invoices/bills, then later invoices, bills, receipts and payments. They check fixed trial-balance, aging, party-balance, statement and control-GL values. No schema migration and no change to committed batches.
+
 ### Fixed — shortage receipt reversals and zero-value PO receipts (INV-02)
 - Voiding a bill or un-receiving a PO receipt with repeated item lines now removes all lines before reconciling their warehouse pools. Settlements reopen atomically, without mistaking the intermediate removal state for corrupt negative stock. Dependent stock issues still refuse reversal.
 - Zero-price PO receipts now record received stock and settle tracked Weighted Average shortages at actual zero cost. They create no zero-value Inventory/GRIR journal; any shortage COGS adjustment and its reversal remain linked to the receipt. Original sale costs stay unchanged.
