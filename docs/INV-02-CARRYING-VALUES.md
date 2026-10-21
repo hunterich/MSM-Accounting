@@ -1,6 +1,6 @@
 # INV-02 carrying values — implementation and acceptance record
 
-## Current status (2026-10-19)
+## Current status (2026-10-21)
 
 The stored-value implementation merged in #174, reversal chronology in #176,
 and receipt-date negative-stock settlement in #177. The former hard negative-stock
@@ -13,6 +13,12 @@ Historical audit/initialization, reviewed remediation, migration/recovery,
 remaining browser/month-end coverage, finance acceptance and authorized release
 verification remain open under #170. No production balances or historical
 postings are changed by this work.
+
+The 2026-10-21 acceptance follow-up adds PO receipt/outbound/method/monthly-close
+lock-order cases and real Receive Goods / 4-4-2 sale / reversal journeys. The
+read-only book audit now also names stored carrying-value mismatches and
+uninitialized positive lots per warehouse. See `INV-02-ACCEPTANCE.md` for exact
+examples and the remaining release gates.
 
 ## Original implementation notes (historical)
 

@@ -1,5 +1,14 @@
 # Testing transactions and accounting
 
+## INV-02 valuation acceptance and read-only carrying audit (2026-10-21)
+
+See [INV-02-ACCEPTANCE.md](INV-02-ACCEPTANCE.md) for the eight new real-lock PO
+receipt cases, two carrying-audit regressions, two real Receive Goods/browser/API
+journeys, reproduction commands and remaining gates. Stored carrying values are
+compared per warehouse even when company ledger/GL totals agree; no repair or
+initialization is performed.
+
+
 ## INV-02 receipt acceptance (2026-10-19)
 
 Run `npm run test:int -- weighted-average-negative-stock zero-value-goods-receipt receipt-exact-value inventory-carrying-void-guard warehouse-carrying-values`.
