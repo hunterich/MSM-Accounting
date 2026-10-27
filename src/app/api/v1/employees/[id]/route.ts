@@ -3,14 +3,7 @@ import { lockPayroll } from '@/lib/payroll-posting';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import {
-  ApiError,
-  ok,
-  err,
-  logAudit,
-  softDelete,
-  validateForeignKey,
-} from '@/lib/api-utils';
+import { ApiError, ok, err, logAudit, softDelete, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { updateEmployeeInputSchema } from '@/types/api';
 
@@ -30,9 +23,7 @@ function serializeEmployee(employee: any) {
     amount?: number;
     postingAccountId?: string | null;
     isFixed?: boolean | null;
-  }> = Array.isArray(employee.compensationItems)
-    ? employee.compensationItems
-    : [];
+  }> = Array.isArray(employee.compensationItems) ? employee.compensationItems : [];
   const allowances = compensationItems
     .filter((item) => item.type === 'ALLOWANCE')
     .map((item) => ({
@@ -66,11 +57,7 @@ async function resolveDepartmentId(
   departmentName?: string,
 ) {
   if (departmentId) {
-    await validateForeignKey(
-      tx.department,
-      { id: departmentId, organizationId: orgId },
-      'Department not found in organization',
-    );
+    await validateForeignKey(tx.department, { id: departmentId, organizationId: orgId }, 'Department not found in organization');
     return departmentId;
   }
   if (departmentName === undefined) return undefined;
@@ -98,11 +85,7 @@ async function resolvePositionId(
   positionName?: string,
 ) {
   if (positionId) {
-    await validateForeignKey(
-      tx.position,
-      { id: positionId, organizationId: orgId },
-      'Position not found in organization',
-    );
+    await validateForeignKey(tx.position, { id: positionId, organizationId: orgId }, 'Position not found in organization');
     return positionId;
   }
   if (positionName === undefined) return undefined;
@@ -123,10 +106,7 @@ async function resolvePositionId(
   return created.id;
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const employee = await prisma.employee.findFirst({
@@ -148,22 +128,12 @@ export const PUT = withPermission(
     const orgId = req.headers.get('x-org-id')!;
     const body = await req.json();
     const normalizedBody = {
-      ...body,
-      status:
-        typeof body.status === 'string'
-          ? String(body.status).trim().toUpperCase().replace(/\s+/g, '_')
-          : body.status,
-      type:
-        typeof body.type === 'string'
-          ? String(body.type).trim().toUpperCase().replace(/-|\s+/g, '_')
-          : body.type,
-    };
+    ...body,
+    status: typeof body.status === 'string' ? String(body.status).trim().toUpperCase().replace(/\s+/g, '_') : body.status,
+    type: typeof body.type === 'string' ? String(body.type).trim().toUpperCase().replace(/-|\s+/g, '_') : body.type,
+  };
     const parsed = updateEmployeeInputSchema.safeParse(normalizedBody);
-    if (!parsed.success)
-      return err(
-        parsed.error.issues[0]?.message || 'Invalid employee payload',
-        400,
-      );
+    if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid employee payload', 400);
 
     try {
       const employee = await prisma.$transaction(async (tx) => {
@@ -179,73 +149,35 @@ export const PUT = withPermission(
           payrollEmployee,
         );
         const existing = await tx.employee.findFirst({
-          where: { id, organizationId: orgId },
-          select: { id: true },
-        });
+        where: { id, organizationId: orgId },
+        select: { id: true },
+      });
         if (!existing) return null;
 
-        const departmentId = await resolveDepartmentId(
-          tx,
-          orgId,
-          parsed.data.departmentId,
-          parsed.data.department,
-        );
-        const positionId = await resolvePositionId(
-          tx,
-          orgId,
-          parsed.data.positionId,
-          parsed.data.position,
-        );
+        const departmentId = await resolveDepartmentId(tx, orgId, parsed.data.departmentId, parsed.data.department);
+        const positionId = await resolvePositionId(tx, orgId, parsed.data.positionId, parsed.data.position);
 
         await tx.employee.update({
           where: { id, organizationId: orgId },
           data: {
             ...(parsed.data.name !== undefined && { name: parsed.data.name }),
-            ...(parsed.data.ktp !== undefined && {
-              ktp: parsed.data.ktp || null,
-            }),
-            ...(parsed.data.dob !== undefined && {
-              dob: parsed.data.dob ? new Date(parsed.data.dob) : null,
-            }),
-            ...(parsed.data.phone !== undefined && {
-              phone: parsed.data.phone || null,
-            }),
-            ...(parsed.data.email !== undefined && {
-              email: parsed.data.email || null,
-            }),
-            ...(parsed.data.address !== undefined && {
-              address: parsed.data.address || null,
-            }),
-            ...(parsed.data.joinDate !== undefined && {
-              joinDate: new Date(parsed.data.joinDate),
-            }),
+            ...(parsed.data.ktp !== undefined && { ktp: parsed.data.ktp || null }),
+            ...(parsed.data.dob !== undefined && { dob: parsed.data.dob ? new Date(parsed.data.dob) : null }),
+            ...(parsed.data.phone !== undefined && { phone: parsed.data.phone || null }),
+            ...(parsed.data.email !== undefined && { email: parsed.data.email || null }),
+            ...(parsed.data.address !== undefined && { address: parsed.data.address || null }),
+            ...(parsed.data.joinDate !== undefined && { joinDate: new Date(parsed.data.joinDate) }),
             ...(departmentId !== undefined && { departmentId }),
             ...(positionId !== undefined && { positionId }),
-            ...(parsed.data.status !== undefined && {
-              status: parsed.data.status,
-            }),
+            ...(parsed.data.status !== undefined && { status: parsed.data.status }),
             ...(parsed.data.type !== undefined && { type: parsed.data.type }),
-            ...(parsed.data.bankName !== undefined && {
-              bankName: parsed.data.bankName || null,
-            }),
-            ...(parsed.data.accountNumber !== undefined && {
-              accountNumber: parsed.data.accountNumber || null,
-            }),
-            ...(parsed.data.accountHolder !== undefined && {
-              accountHolder: parsed.data.accountHolder || null,
-            }),
-            ...(parsed.data.npwp !== undefined && {
-              npwp: parsed.data.npwp || null,
-            }),
-            ...(parsed.data.bpjsKesehatan !== undefined && {
-              bpjsKesehatan: parsed.data.bpjsKesehatan || null,
-            }),
-            ...(parsed.data.bpjsKetenagakerjaan !== undefined && {
-              bpjsKetenagakerjaan: parsed.data.bpjsKetenagakerjaan || null,
-            }),
-            ...(parsed.data.basicSalary !== undefined && {
-              basicSalary: parsed.data.basicSalary,
-            }),
+            ...(parsed.data.bankName !== undefined && { bankName: parsed.data.bankName || null }),
+            ...(parsed.data.accountNumber !== undefined && { accountNumber: parsed.data.accountNumber || null }),
+            ...(parsed.data.accountHolder !== undefined && { accountHolder: parsed.data.accountHolder || null }),
+            ...(parsed.data.npwp !== undefined && { npwp: parsed.data.npwp || null }),
+            ...(parsed.data.bpjsKesehatan !== undefined && { bpjsKesehatan: parsed.data.bpjsKesehatan || null }),
+            ...(parsed.data.bpjsKetenagakerjaan !== undefined && { bpjsKetenagakerjaan: parsed.data.bpjsKetenagakerjaan || null }),
+            ...(parsed.data.basicSalary !== undefined && { basicSalary: parsed.data.basicSalary }),
             ...(parsed.data.employmentEndDate !== undefined && {
               employmentEndDate: parsed.data.employmentEndDate
                 ? new Date(parsed.data.employmentEndDate)
@@ -273,8 +205,7 @@ export const PUT = withPermission(
         });
 
         if (
-          parsed.data.allowances !== undefined ||
-          parsed.data.deductions !== undefined
+          parsed.data.allowances !== undefined || parsed.data.deductions !== undefined
         ) {
           await tx.employeeCompensationItem.deleteMany({
             where: {
@@ -312,38 +243,28 @@ export const PUT = withPermission(
             })),
           ];
           if (compensationItems.length > 0) {
-            await tx.employeeCompensationItem.createMany({
-              data: compensationItems,
-            });
-          }
+          await tx.employeeCompensationItem.createMany({ data: compensationItems });
+        }
         }
 
         return tx.employee.findFirst({
-          where: { id, organizationId: orgId },
-          include: {
-            department: true,
-            position: true,
-            compensationItems: true,
-          },
-        });
+        where: { id, organizationId: orgId },
+        include: {
+          department: true,
+          position: true,
+          compensationItems: true,
+        },
+      });
       });
 
       if (!employee) return err('Not found', 404);
-      logAudit({
-        orgId,
-        actorId: req.headers.get('x-user-id'),
-        entityType: 'Employee',
-        entityId: id,
-        action: 'UPDATE',
-        payload: body,
-      });
+      logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Employee', entityId: id, action: 'UPDATE', payload: body });
       return ok(serializeEmployee(employee));
     } catch (error) {
-      if (error instanceof ApiError) return err(error.message, error.status);
-      const message =
-        error instanceof Error ? error.message : 'Failed to update employee';
-      return err(message, 500);
-    }
+    if (error instanceof ApiError) return err(error.message, error.status);
+    const message = error instanceof Error ? error.message : 'Failed to update employee';
+    return err(message, 500);
+  }
   },
 );
 

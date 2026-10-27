@@ -3,16 +3,7 @@ import { lockPayroll } from '@/lib/payroll-posting';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import {
-  requireOrg,
-  ok,
-  err,
-  listResponse,
-  nextNumber,
-  logAudit,
-  parsePaginationParams,
-  validateForeignKey,
-} from '@/lib/api-utils';
+import { requireOrg, ok, err, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { employeeInputSchema } from '@/types/api';
 
@@ -32,9 +23,7 @@ function serializeEmployee(employee: any) {
     amount?: number;
     postingAccountId?: string | null;
     isFixed?: boolean | null;
-  }> = Array.isArray(employee.compensationItems)
-    ? employee.compensationItems
-    : [];
+  }> = Array.isArray(employee.compensationItems) ? employee.compensationItems : [];
   const allowances = compensationItems
     .filter((item) => item.type === 'ALLOWANCE')
     .map((item) => ({
@@ -68,11 +57,7 @@ async function resolveDepartmentId(
   departmentName?: string,
 ) {
   if (departmentId) {
-    await validateForeignKey(
-      tx.department,
-      { id: departmentId, organizationId: orgId },
-      'Department not found in organization',
-    );
+    await validateForeignKey(tx.department, { id: departmentId, organizationId: orgId }, 'Department not found in organization');
     return departmentId;
   }
   if (!departmentName) return null;
@@ -102,11 +87,7 @@ async function resolvePositionId(
   positionName?: string,
 ) {
   if (positionId) {
-    await validateForeignKey(
-      tx.position,
-      { id: positionId, organizationId: orgId },
-      'Position not found in organization',
-    );
+    await validateForeignKey(tx.position, { id: positionId, organizationId: orgId }, 'Position not found in organization');
     return positionId;
   }
   if (!positionName) return null;
@@ -133,10 +114,7 @@ export const GET = withPermission(
   { module: 'HR_EMPLOYEES', action: 'view' },
   async function GET(req: NextRequest) {
     const orgId = requireOrg(req);
-    const { searchParams, page, limit } = parsePaginationParams(req, {
-      limit: 20,
-      maxLimit: 100,
-    });
+    const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
     const search = searchParams.get('search');
     const status = searchParams.get('status');
     const where: any = { organizationId: orgId };
@@ -189,25 +167,24 @@ export const GET = withPermission(
     }
     const department = searchParams.get('department');
     if (department) where.department = { name: department };
-    if (search)
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { employeeNo: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-      ];
+    if (search) where.OR = [
+    { name: { contains: search, mode: 'insensitive' } },
+    { employeeNo: { contains: search, mode: 'insensitive' } },
+    { email: { contains: search, mode: 'insensitive' } },
+  ];
     const [data, total] = await Promise.all([
-      prisma.employee.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: [{ name: 'asc' }, { id: 'asc' }],
-        include: {
-          department: { select: { id: true, name: true } },
-          position: { select: { id: true, name: true } },
-        },
-      }),
-      prisma.employee.count({ where }),
-    ]);
+    prisma.employee.findMany({
+      where,
+      skip: (page - 1) * limit,
+      take: limit,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      include: {
+        department: { select: { id: true, name: true } },
+        position: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.employee.count({ where }),
+  ]);
     return listResponse(data.map(serializeEmployee), total, page, limit);
   },
 );
@@ -218,40 +195,21 @@ export const POST = withPermission(
     const orgId = requireOrg(req);
     const body = await req.json();
     const normalizedBody = {
-      ...body,
-      status:
-        typeof body.status === 'string'
-          ? String(body.status).trim().toUpperCase().replace(/\s+/g, '_')
-          : body.status,
-      type:
-        typeof body.type === 'string'
-          ? String(body.type).trim().toUpperCase().replace(/-|\s+/g, '_')
-          : body.type,
-    };
+    ...body,
+    status: typeof body.status === 'string' ? String(body.status).trim().toUpperCase().replace(/\s+/g, '_') : body.status,
+    type: typeof body.type === 'string' ? String(body.type).trim().toUpperCase().replace(/-|\s+/g, '_') : body.type,
+  };
     const parsed = employeeInputSchema.safeParse({
-      ...normalizedBody,
-      organizationId: orgId,
-    });
+    ...normalizedBody,
+    organizationId: orgId,
+  });
     if (!parsed.success) {
-      return err(
-        parsed.error.issues[0]?.message || 'Invalid employee payload',
-        400,
-      );
-    }
+    return err(parsed.error.issues[0]?.message || 'Invalid employee payload', 400);
+  }
 
     const employee = await prisma.$transaction(async (tx) => {
-      const departmentId = await resolveDepartmentId(
-        tx,
-        orgId,
-        parsed.data.departmentId,
-        parsed.data.department,
-      );
-      const positionId = await resolvePositionId(
-        tx,
-        orgId,
-        parsed.data.positionId,
-        parsed.data.position,
-      );
+      const departmentId = await resolveDepartmentId(tx, orgId, parsed.data.departmentId, parsed.data.department);
+      const positionId = await resolvePositionId(tx, orgId, parsed.data.positionId, parsed.data.position);
       const employeeNo = await nextNumber(tx, 'Employee', 'employeeNo', 'EMP');
 
       await lockPayroll(tx, orgId);
@@ -308,21 +266,14 @@ export const POST = withPermission(
           },
         },
         include: {
-          department: true,
-          position: true,
-          compensationItems: true,
-        },
+        department: true,
+        position: true,
+        compensationItems: true,
+      },
       });
     });
 
-    logAudit({
-      orgId,
-      actorId: req.headers.get('x-user-id'),
-      entityType: 'Employee',
-      entityId: employee.id,
-      action: 'CREATE',
-      payload: { name: employee.name, employeeNo: employee.employeeNo },
-    });
+    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'Employee', entityId: employee.id, action: 'CREATE', payload: { name: employee.name, employeeNo: employee.employeeNo } });
     return ok(serializeEmployee(employee), 201);
   },
 );
