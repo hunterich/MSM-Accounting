@@ -36,7 +36,11 @@ import {
   cleanupOrg,
   disconnect,
 } from './harness';
-import { routeForApproval, approveRequest, rejectRequest } from '../../approval/engine';
+import {
+  routeForApproval,
+  approveRequest,
+  rejectRequest,
+} from '../../approval/engine';
 
 afterAll(async () => {
   await disconnect();
@@ -65,7 +69,13 @@ async function seedUser(
       roleType,
       permissions: {
         create: [
-          { moduleKey, canView: true, canCreate: true, canEdit: true, canApprove },
+          {
+            moduleKey,
+            canView: true,
+            canCreate: true,
+            canEdit: true,
+            canApprove,
+          },
         ],
       },
     },
@@ -86,7 +96,11 @@ async function seedUser(
   return user.id;
 }
 
-async function setRequirement(orgId: string, configKey: string, on: boolean): Promise<void> {
+async function setRequirement(
+  orgId: string,
+  configKey: string,
+  on: boolean,
+): Promise<void> {
   await prisma.organization.update({
     where: { id: orgId },
     data: { approvalRequirements: { [configKey]: on } },
@@ -99,7 +113,12 @@ async function pendingRequestId(
   documentId: string,
 ): Promise<string> {
   const req = await prisma.approvalRequest.findFirstOrThrow({
-    where: { organizationId: orgId, documentType, documentId, status: 'PENDING' },
+    where: {
+      organizationId: orgId,
+      documentType,
+      documentId,
+      status: 'PENDING',
+    },
     select: { id: true },
   });
   return req.id;
@@ -157,7 +176,10 @@ async function makeDraftBill(orgId: string): Promise<string> {
  * account). Wire returnAccountId + arAccountId explicitly to the seeded
  * accounts so resolution is deterministic.
  */
-async function makeDraftCreditNote(orgId: string, accounts: Record<string, string>): Promise<string> {
+async function makeDraftCreditNote(
+  orgId: string,
+  accounts: Record<string, string>,
+): Promise<string> {
   const customerId = await createCustomer(orgId);
   const cn = await prisma.creditNote.create({
     data: {
@@ -184,11 +206,26 @@ async function makeDraftCreditNote(orgId: string, accounts: Record<string, strin
  * balanced Dr Salary-Expense 100000 / Cr Cash 100000 entry:
  *   debit  = totalGross + totalBpjsEmployer = 100000 + 0
  *   credit = totalNet + totalTax + totalBpjsAll + totalDeductions = 100000 + 0
- * The expense account resolves to code 5100 (seeded as COGS); cash + tax
- * accounts resolve via the posting lib's type-based fallbacks (the required-
- * accounts guard is satisfied — an ASSET and a LIABILITY postable both exist).
+ * Payroll requires explicit usable 5100/2300/2310 accounts. The fixture
+ * supplies the tax/BPJS accounts and a calculation basis; no arbitrary account
+ * fallbacks are accepted.
  */
 async function makeReviewedPayrollRun(orgId: string): Promise<string> {
+  for (const [code, name] of [
+    ['2300', 'PPh 21 Payable'],
+    ['2310', 'BPJS Payable'],
+  ])
+    await prisma.account.upsert({
+      where: { organizationId_code: { organizationId: orgId, code } },
+      create: {
+        organizationId: orgId,
+        code,
+        name,
+        type: 'LIABILITY',
+        normalSide: 'CREDIT',
+      },
+      update: {},
+    });
   const employee = await prisma.employee.create({
     data: {
       organizationId: orgId,
@@ -211,6 +248,7 @@ async function makeReviewedPayrollRun(orgId: string): Promise<string> {
       periodStart: new Date(Date.UTC(year, month - 1, 1)),
       periodEnd: new Date(Date.UTC(year, month - 1, 28)),
       status: 'REVIEWED',
+      calculationBasis: { version: 1, priorPostedIds: [] },
       totalGross: 100000,
       totalDeductions: 0,
       totalTax: 0,
@@ -262,26 +300,49 @@ describe('approval engine Phase 2: BILL route-hold + approve/reject', () => {
       expect(await journalEntryCount(org.orgId)).toBe(0);
 
       const pending = await prisma.approvalRequest.findMany({
-        where: { organizationId: org.orgId, documentType: 'BILL', documentId: billId, status: 'PENDING' },
+        where: {
+          organizationId: org.orgId,
+          documentType: 'BILL',
+          documentId: billId,
+          status: 'PENDING',
+        },
         select: { id: true },
       });
       expect(pending).toHaveLength(1);
 
       // Bill untouched by routing — still DRAFT.
       expect(
-        (await prisma.bill.findUniqueOrThrow({ where: { id: billId }, select: { status: true } })).status,
+        (
+          await prisma.bill.findUniqueOrThrow({
+            where: { id: billId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('DRAFT');
 
       const requestId = pending[0].id;
-      await approveRequest(requestId, { orgId: org.orgId, userId: admin, roleType: 'ADMIN' });
+      await approveRequest(requestId, {
+        orgId: org.orgId,
+        userId: admin,
+        roleType: 'ADMIN',
+      });
 
       // Finalizer ran: bill OPEN, request APPROVED, balanced JE posted.
       expect(
-        (await prisma.bill.findUniqueOrThrow({ where: { id: billId }, select: { status: true } })).status,
+        (
+          await prisma.bill.findUniqueOrThrow({
+            where: { id: billId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('OPEN');
       expect(
-        (await prisma.approvalRequest.findUniqueOrThrow({ where: { id: requestId }, select: { status: true } }))
-          .status,
+        (
+          await prisma.approvalRequest.findUniqueOrThrow({
+            where: { id: requestId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('APPROVED');
       expect(await journalEntryCount(org.orgId)).toBeGreaterThan(0);
       await assertTrialBalanced(org.orgId, 'bill approval finalize');
@@ -294,12 +355,22 @@ describe('approval engine Phase 2: BILL route-hold + approve/reject', () => {
     const org = await createTestOrg();
     try {
       await setRequirement(org.orgId, 'ap_bills', true);
-      const submitter = await seedUser(org.orgId, 'ACCOUNTANT', false, 'AP_BILLS');
+      const submitter = await seedUser(
+        org.orgId,
+        'ACCOUNTANT',
+        false,
+        'AP_BILLS',
+      );
       const approver = await seedUser(org.orgId, 'ADMIN', true, 'AP_BILLS');
       const billId = await makeDraftBill(org.orgId);
 
       await prisma.$transaction((tx) =>
-        routeForApproval(tx, { orgId: org.orgId, userId: submitter, documentType: 'BILL', documentId: billId }),
+        routeForApproval(tx, {
+          orgId: org.orgId,
+          userId: submitter,
+          documentType: 'BILL',
+          documentId: billId,
+        }),
       );
       const requestId = await pendingRequestId(org.orgId, 'BILL', billId);
 
@@ -310,7 +381,12 @@ describe('approval engine Phase 2: BILL route-hold + approve/reject', () => {
       );
 
       expect(
-        (await prisma.bill.findUniqueOrThrow({ where: { id: billId }, select: { status: true } })).status,
+        (
+          await prisma.bill.findUniqueOrThrow({
+            where: { id: billId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('DRAFT');
       const req = await prisma.approvalRequest.findUniqueOrThrow({
         where: { id: requestId },
@@ -349,24 +425,47 @@ describe('approval engine Phase 2: CREDIT_NOTE route-hold + approve/reject', () 
       expect(await journalEntryCount(org.orgId)).toBe(0);
 
       const pending = await prisma.approvalRequest.findMany({
-        where: { organizationId: org.orgId, documentType: 'CREDIT_NOTE', documentId: cnId, status: 'PENDING' },
+        where: {
+          organizationId: org.orgId,
+          documentType: 'CREDIT_NOTE',
+          documentId: cnId,
+          status: 'PENDING',
+        },
         select: { id: true },
       });
       expect(pending).toHaveLength(1);
 
       expect(
-        (await prisma.creditNote.findUniqueOrThrow({ where: { id: cnId }, select: { status: true } })).status,
+        (
+          await prisma.creditNote.findUniqueOrThrow({
+            where: { id: cnId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('DRAFT');
 
       const requestId = pending[0].id;
-      await approveRequest(requestId, { orgId: org.orgId, userId: admin, roleType: 'ADMIN' });
+      await approveRequest(requestId, {
+        orgId: org.orgId,
+        userId: admin,
+        roleType: 'ADMIN',
+      });
 
       expect(
-        (await prisma.creditNote.findUniqueOrThrow({ where: { id: cnId }, select: { status: true } })).status,
+        (
+          await prisma.creditNote.findUniqueOrThrow({
+            where: { id: cnId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('APPLIED');
       expect(
-        (await prisma.approvalRequest.findUniqueOrThrow({ where: { id: requestId }, select: { status: true } }))
-          .status,
+        (
+          await prisma.approvalRequest.findUniqueOrThrow({
+            where: { id: requestId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('APPROVED');
       expect(await journalEntryCount(org.orgId)).toBeGreaterThan(0);
       await assertTrialBalanced(org.orgId, 'credit note approval finalize');
@@ -379,7 +478,12 @@ describe('approval engine Phase 2: CREDIT_NOTE route-hold + approve/reject', () 
     const org = await createTestOrg();
     try {
       await setRequirement(org.orgId, 'ar_credits', true);
-      const submitter = await seedUser(org.orgId, 'ACCOUNTANT', false, 'AR_CREDITS');
+      const submitter = await seedUser(
+        org.orgId,
+        'ACCOUNTANT',
+        false,
+        'AR_CREDITS',
+      );
       const approver = await seedUser(org.orgId, 'ADMIN', true, 'AR_CREDITS');
       const cnId = await makeDraftCreditNote(org.orgId, org.accounts);
 
@@ -393,14 +497,27 @@ describe('approval engine Phase 2: CREDIT_NOTE route-hold + approve/reject', () 
       );
       const requestId = await pendingRequestId(org.orgId, 'CREDIT_NOTE', cnId);
 
-      await rejectRequest(requestId, { orgId: org.orgId, userId: approver, roleType: 'ADMIN' });
+      await rejectRequest(requestId, {
+        orgId: org.orgId,
+        userId: approver,
+        roleType: 'ADMIN',
+      });
 
       expect(
-        (await prisma.creditNote.findUniqueOrThrow({ where: { id: cnId }, select: { status: true } })).status,
+        (
+          await prisma.creditNote.findUniqueOrThrow({
+            where: { id: cnId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('DRAFT');
       expect(
-        (await prisma.approvalRequest.findUniqueOrThrow({ where: { id: requestId }, select: { status: true } }))
-          .status,
+        (
+          await prisma.approvalRequest.findUniqueOrThrow({
+            where: { id: requestId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('REJECTED');
       expect(await journalEntryCount(org.orgId)).toBe(0);
     } finally {
@@ -433,26 +550,49 @@ describe('approval engine Phase 2: PAYROLL_RUN route-hold + REVIEWED-revert + ap
       expect(await journalEntryCount(org.orgId)).toBe(0);
 
       const pending = await prisma.approvalRequest.findMany({
-        where: { organizationId: org.orgId, documentType: 'PAYROLL_RUN', documentId: runId, status: 'PENDING' },
+        where: {
+          organizationId: org.orgId,
+          documentType: 'PAYROLL_RUN',
+          documentId: runId,
+          status: 'PENDING',
+        },
         select: { id: true },
       });
       expect(pending).toHaveLength(1);
 
       // Run untouched by routing — still REVIEWED.
       expect(
-        (await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId }, select: { status: true } })).status,
+        (
+          await prisma.payrollRun.findUniqueOrThrow({
+            where: { id: runId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('REVIEWED');
 
       const requestId = pending[0].id;
-      await approveRequest(requestId, { orgId: org.orgId, userId: admin, roleType: 'ADMIN' });
+      await approveRequest(requestId, {
+        orgId: org.orgId,
+        userId: admin,
+        roleType: 'ADMIN',
+      });
 
       // Finalizer ran: run POSTED, request APPROVED, balanced JE posted.
       expect(
-        (await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId }, select: { status: true } })).status,
+        (
+          await prisma.payrollRun.findUniqueOrThrow({
+            where: { id: runId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('POSTED');
       expect(
-        (await prisma.approvalRequest.findUniqueOrThrow({ where: { id: requestId }, select: { status: true } }))
-          .status,
+        (
+          await prisma.approvalRequest.findUniqueOrThrow({
+            where: { id: requestId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('APPROVED');
       expect(await journalEntryCount(org.orgId)).toBeGreaterThan(0);
       await assertTrialBalanced(org.orgId, 'payroll approval finalize');
@@ -465,7 +605,12 @@ describe('approval engine Phase 2: PAYROLL_RUN route-hold + REVIEWED-revert + ap
     const org = await createTestOrg();
     try {
       await setRequirement(org.orgId, 'hr_payroll', true);
-      const submitter = await seedUser(org.orgId, 'ACCOUNTANT', false, 'HR_PAYROLL');
+      const submitter = await seedUser(
+        org.orgId,
+        'ACCOUNTANT',
+        false,
+        'HR_PAYROLL',
+      );
       const approver = await seedUser(org.orgId, 'ADMIN', true, 'HR_PAYROLL');
       const runId = await makeReviewedPayrollRun(org.orgId);
 
@@ -479,15 +624,28 @@ describe('approval engine Phase 2: PAYROLL_RUN route-hold + REVIEWED-revert + ap
       );
       const requestId = await pendingRequestId(org.orgId, 'PAYROLL_RUN', runId);
 
-      await rejectRequest(requestId, { orgId: org.orgId, userId: approver, roleType: 'ADMIN' });
+      await rejectRequest(requestId, {
+        orgId: org.orgId,
+        userId: approver,
+        roleType: 'ADMIN',
+      });
 
       // The Phase-2 payroll-specific revert target: REVIEWED, not DRAFT.
       expect(
-        (await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId }, select: { status: true } })).status,
+        (
+          await prisma.payrollRun.findUniqueOrThrow({
+            where: { id: runId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('REVIEWED');
       expect(
-        (await prisma.approvalRequest.findUniqueOrThrow({ where: { id: requestId }, select: { status: true } }))
-          .status,
+        (
+          await prisma.approvalRequest.findUniqueOrThrow({
+            where: { id: requestId },
+            select: { status: true },
+          })
+        ).status,
       ).toBe('REJECTED');
       expect(await journalEntryCount(org.orgId)).toBe(0);
     } finally {

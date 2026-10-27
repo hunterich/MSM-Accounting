@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Organization {
+  payrollPolicies PayrollPolicy[]
   id                     String   @id @default(cuid())
   legalName              String
   displayName            String
@@ -1536,6 +1537,12 @@ model Position {
 }
 
 model Employee {
+  employmentEndDate DateTime? @db.Date
+  contractEndDate DateTime? @db.Date
+  leavingReason String?
+  ptkpStatus String?
+  ptkpYear Int?
+  workWeekDays Int @default(5)
   id                    String           @id @default(cuid())
   organizationId        String
   employeeNo            String
@@ -1579,6 +1586,7 @@ model Employee {
 }
 
 model EmployeeCompensationItem {
+  isFixed Boolean?
   postingAccountId String?
   id           String            @id @default(cuid())
   employeeId   String
@@ -1682,6 +1690,11 @@ model LeaveBalance {
 }
 
 model PayrollRun {
+  payDate DateTime? @db.Date
+  runType String @default("REGULAR")
+  requestKey String?
+  runInputs Json?
+  calculationBasis Json?
   reviewIssues Json?
   id             String           @id @default(cuid())
   organizationId String
@@ -1706,13 +1719,15 @@ model PayrollRun {
   lines          PayrollLine[]
 
   @@unique([organizationId, number])
-  @@unique([organizationId, month, year])
+  @@index([organizationId, month, year])
+  @@unique([organizationId, requestKey])
   @@index([organizationId, status])
 }
 
 model PayrollLine {
+  calculationSnapshot Json?
   deductionPostings Json?
-  paidDays Decimal @default(0) @db.Decimal(5, 2)
+  paidDays Decimal? @db.Decimal(5, 2)
   id                  String     @id @default(cuid())
   payrollRunId        String
   employeeId          String
@@ -2846,4 +2861,16 @@ model ModifierAttachment {
   @@index([organizationId, itemId])
   @@index([organizationId, itemCategoryId])
   @@index([groupId])
+}
+
+model PayrollPolicy {
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+  id String @id @default(cuid())
+  organizationId String
+  effectiveFrom DateTime @db.Date
+  validUntil DateTime @db.Date
+  rules Json
+  createdAt DateTime @default(now())
+  @@unique([organizationId, effectiveFrom])
+  @@index([organizationId, effectiveFrom, validUntil])
 }

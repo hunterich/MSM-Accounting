@@ -1,0 +1,12 @@
+ALTER TABLE "Employee" ADD COLUMN "employmentEndDate" DATE, ADD COLUMN "contractEndDate" DATE, ADD COLUMN "leavingReason" TEXT, ADD COLUMN "ptkpStatus" TEXT, ADD COLUMN "ptkpYear" INTEGER, ADD COLUMN "workWeekDays" INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE "EmployeeCompensationItem" ADD COLUMN "isFixed" BOOLEAN;
+ALTER TABLE "PayrollLine" ADD COLUMN "calculationSnapshot" JSONB;
+ALTER TABLE "PayrollRun" ADD COLUMN "runType" TEXT NOT NULL DEFAULT 'REGULAR', ADD COLUMN "requestKey" TEXT, ADD COLUMN "runInputs" JSONB, ADD COLUMN "calculationBasis" JSONB;
+DROP INDEX "PayrollRun_organizationId_month_year_key";
+CREATE UNIQUE INDEX "PayrollRun_regular_month_unique" ON "PayrollRun" ("organizationId", "month", "year") WHERE "runType" = 'REGULAR';
+CREATE INDEX "PayrollRun_organizationId_month_year_idx" ON "PayrollRun" ("organizationId", "month", "year");
+CREATE UNIQUE INDEX "PayrollRun_organizationId_requestKey_key" ON "PayrollRun" ("organizationId", "requestKey");
+CREATE TABLE "PayrollPolicy" ("id" TEXT NOT NULL PRIMARY KEY, "organizationId" TEXT NOT NULL REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE, "effectiveFrom" DATE NOT NULL, "validUntil" DATE NOT NULL, "rules" JSONB NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK ("validUntil" >= "effectiveFrom"));
+CREATE UNIQUE INDEX "PayrollPolicy_organizationId_effectiveFrom_key" ON "PayrollPolicy" ("organizationId", "effectiveFrom");
+CREATE INDEX "PayrollPolicy_organizationId_effectiveFrom_validUntil_idx" ON "PayrollPolicy" ("organizationId", "effectiveFrom", "validUntil");
+ALTER TABLE "PayrollRun" ADD COLUMN "payDate" DATE;

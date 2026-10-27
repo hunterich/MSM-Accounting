@@ -405,6 +405,8 @@ See `docs/TESTING.md` for database selection and company-scoped usage.
 - [ ] Sales person assignment & commission tracking
 
 ### 3.2 HR & Payroll (Employee Master Data & Payroll Run)
+
+Payroll accounting/dated eligibility fixes are implemented for review on `codex/payroll-correctness`; see [setup, acceptance and scope](docs/PAYROLL-CORRECTNESS.md). Historical module checkboxes below do not establish statutory or pilot readiness. Finance verification and deployment remain open.
 - [x] **Employee Master Data:**
   - [x] Personal info (Name, KTP, DOB, Contact, Address)
   - [x] Employment details (Join Date, Department, Job Title, Employment Status)

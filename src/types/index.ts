@@ -354,9 +354,19 @@ export interface RawOrganizationSettings {
   paymentAlerts?: boolean | null;
   dailySummary?: boolean | null;
   features?: Record<string, boolean> | null;
-  documentNumbering?: Record<string, { prefix?: string; resetPeriod?: string; seqLength?: number }> | null;
-  salesPolicy?: { blockSellBelowCost?: boolean; requireSalesOrder?: boolean } | null;
-  purchasePolicy?: { autoCloseEnabled?: boolean; autoCloseDays?: number; allowAutoCloseOverride?: boolean } | null;
+  documentNumbering?: Record<
+    string,
+    { prefix?: string; resetPeriod?: string; seqLength?: number }
+  > | null;
+  salesPolicy?: {
+    blockSellBelowCost?: boolean;
+    requireSalesOrder?: boolean;
+  } | null;
+  purchasePolicy?: {
+    autoCloseEnabled?: boolean;
+    autoCloseDays?: number;
+    allowAutoCloseOverride?: boolean;
+  } | null;
   transactionDatePolicy?: unknown;
 }
 
@@ -472,14 +482,31 @@ export interface RawBillImportSession {
 // ── Normalized frontend types ─────────────────────────────────────────────────
 
 export type CustomerStatus = 'Active' | 'Inactive';
-export type InvoiceStatus  = 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Void';
-export type PaymentStatus  = 'Draft' | 'Processing' | 'Completed' | 'Void';
-export type VendorStatus   = 'Active' | 'Inactive';
-export type BillStatus     = 'Draft' | 'Unpaid' | 'Pending' | 'Paid' | 'Overdue' | 'Void';
-export type POStatus       = 'Draft' | 'Pending Approval' | 'Approved' | 'Billed' | 'Closed' | 'Cancelled';
-export type SOStatus       = 'draft' | 'confirmed' | 'closed' | 'cancelled';
+export type InvoiceStatus = 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Void';
+export type PaymentStatus = 'Draft' | 'Processing' | 'Completed' | 'Void';
+export type VendorStatus = 'Active' | 'Inactive';
+export type BillStatus =
+  | 'Draft'
+  | 'Unpaid'
+  | 'Pending'
+  | 'Paid'
+  | 'Overdue'
+  | 'Void';
+export type POStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Billed'
+  | 'Closed'
+  | 'Cancelled';
+export type SOStatus = 'draft' | 'confirmed' | 'closed' | 'cancelled';
 export type InventoryCostingMethod = 'FIFO' | 'WEIGHTED_AVERAGE';
-export type EcommercePlatform = 'Shopee' | 'TikTok' | 'Tokopedia' | 'Lazada' | 'Other';
+export type EcommercePlatform =
+  | 'Shopee'
+  | 'TikTok'
+  | 'Tokopedia'
+  | 'Lazada'
+  | 'Other';
 export type ConnectionStatus = 'Active' | 'Syncing' | 'Inactive';
 export type ImportStatusFilter = 'Selesai' | 'All';
 
@@ -517,9 +544,16 @@ export interface OrganizationSettings {
   paymentAlerts: boolean;
   dailySummary: boolean;
   features: Record<string, boolean>;
-  documentNumbering: Record<string, { prefix: string; resetPeriod: string; seqLength: number }>;
+  documentNumbering: Record<
+    string,
+    { prefix: string; resetPeriod: string; seqLength: number }
+  >;
   salesPolicy: { blockSellBelowCost: boolean; requireSalesOrder: boolean };
-  purchasePolicy: { autoCloseEnabled: boolean; autoCloseDays: number; allowAutoCloseOverride: boolean };
+  purchasePolicy: {
+    autoCloseEnabled: boolean;
+    autoCloseDays: number;
+    allowAutoCloseOverride: boolean;
+  };
   transactionDatePolicy: TransactionDatePolicy;
 }
 
@@ -850,7 +884,12 @@ export interface PurchaseOrder {
 // ── GL ────────────────────────────────────────────────────────────────────────
 
 export type JEStatus = 'Draft' | 'Posted';
-export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense';
+export type AccountType =
+  | 'Asset'
+  | 'Liability'
+  | 'Equity'
+  | 'Revenue'
+  | 'Expense';
 
 export interface RawAccountCount {
   children?: number;
@@ -1057,7 +1096,7 @@ export interface BankTxnFormData {
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 export type ItemStockStatus = 'In Stock' | 'Low Stock' | 'Out of Stock';
-export type AdjType   = 'Quantity' | 'Value';
+export type AdjType = 'Quantity' | 'Value';
 export type AdjStatus = 'Draft' | 'Approved' | 'Void';
 
 export interface RawInventoryItem {
@@ -1187,6 +1226,13 @@ export type EmployeeStatus = 'Active' | 'Inactive' | 'On Leave';
 export type EmploymentType = 'Full-time' | 'Contract';
 
 export interface RawEmployee {
+  employmentEndDate?: string | null;
+  contractEndDate?: string | null;
+  leavingReason?: string | null;
+  ptkpStatus?: string | null;
+  ptkpYear?: number | null;
+  workWeekDays?: number;
+
   id: string;
   employeeNo?: string | null;
   name?: string | null;
@@ -1209,12 +1255,38 @@ export interface RawEmployee {
   basicSalary?: number | string | null;
   joinDate?: string | null;
   address?: string | null;
-  allowances?: Array<{ id?: string | null; name?: string | null; amount?: number | string | null }> | null;
-  deductions?: Array<{ id?: string | null; name?: string | null; amount?: number | string | null }> | null;
-  compensationItems?: Array<{ id?: string | null; type?: string | null; name?: string | null; amount?: number | string | null }> | null;
+  allowances?: Array<{
+    id?: string | null;
+    name?: string | null;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount?: number | string | null;
+  }> | null;
+  deductions?: Array<{
+    id?: string | null;
+    name?: string | null;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount?: number | string | null;
+  }> | null;
+  compensationItems?: Array<{
+    id?: string | null;
+    type?: string | null;
+    name?: string | null;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount?: number | string | null;
+  }> | null;
 }
 
 export interface Employee {
+  employmentEndDate?: string | null;
+  contractEndDate?: string | null;
+  leavingReason?: string | null;
+  ptkpStatus?: string | null;
+  ptkpYear?: number | null;
+  workWeekDays?: number;
+
   id: string;
   employeeNo: string;
   name: string;
@@ -1239,17 +1311,36 @@ export interface Employee {
   basicSalary: number;
   joinDate: string;
   address: string;
-  allowances?: Array<{ id: string; name: string; amount: number }>;
-  deductions?: Array<{ id: string; name: string; amount: number }>;
+  allowances?: Array<{
+    id: string;
+    name: string;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount: number;
+  }>;
+  deductions?: Array<{
+    id: string;
+    name: string;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount: number;
+  }>;
 }
 
 // ── Returns ───────────────────────────────────────────────────────────────────
 
 // Mirrors prisma's ReturnStatus enum. Sales returns use 'Pending Credit Note',
 // purchase returns 'Pending Debit Note'; the rest are shared.
-export type ReturnStatus    = 'Draft' | 'Approved' | 'Pending Credit Note' | 'Pending Debit Note' | 'Applied' | 'Pending Approval' | 'Void';
+export type ReturnStatus =
+  | 'Draft'
+  | 'Approved'
+  | 'Pending Credit Note'
+  | 'Pending Debit Note'
+  | 'Applied'
+  | 'Pending Approval'
+  | 'Void';
 export type CreditNoteStatus = 'Draft' | 'Applied' | 'Void';
-export type DebitNoteStatus  = 'Draft' | 'Applied' | 'Void';
+export type DebitNoteStatus = 'Draft' | 'Applied' | 'Void';
 
 export interface RawReturnLine {
   id?: string;
@@ -1534,12 +1625,30 @@ export interface CustomerCategory {
 // ── Access Control ────────────────────────────────────────────────────────────
 
 export type ModuleKey =
-  | 'DASHBOARD' | 'GL_COA' | 'GL_JOURNAL'
-  | 'AR_INVOICES' | 'AR_SALES_ORDERS' | 'AR_PAYMENTS' | 'AR_CREDITS' | 'AR_CUSTOMERS'
-  | 'AP_POS' | 'AP_BILLS' | 'AP_PAYMENTS' | 'AP_DEBITS' | 'AP_VENDORS'
-  | 'INV_ITEMS' | 'INV_CATEGORIES' | 'INV_ADJ'
-  | 'HR_EMPLOYEES' | 'HR_ATTENDANCE' | 'HR_PAYROLL'
-  | 'BANKING' | 'INTEGRATIONS' | 'REPORTS' | 'COMPANY' | 'SETTINGS';
+  | 'DASHBOARD'
+  | 'GL_COA'
+  | 'GL_JOURNAL'
+  | 'AR_INVOICES'
+  | 'AR_SALES_ORDERS'
+  | 'AR_PAYMENTS'
+  | 'AR_CREDITS'
+  | 'AR_CUSTOMERS'
+  | 'AP_POS'
+  | 'AP_BILLS'
+  | 'AP_PAYMENTS'
+  | 'AP_DEBITS'
+  | 'AP_VENDORS'
+  | 'INV_ITEMS'
+  | 'INV_CATEGORIES'
+  | 'INV_ADJ'
+  | 'HR_EMPLOYEES'
+  | 'HR_ATTENDANCE'
+  | 'HR_PAYROLL'
+  | 'BANKING'
+  | 'INTEGRATIONS'
+  | 'REPORTS'
+  | 'COMPANY'
+  | 'SETTINGS';
 
 export type RoleType = 'ADMIN' | 'ACCOUNTANT' | 'VIEWER' | 'CUSTOM';
 export type InvoiceAccessScope = 'ALL' | 'OWN';
@@ -1574,9 +1683,30 @@ export interface DashboardSummary {
   overdueInvoicesAmount: number;
   netCashFlow: number;
   outstandingBillsAmount: number;
-  recentInvoices: Pick<Invoice, 'id' | 'number' | 'customerName' | 'issueDate' | 'dueDate' | 'totalAmount' | 'status'>[];
-  recentPayments: Pick<ARPayment, 'id' | 'number' | 'customerName' | 'date' | 'totalAmount' | 'status'>[];
-  recentBills: Pick<Bill, 'id' | 'number' | 'vendorName' | 'issueDate' | 'dueDate' | 'totalAmount' | 'status'>[];
+  recentInvoices: Pick<
+    Invoice,
+    | 'id'
+    | 'number'
+    | 'customerName'
+    | 'issueDate'
+    | 'dueDate'
+    | 'totalAmount'
+    | 'status'
+  >[];
+  recentPayments: Pick<
+    ARPayment,
+    'id' | 'number' | 'customerName' | 'date' | 'totalAmount' | 'status'
+  >[];
+  recentBills: Pick<
+    Bill,
+    | 'id'
+    | 'number'
+    | 'vendorName'
+    | 'issueDate'
+    | 'dueDate'
+    | 'totalAmount'
+    | 'status'
+  >[];
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────

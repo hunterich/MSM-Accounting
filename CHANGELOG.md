@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — payroll accounting and dated Indonesian payroll rules
+- Employee deductions credit their mapped receivable/payable; cash decreases only by net pay. Required salary, PPh 21, BPJS and cash accounts fail clearly when missing; posting and approval refuse AR/AP controls and stale calculations atomically.
+- Correct monthly TER gross, paid annual/certified sick leave, half-days and missing-attendance review. Add PTKP/year, inclusive employment end dates, contract review, daily statutory overtime, effective-dated BPJS settings, December/final-month Article 17 reconciliation and explicit THR/final/correction runs. Existing posted payroll and employee history are preserved.
+- Setup, verified examples, migration behavior and acceptance limits: [Payroll correctness](docs/PAYROLL-CORRECTNESS.md).
+
 ### Security — dependency refresh (2026-10-27)
 - Patch Next.js to 15.5.28, Zod to 4.6.7 and Vitest to 4.1.12; update DOMPurify, fast-uri and serialize-javascript to compatible patched releases. Keep the dependency audit enabled. Adapt the numeric validation error option to Zod 4 while preserving its message. Keep omitted update fields absent under Zod 4, so status-only payment replays remain idempotent and unrelated edits cannot reset status, balances, permissions or other create defaults.
 

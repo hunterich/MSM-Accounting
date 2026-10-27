@@ -5,12 +5,17 @@ import { passwordSchema } from '@/lib/password';
 // .partial() otherwise reapplies those defaults to omitted persisted fields.
 // Supplied values retain their validators and nested defaults.
 function optionalInput<T extends z.ZodType>(field: T): z.ZodOptional<T> {
-  return z.optional(field instanceof z.ZodDefault ? field.removeDefault() : field) as z.ZodOptional<T>;
+  return z.optional(
+    field instanceof z.ZodDefault ? field.removeDefault() : field,
+  ) as z.ZodOptional<T>;
 }
 function partialInput<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
-  const shape = Object.fromEntries(Object.entries(schema.shape).map(([key, field]) =>
-    [key, z.optional(field instanceof z.ZodDefault ? field.removeDefault() : field)],
-  )) as { [K in keyof T]: z.ZodOptional<T[K]> };
+  const shape = Object.fromEntries(
+    Object.entries(schema.shape).map(([key, field]) => [
+      key,
+      z.optional(field instanceof z.ZodDefault ? field.removeDefault() : field),
+    ]),
+  ) as { [K in keyof T]: z.ZodOptional<T[K]> };
   return z.object(shape);
 }
 const decimalCoerce = z.coerce
@@ -71,7 +76,9 @@ export const createInvoiceInputSchema = z.object({
   discountPct: positiveDecimal.max(100).default(0),
   tax: invoiceTaxInputSchema.optional(),
   notes: z.string().trim().optional(),
-  lines: z.array(invoiceLineInputSchema).min(1, 'At least one invoice line is required'),
+  lines: z
+    .array(invoiceLineInputSchema)
+    .min(1, 'At least one invoice line is required'),
   charges: z.array(documentChargeSchema).optional(),
 });
 
@@ -114,10 +121,22 @@ export const createJournalEntryInputSchema = z.object({
   periodId: z.string().trim().optional(),
   memo: z.string().trim().min(1, 'Memo is required'),
   source: z
-    .enum(['MANUAL', 'ADJUSTMENT', 'ACCRUAL', 'PREPAYMENT', 'DEPRECIATION', 'CLOSING', 'OPENING', 'REVERSAL', 'SYSTEM'])
+    .enum([
+      'MANUAL',
+      'ADJUSTMENT',
+      'ACCRUAL',
+      'PREPAYMENT',
+      'DEPRECIATION',
+      'CLOSING',
+      'OPENING',
+      'REVERSAL',
+      'SYSTEM',
+    ])
     .default('MANUAL'),
   status: z.enum(['DRAFT', 'POSTED']).default('POSTED'),
-  lines: z.array(journalLineInputSchema).min(2, 'At least two lines are required'),
+  lines: z
+    .array(journalLineInputSchema)
+    .min(2, 'At least two lines are required'),
 });
 
 export const createJournalEntryResponseSchema = z.object({
@@ -128,7 +147,13 @@ export const createJournalEntryResponseSchema = z.object({
   status: z.enum(['DRAFT', 'POSTED']),
 });
 
-export const accountTypeSchema = z.enum(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']);
+export const accountTypeSchema = z.enum([
+  'Asset',
+  'Liability',
+  'Equity',
+  'Revenue',
+  'Expense',
+]);
 export const normalSideSchema = z.enum(['Debit', 'Credit']);
 
 const accountBaseFields = {
@@ -207,7 +232,11 @@ export const warehouseInputSchema = z.object({
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
 
 const optionalEmailString = z
-  .union([z.string().trim().email('Invalid email address'), z.literal(''), z.null()])
+  .union([
+    z.string().trim().email('Invalid email address'),
+    z.literal(''),
+    z.null(),
+  ])
   .optional();
 
 export const updateCustomerInputSchema = z.object({
@@ -226,8 +255,16 @@ export const updateCustomerInputSchema = z.object({
   province: optionalNullableString,
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   taxable: z.boolean().optional(),
-  paymentTerms: z.coerce.number().int().min(0, 'Payment terms must be non-negative').optional(),
-  paymentTermsDays: z.coerce.number().int().min(0, 'Payment terms must be non-negative').optional(),
+  paymentTerms: z.coerce
+    .number()
+    .int()
+    .min(0, 'Payment terms must be non-negative')
+    .optional(),
+  paymentTermsDays: z.coerce
+    .number()
+    .int()
+    .min(0, 'Payment terms must be non-negative')
+    .optional(),
   defaultDiscount: positiveDecimal.max(100).optional(),
   creditLimit: positiveDecimal.optional(),
   openingBalance: positiveDecimal.optional(),
@@ -237,17 +274,19 @@ export const updateCustomerInputSchema = z.object({
   category: optionalNullableString,
 });
 
-export const createCustomerInputSchema = updateCustomerInputSchema.extend({
-  name: z.string().trim().min(1, 'Customer name is required'),
-}).superRefine((value, ctx) => {
-  if (!value.code?.trim() && !value.id?.trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['code'],
-      message: 'Customer code is required',
-    });
-  }
-});
+export const createCustomerInputSchema = updateCustomerInputSchema
+  .extend({
+    name: z.string().trim().min(1, 'Customer name is required'),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.code?.trim() && !value.id?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['code'],
+        message: 'Customer code is required',
+      });
+    }
+  });
 
 export const updateVendorInputSchema = z.object({
   code: optionalNullableString,
@@ -265,30 +304,54 @@ export const updateVendorInputSchema = z.object({
 export const createVendorInputSchema = updateVendorInputSchema.extend({
   code: z.string().trim().min(1, 'Vendor code is required'),
   name: z.string().trim().min(1, 'Vendor name is required'),
-  defaultApAccountId: z.string().trim().min(1, 'Default A/P account is required'),
+  defaultApAccountId: z
+    .string()
+    .trim()
+    .min(1, 'Default A/P account is required'),
 });
 
 export const customerCategoryInputSchema = z.object({
   name: z.string().trim().min(1, 'Category name is required'),
-  prefix: z.string().trim().min(1, 'Prefix is required').max(12, 'Prefix is too long'),
+  prefix: z
+    .string()
+    .trim()
+    .min(1, 'Prefix is required')
+    .max(12, 'Prefix is too long'),
   defaultCreditLimit: positiveDecimal.default(0),
-  defaultPaymentTerms: z.coerce.number().int().min(0, 'Default payment terms must be non-negative').default(0),
+  defaultPaymentTerms: z.coerce
+    .number()
+    .int()
+    .min(0, 'Default payment terms must be non-negative')
+    .default(0),
   defaultDiscount: positiveDecimal.max(100).default(0),
   description: optionalNullableString,
 });
 
 export const updateCustomerCategoryInputSchema = z.object({
   name: z.string().trim().min(1, 'Category name is required').optional(),
-  prefix: z.string().trim().min(1, 'Prefix is required').max(12, 'Prefix is too long').optional(),
+  prefix: z
+    .string()
+    .trim()
+    .min(1, 'Prefix is required')
+    .max(12, 'Prefix is too long')
+    .optional(),
   defaultCreditLimit: positiveDecimal.optional(),
-  defaultPaymentTerms: z.coerce.number().int().min(0, 'Default payment terms must be non-negative').optional(),
+  defaultPaymentTerms: z.coerce
+    .number()
+    .int()
+    .min(0, 'Default payment terms must be non-negative')
+    .optional(),
   defaultDiscount: positiveDecimal.max(100).optional(),
   description: optionalNullableString,
 });
 
 export const vendorCategoryInputSchema = z.object({
   name: z.string().trim().min(1, 'Category name is required'),
-  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long'),
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Code is required')
+    .max(12, 'Code is too long'),
   defaultPaymentTerms: optionalNullableString,
   defaultApAccountId: optionalNullableString,
   description: optionalNullableString,
@@ -297,7 +360,12 @@ export const vendorCategoryInputSchema = z.object({
 
 export const updateVendorCategoryInputSchema = z.object({
   name: z.string().trim().min(1, 'Category name is required').optional(),
-  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long').optional(),
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Code is required')
+    .max(12, 'Code is too long')
+    .optional(),
   defaultPaymentTerms: optionalNullableString,
   defaultApAccountId: optionalNullableString,
   description: optionalNullableString,
@@ -306,14 +374,23 @@ export const updateVendorCategoryInputSchema = z.object({
 
 export const itemCategoryInputSchema = z.object({
   name: z.string().trim().min(1, 'Category name is required'),
-  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long'),
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Code is required')
+    .max(12, 'Code is too long'),
   description: optionalNullableString,
   isActive: z.boolean().default(true),
 });
 
 export const updateItemCategoryInputSchema = z.object({
   name: z.string().trim().min(1, 'Category name is required').optional(),
-  code: z.string().trim().min(1, 'Code is required').max(12, 'Code is too long').optional(),
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Code is required')
+    .max(12, 'Code is too long')
+    .optional(),
   description: optionalNullableString,
   isActive: z.boolean().optional(),
 });
@@ -322,7 +399,9 @@ export const updateItemInputSchema = z.object({
   sku: z.string().trim().min(1, 'SKU is required').optional(),
   name: z.string().trim().min(1, 'Item name is required').optional(),
   categoryId: optionalNullableString,
-  type: z.enum(['PRODUCT', 'SERVICE', 'RAW_MATERIAL', 'CONSUMABLE', 'FIXED_ASSET']).optional(),
+  type: z
+    .enum(['PRODUCT', 'SERVICE', 'RAW_MATERIAL', 'CONSUMABLE', 'FIXED_ASSET'])
+    .optional(),
   unit: z.string().trim().min(1, 'Unit is required').optional(),
   purchaseUnit: optionalNullableString,
   purchaseConversionFactor: positiveDecimal.optional().nullable(),
@@ -347,7 +426,9 @@ export const createItemInputSchema = updateItemInputSchema.extend({
   sku: z.string().trim().min(1, 'SKU is required'),
   name: z.string().trim().min(1, 'Item name is required'),
   unit: z.string().trim().min(1, 'Unit is required').default('PCS'),
-  type: z.enum(['PRODUCT', 'SERVICE', 'RAW_MATERIAL', 'CONSUMABLE', 'FIXED_ASSET']).default('PRODUCT'),
+  type: z
+    .enum(['PRODUCT', 'SERVICE', 'RAW_MATERIAL', 'CONSUMABLE', 'FIXED_ASSET'])
+    .default('PRODUCT'),
   openingStock: positiveDecimal.default(0),
   reorderPoint: positiveDecimal.default(0),
   cost: positiveDecimal.optional(),
@@ -358,11 +439,19 @@ export const createItemInputSchema = updateItemInputSchema.extend({
 });
 
 export const updateOrganizationSettingsInputSchema = z.object({
-  legalName: z.string().trim().min(1, 'Legal company name is required').optional(),
+  legalName: z
+    .string()
+    .trim()
+    .min(1, 'Legal company name is required')
+    .optional(),
   displayName: z.string().trim().min(1, 'Display name is required').optional(),
   npwp: optionalNullableString,
   isPkp: z.boolean().optional(),
-  baseCurrency: z.string().trim().min(1, 'Base currency is required').optional(),
+  baseCurrency: z
+    .string()
+    .trim()
+    .min(1, 'Base currency is required')
+    .optional(),
   timezone: z.string().trim().min(1, 'Timezone is required').optional(),
   locale: z.string().trim().min(1, 'Locale is required').optional(),
   fiscalYearStart: isoDateString.nullable().optional(),
@@ -384,47 +473,63 @@ export const updateOrganizationSettingsInputSchema = z.object({
   accountDefaults: z.record(z.string().min(1), z.string()).optional(),
   approvalRequirements: z.record(z.string(), z.boolean()).optional(),
   requireDistinctApproverForAdmins: z.boolean().optional(),
-  printSettings: z.object({
-    showLogo: z.boolean().optional(),
-    showLetterhead: z.boolean().optional(),
-    accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Accent color must be a hex value like #1A2B3C').optional(),
-    density: z.enum(['compact', 'comfortable', 'spacious']).optional(),
-    defaultPaperSize: z.enum(['A4', 'A5']).optional(),
-    showUnitColumn: z.boolean().optional(),
-    showDiscountColumn: z.boolean().optional(),
-    footerText: z.string().max(500).optional(),
-    termsText: z.string().max(2000).optional(),
-    showSignature: z.boolean().optional(),
-    signatureLabel: z.string().max(120).optional(),
-    signerName: z.string().max(120).optional(),
-  }).optional(),
+  printSettings: z
+    .object({
+      showLogo: z.boolean().optional(),
+      showLetterhead: z.boolean().optional(),
+      accentColor: z
+        .string()
+        .regex(
+          /^#[0-9A-Fa-f]{6}$/,
+          'Accent color must be a hex value like #1A2B3C',
+        )
+        .optional(),
+      density: z.enum(['compact', 'comfortable', 'spacious']).optional(),
+      defaultPaperSize: z.enum(['A4', 'A5']).optional(),
+      showUnitColumn: z.boolean().optional(),
+      showDiscountColumn: z.boolean().optional(),
+      footerText: z.string().max(500).optional(),
+      termsText: z.string().max(2000).optional(),
+      showSignature: z.boolean().optional(),
+      signatureLabel: z.string().max(120).optional(),
+      signerName: z.string().max(120).optional(),
+    })
+    .optional(),
   defaultPaymentTerms: z.number().int().min(0).optional(),
   features: z.record(z.string(), z.boolean()).optional(),
-  salesPolicy: z.object({
-    blockSellBelowCost: z.boolean().optional(),
-    requireSalesOrder: z.boolean().optional(),
-  }).optional(),
-  purchasePolicy: z.object({
-    autoCloseEnabled: z.boolean().optional(),
-    autoCloseDays: z.number().int().min(0).max(3650).optional(),
-    allowAutoCloseOverride: z.boolean().optional(),
-  }).optional(),
+  salesPolicy: z
+    .object({
+      blockSellBelowCost: z.boolean().optional(),
+      requireSalesOrder: z.boolean().optional(),
+    })
+    .optional(),
+  purchasePolicy: z
+    .object({
+      autoCloseEnabled: z.boolean().optional(),
+      autoCloseDays: z.number().int().min(0).max(3650).optional(),
+      allowAutoCloseOverride: z.boolean().optional(),
+    })
+    .optional(),
   // Pembatasan Tanggal Transaksi. `null` on a bound means no limit that way;
   // the server re-normalizes anyway, so this only has to reject nonsense.
-  transactionDatePolicy: z.object({
-    enabled: z.boolean().optional(),
-    mode: z.enum(['WARN', 'BLOCK']).optional(),
-    daysBefore: z.number().int().min(0).max(3650).nullable().optional(),
-    daysAfter: z.number().int().min(0).max(3650).nullable().optional(),
-  }).optional(),
-  documentNumbering: z.record(
-    z.string(),
-    z.object({
-      prefix: z.string().max(12).optional(),
-      resetPeriod: z.enum(['monthly', 'yearly', 'never']).optional(),
-      seqLength: z.number().int().optional(),
-    }),
-  ).optional(),
+  transactionDatePolicy: z
+    .object({
+      enabled: z.boolean().optional(),
+      mode: z.enum(['WARN', 'BLOCK']).optional(),
+      daysBefore: z.number().int().min(0).max(3650).nullable().optional(),
+      daysAfter: z.number().int().min(0).max(3650).nullable().optional(),
+    })
+    .optional(),
+  documentNumbering: z
+    .record(
+      z.string(),
+      z.object({
+        prefix: z.string().max(12).optional(),
+        resetPeriod: z.enum(['monthly', 'yearly', 'never']).optional(),
+        seqLength: z.number().int().optional(),
+      }),
+    )
+    .optional(),
 });
 
 const documentLineSchema = z.object({
@@ -445,12 +550,19 @@ const documentLineSchema = z.object({
 });
 
 export const assetPurchaseLineSchema = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('CREATE'), name: z.string().trim().min(1), categoryId: z.string().trim().min(1),
-    usefulLifeMonths: z.coerce.number().int().min(1).optional(), salvageValue: positiveDecimal.optional(),
-    serialNumber: z.string().trim().optional() }),
+  z.object({
+    mode: z.literal('CREATE'),
+    name: z.string().trim().min(1),
+    categoryId: z.string().trim().min(1),
+    usefulLifeMonths: z.coerce.number().int().min(1).optional(),
+    salvageValue: positiveDecimal.optional(),
+    serialNumber: z.string().trim().optional(),
+  }),
   z.object({ mode: z.literal('LINK'), assetId: z.string().trim().min(1) }),
 ]);
-const billLineSchema = documentLineSchema.extend({ assetPurchase: assetPurchaseLineSchema.optional() });
+const billLineSchema = documentLineSchema.extend({
+  assetPurchase: assetPurchaseLineSchema.optional(),
+});
 
 export const billInputSchema = z.object({
   organizationId: z.string().trim().min(1),
@@ -459,7 +571,9 @@ export const billInputSchema = z.object({
   poId: z.string().trim().optional(),
   issueDate: isoDateString,
   dueDate: isoDateString.optional(),
-  status: z.enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID']).default('DRAFT'),
+  status: z
+    .enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID'])
+    .default('DRAFT'),
   apAccountId: z.string().trim().optional(),
   taxRate: positiveDecimal.max(100).default(0),
   taxable: z.boolean().default(false),
@@ -480,7 +594,9 @@ export const updateBillInputSchema = z.object({
   poId: z.string().trim().optional(),
   issueDate: isoDateString.optional(),
   dueDate: isoDateString.optional(),
-  status: z.enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID']).optional(),
+  status: z
+    .enum(['DRAFT', 'OPEN', 'PENDING', 'PAID', 'OVERDUE', 'VOID'])
+    .optional(),
   apAccountId: z.string().trim().optional(),
   taxRate: positiveDecimal.max(100).optional(),
   taxable: z.boolean().optional(),
@@ -495,7 +611,9 @@ export const updateBillInputSchema = z.object({
   charges: z.array(documentChargeSchema).optional(),
 });
 
-const nullableLooseString = z.union([z.string().trim(), z.literal(''), z.null()]).optional();
+const nullableLooseString = z
+  .union([z.string().trim(), z.literal(''), z.null()])
+  .optional();
 
 export const billImportSuggestionSchema = z.object({
   id: z.string().trim().min(1),
@@ -552,7 +670,9 @@ export const purchaseOrderInputSchema = z.object({
   expectedDate: isoDateString.optional(),
   autoCloseEnabled: z.boolean().optional(),
   autoCloseDays: z.number().int().min(0).max(3650).optional(),
-  status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).default('DRAFT'),
+  status: z
+    .enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED'])
+    .default('DRAFT'),
   taxRate: positiveDecimal.max(100).default(0),
   taxable: z.boolean().default(false),
   taxInclusive: z.boolean().default(false),
@@ -570,7 +690,9 @@ export const updatePurchaseOrderInputSchema = z.object({
   expectedDate: isoDateString.nullish(),
   autoCloseEnabled: z.boolean().optional(),
   autoCloseDays: z.number().int().min(0).max(3650).optional(),
-  status: z.enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED']).optional(),
+  status: z
+    .enum(['DRAFT', 'APPROVED', 'PARTIAL_RECEIVED', 'CLOSED', 'CANCELLED'])
+    .optional(),
   taxRate: positiveDecimal.max(100).optional(),
   taxable: z.boolean().optional(),
   taxInclusive: z.boolean().optional(),
@@ -588,17 +710,21 @@ const paymentAllocationBaseSchema = z.object({
   penaltyAmount: positiveDecimal.default(0),
 });
 
-export const arPaymentAllocationInputSchema = paymentAllocationBaseSchema.extend({
-  invoiceId: z.string().trim().min(1, 'Invoice is required'),
-});
+export const arPaymentAllocationInputSchema =
+  paymentAllocationBaseSchema.extend({
+    invoiceId: z.string().trim().min(1, 'Invoice is required'),
+  });
 
-export const apPaymentAllocationInputSchema = paymentAllocationBaseSchema.extend({
-  billId: z.string().trim().min(1, 'Bill is required'),
-});
+export const apPaymentAllocationInputSchema =
+  paymentAllocationBaseSchema.extend({
+    billId: z.string().trim().min(1, 'Bill is required'),
+  });
 
 const paymentBaseSchema = z.object({
   date: isoDateString,
-  method: z.enum(['BANK_TRANSFER', 'CHECK', 'CREDIT_CARD', 'CASH', 'OTHER']).default('BANK_TRANSFER'),
+  method: z
+    .enum(['BANK_TRANSFER', 'CHECK', 'CREDIT_CARD', 'CASH', 'OTHER'])
+    .default('BANK_TRANSFER'),
   bankAccountId: z.string().trim().optional(),
   depositAccountId: z.string().trim().optional(),
   cashAccountId: z.string().trim().optional(),
@@ -618,7 +744,9 @@ export const arPaymentInputSchema = z.object({
   allocations: z.array(arPaymentAllocationInputSchema).optional(),
 });
 
-export const updateArPaymentInputSchema = partialInput(arPaymentInputSchema.omit({ organizationId: true }));
+export const updateArPaymentInputSchema = partialInput(
+  arPaymentInputSchema.omit({ organizationId: true }),
+);
 
 export const apPaymentInputSchema = z.object({
   organizationId: z.string().trim().min(1),
@@ -627,7 +755,9 @@ export const apPaymentInputSchema = z.object({
   allocations: z.array(apPaymentAllocationInputSchema).optional(),
 });
 
-export const updateApPaymentInputSchema = partialInput(apPaymentInputSchema.omit({ organizationId: true }));
+export const updateApPaymentInputSchema = partialInput(
+  apPaymentInputSchema.omit({ organizationId: true }),
+);
 
 // ── Marketplace import (POST /integrations/[id]/import) ───────────────────────
 // Batch of marketplace orders, each line already mapped to a master item.
@@ -675,11 +805,15 @@ export const salesOrderInputSchema = z.object({
   expiryDate: isoDateString.optional(),
   number: z.string().trim().optional(),
   notes: z.string().trim().optional(),
-  status: z.enum(['DRAFT', 'CONFIRMED', 'INVOICED', 'CANCELLED']).default('DRAFT'),
+  status: z
+    .enum(['DRAFT', 'CONFIRMED', 'INVOICED', 'CANCELLED'])
+    .default('DRAFT'),
   items: z.array(salesOrderItemInputSchema).default([]),
 });
 
-export const updateSalesOrderInputSchema = partialInput(salesOrderInputSchema.omit({ organizationId: true }));
+export const updateSalesOrderInputSchema = partialInput(
+  salesOrderInputSchema.omit({ organizationId: true }),
+);
 
 export const stockAdjustmentLineInputSchema = z.object({
   lineNo: z.number().int().positive().optional(),
@@ -703,7 +837,9 @@ export const stockAdjustmentInputSchema = z.object({
   lines: z.array(stockAdjustmentLineInputSchema).default([]),
 });
 
-export const updateStockAdjustmentInputSchema = partialInput(stockAdjustmentInputSchema.omit({ organizationId: true }));
+export const updateStockAdjustmentInputSchema = partialInput(
+  stockAdjustmentInputSchema.omit({ organizationId: true }),
+);
 
 export const stockCountCreateSchema = z.object({
   organizationId: z.string().trim().min(1),
@@ -730,18 +866,24 @@ export type StockCountCreateInput = z.infer<typeof stockCountCreateSchema>;
 export type StockCountUpdateInput = z.infer<typeof stockCountUpdateSchema>;
 
 export const createBankAccountInputSchema = z.object({
-  name:           z.string().trim().min(1, 'Account name is required'),
-  bankName:       z.string().trim().optional().nullable(),
-  last4:          z.string().trim().max(20).optional().nullable(),
-  currency:       z.string().trim().default('IDR'),
+  name: z.string().trim().min(1, 'Account name is required'),
+  bankName: z.string().trim().optional().nullable(),
+  last4: z.string().trim().max(20).optional().nullable(),
+  currency: z.string().trim().default('IDR'),
   openingBalance: z.coerce.number().default(0),
-  isActive:       z.boolean().default(true),
+  isActive: z.boolean().default(true),
 });
 
-export const updateBankAccountInputSchema = partialInput(createBankAccountInputSchema);
+export const updateBankAccountInputSchema = partialInput(
+  createBankAccountInputSchema,
+);
 
-export type CreateBankAccountInput = z.infer<typeof createBankAccountInputSchema>;
-export type UpdateBankAccountInput = z.infer<typeof updateBankAccountInputSchema>;
+export type CreateBankAccountInput = z.infer<
+  typeof createBankAccountInputSchema
+>;
+export type UpdateBankAccountInput = z.infer<
+  typeof updateBankAccountInputSchema
+>;
 
 export const bankTransactionInputSchema = z.object({
   organizationId: z.string().trim().min(1),
@@ -764,9 +906,12 @@ export const bankTransactionInputSchema = z.object({
   incomeAccountId: z.string().trim().optional(),
 });
 
-export const updateBankTransactionInputSchema = partialInput(bankTransactionInputSchema.omit({ organizationId: true }));
+export const updateBankTransactionInputSchema = partialInput(
+  bankTransactionInputSchema.omit({ organizationId: true }),
+);
 
 export const employeeCompensationItemInputSchema = z.object({
+  isFixed: z.boolean().nullish(),
   postingAccountId: z.string().trim().nullish(),
   id: z.string().trim().optional(),
   name: z.string().trim().min(1, 'Compensation item name is required'),
@@ -774,12 +919,20 @@ export const employeeCompensationItemInputSchema = z.object({
 });
 
 export const employeeInputSchema = z.object({
+  employmentEndDate: isoDateString.nullish(),
+  contractEndDate: isoDateString.nullish(),
+  leavingReason: z.string().trim().max(500).nullish(),
+  ptkpStatus: z
+    .enum(['TK/0', 'TK/1', 'TK/2', 'TK/3', 'K/0', 'K/1', 'K/2', 'K/3'])
+    .nullish(),
+  ptkpYear: z.number().int().min(2000).max(2100).nullish(),
+  workWeekDays: z.union([z.literal(5), z.literal(6)]).default(5),
   organizationId: z.string().trim().min(1),
   name: z.string().trim().min(1, 'Employee name is required'),
   ktp: z.string().trim().optional(),
-  dob: isoDateString.optional(),
+  dob: z.union([isoDateString, z.literal('')]).optional(),
   phone: z.string().trim().optional(),
-  email: z.string().trim().email().optional(),
+  email: z.union([z.string().trim().email(), z.literal('')]).optional(),
   address: z.string().trim().optional(),
   joinDate: isoDateString,
   departmentId: z.string().trim().optional(),
@@ -799,59 +952,90 @@ export const employeeInputSchema = z.object({
   deductions: z.array(employeeCompensationItemInputSchema).default([]),
 });
 
-export const updateEmployeeInputSchema = partialInput(employeeInputSchema.omit({ organizationId: true }));
+export const updateEmployeeInputSchema = partialInput(
+  employeeInputSchema.omit({ organizationId: true }),
+);
 
 // Per-shop accounting mappings stored on EcommerceConnection.mappings (JSONB).
 // Account ids are nullable so an operator can save a partial draft.
 const accountIdField = z.string().trim().min(1).nullable().optional();
 
-const feesSchema = z.object({
-  sellerDiscountAccountId: accountIdField,
-  shippingVarianceAccountId: accountIdField,
-  platformFeeAccountId: accountIdField,
-  adjustmentAccountId: accountIdField,
-  affiliateFeeAccountId: accountIdField,
-}).partial();
+const feesSchema = z
+  .object({
+    sellerDiscountAccountId: accountIdField,
+    shippingVarianceAccountId: accountIdField,
+    platformFeeAccountId: accountIdField,
+    adjustmentAccountId: accountIdField,
+    affiliateFeeAccountId: accountIdField,
+  })
+  .partial();
 
-const shippingSchema = z.object({
-  buyerShippingRevenueAccountId: accountIdField,
-  actualShippingCostAccountId: accountIdField,
-  platformShippingSubsidyAccountId: accountIdField,
-  shippingInsuranceAccountId: accountIdField,
-  codFeeAccountId: accountIdField,
-}).partial();
+const shippingSchema = z
+  .object({
+    buyerShippingRevenueAccountId: accountIdField,
+    actualShippingCostAccountId: accountIdField,
+    platformShippingSubsidyAccountId: accountIdField,
+    shippingInsuranceAccountId: accountIdField,
+    codFeeAccountId: accountIdField,
+  })
+  .partial();
 
-const othersSchema = z.object({
-  refundAccountId: accountIdField,
-  sellerVoucherAccountId: accountIdField,
-  platformVoucherAccountId: accountIdField,
-  coinCashbackAccountId: accountIdField,
-  withholdingTaxAccountId: accountIdField,
-  roundingAccountId: accountIdField,
-  notes: z.string().trim().max(2000).optional(),
-}).partial();
+const othersSchema = z
+  .object({
+    refundAccountId: accountIdField,
+    sellerVoucherAccountId: accountIdField,
+    platformVoucherAccountId: accountIdField,
+    coinCashbackAccountId: accountIdField,
+    withholdingTaxAccountId: accountIdField,
+    roundingAccountId: accountIdField,
+    notes: z.string().trim().max(2000).optional(),
+  })
+  .partial();
 
-export const shopMappingsSchema = z.object({
-  paymentMode: z.enum(['direct', 'settlement_import']).default('settlement_import'),
-  vatInclusive: z.boolean().default(false),
-  fees: feesSchema.optional(),
-  shipping: shippingSchema.optional(),
-  others: othersSchema.optional(),
-}).superRefine((val, ctx) => {
-  if (val.paymentMode !== 'settlement_import') return;
-  const required: Array<[keyof z.infer<typeof feesSchema>, string]> = [
-    ['sellerDiscountAccountId', 'Seller discount account is required when using settlement import.'],
-    ['shippingVarianceAccountId', 'Shipping variance account is required when using settlement import.'],
-    ['platformFeeAccountId', 'Platform fee account is required when using settlement import.'],
-    ['adjustmentAccountId', 'Adjustment account is required when using settlement import.'],
-    ['affiliateFeeAccountId', 'Affiliate fee account is required when using settlement import.'],
-  ];
-  for (const [field, message] of required) {
-    if (!val.fees?.[field]) {
-      ctx.addIssue({ code: 'custom', path: ['fees', field as string], message });
+export const shopMappingsSchema = z
+  .object({
+    paymentMode: z
+      .enum(['direct', 'settlement_import'])
+      .default('settlement_import'),
+    vatInclusive: z.boolean().default(false),
+    fees: feesSchema.optional(),
+    shipping: shippingSchema.optional(),
+    others: othersSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.paymentMode !== 'settlement_import') return;
+    const required: Array<[keyof z.infer<typeof feesSchema>, string]> = [
+      [
+        'sellerDiscountAccountId',
+        'Seller discount account is required when using settlement import.',
+      ],
+      [
+        'shippingVarianceAccountId',
+        'Shipping variance account is required when using settlement import.',
+      ],
+      [
+        'platformFeeAccountId',
+        'Platform fee account is required when using settlement import.',
+      ],
+      [
+        'adjustmentAccountId',
+        'Adjustment account is required when using settlement import.',
+      ],
+      [
+        'affiliateFeeAccountId',
+        'Affiliate fee account is required when using settlement import.',
+      ],
+    ];
+    for (const [field, message] of required) {
+      if (!val.fees?.[field]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['fees', field as string],
+          message,
+        });
+      }
     }
-  }
-});
+  });
 
 export type ShopMappings = z.infer<typeof shopMappingsSchema>;
 
@@ -868,7 +1052,9 @@ export const integrationInputSchema = z.object({
   salesTypeId: z.string().nullish(),
 });
 
-export const updateIntegrationInputSchema = partialInput(integrationInputSchema.omit({ organizationId: true }));
+export const updateIntegrationInputSchema = partialInput(
+  integrationInputSchema.omit({ organizationId: true }),
+);
 
 export const agingBucketSchema = z.object({
   current: decimalNumber,
@@ -901,26 +1087,40 @@ export const dashboardSummaryResponseSchema = z.object({
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceInputSchema>;
 export type CreateInvoiceResponse = z.infer<typeof createInvoiceResponseSchema>;
-export type CreateJournalEntryInput = z.infer<typeof createJournalEntryInputSchema>;
-export type CreateJournalEntryResponse = z.infer<typeof createJournalEntryResponseSchema>;
+export type CreateJournalEntryInput = z.infer<
+  typeof createJournalEntryInputSchema
+>;
+export type CreateJournalEntryResponse = z.infer<
+  typeof createJournalEntryResponseSchema
+>;
 export type CreateAccountInput = z.infer<typeof createAccountInputSchema>;
 export type UpdateAccountInput = z.infer<typeof updateAccountInputSchema>;
 export type DashboardSummaryQuery = z.infer<typeof dashboardSummaryQuerySchema>;
-export type DashboardSummaryResponse = z.infer<typeof dashboardSummaryResponseSchema>;
+export type DashboardSummaryResponse = z.infer<
+  typeof dashboardSummaryResponseSchema
+>;
 export type DepartmentInput = z.infer<typeof departmentInputSchema>;
 export type PositionInput = z.infer<typeof positionInputSchema>;
 export type AccountingPeriodInput = z.infer<typeof accountingPeriodInputSchema>;
-export type AccountingPeriodCloseInput = z.infer<typeof accountingPeriodCloseInputSchema>;
+export type AccountingPeriodCloseInput = z.infer<
+  typeof accountingPeriodCloseInputSchema
+>;
 export type WarehouseInput = z.infer<typeof warehouseInputSchema>;
 export type BillInput = z.infer<typeof billInputSchema>;
 export type UpdateBillInput = z.infer<typeof updateBillInputSchema>;
 export type BillImportSuggestion = z.infer<typeof billImportSuggestionSchema>;
 export type BillImportLine = z.infer<typeof billImportLineSchema>;
 export type BillImportReviewData = z.infer<typeof billImportReviewDataSchema>;
-export type UpdateBillImportSessionInput = z.infer<typeof updateBillImportSessionInputSchema>;
-export type FinalizeBillImportInput = z.infer<typeof finalizeBillImportInputSchema>;
+export type UpdateBillImportSessionInput = z.infer<
+  typeof updateBillImportSessionInputSchema
+>;
+export type FinalizeBillImportInput = z.infer<
+  typeof finalizeBillImportInputSchema
+>;
 export type PurchaseOrderInput = z.infer<typeof purchaseOrderInputSchema>;
-export type UpdatePurchaseOrderInput = z.infer<typeof updatePurchaseOrderInputSchema>;
+export type UpdatePurchaseOrderInput = z.infer<
+  typeof updatePurchaseOrderInputSchema
+>;
 export type ArPaymentInput = z.infer<typeof arPaymentInputSchema>;
 export type UpdateArPaymentInput = z.infer<typeof updateArPaymentInputSchema>;
 export type ApPaymentInput = z.infer<typeof apPaymentInputSchema>;
@@ -928,16 +1128,26 @@ export type UpdateApPaymentInput = z.infer<typeof updateApPaymentInputSchema>;
 export type SalesOrderInput = z.infer<typeof salesOrderInputSchema>;
 export type UpdateSalesOrderInput = z.infer<typeof updateSalesOrderInputSchema>;
 export type StockAdjustmentInput = z.infer<typeof stockAdjustmentInputSchema>;
-export type UpdateStockAdjustmentInput = z.infer<typeof updateStockAdjustmentInputSchema>;
+export type UpdateStockAdjustmentInput = z.infer<
+  typeof updateStockAdjustmentInputSchema
+>;
 export type BankTransactionInput = z.infer<typeof bankTransactionInputSchema>;
-export type UpdateBankTransactionInput = z.infer<typeof updateBankTransactionInputSchema>;
+export type UpdateBankTransactionInput = z.infer<
+  typeof updateBankTransactionInputSchema
+>;
 export type EmployeeInput = z.infer<typeof employeeInputSchema>;
 export type UpdateEmployeeInput = z.infer<typeof updateEmployeeInputSchema>;
 export type IntegrationInput = z.infer<typeof integrationInputSchema>;
-export type UpdateIntegrationInput = z.infer<typeof updateIntegrationInputSchema>;
+export type UpdateIntegrationInput = z.infer<
+  typeof updateIntegrationInputSchema
+>;
 export type MarketplaceImportLine = z.infer<typeof marketplaceImportLineSchema>;
-export type MarketplaceImportOrder = z.infer<typeof marketplaceImportOrderSchema>;
-export type MarketplaceImportInput = z.infer<typeof marketplaceImportInputSchema>;
+export type MarketplaceImportOrder = z.infer<
+  typeof marketplaceImportOrderSchema
+>;
+export type MarketplaceImportInput = z.infer<
+  typeof marketplaceImportInputSchema
+>;
 
 // ── HR: Attendance, Leave Types, Leave Requests, Payroll Runs ────────────────
 
@@ -946,26 +1156,37 @@ export const attendanceRecordInputSchema = z.object({
   organizationId: z.string().min(1),
   employeeId: z.string().min(1),
   date: isoDateString,
-  status: z.enum(['PRESENT', 'ABSENT', 'SICK', 'LEAVE', 'LATE', 'HALF_DAY']).default('PRESENT'),
+  status: z
+    .enum(['PRESENT', 'ABSENT', 'SICK', 'LEAVE', 'LATE', 'HALF_DAY'])
+    .default('PRESENT'),
   checkIn: z.string().optional(),
   checkOut: z.string().optional(),
   hoursWorked: z.coerce.number().min(0).optional(),
   overtimeHours: z.coerce.number().min(0).default(0),
   notes: z.string().optional(),
 });
-export const updateAttendanceRecordInputSchema = partialInput(attendanceRecordInputSchema
-  .omit({ organizationId: true, employeeId: true, date: true }));
+export const updateAttendanceRecordInputSchema = partialInput(
+  attendanceRecordInputSchema.omit({
+    organizationId: true,
+    employeeId: true,
+    date: true,
+  }),
+);
 
 export const leaveTypeInputSchema = z.object({
   organizationId: z.string().min(1),
   name: z.string().min(1, 'name is required'),
-  category: z.enum(['ANNUAL', 'SICK', 'MATERNITY', 'PATERNITY', 'UNPAID', 'OTHER']).default('ANNUAL'),
+  category: z
+    .enum(['ANNUAL', 'SICK', 'MATERNITY', 'PATERNITY', 'UNPAID', 'OTHER'])
+    .default('ANNUAL'),
   entitlementDays: z.coerce.number().int().min(0).default(12),
   carryOver: z.boolean().default(false),
   maxCarryDays: z.coerce.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
 });
-export const updateLeaveTypeInputSchema = partialInput(leaveTypeInputSchema.omit({ organizationId: true }));
+export const updateLeaveTypeInputSchema = partialInput(
+  leaveTypeInputSchema.omit({ organizationId: true }),
+);
 
 export const leaveRequestInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -985,6 +1206,20 @@ export const updateLeaveRequestInputSchema = leaveRequestInputSchema
   });
 
 export const payrollRunInputSchema = z.object({
+  payDate: isoDateString.optional(),
+  runType: z.enum(['REGULAR', 'THR', 'FINAL', 'CORRECTION']).default('REGULAR'),
+  requestKey: z.string().trim().min(8).max(100).optional(),
+  adjustments: z
+    .array(
+      z.object({
+        employeeId: z.string().min(1),
+        amount: decimalNumber,
+        description: z.string().trim().min(1).max(300),
+        recoveryAccountId: z.string().trim().min(1).optional(),
+      }),
+    )
+    .max(10000)
+    .default([]),
   organizationId: z.string().min(1),
   month: z.coerce.number().int().min(1).max(12),
   year: z.coerce.number().int().min(2000).max(2100),
@@ -995,7 +1230,11 @@ export const payrollRunInputSchema = z.object({
 
 // ── Asset Management ─────────────────────────────────────────────────────────
 
-const depreciationMethodEnum = z.enum(['STRAIGHT_LINE', 'DECLINING_BALANCE', 'DOUBLE_DECLINING']);
+const depreciationMethodEnum = z.enum([
+  'STRAIGHT_LINE',
+  'DECLINING_BALANCE',
+  'DOUBLE_DECLINING',
+]);
 
 export const assetCategoryInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -1007,7 +1246,9 @@ export const assetCategoryInputSchema = z.object({
   depExpenseAccountId: z.string().optional().nullable(),
   accumDepAccountId: z.string().optional().nullable(),
 });
-export const updateAssetCategoryInputSchema = partialInput(assetCategoryInputSchema.omit({ organizationId: true }));
+export const updateAssetCategoryInputSchema = partialInput(
+  assetCategoryInputSchema.omit({ organizationId: true }),
+);
 
 export const assetInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -1025,7 +1266,9 @@ export const assetInputSchema = z.object({
   serialNumber: z.string().optional(),
   vendor: z.string().optional(),
 });
-export const updateAssetInputSchema = partialInput(assetInputSchema.omit({ organizationId: true }));
+export const updateAssetInputSchema = partialInput(
+  assetInputSchema.omit({ organizationId: true }),
+);
 
 export const assetDisposalInputSchema = z.object({
   disposalDate: isoDateString,
@@ -1041,18 +1284,26 @@ export const assetDepreciationRunInputSchema = z.object({
 
 // Inferred types
 export type AttendanceRecordInput = z.infer<typeof attendanceRecordInputSchema>;
-export type UpdateAttendanceRecordInput = z.infer<typeof updateAttendanceRecordInputSchema>;
+export type UpdateAttendanceRecordInput = z.infer<
+  typeof updateAttendanceRecordInputSchema
+>;
 export type LeaveTypeInput = z.infer<typeof leaveTypeInputSchema>;
 export type UpdateLeaveTypeInput = z.infer<typeof updateLeaveTypeInputSchema>;
 export type LeaveRequestInput = z.infer<typeof leaveRequestInputSchema>;
-export type UpdateLeaveRequestInput = z.infer<typeof updateLeaveRequestInputSchema>;
+export type UpdateLeaveRequestInput = z.infer<
+  typeof updateLeaveRequestInputSchema
+>;
 export type PayrollRunInput = z.infer<typeof payrollRunInputSchema>;
 export type AssetCategoryInput = z.infer<typeof assetCategoryInputSchema>;
-export type UpdateAssetCategoryInput = z.infer<typeof updateAssetCategoryInputSchema>;
+export type UpdateAssetCategoryInput = z.infer<
+  typeof updateAssetCategoryInputSchema
+>;
 export type AssetInput = z.infer<typeof assetInputSchema>;
 export type UpdateAssetInput = z.infer<typeof updateAssetInputSchema>;
 export type AssetDisposalInput = z.infer<typeof assetDisposalInputSchema>;
-export type AssetDepreciationRunInput = z.infer<typeof assetDepreciationRunInputSchema>;
+export type AssetDepreciationRunInput = z.infer<
+  typeof assetDepreciationRunInputSchema
+>;
 
 // ── Backup & Restore ──────────────────────────────────────────────────────────
 
@@ -1078,7 +1329,9 @@ export const restoreBackupInputSchema = z.object({
   confirm: z.literal('RESTORE'),
 });
 
-export type UpdateBackupSettingsInput = z.infer<typeof updateBackupSettingsInputSchema>;
+export type UpdateBackupSettingsInput = z.infer<
+  typeof updateBackupSettingsInputSchema
+>;
 export type RestoreBackupInput = z.infer<typeof restoreBackupInputSchema>;
 
 // ── RBAC: Roles ───────────────────────────────────────────────────────────────
@@ -1097,15 +1350,28 @@ export const createRoleInputSchema = z.object({
   roleType: z.enum(['ADMIN', 'ACCOUNTANT', 'VIEWER', 'CUSTOM']).optional(),
   invoiceAccessScope: z.enum(['ALL', 'OWN']).optional(),
   isActive: z.boolean().optional(),
-  allowedDays: z.array(z.enum(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])).nullable().optional(),
-  startTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
-  endTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+  allowedDays: z
+    .array(z.enum(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']))
+    .nullable()
+    .optional(),
+  startTime: z
+    .string()
+    .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+    .nullable()
+    .optional(),
+  endTime: z
+    .string()
+    .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+    .nullable()
+    .optional(),
   permissions: z.array(permissionRowSchema).optional(),
 });
 
 export const updateRoleInputSchema = partialInput(createRoleInputSchema);
 
-export const assignUserRoleInputSchema = z.object({ roleId: z.string().min(1) });
+export const assignUserRoleInputSchema = z.object({
+  roleId: z.string().min(1),
+});
 
 export const createUserInputSchema = z.object({
   fullName: z.string().trim().min(1).max(120),
@@ -1206,10 +1472,12 @@ export const openPosShiftSchema = z.object({
 
 export const putPosTargetsSchema = z.object({
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM'),
-  targets: z.array(z.object({
-    employeeId: z.string().trim().min(1),
-    targetAmount: z.number().nonnegative().nullable(),
-  })),
+  targets: z.array(
+    z.object({
+      employeeId: z.string().trim().min(1),
+      targetAmount: z.number().nonnegative().nullable(),
+    }),
+  ),
 });
 
 export const closePosShiftSchema = z.object({
@@ -1224,11 +1492,15 @@ export const createPosRegisterSchema = z.object({
   defaultSalesTypeId: z.string().nullish(),
 });
 export const settlementImportInputSchema = z.object({
-  orders: z.array(z.object({
-    orderId: z.string().trim().min(1),
-    netReleased: z.number().finite(),
-    charges: z.record(z.string(), z.number().finite()).default({}),
-  })).min(1),
+  orders: z
+    .array(
+      z.object({
+        orderId: z.string().trim().min(1),
+        netReleased: z.number().finite(),
+        charges: z.record(z.string(), z.number().finite()).default({}),
+      }),
+    )
+    .min(1),
 });
 export type SettlementImportInput = z.infer<typeof settlementImportInputSchema>;
 
@@ -1243,7 +1515,13 @@ export type SettlementImportInput = z.infer<typeof settlementImportInputSchema>;
 // silently overwrite columns the caller never sent. The routes keep applying
 // their own defaults (taxRate ?? 11, unit || 'PCS', etc.).
 // ---------------------------------------------------------------------------
-const paymentMethodEnum = z.enum(['BANK_TRANSFER', 'CHECK', 'CREDIT_CARD', 'CASH', 'OTHER']);
+const paymentMethodEnum = z.enum([
+  'BANK_TRANSFER',
+  'CHECK',
+  'CREDIT_CARD',
+  'CASH',
+  'OTHER',
+]);
 const noteStatusEnum = z.enum(['DRAFT', 'APPLIED', 'VOID', 'PENDING_APPROVAL']);
 
 const creditNoteBaseSchema = z.object({
@@ -1298,7 +1576,13 @@ export const updateDebitNoteInputSchema = debitNoteBaseSchema
 // Sales returns (AR) / Purchase returns (AP) — header + lines.
 // ---------------------------------------------------------------------------
 const returnStatusEnum = z.enum([
-  'DRAFT', 'APPROVED', 'PENDING_CREDIT_NOTE', 'PENDING_DEBIT_NOTE', 'APPLIED', 'VOID', 'PENDING_APPROVAL',
+  'DRAFT',
+  'APPROVED',
+  'PENDING_CREDIT_NOTE',
+  'PENDING_DEBIT_NOTE',
+  'APPLIED',
+  'VOID',
+  'PENDING_APPROVAL',
 ]);
 
 const salesReturnLineInputSchema = z.object({
@@ -1369,4 +1653,5 @@ const purchaseReturnBaseSchema = z.object({
 });
 
 export const createPurchaseReturnInputSchema = purchaseReturnBaseSchema;
-export const updatePurchaseReturnInputSchema = purchaseReturnBaseSchema.partial();
+export const updatePurchaseReturnInputSchema =
+  purchaseReturnBaseSchema.partial();

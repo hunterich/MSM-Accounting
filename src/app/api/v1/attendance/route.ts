@@ -1,7 +1,14 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, listResponse, parsePaginationParams, logAudit } from '@/lib/api-utils';
+import {
+  withHandler,
+  requireOrg,
+  ok,
+  listResponse,
+  parsePaginationParams,
+  logAudit,
+} from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { attendanceRecordInputSchema } from '@/types/api';
 
@@ -13,7 +20,10 @@ export async function OPTIONS() {
 
 export const GET = withHandler(async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
-  const { searchParams, page, limit } = parsePaginationParams(req, { limit: 50, maxLimit: 200 });
+  const { searchParams, page, limit } = parsePaginationParams(req, {
+    limit: 50,
+    maxLimit: 200,
+  });
   const employeeId = searchParams.get('employeeId');
   const startDate = searchParams.get('startDate');
   const endDate = searchParams.get('endDate');
@@ -25,25 +35,45 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   if (startDate || endDate) {
     where.date = {};
     if (startDate) where.date.gte = new Date(startDate);
-    if (endDate) where.date.lt = new Date(new Date(endDate).getTime() + 86400000);
+    if (endDate)
+      where.date.lt = new Date(new Date(endDate).getTime() + 86400000);
   }
 
   if (searchParams.get('summaryOnly') === 'true') {
-    const groups = await prisma.attendanceRecord.groupBy({ by: ['date', 'status'], where, _count: { _all: true } });
-    const summary = { total: 0, present: 0, absent: 0, late: 0, sick: 0, leave: 0 };
+    const groups = await prisma.attendanceRecord.groupBy({
+      by: ['date', 'status'],
+      where,
+      _count: { _all: true },
+    });
+    const summary = {
+      total: 0,
+      present: 0,
+      absent: 0,
+      late: 0,
+      sick: 0,
+      leave: 0,
+    };
     const dates: Record<string, number> = {};
     for (const group of groups) {
       const count = group._count._all;
       const date = group.date.toISOString().slice(0, 10);
       dates[date] = (dates[date] || 0) + count;
       summary.total += count;
-      if (group.status === 'PRESENT' || group.status === 'LATE') summary.present += count;
+      if (group.status === 'PRESENT' || group.status === 'LATE')
+        summary.present += count;
       if (group.status === 'ABSENT') summary.absent += count;
       if (group.status === 'LATE') summary.late += count;
       if (group.status === 'SICK') summary.sick += count;
       if (group.status === 'LEAVE') summary.leave += count;
     }
-    return ok({ data: [], total: summary.total, page: 1, limit, summary, dates });
+    return ok({
+      data: [],
+      total: summary.total,
+      page: 1,
+      limit,
+      summary,
+      dates,
+    });
   }
   const [data, total] = await Promise.all([
     prisma.attendanceRecord.findMany({
@@ -52,7 +82,14 @@ export const GET = withHandler(async function GET(req: NextRequest) {
       take: limit,
       orderBy: [{ date: 'desc' }, { employee: { name: 'asc' } }, { id: 'asc' }],
       include: {
-        employee: { select: { id: true, name: true, employeeNo: true, department: { select: { name: true } } } },
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            employeeNo: true,
+            department: { select: { name: true } },
+          },
+        },
       },
     }),
     prisma.attendanceRecord.count({ where }),
@@ -61,88 +98,101 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   return listResponse(data, total, page, limit);
 });
 
-export const POST = withPermission({ module: 'HR_ATTENDANCE', action: 'create' }, async function POST(req: NextRequest) {
-  const orgId = requireOrg(req);
-  const body = await req.json();
+export const POST = withPermission(
+  { module: 'HR_ATTENDANCE', action: 'create' },
+  async function POST(req: NextRequest) {
+    const orgId = requireOrg(req);
+    const body = await req.json();
 
-  // Support bulk creation
-  const records = Array.isArray(body) ? body : [body];
-  const results: any[] = [];
+    // Support bulk creation
+    const records = Array.isArray(body) ? body : [body];
+    const results: any[] = [];
 
-  for (const record of records) {
-    const parsed = attendanceRecordInputSchema.safeParse({
-      ...record,
-      organizationId: orgId,
-    });
-    if (!parsed.success) {
-      return ok({ error: parsed.error.issues[0]?.message || 'Invalid attendance payload', record }, 400);
-    }
+    for (const record of records) {
+      const parsed = attendanceRecordInputSchema.safeParse({
+        ...record,
+        organizationId: orgId,
+      });
+      if (!parsed.success) {
+        return ok(
+          {
+            error:
+              parsed.error.issues[0]?.message || 'Invalid attendance payload',
+            record,
+          },
+          400,
+        );
+      }
 
-    // Tenant-isolation guard: the employee must belong to this org. The upsert
-    // key (employeeId_date) is not org-scoped, so without this a caller could
-    // create/overwrite an attendance row referencing another org's employee.
-    const employee = await prisma.employee.findFirst({
-      where: { id: parsed.data.employeeId, organizationId: orgId },
-      select: { id: true },
-    });
-    if (!employee) {
-      return ok({ error: 'Employee not found in organization', record }, 400);
-    }
+      // Tenant-isolation guard: the employee must belong to this org. The upsert
+      // key (employeeId_date) is not org-scoped, so without this a caller could
+      // create/overwrite an attendance row referencing another org's employee.
+      const employee = await prisma.employee.findFirst({
+        where: { id: parsed.data.employeeId, organizationId: orgId },
+        select: { id: true },
+      });
+      if (!employee) {
+        return ok({ error: 'Employee not found in organization', record }, 400);
+      }
 
-    const data: any = {
-      organizationId: orgId,
-      employeeId: parsed.data.employeeId,
-      date: new Date(parsed.data.date),
-      status: parsed.data.status,
-      sickCertified: parsed.data.sickCertified,
-      overtimeHours: parsed.data.overtimeHours,
-      notes: parsed.data.notes || null,
-    };
+      const data: any = {
+        organizationId: orgId,
+        employeeId: parsed.data.employeeId,
+        date: new Date(parsed.data.date),
+        status: parsed.data.status,
+        sickCertified: parsed.data.sickCertified,
+        overtimeHours: parsed.data.overtimeHours,
+        notes: parsed.data.notes || null,
+      };
 
-    if (parsed.data.checkIn) data.checkIn = new Date(`${parsed.data.date}T${parsed.data.checkIn}`);
-    if (parsed.data.checkOut) data.checkOut = new Date(`${parsed.data.date}T${parsed.data.checkOut}`);
+      if (parsed.data.checkIn)
+        data.checkIn = new Date(`${parsed.data.date}T${parsed.data.checkIn}`);
+      if (parsed.data.checkOut)
+        data.checkOut = new Date(`${parsed.data.date}T${parsed.data.checkOut}`);
 
-    // Calculate hours worked if both check in and out provided
-    if (data.checkIn && data.checkOut) {
-      const diff = (data.checkOut.getTime() - data.checkIn.getTime()) / (1000 * 60 * 60);
-      data.hoursWorked = Math.round(diff * 100) / 100;
-    } else if (parsed.data.hoursWorked !== undefined) {
-      data.hoursWorked = parsed.data.hoursWorked;
-    }
+      // Calculate hours worked if both check in and out provided
+      if (data.checkIn && data.checkOut) {
+        const diff =
+          (data.checkOut.getTime() - data.checkIn.getTime()) / (1000 * 60 * 60);
+        data.hoursWorked = Math.round(diff * 100) / 100;
+      } else if (parsed.data.hoursWorked !== undefined) {
+        data.hoursWorked = parsed.data.hoursWorked;
+      }
 
-    const created = await prisma.attendanceRecord.upsert({
-      where: {
-        employeeId_date: {
-          employeeId: parsed.data.employeeId,
-          date: new Date(parsed.data.date),
+      const created = await prisma.attendanceRecord.upsert({
+        where: {
+          employeeId_date: {
+            employeeId: parsed.data.employeeId,
+            date: new Date(parsed.data.date),
+          },
         },
-      },
-      create: data,
-      update: {
-        checkIn: data.checkIn,
-        checkOut: data.checkOut,
-        hoursWorked: data.hoursWorked,
-        overtimeHours: data.overtimeHours,
-        status: data.status,
-        sickCertified: data.sickCertified,
-        notes: data.notes,
-      },
-      include: {
-        employee: { select: { id: true, name: true, employeeNo: true } },
-      },
+        create: data,
+        update: {
+          checkIn: data.checkIn,
+          checkOut: data.checkOut,
+          hoursWorked: data.hoursWorked,
+          overtimeHours: data.overtimeHours,
+          status: data.status,
+          sickCertified: data.sickCertified,
+          notes: data.notes,
+        },
+        include: {
+          employee: { select: { id: true, name: true, employeeNo: true } },
+        },
+      });
+
+      results.push(created);
+    }
+
+    logAudit({
+      orgId,
+      actorId: req.headers.get('x-user-id'),
+      entityType: 'AttendanceRecord',
+      entityId: results[0]?.id || '',
+      action: 'CREATE',
+      payload: { count: results.length },
     });
 
-    results.push(created);
-  }
-
-  logAudit({
-    orgId,
-    actorId: req.headers.get('x-user-id'),
-    entityType: 'AttendanceRecord',
-    entityId: results[0]?.id || '',
-    action: 'CREATE',
-    payload: { count: results.length },
-  });
-
-  return ok(Array.isArray(body) ? results : results[0], 201);
-});
+    return ok(Array.isArray(body) ? results : results[0], 201);
+  },
+);
