@@ -1,6 +1,6 @@
 # Payroll correctness and dated eligibility
 
-Engineering implementation for review, 27 October 2026. Finance/pilot acceptance and deployment remain open. This branch is stacked on PR #201 for its dependency/Zod compatibility fixes; review the payroll diff against that branch until #201 is merged.
+Engineering implementation for review, 27 October 2026. Finance/pilot acceptance and deployment remain open. PR #201 is merged; PR #203 now targets main and includes its dependency/Zod compatibility fixes.
 
 ## Required setup
 
