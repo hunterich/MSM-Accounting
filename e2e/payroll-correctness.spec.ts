@@ -333,3 +333,76 @@ test('THR and a negative correction through payroll screens preserve one salary/
   expect(await credit(f.orgId, f.cash)).toBe(cash);
   expect(await credit(f.orgId, f.advance)).toBe(-93_000);
 });
+
+test('employee setup pre-check lists PTKP rollover/inactive dates and OTHER leave requires explicit payment treatment', async ({
+  page,
+}) => {
+  const f = await fixture(page);
+  const employee = await api(
+    page,
+    '/employees',
+    {
+      name: 'PTKP rollover QA',
+      joinDate: '2026-01-01',
+      basicSalary: 10_000_000,
+      ptkpStatus: 'K/1',
+      ptkpYear: 2026,
+    },
+    'POST',
+  );
+  await db.employee.create({
+    data: {
+      organizationId: f.orgId,
+      employeeNo: 'QA-LEGACY',
+      name: 'Missing end date QA',
+      status: 'INACTIVE',
+      joinDate: new Date('2026-01-01'),
+    },
+  });
+  await page.goto('/hr/payroll-run');
+  await page
+    .getByText('Payroll employee setup pre-check', { exact: true })
+    .click();
+  await page.getByLabel('Payroll pre-check month').fill('1');
+  await page.getByLabel('Payroll pre-check year').fill('2027');
+  await expect(
+    page.getByRole('link', { name: /PTKP rollover QA/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: /Missing end date QA/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Employees needing PTKP confirmation for 2027: 1', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(
+    (await db.employee.findUniqueOrThrow({ where: { id: employee.id } }))
+      .ptkpYear,
+  ).toBe(2026);
+  await page.goto('/hr/leave');
+  await page.getByRole('button', { name: 'Leave Types', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Add Leave Type', exact: true })
+    .click();
+  await page.getByLabel('Leave type name').fill('Marriage QA');
+  await page.getByLabel('Leave type category').selectOption('OTHER');
+  await expect(
+    page.getByRole('button', { name: 'Add', exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel('Other leave payroll treatment').selectOption('true');
+  const save = page.waitForResponse(
+    (r) => r.url().endsWith('/leave-types') && r.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  const response = await save;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(
+    await db.leaveType.findFirstOrThrow({
+      where: { organizationId: f.orgId, name: 'Marriage QA' },
+    }),
+  ).toMatchObject({ category: 'OTHER', isPaid: true });
+  await expect(
+    page.getByRole('row').filter({ hasText: 'Marriage QA' }),
+  ).toContainText('Paid');
+});

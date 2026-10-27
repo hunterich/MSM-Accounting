@@ -1,6 +1,7 @@
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { selectCashAccounts } from '../../../lib/cash-accounts';
 import PayrollSettings from './PayrollSettings';
+import PayrollPrecheck from './PayrollPrecheck';
 import { useEmployees } from '../../hooks/useHR';
 import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useState, useMemo } from 'react';
@@ -567,6 +568,7 @@ const PayrollRun = () => {
             }
         >
             <PayrollSettings />
+            <PayrollPrecheck />
             <Card>
                 <Table
                     columns={listColumns}

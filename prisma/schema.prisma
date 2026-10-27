@@ -1625,6 +1625,8 @@ model AttendanceRecord {
 }
 
 model LeaveType {
+  // OTHER requires explicit classification; statutory categories use their defined treatment.
+  isPaid         Boolean?
   id             String        @id @default(cuid())
   organizationId String
   name           String

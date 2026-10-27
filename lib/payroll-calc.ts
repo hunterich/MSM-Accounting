@@ -158,7 +158,7 @@ const TER_TABLES: Record<string, TERBracket[]> = {
 /**
  * Calculate monthly PPh 21 using TER (Tarif Efektif Rata-rata) method.
  * @param grossMonthly - Gross monthly income (bruto)
- * @param category - TER category: 'A' (TK/0,TK/1), 'B' (TK/2,TK/3,K/0,K/1), 'C' (K/2,K/3)
+ * @param category - TER category: 'A' (TK/0,TK/1,K/0), 'B' (TK/2,TK/3,K/1,K/2), 'C' (K/3)
  * @returns Monthly PPh 21 amount
  */
 export function calculatePPh21TER(

@@ -35,12 +35,14 @@ export const POST = withPermission({ module: 'HR_ATTENDANCE', action: 'create' }
   const body = await req.json();
   const parsed = leaveTypeInputSchema.safeParse({ ...body, organizationId: orgId });
   if (!parsed.success) return ok({ error: parsed.error.issues[0]?.message }, 400);
+  if (parsed.data.category === 'OTHER' && typeof parsed.data.isPaid !== 'boolean') return ok({ error: 'OTHER leave requires an explicit paid/unpaid classification.' }, 422);
 
   const created = await prisma.leaveType.create({
     data: {
       organizationId: orgId,
       name: parsed.data.name,
       category: parsed.data.category,
+      isPaid: parsed.data.isPaid ?? null,
       entitlementDays: parsed.data.entitlementDays,
       carryOver: parsed.data.carryOver,
       maxCarryDays: parsed.data.maxCarryDays,

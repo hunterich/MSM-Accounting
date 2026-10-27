@@ -149,6 +149,20 @@ export async function calculatePayroll(
         `${emp.employeeNo}: employee is not employed during this period. Select the final employment month for corrections.`,
         422,
       );
+    const prior = history.flatMap((h) =>
+      h.lines
+        .filter((l) => l.employeeId === emp.id)
+        .map((l) => ({ run: h, line: l })),
+    );
+    const monthPrior = prior.filter((p) => p.run.month === run.month);
+    const alreadySalary = monthPrior.some(
+      (p) =>
+        (p.line.calculationSnapshot as { salaryIncluded?: boolean } | null)
+          ?.salaryIncluded || p.run.runType === 'REGULAR',
+    );
+    // A posted FINAL can settle one leaver before the rest of the company is paid.
+    // Never create a second salary/BPJS line for that employee in REGULAR.
+    if (isRegular && alreadySalary) continue;
     if (!emp.ptkpStatus || emp.ptkpYear !== run.year)
       throw new ApiError(
         `${emp.employeeNo}: select PTKP status for ${run.year} before calculating payroll.`,
@@ -156,32 +170,17 @@ export async function calculatePayroll(
       );
     const status = emp.ptkpStatus as PTKPStatus,
       category = terCategory(status);
-    const prior = history.flatMap((h) =>
-      h.lines
-        .filter((l) => l.employeeId === emp.id)
-        .map((l) => ({ run: h, line: l })),
-    );
-    const monthPrior = prior.filter((p) => p.run.month === run.month);
     for (const p of prior) {
       const snapshot = p.line.calculationSnapshot as {
         ptkpStatus?: string;
       } | null;
       if (snapshot?.ptkpStatus && snapshot.ptkpStatus !== status)
         throw new ApiError(
-          `${emp.employeeNo}: PTKP differs from the status used earlier this tax year. Review the year-start status.`,
+          emp.employeeNo +
+            ': PTKP differs from the status used earlier this tax year. Review the year-start status.',
           422,
         );
     }
-    const alreadySalary = monthPrior.some(
-      (p) =>
-        (p.line.calculationSnapshot as { salaryIncluded?: boolean } | null)
-          ?.salaryIncluded || p.run.runType === 'REGULAR',
-    );
-    if (isRegular && alreadySalary)
-      throw new ApiError(
-        `${emp.employeeNo}: regular salary is already included in this month. Use an off-cycle correction.`,
-        409,
-      );
     const includeSalary = (isRegular || isFinal) && !alreadySalary;
     const ownAttendance = attendance.filter((a) => a.employeeId === emp.id);
     const summary = summarizePayrollAttendance(
@@ -442,6 +441,31 @@ export async function calculatePayroll(
         employmentStart: iso(emp.joinDate),
         employmentEnd: ended ? iso(ended) : null,
         contractEnd: emp.contractEndDate ? iso(emp.contractEndDate) : null,
+        attendance: includeSalary
+          ? {
+              eligibleWorkingDays: summary.workingDays,
+              workingDays: denominator,
+              presentDays: summary.presentDays,
+              sickDays: summary.sickDays,
+              leaveDays: summary.leaveDays,
+              absentDays: summary.absentDays,
+              paidDays: summary.paidDays,
+              approvedLeaves: leaves
+                .filter(
+                  (l) =>
+                    l.employeeId === emp.id &&
+                    l.startDate <= window.to &&
+                    l.endDate >= window.from,
+                )
+                .map((l) => ({
+                  id: l.id,
+                  category: l.leaveType.category,
+                  isPaid: l.leaveType.isPaid,
+                  startDate: iso(l.startDate),
+                  endDate: iso(l.endDate),
+                })),
+            }
+          : null,
         overtimeDays: otDays as unknown as Prisma.InputJsonValue,
         adjustments: adjustments.filter((a) => a.employeeId === emp.id),
       },

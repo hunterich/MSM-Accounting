@@ -7,7 +7,7 @@ export type PaidLeave = {
   startDate: Date;
   endDate: Date;
   status: string;
-  leaveType: { category: string };
+  leaveType: { category: string; isPaid?: boolean | null };
 };
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -48,12 +48,28 @@ export function summarizePayrollAttendance(
       issues.push(date + ': conflicting approved leave categories');
       continue;
     }
-    if (approved.some((l) => l.leaveType.category === 'ANNUAL')) {
-      leaveDays++;
-      continue;
-    }
-    if (approved.some((l) => l.leaveType.category === 'UNPAID')) {
-      absentDays++;
+    if (approved.length) {
+      const category = approved[0].leaveType.category;
+      if (category === 'SICK') sickDays++;
+      else if (['ANNUAL', 'MATERNITY', 'PATERNITY'].includes(category))
+        leaveDays++;
+      else if (category === 'UNPAID') absentDays++;
+      else if (category === 'OTHER') {
+        const paid = new Set(approved.map((l) => l.leaveType.isPaid));
+        if (
+          paid.size !== 1 ||
+          typeof approved[0].leaveType.isPaid !== 'boolean'
+        )
+          issues.push(
+            date +
+              ': approved OTHER leave needs a consistent paid/unpaid classification in Leave Types',
+          );
+        else if (approved[0].leaveType.isPaid) leaveDays++;
+        else absentDays++;
+      } else
+        issues.push(
+          date + ': approved leave category needs payroll classification',
+        );
       continue;
     }
     if (!r) {

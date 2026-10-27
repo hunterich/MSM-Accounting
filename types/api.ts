@@ -966,6 +966,7 @@ export const updateAttendanceRecordInputSchema = partialInput(attendanceRecordIn
   .omit({ organizationId: true, employeeId: true, date: true }));
 
 export const leaveTypeInputSchema = z.object({
+  isPaid: z.boolean().nullish(),
   organizationId: z.string().min(1),
   name: z.string().min(1, 'name is required'),
   category: z.enum(['ANNUAL', 'SICK', 'MATERNITY', 'PATERNITY', 'UNPAID', 'OTHER']).default('ANNUAL'),

@@ -22,6 +22,9 @@ import { PUT as editEmployee } from '@/src/app/api/v1/employees/[id]/route';
 import { POST as approve } from '@/src/app/api/v1/approvals/[id]/approve/route';
 import { postJournalEntry } from '../../journal-posting';
 import { TEST_BPJS } from '../payroll-fixtures';
+import { GET as precheck } from '@/src/app/api/v1/payroll-runs/precheck/route';
+import { POST as createLeaveType } from '@/src/app/api/v1/leave-types/route';
+import { PUT as updateLeaveType } from '@/src/app/api/v1/leave-types/[id]/route';
 afterAll(disconnect);
 const day = (s: string) => new Date(s + 'T00:00:00Z');
 type F = {
@@ -237,6 +240,287 @@ async function clean(f: F) {
   await prisma.user.delete({ where: { id: f.user } }).catch(() => {});
 }
 describe('payroll correctness through real routes and PostgreSQL', () => {
+  it('pre-check lists all missing PTKP/year and inactive end dates within this company, without guessing them', async () => {
+    const f = await setup(),
+      other = await setup();
+    try {
+      await prisma.employee.update({
+        where: { id: f.employee },
+        data: { ptkpYear: 2026 },
+      });
+      const inactive = await prisma.employee.create({
+        data: {
+          organizationId: f.org.orgId,
+          employeeNo: 'QA-LEGACY',
+          name: 'Undated inactive',
+          status: 'INACTIVE',
+          joinDate: day('2026-01-01'),
+        },
+      });
+      const request = (query: string) =>
+        new NextRequest(
+          'http://localhost/api/v1/payroll-runs/precheck?' + query,
+          { headers: req(f).headers },
+        );
+      const result = await body(await precheck(request('month=1&year=2027')));
+      expect(
+        result.inactiveWithoutEndDate.map((e: { id: string }) => e.id),
+      ).toEqual([inactive.id]);
+      expect(
+        result.ptkpNeedsConfirmation.map((e: { id: string }) => e.id),
+      ).toEqual([f.employee]);
+      expect(JSON.stringify(result)).not.toContain(other.employee);
+      expect(
+        (await prisma.employee.findUniqueOrThrow({ where: { id: f.employee } }))
+          .ptkpYear,
+      ).toBe(2026);
+      expect((await precheck(request('month=13&year=2027'))).status).toBe(400);
+    } finally {
+      await clean(f);
+      await clean(other);
+    }
+  });
+  it('OTHER leave paid flag survives create/update and controls posted payroll without attendance fabrication', async () => {
+    const f = await setup();
+    try {
+      expect(
+        (
+          await createLeaveType(
+            req(f, { name: 'Unclassified', category: 'OTHER' }),
+          )
+        ).status,
+      ).toBe(422);
+      const lt = await body(
+        await createLeaveType(
+          req(f, { name: 'Marriage', category: 'OTHER', isPaid: false }),
+        ),
+        201,
+      );
+      expect(lt.isPaid).toBe(false);
+      const updated = await body(
+        await updateLeaveType(req(f, { isPaid: true }, 'PUT'), params(lt.id)),
+      );
+      expect(updated.isPaid).toBe(true);
+      await prisma.leaveRequest.create({
+        data: {
+          organizationId: f.org.orgId,
+          employeeId: f.employee,
+          leaveTypeId: lt.id,
+          startDate: day('2026-10-01'),
+          endDate: day('2026-10-31'),
+          totalDays: 22,
+          status: 'APPROVED',
+        },
+      });
+      const id = await run(f),
+        result = await calc(f, id);
+      expect(result.reviewIssues).toEqual([]);
+      expect(Number(result.lines[0].paidDays)).toBe(22);
+      expect(result.lines[0].calculationSnapshot).toMatchObject({
+        attendance: {
+          leaveDays: 22,
+          approvedLeaves: [
+            expect.objectContaining({ category: 'OTHER', isPaid: true }),
+          ],
+        },
+      });
+      await posted(f, id);
+      expect(await credit(f, f.org.accounts.bankAsset)).toBe(9_338_650);
+      await assertTrialBalanced(f.org.orgId, 'OTHER paid leave');
+    } finally {
+      await clean(f);
+    }
+  });
+
+  for (const calculateRegularFirst of [false, true])
+    it(
+      'FINAL pays a leaver once and REGULAR pays the remaining employee (' +
+        (calculateRegularFirst ? 'recalculate stale regular' : 'final first') +
+        ')',
+      async () => {
+        const f = await setup();
+        try {
+          await body(
+            await editEmployee(
+              req(
+                f,
+                {
+                  joinDate: '2026-10-01',
+                  employmentEndDate: '2026-10-15',
+                  status: 'INACTIVE',
+                },
+                'PUT',
+              ),
+              params(f.employee),
+            ),
+          );
+          const b = await body(
+            await createEmployee(
+              req(f, {
+                name: 'Continuing employee',
+                joinDate: '2026-10-01',
+                basicSalary: 10_000_000,
+                ptkpStatus: 'TK/0',
+                ptkpYear: 2026,
+              }),
+            ),
+            201,
+          );
+          const employeeB = b.id ?? b.data?.id;
+          await attendance(f);
+          await attendance({ ...f, employee: employeeB });
+          let regular: string;
+          if (calculateRegularFirst) {
+            regular = await run(f);
+            expect((await calc(f, regular)).lines).toHaveLength(2);
+          }
+          const final = await run(f, 10, {
+            runType: 'FINAL',
+            requestKey: randomUUID(),
+          });
+          const finalCalc = await calc(f, final);
+          expect(finalCalc.lines.map((l) => l.employeeId)).toEqual([
+            f.employee,
+          ]);
+          expect(Number(finalCalc.totalGross)).toBe(5_000_000);
+          expect(Number(finalCalc.totalNet)).toBe(4_600_000);
+          await posted(f, final);
+          if (calculateRegularFirst) {
+            const before = await snapshot(f, regular!);
+            expect((await post(req(f), params(regular!))).status).toBe(409);
+            expect(await snapshot(f, regular!)).toEqual(before);
+          } else regular = await run(f);
+          const result = await calc(f, regular!);
+          expect(result.lines.map((l) => l.employeeId)).toEqual([employeeB]);
+          expect(Number(result.totalGross)).toBe(10_000_000);
+          expect(Number(result.totalNet)).toBe(9_338_650);
+          await posted(f, regular!);
+          const aLines = await prisma.payrollLine.findMany({
+            where: { employeeId: f.employee, payrollRun: { status: 'POSTED' } },
+          });
+          expect(aLines).toHaveLength(1);
+          expect(Number(aLines[0].basicSalary)).toBe(5_000_000);
+          expect(Number(aLines[0].totalBpjsEmployee)).toBe(400_000);
+          expect(Number(aLines[0].totalBpjsEmployer)).toBe(1_024_000);
+          expect(await credit(f, f.org.accounts.cogsExpense)).toBe(-17_048_000);
+          expect(await credit(f, f.org.accounts.bankAsset)).toBe(13_938_650);
+          expect(await credit(f, f.tax)).toBe(261_350);
+          expect(await credit(f, f.bpjs)).toBe(2_848_000);
+          for (const account of [
+            f.advance,
+            f.org.accounts.arControl,
+            f.org.accounts.apControl,
+            f.org.accounts.inventoryAsset,
+          ])
+            expect(await credit(f, account)).toBe(0);
+          expect(
+            await prisma.payrollRun.count({
+              where: { organizationId: f.org.orgId, runType: 'REGULAR' },
+            }),
+          ).toBe(1);
+          expect(
+            (
+              await createRun(
+                req(f, {
+                  month: 10,
+                  year: 2026,
+                  periodStart: '2026-10-01',
+                  periodEnd: '2026-10-31',
+                }),
+              )
+            ).status,
+          ).toBe(409);
+          await assertTrialBalanced(
+            f.org.orgId,
+            'final then remaining regular',
+          );
+        } finally {
+          await clean(f);
+        }
+      },
+    );
+  it('REGULAR refuses without mutations when every salary was already included in FINAL', async () => {
+    const f = await setup();
+    try {
+      await body(
+        await editEmployee(
+          req(
+            f,
+            { joinDate: '2026-10-01', employmentEndDate: '2026-10-15' },
+            'PUT',
+          ),
+          params(f.employee),
+        ),
+      );
+      await attendance(f);
+      const final = await run(f, 10, {
+        runType: 'FINAL',
+        requestKey: randomUUID(),
+      });
+      await calc(f, final);
+      await posted(f, final);
+      const regular = await run(f),
+        before = await snapshot(f, regular);
+      const response = await calculate(req(f), params(regular));
+      expect(response.status).toBe(422);
+      expect(await response.text()).toContain('No employees eligible');
+      expect(await snapshot(f, regular)).toEqual(before);
+    } finally {
+      await clean(f);
+    }
+  });
+  it('approved maternity leave for the whole month posts full salary with paid-leave snapshots and no fake attendance', async () => {
+    const f = await setup();
+    try {
+      const lt = await prisma.leaveType.create({
+        data: {
+          organizationId: f.org.orgId,
+          name: 'Maternity',
+          category: 'MATERNITY',
+        },
+      });
+      await prisma.leaveRequest.create({
+        data: {
+          organizationId: f.org.orgId,
+          employeeId: f.employee,
+          leaveTypeId: lt.id,
+          startDate: day('2026-10-01'),
+          endDate: day('2026-10-31'),
+          totalDays: 22,
+          status: 'APPROVED',
+        },
+      });
+      const id = await run(f),
+        result = await calc(f, id),
+        line = result.lines[0];
+      expect(result.reviewIssues).toEqual([]);
+      expect(Number(line.presentDays)).toBe(0);
+      expect(Number(line.paidDays)).toBe(22);
+      expect(line.calculationSnapshot).toMatchObject({
+        attendance: {
+          presentDays: 0,
+          leaveDays: 22,
+          sickDays: 0,
+          paidDays: 22,
+          approvedLeaves: [expect.objectContaining({ category: 'MATERNITY' })],
+        },
+      });
+      expect(
+        await prisma.attendanceRecord.count({
+          where: { employeeId: f.employee },
+        }),
+      ).toBe(0);
+      await posted(f, id);
+      expect(await credit(f, f.org.accounts.cogsExpense)).toBe(-11_024_000);
+      expect(await credit(f, f.org.accounts.bankAsset)).toBe(9_338_650);
+      expect(await credit(f, f.tax)).toBe(261_350);
+      expect(await credit(f, f.bpjs)).toBe(1_424_000);
+      await assertTrialBalanced(f.org.orgId, 'paid maternity');
+    } finally {
+      await clean(f);
+    }
+  });
+
   it('fully unpaid salary recovers employee BPJS as a receivable without a fictitious bank receipt', async () => {
     const f = await setup();
     try {

@@ -314,6 +314,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
     const [form, setForm] = useState({
         name: '',
         category: 'ANNUAL',
+        isPaid: null as boolean | null,
         entitlementDays: 12,
         carryOver: false,
         maxCarryDays: 0,
@@ -327,7 +328,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
 
     const openCreate = () => {
         setEditingId(null);
-        setForm({ name: '', category: 'ANNUAL', entitlementDays: 12, carryOver: false, maxCarryDays: 0 });
+        setForm({ name: '', category: 'ANNUAL', isPaid: null, entitlementDays: 12, carryOver: false, maxCarryDays: 0 });
         setShowModal(true);
     };
 
@@ -336,6 +337,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
         setForm({
             name: lt.name,
             category: lt.category,
+            isPaid: lt.isPaid ?? null,
             entitlementDays: lt.entitlementDays,
             carryOver: lt.carryOver,
             maxCarryDays: lt.maxCarryDays,
@@ -344,6 +346,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
     };
 
     const handleSave = async () => {
+        if (form.category === 'OTHER' && form.isPaid === null) return;
         try {
             if (editingId) {
                 await updateLeaveType.mutateAsync({ id: editingId, ...form });
@@ -363,6 +366,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
             label: 'Category',
             render: (v: unknown) => CATEGORY_LABELS[v as string] || (v as string),
         },
+        { key: 'isPaid', label: 'Payroll treatment', render: (_v: unknown, row: any) => row.category === 'OTHER' ? row.isPaid === null || row.isPaid === undefined ? 'Needs classification' : row.isPaid ? 'Paid' : 'Unpaid' : row.category === 'UNPAID' ? 'Unpaid' : 'Paid' },
         { key: 'entitlementDays', label: 'Entitlement (Days)', align: 'right' },
         {
             key: 'carryOver',
@@ -421,6 +425,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                         <label className="block text-sm font-medium text-neutral-700 mb-1">Name</label>
                         <input
                             type="text"
+                            aria-label="Leave type name"
                             value={form.name}
                             onChange={(e) => setForm({ ...form, name: e.target.value })}
                             className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
@@ -431,6 +436,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                         <div>
                             <label className="block text-sm font-medium text-neutral-700 mb-1">Category</label>
                             <select
+                                aria-label="Leave type category"
                                 value={form.category}
                                 onChange={(e) => setForm({ ...form, category: e.target.value })}
                                 className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
@@ -451,6 +457,11 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                             />
                         </div>
                     </div>
+                    {form.category === 'OTHER' && <label className="block text-sm">Payroll treatment
+                        <select aria-label="Other leave payroll treatment" value={form.isPaid === null ? '' : String(form.isPaid)} onChange={e => setForm({...form, isPaid: e.target.value === '' ? null : e.target.value === 'true'})} className="block w-full border rounded p-2">
+                            <option value="">Choose paid or unpaid</option><option value="true">Paid leave</option><option value="false">Unpaid leave</option>
+                        </select>
+                    </label>}
                     <div className="flex items-center gap-3">
                         <label className="flex items-center gap-2 text-sm">
                             <input
@@ -480,7 +491,7 @@ function LeaveTypesTab({ canCreate, canEdit, canDelete }: { canCreate: boolean; 
                         <Button
                             text={editingId ? 'Save' : 'Add'}
                             onClick={handleSave}
-                            disabled={!form.name || createLeaveType.isPending || updateLeaveType.isPending}
+                            disabled={!form.name || (form.category === 'OTHER' && form.isPaid === null) || createLeaveType.isPending || updateLeaveType.isPending}
                         />
                     </div>
                 </div>

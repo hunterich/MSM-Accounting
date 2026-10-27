@@ -1,0 +1,1 @@
+ALTER TABLE "LeaveType" ADD COLUMN "isPaid" BOOLEAN;

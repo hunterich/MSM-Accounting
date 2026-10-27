@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — payroll review regressions
+- A posted FINAL run no longer blocks REGULAR salary for continuing employees. Recalculation skips already-paid salaries while retaining duplicate, stale-basis and frozen-run guards.
+- Approved maternity, paternity and sick leave are paid; OTHER leave has explicit paid/unpaid setup. Snapshots retain paid/sick/leave counts and classifications. Add read-only employee pre-check lists for January PTKP and legacy inactive end dates. December/final-pay for mid-year adopters remains a documented pilot blocker pending verified YTD entry support.
+- Restore original formatting in unchanged payroll-adjacent blocks for review. Document full variable allowances, single-date attendance entry and cross-month overtime limits; track separate salary-payable/payment posting in ROADMAP.
+
 ### Fixed — payroll accounting and dated Indonesian payroll rules
 - Employee deductions credit their mapped receivable/payable; cash decreases only by net pay. Required salary, PPh 21, BPJS and cash accounts fail clearly when missing; posting and approval refuse AR/AP controls and stale calculations atomically.
 - Correct monthly TER gross, paid annual/certified sick leave, half-days and missing-attendance review. Add PTKP/year, inclusive employment end dates, contract review, daily statutory overtime, effective-dated BPJS settings, December/final-month Article 17 reconciliation and explicit THR/final/correction runs. Existing posted payroll and employee history are preserved.
