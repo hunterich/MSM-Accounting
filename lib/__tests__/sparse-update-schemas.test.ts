@@ -33,7 +33,9 @@ describe('sparse API updates with Zod 4', () => {
       expect(parsed).toEqual({ status: 'COMPLETED' });
       expect(() => assertPaymentEditable({ status: 'COMPLETED', journalEntryId: 'posted' }, parsed)).not.toThrow();
       expect(() => assertPaymentEditable({ status: 'COMPLETED', journalEntryId: 'posted' }, schema.parse({ totalAmount: 0 }))).toThrow('Only draft');
-      expect(schema.safeParse({ totalAmount: 'invalid' }).success).toBe(false);
+      const invalid = schema.safeParse({ totalAmount: 'invalid' });
+      expect(invalid.success).toBe(false);
+      if (!invalid.success) expect(invalid.error.issues[0].message).toBe('Must be a number');
     });
   }
   it('retains explicit zero/false/empty values and defaults inside supplied allocations', () => {

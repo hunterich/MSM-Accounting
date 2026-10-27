@@ -1,19 +1,18 @@
 import { z } from 'zod';
 import { passwordSchema } from '@/lib/password';
 
-// Zod 4 evaluates inner defaults even beneath .optional()/.partial(). An
-// update must leave omitted persisted fields alone. Match undefined first,
-// while still validating supplied values and applying their nested defaults.
-function optionalInput<T extends z.ZodType>(field: T) {
-  return z.union([z.undefined(), field]).optional();
+// Remove creation defaults before making update fields optional. Zod 4's
+// .partial() otherwise reapplies those defaults to omitted persisted fields.
+// Supplied values retain their validators and nested defaults.
+function optionalInput<T extends z.ZodType>(field: T): z.ZodOptional<T> {
+  return z.optional(field instanceof z.ZodDefault ? field.removeDefault() : field) as z.ZodOptional<T>;
 }
 function partialInput<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
   const shape = Object.fromEntries(Object.entries(schema.shape).map(([key, field]) =>
-    [key, z.union([z.undefined(), field]).optional()],
-  )) as { [K in keyof T]: z.ZodOptional<z.ZodUnion<[z.ZodUndefined, T[K]]>> };
+    [key, z.optional(field instanceof z.ZodDefault ? field.removeDefault() : field)],
+  )) as { [K in keyof T]: z.ZodOptional<T[K]> };
   return z.object(shape);
 }
-
 const decimalCoerce = z.coerce
   .number({ error: 'Must be a number' })
   .finite('Must be a finite number');
