@@ -1,8 +1,20 @@
 import { z } from 'zod';
 import { passwordSchema } from '@/lib/password';
 
+// Remove creation defaults before making update fields optional. Zod 4's
+// .partial() otherwise reapplies those defaults to omitted persisted fields.
+// Supplied values retain their validators and nested defaults.
+function optionalInput<T extends z.ZodType>(field: T): z.ZodOptional<T> {
+  return z.optional(field instanceof z.ZodDefault ? field.removeDefault() : field) as z.ZodOptional<T>;
+}
+function partialInput<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
+  const shape = Object.fromEntries(Object.entries(schema.shape).map(([key, field]) =>
+    [key, z.optional(field instanceof z.ZodDefault ? field.removeDefault() : field)],
+  )) as { [K in keyof T]: z.ZodOptional<T[K]> };
+  return z.object(shape);
+}
 const decimalCoerce = z.coerce
-  .number({ invalid_type_error: 'Must be a number' })
+  .number({ error: 'Must be a number' })
   .finite('Must be a finite number');
 
 export const decimalNumber = decimalCoerce;
@@ -142,8 +154,8 @@ export const updateAccountInputSchema = z.object({
   name: accountBaseFields.name.optional(),
   type: accountBaseFields.type.optional(),
   parentId: accountBaseFields.parentId,
-  isPostable: accountBaseFields.isPostable.optional(),
-  isActive: accountBaseFields.isActive.optional(),
+  isPostable: optionalInput(accountBaseFields.isPostable),
+  isActive: optionalInput(accountBaseFields.isActive),
   reportGroup: accountBaseFields.reportGroup.optional(),
   reportSubGroup: accountBaseFields.reportSubGroup.optional(),
   normalSide: accountBaseFields.normalSide,
@@ -606,7 +618,7 @@ export const arPaymentInputSchema = z.object({
   allocations: z.array(arPaymentAllocationInputSchema).optional(),
 });
 
-export const updateArPaymentInputSchema = arPaymentInputSchema.omit({ organizationId: true }).partial();
+export const updateArPaymentInputSchema = partialInput(arPaymentInputSchema.omit({ organizationId: true }));
 
 export const apPaymentInputSchema = z.object({
   organizationId: z.string().trim().min(1),
@@ -615,7 +627,7 @@ export const apPaymentInputSchema = z.object({
   allocations: z.array(apPaymentAllocationInputSchema).optional(),
 });
 
-export const updateApPaymentInputSchema = apPaymentInputSchema.omit({ organizationId: true }).partial();
+export const updateApPaymentInputSchema = partialInput(apPaymentInputSchema.omit({ organizationId: true }));
 
 // ── Marketplace import (POST /integrations/[id]/import) ───────────────────────
 // Batch of marketplace orders, each line already mapped to a master item.
@@ -667,7 +679,7 @@ export const salesOrderInputSchema = z.object({
   items: z.array(salesOrderItemInputSchema).default([]),
 });
 
-export const updateSalesOrderInputSchema = salesOrderInputSchema.omit({ organizationId: true }).partial();
+export const updateSalesOrderInputSchema = partialInput(salesOrderInputSchema.omit({ organizationId: true }));
 
 export const stockAdjustmentLineInputSchema = z.object({
   lineNo: z.number().int().positive().optional(),
@@ -691,7 +703,7 @@ export const stockAdjustmentInputSchema = z.object({
   lines: z.array(stockAdjustmentLineInputSchema).default([]),
 });
 
-export const updateStockAdjustmentInputSchema = stockAdjustmentInputSchema.omit({ organizationId: true }).partial();
+export const updateStockAdjustmentInputSchema = partialInput(stockAdjustmentInputSchema.omit({ organizationId: true }));
 
 export const stockCountCreateSchema = z.object({
   organizationId: z.string().trim().min(1),
@@ -726,7 +738,7 @@ export const createBankAccountInputSchema = z.object({
   isActive:       z.boolean().default(true),
 });
 
-export const updateBankAccountInputSchema = createBankAccountInputSchema.partial();
+export const updateBankAccountInputSchema = partialInput(createBankAccountInputSchema);
 
 export type CreateBankAccountInput = z.infer<typeof createBankAccountInputSchema>;
 export type UpdateBankAccountInput = z.infer<typeof updateBankAccountInputSchema>;
@@ -752,7 +764,7 @@ export const bankTransactionInputSchema = z.object({
   incomeAccountId: z.string().trim().optional(),
 });
 
-export const updateBankTransactionInputSchema = bankTransactionInputSchema.omit({ organizationId: true }).partial();
+export const updateBankTransactionInputSchema = partialInput(bankTransactionInputSchema.omit({ organizationId: true }));
 
 export const employeeCompensationItemInputSchema = z.object({
   id: z.string().trim().optional(),
@@ -786,7 +798,7 @@ export const employeeInputSchema = z.object({
   deductions: z.array(employeeCompensationItemInputSchema).default([]),
 });
 
-export const updateEmployeeInputSchema = employeeInputSchema.omit({ organizationId: true }).partial();
+export const updateEmployeeInputSchema = partialInput(employeeInputSchema.omit({ organizationId: true }));
 
 // Per-shop accounting mappings stored on EcommerceConnection.mappings (JSONB).
 // Account ids are nullable so an operator can save a partial draft.
@@ -855,7 +867,7 @@ export const integrationInputSchema = z.object({
   salesTypeId: z.string().nullish(),
 });
 
-export const updateIntegrationInputSchema = integrationInputSchema.omit({ organizationId: true }).partial();
+export const updateIntegrationInputSchema = partialInput(integrationInputSchema.omit({ organizationId: true }));
 
 export const agingBucketSchema = z.object({
   current: decimalNumber,
@@ -939,9 +951,8 @@ export const attendanceRecordInputSchema = z.object({
   overtimeHours: z.coerce.number().min(0).default(0),
   notes: z.string().optional(),
 });
-export const updateAttendanceRecordInputSchema = attendanceRecordInputSchema
-  .omit({ organizationId: true, employeeId: true, date: true })
-  .partial();
+export const updateAttendanceRecordInputSchema = partialInput(attendanceRecordInputSchema
+  .omit({ organizationId: true, employeeId: true, date: true }));
 
 export const leaveTypeInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -952,7 +963,7 @@ export const leaveTypeInputSchema = z.object({
   maxCarryDays: z.coerce.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
 });
-export const updateLeaveTypeInputSchema = leaveTypeInputSchema.omit({ organizationId: true }).partial();
+export const updateLeaveTypeInputSchema = partialInput(leaveTypeInputSchema.omit({ organizationId: true }));
 
 export const leaveRequestInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -994,7 +1005,7 @@ export const assetCategoryInputSchema = z.object({
   depExpenseAccountId: z.string().optional().nullable(),
   accumDepAccountId: z.string().optional().nullable(),
 });
-export const updateAssetCategoryInputSchema = assetCategoryInputSchema.omit({ organizationId: true }).partial();
+export const updateAssetCategoryInputSchema = partialInput(assetCategoryInputSchema.omit({ organizationId: true }));
 
 export const assetInputSchema = z.object({
   organizationId: z.string().min(1),
@@ -1012,7 +1023,7 @@ export const assetInputSchema = z.object({
   serialNumber: z.string().optional(),
   vendor: z.string().optional(),
 });
-export const updateAssetInputSchema = assetInputSchema.omit({ organizationId: true }).partial();
+export const updateAssetInputSchema = partialInput(assetInputSchema.omit({ organizationId: true }));
 
 export const assetDisposalInputSchema = z.object({
   disposalDate: isoDateString,
@@ -1090,7 +1101,7 @@ export const createRoleInputSchema = z.object({
   permissions: z.array(permissionRowSchema).optional(),
 });
 
-export const updateRoleInputSchema = createRoleInputSchema.partial();
+export const updateRoleInputSchema = partialInput(createRoleInputSchema);
 
 export const assignUserRoleInputSchema = z.object({ roleId: z.string().min(1) });
 

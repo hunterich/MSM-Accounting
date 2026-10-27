@@ -1,5 +1,17 @@
 # Testing transactions and accounting
 
+## ACC-02 two-user settlement and close acceptance (2026-10-21)
+
+See [ACC-02-SETTLEMENT-ACCEPTANCE.md](ACC-02-SETTLEMENT-ACCEPTANCE.md). Four AR/AP
+journeys use actual payment forms, distinct preparer/reviewer sessions, Approval
+Inbox and Company Setup close/reopen. They check discount/fee arithmetic, the last
+cent, pending holds, self-approval refusal, failed approval rollback and rejection,
+and later-dated reversal against fixed aging/control/GL values. No production
+posting change or policy change is introduced; finance/release acceptance remains.
+The final fresh-fixture run passes all 15 selected Chromium cases and all 60
+related PostgreSQL cases; both TypeScript projects pass. The acceptance record
+also documents an earlier interrupted browser run and the added bounded waits.
+
 ## INV-02 valuation acceptance and read-only carrying audit (2026-10-21)
 
 See [INV-02-ACCEPTANCE.md](INV-02-ACCEPTANCE.md) for the eight new real-lock PO
