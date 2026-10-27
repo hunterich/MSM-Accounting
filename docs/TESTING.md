@@ -12,6 +12,14 @@ The final fresh-fixture run passes all 15 selected Chromium cases and all 60
 related PostgreSQL cases; both TypeScript projects pass. The acceptance record
 also documents an earlier interrupted browser run and the added bounded waits.
 
+## INV-02 valuation acceptance and read-only carrying audit (2026-10-21)
+
+See [INV-02-ACCEPTANCE.md](INV-02-ACCEPTANCE.md) for the eight new real-lock PO
+receipt cases, two carrying-audit regressions, two real Receive Goods/browser/API
+journeys, reproduction commands and remaining gates. Stored carrying values are
+compared per warehouse even when company ledger/GL totals agree; no repair or
+initialization is performed.
+
 
 ## INV-02 receipt acceptance (2026-10-19)
 

@@ -10,20 +10,23 @@ export async function auditInventoryBooks(tx: Prisma.TransactionClient, organiza
   if (!ids.length || ids.some(id => !id)) throw new ApiError('Select the historical Inventory accounts to review.', 422)
   const accounts = await tx.account.findMany({ where: { organizationId, id: { in: ids } }, select: { id: true, code: true, name: true } })
   if (accounts.length !== ids.length) throw new ApiError('Every reviewed account must belong to the selected company.', 422)
-  const pools = await tx.$queryRaw<Array<{ itemId: string; warehouseId: string | null; ledgerQuantity: Prisma.Decimal; physicalQuantity: Prisma.Decimal; bookValue: Prisma.Decimal; negativeLots: bigint }>>`
+  const pools = await tx.$queryRaw<Array<{ itemId: string; warehouseId: string | null; ledgerQuantity: Prisma.Decimal; physicalQuantity: Prisma.Decimal; bookValue: Prisma.Decimal; carryingValue: Prisma.Decimal; uninitializedLots: bigint; negativeLots: bigint }>>`
     WITH movements AS (
       SELECT "itemId", "warehouseId", sum("qtyIn" - "qtyOut") quantity, sum("valueChange") value
       FROM "InventoryLedgerEntry" WHERE "organizationId" = ${organizationId}
       GROUP BY "itemId", "warehouseId"
     ), lots AS (
       SELECT "itemId", "warehouseId", sum("qtyBalance") quantity,
+        sum(coalesce("carryingValue", 0)) carrying,
+        count(*) FILTER (WHERE "qtyBalance" > 0 AND "carryingValue" IS NULL) uninitialized,
         count(*) FILTER (WHERE "qtyBalance" < 0) negative
       FROM "InventoryLot" WHERE "organizationId" = ${organizationId}
       GROUP BY "itemId", "warehouseId"
     )
     SELECT coalesce(m."itemId", l."itemId") "itemId", coalesce(m."warehouseId", l."warehouseId") "warehouseId",
       coalesce(m.quantity, 0) "ledgerQuantity", coalesce(l.quantity, 0) "physicalQuantity",
-      coalesce(m.value, 0) "bookValue", coalesce(l.negative, 0) "negativeLots"
+      coalesce(m.value, 0) "bookValue", coalesce(l.carrying, 0) "carryingValue",
+      coalesce(l.uninitialized, 0) "uninitializedLots", coalesce(l.negative, 0) "negativeLots"
     FROM movements m FULL JOIN lots l ON m."itemId" = l."itemId" AND m."warehouseId" IS NOT DISTINCT FROM l."warehouseId"
     ORDER BY 1, 2 NULLS FIRST
   `
@@ -45,7 +48,13 @@ export async function auditInventoryBooks(tx: Prisma.TransactionClient, organiza
     difference: glValue.minus(ledgerValue).toFixed(2), accounts: gl,
     pools: pools.map(pool => ({ itemId: pool.itemId, warehouseId: pool.warehouseId,
       ledgerQuantity: pool.ledgerQuantity.toFixed(4), physicalQuantity: pool.physicalQuantity.toFixed(4),
-      bookValue: pool.bookValue.toFixed(2), findings: [
+      bookValue: pool.bookValue.toFixed(2), carryingValue: pool.carryingValue.toFixed(2),
+      uninitializedLots: Number(pool.uninitializedLots), findings: [
+        ...(pool.uninitializedLots > 0n ? ['UNINITIALIZED_CARRYING_VALUE'] : []),
+        // Negative pools can legitimately represent tracked sale estimates,
+        // which have no physical lot. Existing negative/scope findings retain
+        // that review; compare physical carrying values only to nonnegative books.
+        ...(!pool.bookValue.isNegative() && !pool.carryingValue.equals(pool.bookValue) ? ['CARRYING_VALUE_MISMATCH'] : []),
         ...(!pool.ledgerQuantity.equals(pool.physicalQuantity) ? ['QUANTITY_SCOPE_MISMATCH'] : []),
         ...(pool.ledgerQuantity.isNegative() ? ['NEGATIVE_STOCK_REVIEW'] : []),
         ...(pool.negativeLots > 0n ? ['NEGATIVE_PHYSICAL_LOT'] : []),
