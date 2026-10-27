@@ -8,7 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Security — dependency refresh (2026-10-27)
-- Patch Next.js to 15.5.28, Zod to 4.6.7 and Vitest to 4.1.12; update DOMPurify, fast-uri and serialize-javascript to compatible patched releases. Keep the dependency audit enabled. Adapt the numeric validation error option to Zod 4 while preserving its message.
+- Patch Next.js to 15.5.28, Zod to 4.6.7 and Vitest to 4.1.12; update DOMPurify, fast-uri and serialize-javascript to compatible patched releases. Keep the dependency audit enabled. Adapt the numeric validation error option to Zod 4 while preserving its message. Keep omitted update fields absent under Zod 4, so status-only payment replays remain idempotent and unrelated edits cannot reset status, balances, permissions or other create defaults.
+
 ### Security — Vite development tooling
 - Update Vite from 7.3.6 to patched 7.3.7 for the launch-editor advisories flagged by CI. The npm lockfile audit now reports zero known vulnerabilities; security checks remain enabled.
 
