@@ -250,6 +250,7 @@ const PayrollRun = () => {
                     </div>
                 }
             >
+                {Array.isArray(selectedRun.reviewIssues) && selectedRun.reviewIssues.length > 0 && <div role="alert" className="rounded border border-red-300 bg-red-50 p-3 mb-3"><strong>Payroll review required</strong><p>Correct attendance and recalculate before posting.</p><ul>{selectedRun.reviewIssues.map((issue: string, i: number) => <li key={i}>{issue}</li>)}</ul></div>}
                 {/* Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
                     {summaryCards.map((card) => (

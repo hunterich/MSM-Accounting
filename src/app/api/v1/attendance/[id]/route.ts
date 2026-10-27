@@ -37,6 +37,7 @@ export const PUT = withPermission({ module: 'HR_ATTENDANCE', action: 'edit' }, a
   if (!existing) return err('Not found', 404);
 
   const updateData: any = {};
+  if (parsed.data.sickCertified !== undefined) updateData.sickCertified = parsed.data.sickCertified;
   if (parsed.data.status !== undefined) updateData.status = parsed.data.status;
   if (parsed.data.overtimeHours !== undefined) updateData.overtimeHours = parsed.data.overtimeHours;
   if (parsed.data.notes !== undefined) updateData.notes = parsed.data.notes;

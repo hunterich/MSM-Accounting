@@ -767,6 +767,7 @@ export const bankTransactionInputSchema = z.object({
 export const updateBankTransactionInputSchema = partialInput(bankTransactionInputSchema.omit({ organizationId: true }));
 
 export const employeeCompensationItemInputSchema = z.object({
+  postingAccountId: z.string().trim().nullish(),
   id: z.string().trim().optional(),
   name: z.string().trim().min(1, 'Compensation item name is required'),
   amount: positiveDecimal.default(0),
@@ -941,6 +942,7 @@ export type MarketplaceImportInput = z.infer<typeof marketplaceImportInputSchema
 // ── HR: Attendance, Leave Types, Leave Requests, Payroll Runs ────────────────
 
 export const attendanceRecordInputSchema = z.object({
+  sickCertified: z.boolean().default(false),
   organizationId: z.string().min(1),
   employeeId: z.string().min(1),
   date: isoDateString,

@@ -94,6 +94,7 @@ export const POST = withPermission({ module: 'HR_ATTENDANCE', action: 'create' }
       employeeId: parsed.data.employeeId,
       date: new Date(parsed.data.date),
       status: parsed.data.status,
+      sickCertified: parsed.data.sickCertified,
       overtimeHours: parsed.data.overtimeHours,
       notes: parsed.data.notes || null,
     };
@@ -123,6 +124,7 @@ export const POST = withPermission({ module: 'HR_ATTENDANCE', action: 'create' }
         hoursWorked: data.hoursWorked,
         overtimeHours: data.overtimeHours,
         status: data.status,
+        sickCertified: data.sickCertified,
         notes: data.notes,
       },
       include: {

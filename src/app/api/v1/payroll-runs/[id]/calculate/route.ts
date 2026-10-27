@@ -5,6 +5,9 @@ import { ok, err, logAudit, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { calculatePayrollLine, type AttendanceSummary, type EmployeePayData } from '@/lib/payroll-calc';
 
+import { summarizePayrollAttendance } from '@/lib/payroll-attendance';
+import { lockPayroll } from '@/lib/payroll-posting';
+
 export const runtime = 'nodejs';
 
 export async function OPTIONS() {
@@ -21,7 +24,7 @@ export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, a
     });
 
     if (!payrollRun) return err('Payroll run not found', 404);
-    if (payrollRun.status === 'POSTED') return err('Cannot recalculate posted payroll run', 400);
+    if (!['DRAFT', 'CALCULATED', 'REVIEWED'].includes(payrollRun.status)) return err('Cannot recalculate posted payroll run', 400);
 
     // Fetch all active employees with compensation items
     const employees = await prisma.employee.findMany({
@@ -52,17 +55,13 @@ export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, a
       attendanceMap.set(record.employeeId, existing);
     }
 
-    // Calculate working days in period (exclude weekends)
-    let workingDays = 0;
-    const start = new Date(payrollRun.periodStart);
-    const end = new Date(payrollRun.periodEnd);
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const day = d.getDay();
-      if (day !== 0 && day !== 6) workingDays++;
-    }
-
+    const leaves = await prisma.leaveRequest.findMany({ where: { organizationId: orgId, status: 'APPROVED', startDate: { lte: payrollRun.periodEnd }, endDate: { gte: payrollRun.periodStart } }, include: { leaveType: true } });
+    const reviewIssues: string[] = [];
     // Delete existing lines and create new ones
     await prisma.$transaction(async (tx) => {
+      await lockPayroll(tx, orgId);
+      const current = await tx.payrollRun.findFirstOrThrow({ where: { id, organizationId: orgId } });
+      if (current.updatedAt.getTime() !== payrollRun.updatedAt.getTime() || !['DRAFT', 'CALCULATED', 'REVIEWED'].includes(current.status)) throw new ApiError('Payroll changed while calculating. Reload and retry.', 409);
       await tx.payrollLine.deleteMany({ where: { payrollRunId: id } });
 
       let totalGross = 0;
@@ -73,10 +72,6 @@ export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, a
 
       for (const emp of employees) {
         const empAttendance = attendanceMap.get(emp.id) || [];
-        const presentDays = empAttendance.filter(
-          (a) => a.status === 'PRESENT' || a.status === 'LATE' || a.status === 'HALF_DAY',
-        ).length;
-        const absentDays = empAttendance.filter((a) => a.status === 'ABSENT').length;
         const totalOvertimeHours = empAttendance.reduce(
           (sum, a) => sum + Number(a.overtimeHours || 0),
           0,
@@ -95,14 +90,8 @@ export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, a
           deductions,
         };
 
-        const attendance: AttendanceSummary = {
-          workingDays,
-          presentDays: presentDays || workingDays, // Default to full attendance if no records
-          absentDays,
-          sickDays: empAttendance.filter((a) => a.status === 'SICK').length,
-          leaveDays: empAttendance.filter((a) => a.status === 'LEAVE').length,
-        };
-
+        const attendance = summarizePayrollAttendance(payrollRun.periodStart, payrollRun.periodEnd, empAttendance, leaves.filter(l => l.employeeId === emp.id));
+        reviewIssues.push(...attendance.issues.map(issue => emp.employeeNo + ': ' + issue));
         const calc = calculatePayrollLine(employeeData, attendance, totalOvertimeHours);
 
         await tx.payrollLine.create({
@@ -128,6 +117,8 @@ export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, a
             netPay: calc.netPay,
             workingDays: calc.workingDays,
             presentDays: calc.presentDays,
+            paidDays: calc.paidDays,
+            deductionPostings: emp.compensationItems.filter(c => c.type === 'DEDUCTION' && Number(c.amount) > 0).map(c => ({ name: c.name, accountId: c.postingAccountId, amount: Number(c.amount) })),
             absentDays: calc.absentDays,
             overtimeHours: calc.overtimeHours,
           },
@@ -145,6 +136,7 @@ export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, a
         where: { id },
         data: {
           status: 'CALCULATED',
+          reviewIssues,
           totalGross,
           totalDeductions,
           totalTax,

@@ -1579,6 +1579,7 @@ model Employee {
 }
 
 model EmployeeCompensationItem {
+  postingAccountId String?
   id           String            @id @default(cuid())
   employeeId   String
   type         CompensationType
@@ -1593,6 +1594,7 @@ model EmployeeCompensationItem {
 }
 
 model AttendanceRecord {
+  sickCertified Boolean @default(false)
   id             String           @id @default(cuid())
   organizationId String
   employeeId     String
@@ -1680,6 +1682,7 @@ model LeaveBalance {
 }
 
 model PayrollRun {
+  reviewIssues Json?
   id             String           @id @default(cuid())
   organizationId String
   number         String
@@ -1708,6 +1711,8 @@ model PayrollRun {
 }
 
 model PayrollLine {
+  deductionPostings Json?
+  paidDays Decimal @default(0) @db.Decimal(5, 2)
   id                  String     @id @default(cuid())
   payrollRunId        String
   employeeId          String
@@ -1729,8 +1734,8 @@ model PayrollLine {
   totalBpjsEmployer   Decimal    @default(0) @db.Decimal(18, 2)
   netPay              Decimal    @default(0) @db.Decimal(18, 2)
   workingDays         Int        @default(0)
-  presentDays         Int        @default(0)
-  absentDays          Int        @default(0)
+  presentDays         Decimal    @default(0) @db.Decimal(5, 2)
+  absentDays          Decimal    @default(0) @db.Decimal(5, 2)
   overtimeHours       Decimal    @default(0) @db.Decimal(5, 2)
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt

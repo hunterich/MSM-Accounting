@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
-import { postPayrollRunToLedger } from '@/lib/payroll-posting';
+import { postPayrollRunToLedger, validatePayrollPosting } from '@/lib/payroll-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 
 export const runtime = 'nodejs';
@@ -35,28 +35,8 @@ export const POST = withPermission({ module: 'HR_PAYROLL', action: 'create' }, a
     if (payrollRun.status === 'DRAFT') return err('Must calculate payroll before posting', 400);
     if (payrollRun.lines.length === 0) return err('No payroll lines to post', 400);
 
-    // Find the required accounts
-    const [salaryExpenseAccount, bankAccount, taxPayableAccount, bpjsPayableAccount] = await Promise.all([
-      prisma.account.findFirst({ where: { organizationId: orgId, code: '5100', isActive: true } }),
-      prisma.account.findFirst({ where: { organizationId: orgId, type: 'ASSET', reportGroup: { contains: 'Cash' }, isActive: true } }),
-      prisma.account.findFirst({ where: { organizationId: orgId, code: '2300', isActive: true } }),
-      prisma.account.findFirst({ where: { organizationId: orgId, code: '2310', isActive: true } }),
-    ]);
-
-    // Use fallback accounts if specific codes not found
-    const expenseAcct = salaryExpenseAccount
-      || await prisma.account.findFirst({ where: { organizationId: orgId, type: 'EXPENSE', isActive: true } });
-    const cashAcct = bankAccount
-      || await prisma.account.findFirst({ where: { organizationId: orgId, type: 'ASSET', isActive: true, isPostable: true } });
-    const taxAcct = taxPayableAccount
-      || await prisma.account.findFirst({ where: { organizationId: orgId, type: 'LIABILITY', isActive: true, isPostable: true } });
-    const bpjsAcct = bpjsPayableAccount || taxAcct;
-
-    if (!expenseAcct || !cashAcct || !taxAcct) {
-      return err('Required GL accounts not found (Salary Expense, Cash/Bank, Tax Payable). Please set up chart of accounts first.', 400);
-    }
-
     const result = await prisma.$transaction(async (tx) => {
+      await validatePayrollPosting(tx, orgId, id);
       // Auto-route the post (→ POSTED) through the approval engine. If approval
       // is required, hold the run at PENDING_APPROVAL and post NO GL.
       const routed = await routeForApproval(tx, {

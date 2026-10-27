@@ -249,6 +249,7 @@ export interface AttendanceSummary {
   absentDays: number;
   sickDays: number;
   leaveDays: number;
+  paidDays?: number;
 }
 
 export interface EmployeePayData {
@@ -270,6 +271,7 @@ export interface PayrollLineCalc {
   netPay: number;
   workingDays: number;
   presentDays: number;
+  paidDays: number;
   absentDays: number;
   overtimeHours: number;
 }
@@ -292,7 +294,7 @@ export function calculatePayrollLine(
 
   // Prorate salary based on attendance if there are absent days
   const attendanceRatio = attendance.workingDays > 0
-    ? attendance.presentDays / attendance.workingDays
+    ? (attendance.paidDays ?? (attendance.presentDays + attendance.sickDays + attendance.leaveDays)) / attendance.workingDays
     : 1;
 
   const proratedSalary = Math.round(basicSalary * attendanceRatio);
@@ -307,8 +309,9 @@ export function calculatePayrollLine(
   // BPJS based on basic salary (not gross)
   const bpjs = calculateBPJS(basicSalary);
 
-  // PPh 21 on gross minus employee BPJS contributions
-  const taxableIncome = grossPay - bpjs.employee.total;
+  // Monthly TER includes employer-paid JKK, JKM and health premiums; employee
+  // JHT/JP deductions belong only in the final-period Article 17 reconciliation.
+  const taxableIncome = grossPay + bpjs.employer.jkk + bpjs.employer.jkm + bpjs.employer.kesehatan;
   const pph21 = calculatePPh21TER(taxableIncome, pph21Category);
 
   // Net pay
@@ -327,6 +330,7 @@ export function calculatePayrollLine(
     netPay,
     workingDays: attendance.workingDays,
     presentDays: attendance.presentDays,
+    paidDays: attendance.paidDays ?? (attendance.presentDays + attendance.sickDays + attendance.leaveDays),
     absentDays: attendance.absentDays,
     overtimeHours,
   };

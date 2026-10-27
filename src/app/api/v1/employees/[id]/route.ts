@@ -14,14 +14,14 @@ export async function OPTIONS() {
 function serializeEmployee(employee: any) {
   if (!employee) return employee;
 
-  const compensationItems: Array<{ id?: string; type?: string; name?: string; amount?: number }> =
+  const compensationItems: Array<{ id?: string; type?: string; name?: string; amount?: number; postingAccountId?: string | null }> =
     Array.isArray(employee.compensationItems) ? employee.compensationItems : [];
   const allowances = compensationItems
     .filter((item) => item.type === 'ALLOWANCE')
-    .map((item) => ({ id: item.id, name: item.name, amount: item.amount }));
+    .map((item) => ({ id: item.id, name: item.name, amount: item.amount, postingAccountId: item.postingAccountId || null }));
   const deductions = compensationItems
     .filter((item) => item.type === 'DEDUCTION')
-    .map((item) => ({ id: item.id, name: item.name, amount: item.amount }));
+    .map((item) => ({ id: item.id, name: item.name, amount: item.amount, postingAccountId: item.postingAccountId || null }));
 
   return {
     ...employee,
@@ -154,8 +154,8 @@ export const PUT = withPermission({ module: 'HR_EMPLOYEES', action: 'edit' }, as
         const allowances = parsed.data.allowances ?? [];
         const deductions = parsed.data.deductions ?? [];
         const compensationItems = [
-          ...allowances.map((item) => ({ employeeId: id, type: 'ALLOWANCE' as const, name: item.name, amount: item.amount })),
-          ...deductions.map((item) => ({ employeeId: id, type: 'DEDUCTION' as const, name: item.name, amount: item.amount })),
+          ...allowances.map((item) => ({ employeeId: id, type: 'ALLOWANCE' as const, name: item.name, amount: item.amount, postingAccountId: item.postingAccountId || null })),
+          ...deductions.map((item) => ({ employeeId: id, type: 'DEDUCTION' as const, name: item.name, amount: item.amount, postingAccountId: item.postingAccountId || null })),
         ];
         if (compensationItems.length > 0) {
           await tx.employeeCompensationItem.createMany({ data: compensationItems });
