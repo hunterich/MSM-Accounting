@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { passwordSchema } from '@/lib/password';
 
 const decimalCoerce = z.coerce
-  .number({ invalid_type_error: 'Must be a number' })
+  .number({ error: 'Must be a number' })
   .finite('Must be a finite number');
 
 export const decimalNumber = decimalCoerce;
