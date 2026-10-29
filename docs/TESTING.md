@@ -1066,3 +1066,20 @@ per-control opening reconciliation line comes from the merged PR #191.
 ```powershell
 node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts migration-opening-acceptance migration opening
 ```
+
+
+## Payroll correctness and dated eligibility (2026-10-27)
+
+See [Payroll correctness](PAYROLL-CORRECTNESS.md) for company setup, independent
+expected ledger values, legal references and finance/release limits. The four
+original defects have unit regressions in payroll-immediate.test.ts. Dated rules
+have pure calculation tests, 23 isolated PostgreSQL acceptance cases, the six
+existing approval cases and three actual employee/settings/attendance/payroll screen
+journeys. Review regressions cover both FINAL/REGULAR orders, all-paid refusal, paid maternity without attendance, explicit OTHER classification and company-scoped pre-check lists. Refused posting retains complete financial/approval snapshots.
+
+Local acceptance uses a task-owned PostgreSQL 16 container, fresh _test/_e2e
+databases and test companies only. All three migrations apply from scratch. The two
+backup/restore integration files need pg_dump/pg_restore and remain in Linux CI.
+The Windows unit suite has two existing pagination locale assertions (350,000
+expected versus the host's 350.000); do not weaken them. Stacked PRs now run the
+same CI checks against their selected base branch.

@@ -1,12 +1,14 @@
+import type { BPJSRules, OvertimeDay } from './payroll-rules';
+import { overtimePay as calculateOvertime } from './payroll-rules';
 /**
  * Indonesian Payroll Calculation Utilities
- * PPh 21 TER (Tarif Efektif Rata-rata) 2024 & BPJS rates
+ * PPh 21 TER tables and effective-dated BPJS calculations
  */
 
 // ── PPh 21 TER Brackets ─────────────────────────────────────────────────────
-// Category A: TK/0, TK/1 (single, no/1 dependent)
-// Category B: TK/2, TK/3, K/0, K/1 (single 2-3 dep, married 0-1 dep)
-// Category C: K/2, K/3 (married 2-3 dependents)
+// Category A: TK/0, TK/1, K/0
+// Category B: TK/2, TK/3, K/1, K/2
+// Category C: K/3
 
 interface TERBracket {
   upTo: number;
@@ -33,7 +35,7 @@ const TER_CATEGORY_A: TERBracket[] = [
   { upTo: 16_950_000, rate: 0.07 },
   { upTo: 19_750_000, rate: 0.08 },
   { upTo: 24_150_000, rate: 0.09 },
-  { upTo: 26_450_000, rate: 0.10 },
+  { upTo: 26_450_000, rate: 0.1 },
   { upTo: 28_000_000, rate: 0.11 },
   { upTo: 30_050_000, rate: 0.12 },
   { upTo: 32_400_000, rate: 0.13 },
@@ -43,7 +45,7 @@ const TER_CATEGORY_A: TERBracket[] = [
   { upTo: 47_800_000, rate: 0.17 },
   { upTo: 51_400_000, rate: 0.18 },
   { upTo: 56_300_000, rate: 0.19 },
-  { upTo: 62_200_000, rate: 0.20 },
+  { upTo: 62_200_000, rate: 0.2 },
   { upTo: 68_600_000, rate: 0.21 },
   { upTo: 77_500_000, rate: 0.22 },
   { upTo: 89_000_000, rate: 0.23 },
@@ -53,7 +55,7 @@ const TER_CATEGORY_A: TERBracket[] = [
   { upTo: 206_000_000, rate: 0.27 },
   { upTo: 337_000_000, rate: 0.28 },
   { upTo: 454_000_000, rate: 0.29 },
-  { upTo: 550_000_000, rate: 0.30 },
+  { upTo: 550_000_000, rate: 0.3 },
   { upTo: 695_000_000, rate: 0.31 },
   { upTo: 910_000_000, rate: 0.32 },
   { upTo: 1_400_000_000, rate: 0.33 },
@@ -76,7 +78,7 @@ const TER_CATEGORY_B: TERBracket[] = [
   { upTo: 18_450_000, rate: 0.07 },
   { upTo: 21_850_000, rate: 0.08 },
   { upTo: 26_000_000, rate: 0.09 },
-  { upTo: 27_700_000, rate: 0.10 },
+  { upTo: 27_700_000, rate: 0.1 },
   { upTo: 29_350_000, rate: 0.11 },
   { upTo: 31_450_000, rate: 0.12 },
   { upTo: 33_950_000, rate: 0.13 },
@@ -86,7 +88,7 @@ const TER_CATEGORY_B: TERBracket[] = [
   { upTo: 49_500_000, rate: 0.17 },
   { upTo: 53_800_000, rate: 0.18 },
   { upTo: 58_500_000, rate: 0.19 },
-  { upTo: 64_000_000, rate: 0.20 },
+  { upTo: 64_000_000, rate: 0.2 },
   { upTo: 71_000_000, rate: 0.21 },
   { upTo: 80_000_000, rate: 0.22 },
   { upTo: 93_000_000, rate: 0.23 },
@@ -96,7 +98,7 @@ const TER_CATEGORY_B: TERBracket[] = [
   { upTo: 211_000_000, rate: 0.27 },
   { upTo: 374_000_000, rate: 0.28 },
   { upTo: 459_000_000, rate: 0.29 },
-  { upTo: 555_000_000, rate: 0.30 },
+  { upTo: 555_000_000, rate: 0.3 },
   { upTo: 704_000_000, rate: 0.31 },
   { upTo: 957_000_000, rate: 0.32 },
   { upTo: 1_405_000_000, rate: 0.33 },
@@ -120,7 +122,7 @@ const TER_CATEGORY_C: TERBracket[] = [
   { upTo: 19_500_000, rate: 0.07 },
   { upTo: 22_700_000, rate: 0.08 },
   { upTo: 25_700_000, rate: 0.09 },
-  { upTo: 27_700_000, rate: 0.10 },
+  { upTo: 27_700_000, rate: 0.1 },
   { upTo: 30_100_000, rate: 0.11 },
   { upTo: 32_600_000, rate: 0.12 },
   { upTo: 35_400_000, rate: 0.13 },
@@ -130,7 +132,7 @@ const TER_CATEGORY_C: TERBracket[] = [
   { upTo: 51_000_000, rate: 0.17 },
   { upTo: 55_800_000, rate: 0.18 },
   { upTo: 61_400_000, rate: 0.19 },
-  { upTo: 67_900_000, rate: 0.20 },
+  { upTo: 67_900_000, rate: 0.2 },
   { upTo: 76_500_000, rate: 0.21 },
   { upTo: 85_000_000, rate: 0.22 },
   { upTo: 98_000_000, rate: 0.23 },
@@ -140,7 +142,7 @@ const TER_CATEGORY_C: TERBracket[] = [
   { upTo: 220_000_000, rate: 0.27 },
   { upTo: 390_000_000, rate: 0.28 },
   { upTo: 463_000_000, rate: 0.29 },
-  { upTo: 561_000_000, rate: 0.30 },
+  { upTo: 561_000_000, rate: 0.3 },
   { upTo: 709_000_000, rate: 0.31 },
   { upTo: 965_000_000, rate: 0.32 },
   { upTo: 1_419_000_000, rate: 0.33 },
@@ -156,10 +158,13 @@ const TER_TABLES: Record<string, TERBracket[]> = {
 /**
  * Calculate monthly PPh 21 using TER (Tarif Efektif Rata-rata) method.
  * @param grossMonthly - Gross monthly income (bruto)
- * @param category - TER category: 'A' (TK/0,TK/1), 'B' (TK/2,TK/3,K/0,K/1), 'C' (K/2,K/3)
+ * @param category - TER category: 'A' (TK/0,TK/1,K/0), 'B' (TK/2,TK/3,K/1,K/2), 'C' (K/3)
  * @returns Monthly PPh 21 amount
  */
-export function calculatePPh21TER(grossMonthly: number, category: 'A' | 'B' | 'C' = 'A'): number {
+export function calculatePPh21TER(
+  grossMonthly: number,
+  category: 'A' | 'B' | 'C' = 'A',
+): number {
   if (grossMonthly <= 0) return 0;
 
   const brackets = TER_TABLES[category];
@@ -172,15 +177,7 @@ export function calculatePPh21TER(grossMonthly: number, category: 'A' | 'B' | 'C
   return Math.round(grossMonthly * 0.34);
 }
 
-// ── BPJS Rates (2024 Indonesian standard) ────────────────────────────────────
-
-export const BPJS_RATES = {
-  kesehatan: { employee: 0.01, employer: 0.04, ceiling: 12_000_000 },
-  jht: { employee: 0.02, employer: 0.037 },
-  jp: { employee: 0.01, employer: 0.02, ceiling: 10_042_300 },
-  jkk: { employer: 0.0024 }, // risk level 1
-  jkm: { employer: 0.003 },
-};
+// ── Effective-dated BPJS contributions ────────────────────────────────────
 
 export interface BPJSBreakdown {
   kesehatan: number;
@@ -201,24 +198,30 @@ export interface BPJSResult {
  * @param basicSalary - Monthly basic salary
  * @returns Employee and employer BPJS breakdowns
  */
-export function calculateBPJS(basicSalary: number): BPJSResult {
+export function calculateBPJS(
+  basicSalary: number,
+  rules: BPJSRules,
+): BPJSResult {
   // BPJS Kesehatan - capped at ceiling
-  const kesBasis = Math.min(basicSalary, BPJS_RATES.kesehatan.ceiling);
-  const kesEmployee = Math.round(kesBasis * BPJS_RATES.kesehatan.employee);
-  const kesEmployer = Math.round(kesBasis * BPJS_RATES.kesehatan.employer);
+  const kesBasis = Math.min(
+    Math.max(basicSalary, rules.kesehatan.floor),
+    rules.kesehatan.ceiling,
+  );
+  const kesEmployee = Math.round(kesBasis * rules.kesehatan.employee);
+  const kesEmployer = Math.round(kesBasis * rules.kesehatan.employer);
 
   // BPJS JHT - no ceiling
-  const jhtEmployee = Math.round(basicSalary * BPJS_RATES.jht.employee);
-  const jhtEmployer = Math.round(basicSalary * BPJS_RATES.jht.employer);
+  const jhtEmployee = Math.round(basicSalary * rules.jht.employee);
+  const jhtEmployer = Math.round(basicSalary * rules.jht.employer);
 
   // BPJS JP - capped at ceiling
-  const jpBasis = Math.min(basicSalary, BPJS_RATES.jp.ceiling);
-  const jpEmployee = Math.round(jpBasis * BPJS_RATES.jp.employee);
-  const jpEmployer = Math.round(jpBasis * BPJS_RATES.jp.employer);
+  const jpBasis = Math.min(basicSalary, rules.jp.ceiling);
+  const jpEmployee = Math.round(jpBasis * rules.jp.employee);
+  const jpEmployer = Math.round(jpBasis * rules.jp.employer);
 
   // JKK & JKM - employer only
-  const jkkEmployer = Math.round(basicSalary * BPJS_RATES.jkk.employer);
-  const jkmEmployer = Math.round(basicSalary * BPJS_RATES.jkm.employer);
+  const jkkEmployer = Math.round(basicSalary * rules.jkk.employer);
+  const jkmEmployer = Math.round(basicSalary * rules.jkm.employer);
 
   const employee: BPJSBreakdown = {
     kesehatan: kesEmployee,
@@ -249,10 +252,13 @@ export interface AttendanceSummary {
   absentDays: number;
   sickDays: number;
   leaveDays: number;
+  paidDays?: number;
 }
 
 export interface EmployeePayData {
   basicSalary: number;
+  fixedAllowances?: number;
+  extraEarnings?: number;
   allowances: number;
   deductions: number;
 }
@@ -265,11 +271,13 @@ export interface PayrollLineCalc {
   grossPay: number;
   bpjs: BPJSResult;
   pph21: number;
+  taxGross: number;
   totalBpjsEmployee: number;
   totalBpjsEmployer: number;
   netPay: number;
   workingDays: number;
   presentDays: number;
+  paidDays: number;
   absentDays: number;
   overtimeHours: number;
 }
@@ -278,37 +286,61 @@ export interface PayrollLineCalc {
  * Calculate a single payroll line for an employee.
  * @param employee - Employee pay data
  * @param attendance - Attendance summary for the period
- * @param overtimeHours - Total overtime hours
+ * @param overtimeDays - Individual dated workday/rest-day/holiday overtime entries
  * @param pph21Category - PPh 21 TER category (default 'A')
  * @returns Complete payroll line calculation
  */
 export function calculatePayrollLine(
   employee: EmployeePayData,
   attendance: AttendanceSummary,
-  overtimeHours: number,
-  pph21Category: 'A' | 'B' | 'C' = 'A',
+  overtimeDays: OvertimeDay[],
+  pph21Category: 'A' | 'B' | 'C',
+  rules: BPJSRules,
+  applyBpjs = true,
+  workWeekDays = 5,
 ): PayrollLineCalc {
   const { basicSalary, allowances, deductions } = employee;
+  const fixed = employee.fixedAllowances ?? 0;
+  const overtimeHours = overtimeDays.reduce((sum, d) => sum + d.hours, 0);
 
   // Prorate salary based on attendance if there are absent days
-  const attendanceRatio = attendance.workingDays > 0
-    ? attendance.presentDays / attendance.workingDays
-    : 1;
+  const attendanceRatio =
+    attendance.workingDays > 0
+      ? (attendance.paidDays ??
+          attendance.presentDays + attendance.sickDays + attendance.leaveDays) /
+        attendance.workingDays
+      : 1;
 
   const proratedSalary = Math.round(basicSalary * attendanceRatio);
 
-  // Overtime pay: 1/173 of monthly salary * 1.5 per hour (Indonesian labor law)
-  const hourlyRate = basicSalary / 173;
-  const overtimePay = Math.round(overtimeHours * hourlyRate * 1.5);
-
+  const overtimePay = calculateOvertime(
+    basicSalary,
+    fixed,
+    allowances - fixed,
+    overtimeDays,
+    workWeekDays,
+  );
   // Gross pay
-  const grossPay = proratedSalary + allowances + overtimePay;
+  const totalAllowances =
+    Math.round(fixed * attendanceRatio) + (allowances - fixed);
+  const grossPay =
+    proratedSalary +
+    totalAllowances +
+    overtimePay +
+    (employee.extraEarnings ?? 0);
 
   // BPJS based on basic salary (not gross)
-  const bpjs = calculateBPJS(basicSalary);
+  const bpjs = calculateBPJS(
+    applyBpjs ? basicSalary + fixed : 0,
+    applyBpjs
+      ? rules
+      : { ...rules, kesehatan: { ...rules.kesehatan, floor: 0 } },
+  );
 
-  // PPh 21 on gross minus employee BPJS contributions
-  const taxableIncome = grossPay - bpjs.employee.total;
+  // Monthly TER includes employer-paid JKK, JKM and health premiums; employee
+  // JHT/JP deductions belong only in the final-period Article 17 reconciliation.
+  const taxableIncome =
+    grossPay + bpjs.employer.jkk + bpjs.employer.jkm + bpjs.employer.kesehatan;
   const pph21 = calculatePPh21TER(taxableIncome, pph21Category);
 
   // Net pay
@@ -316,17 +348,21 @@ export function calculatePayrollLine(
 
   return {
     basicSalary: proratedSalary,
-    totalAllowances: allowances,
+    totalAllowances: totalAllowances + (employee.extraEarnings ?? 0),
     totalDeductions: deductions,
     overtimePay,
     grossPay,
     bpjs,
     pph21,
+    taxGross: taxableIncome,
     totalBpjsEmployee: bpjs.employee.total,
     totalBpjsEmployer: bpjs.employer.total,
     netPay,
     workingDays: attendance.workingDays,
     presentDays: attendance.presentDays,
+    paidDays:
+      attendance.paidDays ??
+      attendance.presentDays + attendance.sickDays + attendance.leaveDays,
     absentDays: attendance.absentDays,
     overtimeHours,
   };

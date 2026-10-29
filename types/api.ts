@@ -767,18 +767,28 @@ export const bankTransactionInputSchema = z.object({
 export const updateBankTransactionInputSchema = partialInput(bankTransactionInputSchema.omit({ organizationId: true }));
 
 export const employeeCompensationItemInputSchema = z.object({
+  isFixed: z.boolean().nullish(),
+  postingAccountId: z.string().trim().nullish(),
   id: z.string().trim().optional(),
   name: z.string().trim().min(1, 'Compensation item name is required'),
   amount: positiveDecimal.default(0),
 });
 
 export const employeeInputSchema = z.object({
+  employmentEndDate: isoDateString.nullish(),
+  contractEndDate: isoDateString.nullish(),
+  leavingReason: z.string().trim().max(500).nullish(),
+  ptkpStatus: z
+    .enum(['TK/0', 'TK/1', 'TK/2', 'TK/3', 'K/0', 'K/1', 'K/2', 'K/3'])
+    .nullish(),
+  ptkpYear: z.number().int().min(2000).max(2100).nullish(),
+  workWeekDays: z.union([z.literal(5), z.literal(6)]).default(5),
   organizationId: z.string().trim().min(1),
   name: z.string().trim().min(1, 'Employee name is required'),
   ktp: z.string().trim().optional(),
-  dob: isoDateString.optional(),
+  dob: z.union([isoDateString, z.literal('')]).optional(),
   phone: z.string().trim().optional(),
-  email: z.string().trim().email().optional(),
+  email: z.union([z.string().trim().email(), z.literal('')]).optional(),
   address: z.string().trim().optional(),
   joinDate: isoDateString,
   departmentId: z.string().trim().optional(),
@@ -941,6 +951,7 @@ export type MarketplaceImportInput = z.infer<typeof marketplaceImportInputSchema
 // ── HR: Attendance, Leave Types, Leave Requests, Payroll Runs ────────────────
 
 export const attendanceRecordInputSchema = z.object({
+  sickCertified: z.boolean().default(false),
   organizationId: z.string().min(1),
   employeeId: z.string().min(1),
   date: isoDateString,
@@ -955,6 +966,7 @@ export const updateAttendanceRecordInputSchema = partialInput(attendanceRecordIn
   .omit({ organizationId: true, employeeId: true, date: true }));
 
 export const leaveTypeInputSchema = z.object({
+  isPaid: z.boolean().nullish(),
   organizationId: z.string().min(1),
   name: z.string().min(1, 'name is required'),
   category: z.enum(['ANNUAL', 'SICK', 'MATERNITY', 'PATERNITY', 'UNPAID', 'OTHER']).default('ANNUAL'),
@@ -983,6 +995,20 @@ export const updateLeaveRequestInputSchema = leaveRequestInputSchema
   });
 
 export const payrollRunInputSchema = z.object({
+  payDate: isoDateString.optional(),
+  runType: z.enum(['REGULAR', 'THR', 'FINAL', 'CORRECTION']).default('REGULAR'),
+  requestKey: z.string().trim().min(8).max(100).optional(),
+  adjustments: z
+    .array(
+      z.object({
+        employeeId: z.string().min(1),
+        amount: decimalNumber,
+        description: z.string().trim().min(1).max(300),
+        recoveryAccountId: z.string().trim().min(1).optional(),
+      }),
+    )
+    .max(10000)
+    .default([]),
   organizationId: z.string().min(1),
   month: z.coerce.number().int().min(1).max(12),
   year: z.coerce.number().int().min(2000).max(2100),

@@ -405,6 +405,16 @@ See `docs/TESTING.md` for database selection and company-scoped usage.
 - [ ] Sales person assignment & commission tracking
 
 ### 3.2 HR & Payroll (Employee Master Data & Payroll Run)
+
+Payroll follow-ups from PR #203 review (not part of its implementation):
+
+- [ ] **Verified YTD payroll opening entry — pilot blocker for mid-year adopters.** Capture audited per-employee/year taxable gross, PPh 21 withheld, employee JHT/JP, months worked and coverage dates with duplicate/overlap guards and finance confirmation. No screen/import exists yet; December/final-pay stays blocked without complete posted history. Do not fabricate payroll history.
+- [ ] **Separate payroll approval and payment.** Draft → Calculate → Review → Approve/Post should credit Salary Payable. A distinct Record payment step should debit that liability and credit selected Bank/Cash on the actual pay date, with approvals, locks and partial/retry/reversal handling. Current posting pays net salary immediately; this remains unchanged in #203.
+- [ ] **Attendance date-range bulk entry.** Support selected scheduled dates, skip approved leave/holidays, preserve certified sick/half-days and review before writing. Current workflow is per-date bulk entry.
+- [ ] **Variable allowance and overtime refinements.** Add explicit per-attendance allowance rules; until then variable allowances pay in full for partial months. Validate 18-hour weekly overtime across month boundaries using adjacent-month records; current enforcement only sees the run month.
+
+
+Payroll accounting/dated eligibility fixes are implemented for review on `codex/payroll-correctness`; see [setup, acceptance and scope](docs/PAYROLL-CORRECTNESS.md). Historical module checkboxes below do not establish statutory or pilot readiness. Finance verification and deployment remain open.
 - [x] **Employee Master Data:**
   - [x] Personal info (Name, KTP, DOB, Contact, Address)
   - [x] Employment details (Join Date, Department, Job Title, Employment Status)

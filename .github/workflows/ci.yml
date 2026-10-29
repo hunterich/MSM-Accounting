@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [main, develop]
+  # Stacked payroll PRs need the same checks while their parent is in review.
   pull_request:
-    branches: [main]
 
 jobs:
   ci:

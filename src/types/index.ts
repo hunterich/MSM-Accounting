@@ -474,7 +474,7 @@ export interface RawBillImportSession {
 export type CustomerStatus = 'Active' | 'Inactive';
 export type InvoiceStatus  = 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Void';
 export type PaymentStatus  = 'Draft' | 'Processing' | 'Completed' | 'Void';
-export type VendorStatus   = 'Active' | 'Inactive';
+export type VendorStatus = 'Active' | 'Inactive';
 export type BillStatus     = 'Draft' | 'Unpaid' | 'Pending' | 'Paid' | 'Overdue' | 'Void';
 export type POStatus       = 'Draft' | 'Pending Approval' | 'Approved' | 'Billed' | 'Closed' | 'Cancelled';
 export type SOStatus       = 'draft' | 'confirmed' | 'closed' | 'cancelled';
@@ -1057,7 +1057,7 @@ export interface BankTxnFormData {
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 export type ItemStockStatus = 'In Stock' | 'Low Stock' | 'Out of Stock';
-export type AdjType   = 'Quantity' | 'Value';
+export type AdjType = 'Quantity' | 'Value';
 export type AdjStatus = 'Draft' | 'Approved' | 'Void';
 
 export interface RawInventoryItem {
@@ -1187,6 +1187,13 @@ export type EmployeeStatus = 'Active' | 'Inactive' | 'On Leave';
 export type EmploymentType = 'Full-time' | 'Contract';
 
 export interface RawEmployee {
+  employmentEndDate?: string | null;
+  contractEndDate?: string | null;
+  leavingReason?: string | null;
+  ptkpStatus?: string | null;
+  ptkpYear?: number | null;
+  workWeekDays?: number;
+
   id: string;
   employeeNo?: string | null;
   name?: string | null;
@@ -1209,12 +1216,38 @@ export interface RawEmployee {
   basicSalary?: number | string | null;
   joinDate?: string | null;
   address?: string | null;
-  allowances?: Array<{ id?: string | null; name?: string | null; amount?: number | string | null }> | null;
-  deductions?: Array<{ id?: string | null; name?: string | null; amount?: number | string | null }> | null;
-  compensationItems?: Array<{ id?: string | null; type?: string | null; name?: string | null; amount?: number | string | null }> | null;
+  allowances?: Array<{
+    id?: string | null;
+    name?: string | null;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount?: number | string | null;
+  }> | null;
+  deductions?: Array<{
+    id?: string | null;
+    name?: string | null;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount?: number | string | null;
+  }> | null;
+  compensationItems?: Array<{
+    id?: string | null;
+    type?: string | null;
+    name?: string | null;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount?: number | string | null;
+  }> | null;
 }
 
 export interface Employee {
+  employmentEndDate?: string | null;
+  contractEndDate?: string | null;
+  leavingReason?: string | null;
+  ptkpStatus?: string | null;
+  ptkpYear?: number | null;
+  workWeekDays?: number;
+
   id: string;
   employeeNo: string;
   name: string;
@@ -1239,8 +1272,20 @@ export interface Employee {
   basicSalary: number;
   joinDate: string;
   address: string;
-  allowances?: Array<{ id: string; name: string; amount: number }>;
-  deductions?: Array<{ id: string; name: string; amount: number }>;
+  allowances?: Array<{
+    id: string;
+    name: string;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount: number;
+  }>;
+  deductions?: Array<{
+    id: string;
+    name: string;
+    postingAccountId?: string | null;
+    isFixed?: boolean | null;
+    amount: number;
+  }>;
 }
 
 // ── Returns ───────────────────────────────────────────────────────────────────
@@ -1249,7 +1294,7 @@ export interface Employee {
 // purchase returns 'Pending Debit Note'; the rest are shared.
 export type ReturnStatus    = 'Draft' | 'Approved' | 'Pending Credit Note' | 'Pending Debit Note' | 'Applied' | 'Pending Approval' | 'Void';
 export type CreditNoteStatus = 'Draft' | 'Applied' | 'Void';
-export type DebitNoteStatus  = 'Draft' | 'Applied' | 'Void';
+export type DebitNoteStatus = 'Draft' | 'Applied' | 'Void';
 
 export interface RawReturnLine {
   id?: string;

@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Organization {
+  payrollPolicies PayrollPolicy[]
   id                     String   @id @default(cuid())
   legalName              String
   displayName            String
@@ -1536,6 +1537,12 @@ model Position {
 }
 
 model Employee {
+  employmentEndDate DateTime? @db.Date
+  contractEndDate DateTime? @db.Date
+  leavingReason String?
+  ptkpStatus String?
+  ptkpYear Int?
+  workWeekDays Int @default(5)
   id                    String           @id @default(cuid())
   organizationId        String
   employeeNo            String
@@ -1579,6 +1586,8 @@ model Employee {
 }
 
 model EmployeeCompensationItem {
+  isFixed Boolean?
+  postingAccountId String?
   id           String            @id @default(cuid())
   employeeId   String
   type         CompensationType
@@ -1593,6 +1602,7 @@ model EmployeeCompensationItem {
 }
 
 model AttendanceRecord {
+  sickCertified Boolean @default(false)
   id             String           @id @default(cuid())
   organizationId String
   employeeId     String
@@ -1615,6 +1625,8 @@ model AttendanceRecord {
 }
 
 model LeaveType {
+  // OTHER requires explicit classification; statutory categories use their defined treatment.
+  isPaid         Boolean?
   id             String        @id @default(cuid())
   organizationId String
   name           String
@@ -1680,6 +1692,12 @@ model LeaveBalance {
 }
 
 model PayrollRun {
+  payDate DateTime? @db.Date
+  runType String @default("REGULAR")
+  requestKey String?
+  runInputs Json?
+  calculationBasis Json?
+  reviewIssues Json?
   id             String           @id @default(cuid())
   organizationId String
   number         String
@@ -1703,11 +1721,15 @@ model PayrollRun {
   lines          PayrollLine[]
 
   @@unique([organizationId, number])
-  @@unique([organizationId, month, year])
+  @@index([organizationId, month, year])
+  @@unique([organizationId, requestKey])
   @@index([organizationId, status])
 }
 
 model PayrollLine {
+  calculationSnapshot Json?
+  deductionPostings Json?
+  paidDays Decimal? @db.Decimal(5, 2)
   id                  String     @id @default(cuid())
   payrollRunId        String
   employeeId          String
@@ -1729,8 +1751,8 @@ model PayrollLine {
   totalBpjsEmployer   Decimal    @default(0) @db.Decimal(18, 2)
   netPay              Decimal    @default(0) @db.Decimal(18, 2)
   workingDays         Int        @default(0)
-  presentDays         Int        @default(0)
-  absentDays          Int        @default(0)
+  presentDays         Decimal    @default(0) @db.Decimal(5, 2)
+  absentDays          Decimal    @default(0) @db.Decimal(5, 2)
   overtimeHours       Decimal    @default(0) @db.Decimal(5, 2)
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
@@ -2841,4 +2863,16 @@ model ModifierAttachment {
   @@index([organizationId, itemId])
   @@index([organizationId, itemCategoryId])
   @@index([groupId])
+}
+
+model PayrollPolicy {
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+  id String @id @default(cuid())
+  organizationId String
+  effectiveFrom DateTime @db.Date
+  validUntil DateTime @db.Date
+  rules Json
+  createdAt DateTime @default(now())
+  @@unique([organizationId, effectiveFrom])
+  @@index([organizationId, effectiveFrom, validUntil])
 }

@@ -2,134 +2,210 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from '@/lib/api-utils';
 import { postJournalEntry, type JournalLineInput } from '@/lib/journal-posting';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { selectCashAccounts } from './cash-accounts';
+import { assertNoDirectControlPosting } from './control-account-guard';
 
-/**
- * Posts the payroll-run summary journal entry and links it to the run.
- * Extracted from payroll-runs/[id]/post. Must run inside a $transaction.
- * Loads the run + its lines from `tx`. Sets payrollRun.journalEntryId but does
- * NOT set payrollRun.status — the caller sets POSTED (mirrors postInvoiceSend).
- * Returns the created journal entry id.
- */
+export async function lockPayroll(tx: Prisma.TransactionClient, orgId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payroll:${orgId}`}, 0))`;
+}
+
+/** Shared by submission and approval, so stored/legacy runs cannot bypass setup checks. */
+export async function validatePayrollPosting(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  id: string,
+) {
+  await lockPayroll(tx, orgId);
+  const run = await tx.payrollRun.findFirst({
+    where: { id, organizationId: orgId },
+    include: { lines: true },
+  });
+  if (!run) throw new ApiError('Payroll run not found', 404);
+  if (run.journalEntryId) return { run, accounts: null };
+  if (
+    !['CALCULATED', 'REVIEWED', 'PENDING_APPROVAL'].includes(run.status) ||
+    !run.lines.length
+  )
+    throw new ApiError('Calculate and review payroll before posting.', 422);
+  if (Array.isArray(run.reviewIssues) && run.reviewIssues.length)
+    throw new ApiError(
+      'Payroll requires attendance/setup review. Correct the listed issues and recalculate before posting.',
+      422,
+    );
+  const basis = run.calculationBasis as { priorPostedIds?: string[] } | null;
+  if (!Array.isArray(basis?.priorPostedIds))
+    throw new ApiError(
+      'Payroll must be recalculated with the dated payroll rules before posting. Existing posted payroll is unchanged.',
+      422,
+    );
+  const history = await tx.payrollRun.findMany({
+    where: {
+      organizationId: orgId,
+      year: run.year,
+      status: 'POSTED',
+      id: { not: id },
+    },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+  });
+  if (
+    JSON.stringify([...basis.priorPostedIds].sort()) !==
+    JSON.stringify(history.map((h) => h.id).sort())
+  )
+    throw new ApiError(
+      'Another payroll changed year-to-date tax/BPJS totals. Recalculate this run before posting.',
+      409,
+    );
+  await assertPeriodOpen(tx, orgId, run.payDate ?? run.periodEnd);
+  const all = await tx.account.findMany({ where: { organizationId: orgId } });
+  const active = all.filter((a) => a.isActive && a.isPostable);
+  const required = (code: string, type: string, label: string) => {
+    const a = active.find((a) => a.code === code && a.type === type);
+    if (!a)
+      throw new ApiError(
+        `Payroll setup: configure an active, postable ${label} account (${code}, ${type}). No fallback account will be used.`,
+        422,
+      );
+    return a;
+  };
+  const salary = required('5100', 'EXPENSE', 'Salary Expense');
+  const tax = required('2300', 'LIABILITY', 'PPh 21 Payable');
+  const bpjs = required('2310', 'LIABILITY', 'BPJS Payable');
+  const cashChoices = selectCashAccounts(all).filter((a) => a.isActive);
+  const org = await tx.organization.findUniqueOrThrow({
+    where: { id: orgId },
+    select: { accountDefaults: true },
+  });
+  const configured = (org.accountDefaults as Record<string, string> | null)
+    ?.bankAsset;
+  const cash = configured
+    ? cashChoices.find((a) => a.id === configured)
+    : cashChoices.length === 1
+      ? cashChoices[0]
+      : undefined;
+  if (!cash)
+    throw new ApiError(
+      'Payroll setup: select a valid default Bank / Cash Asset account in Company Setup. Inventory and other asset accounts cannot fund payroll.',
+      422,
+    );
+  await assertNoDirectControlPosting(tx, orgId, [
+    salary.id,
+    tax.id,
+    bpjs.id,
+    cash.id,
+  ]);
+  const deductions: Array<{ accountId: string; amount: number; name: string }> =
+    [];
+  const recoveries: Array<{ accountId: string; amount: number }> = [];
+  for (const line of run.lines) {
+    if (Number(line.netPay) < 0) {
+      const recovery = (
+        line.calculationSnapshot as { netRecoveryAccountId?: string } | null
+      )?.netRecoveryAccountId;
+      const a = active.find((a) => a.id === recovery && a.type === 'ASSET');
+      if (!a || cashChoices.some((c) => c.id === a.id))
+        throw new ApiError(
+          'Negative net pay requires an explicit active employee-recovery receivable, not Cash/Bank or AR/AP controls.',
+          422,
+        );
+      recoveries.push({ accountId: a.id, amount: -Number(line.netPay) });
+    }
+    const entries = line.deductionPostings;
+    if (!Array.isArray(entries) && Number(line.totalDeductions))
+      throw new ApiError(
+        'Payroll setup: deduction account mappings are missing. Map each employee deduction and recalculate this payroll.',
+        422,
+      );
+    let sum = 0;
+    for (const raw of Array.isArray(entries) ? entries : []) {
+      const d = raw as { accountId?: string; amount?: number; name?: string };
+      const amount = Number(d.amount);
+      const account = active.find(
+        (a) => a.id === d.accountId && ['ASSET', 'LIABILITY'].includes(a.type),
+      );
+      if (
+        !account ||
+        cashChoices.some((a) => a.id === account.id) ||
+        !Number.isFinite(amount) ||
+        amount < 0
+      )
+        throw new ApiError(
+          `Payroll setup: deduction "${d.name || 'Unnamed'}" needs an active employee receivable or deduction payable account in this company; Cash/Bank and AR/AP controls are not allowed.`,
+          422,
+        );
+      deductions.push({
+        accountId: account.id,
+        amount,
+        name: d.name || 'Employee deduction',
+      });
+      sum += amount;
+    }
+    if (Math.abs(sum - Number(line.totalDeductions)) > 0.005)
+      throw new ApiError(
+        'Payroll deduction snapshot does not match its total. Recalculate payroll.',
+        422,
+      );
+  }
+  await assertNoDirectControlPosting(tx, orgId, [
+    ...deductions.map((d) => d.accountId),
+    ...recoveries.map((r) => r.accountId),
+  ]);
+  return { run, accounts: { salary, cash, tax, bpjs, deductions, recoveries } };
+}
+
 export async function postPayrollRunToLedger(
   tx: Prisma.TransactionClient,
   orgId: string,
-  payrollRunId: string,
+  id: string,
 ): Promise<{ journalEntryId: string }> {
-  const payrollRun = await tx.payrollRun.findFirst({
-    where: { id: payrollRunId, organizationId: orgId },
-    include: {
-      lines: {
-        include: {
-          employee: { select: { id: true, name: true } },
-        },
-      },
-    },
-  });
-
-  if (!payrollRun) throw new ApiError('Payroll run not found', 404);
-
-  // Refuse to post payroll GL into a closed/locked accounting period.
-  await assertPeriodOpen(tx, orgId, payrollRun.periodEnd);
-
-  // Find the required accounts
-  const [salaryExpenseAccount, bankAccount, taxPayableAccount, bpjsPayableAccount] = await Promise.all([
-    tx.account.findFirst({ where: { organizationId: orgId, code: '5100', isActive: true } }),
-    tx.account.findFirst({ where: { organizationId: orgId, type: 'ASSET', reportGroup: { contains: 'Cash' }, isActive: true } }),
-    tx.account.findFirst({ where: { organizationId: orgId, code: '2300', isActive: true } }),
-    tx.account.findFirst({ where: { organizationId: orgId, code: '2310', isActive: true } }),
-  ]);
-
-  // Use fallback accounts if specific codes not found
-  const expenseAcct = salaryExpenseAccount
-    || await tx.account.findFirst({ where: { organizationId: orgId, type: 'EXPENSE', isActive: true } });
-  const cashAcct = bankAccount
-    || await tx.account.findFirst({ where: { organizationId: orgId, type: 'ASSET', isActive: true, isPostable: true } });
-  const taxAcct = taxPayableAccount
-    || await tx.account.findFirst({ where: { organizationId: orgId, type: 'LIABILITY', isActive: true, isPostable: true } });
-  const bpjsAcct = bpjsPayableAccount || taxAcct;
-
-  if (!expenseAcct || !cashAcct || !taxAcct) {
-    throw new ApiError('Required GL accounts not found (Salary Expense, Cash/Bank, Tax Payable). Please set up chart of accounts first.', 400);
-  }
-
-  const totalGross = Number(payrollRun.totalGross);
-  const totalNet = Number(payrollRun.totalNet);
-  const totalTax = Number(payrollRun.totalTax);
-  const totalBpjsEmployee = payrollRun.lines.reduce((sum, l) => sum + Number(l.totalBpjsEmployee), 0);
-  const totalBpjsEmployer = payrollRun.lines.reduce((sum, l) => sum + Number(l.totalBpjsEmployer), 0);
-  const totalDeductions = payrollRun.lines.reduce((sum, l) => sum + Number(l.totalDeductions), 0);
-
-  const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const memo = `Payroll ${monthNames[payrollRun.month]} ${payrollRun.year} - ${payrollRun.number}`;
-
-  // Build journal lines (same accounts/amounts as before — only the posting
-  // path changes: route through postJournalEntry so the debits==credits guard
-  // and entryNo allocation are shared with every other posting lib).
-  const journalLines: JournalLineInput[] = [];
-
-  // Debit: Salary Expense (total gross + employer BPJS)
-  journalLines.push({
-    accountId: expenseAcct.id,
-    description: `Beban Gaji - ${memo}`,
-    debit: totalGross + totalBpjsEmployer,
-    credit: 0,
-  });
-
-  // Credit: Cash/Bank (net pay)
-  journalLines.push({
-    accountId: cashAcct.id,
-    description: `Pembayaran Gaji - ${memo}`,
-    debit: 0,
-    credit: totalNet,
-  });
-
-  // Credit: Tax Payable (PPh 21)
-  if (totalTax > 0) {
-    journalLines.push({
-      accountId: taxAcct.id,
-      description: `Hutang PPh 21 - ${memo}`,
-      debit: 0,
-      credit: totalTax,
-    });
-  }
-
-  // Credit: BPJS Payable (employee + employer)
-  const totalBpjsAll = totalBpjsEmployee + totalBpjsEmployer;
-  if (totalBpjsAll > 0) {
-    journalLines.push({
-      accountId: (bpjsAcct || taxAcct).id,
-      description: `Hutang BPJS - ${memo}`,
-      debit: 0,
-      credit: totalBpjsAll,
-    });
-  }
-
-  // Credit: Deductions (employee deductions) - goes to cash
-  if (totalDeductions > 0) {
-    journalLines.push({
-      accountId: cashAcct.id,
-      description: `Potongan Gaji - ${memo}`,
-      debit: 0,
-      credit: totalDeductions,
-    });
-  }
-
-  // Post through the balance-guarded helper (throws if debits != credits within
-  // half-a-cent). Returns the created JE; status is POSTED by the helper, and
-  // the caller still owns payrollRun.status (mirrors postInvoiceSend).
-  const journalEntry = await postJournalEntry(tx, {
+  const { run, accounts } = await validatePayrollPosting(tx, orgId, id);
+  if (run.journalEntryId) return { journalEntryId: run.journalEntryId };
+  if (!accounts) throw new ApiError('Payroll accounts unavailable', 422);
+  const employer = run.lines.reduce(
+    (s, l) => s + Number(l.totalBpjsEmployer),
+    0,
+  );
+  const employee = run.lines.reduce(
+    (s, l) => s + Number(l.totalBpjsEmployee),
+    0,
+  );
+  const memo = `Payroll ${run.month}/${run.year} - ${run.number}`;
+  const lines: JournalLineInput[] = [];
+  const signed = (accountId: string, description: string, debit: number) => {
+    if (debit)
+      lines.push({
+        accountId,
+        description,
+        debit: Math.max(debit, 0),
+        credit: Math.max(-debit, 0),
+      });
+  };
+  signed(
+    accounts.salary.id,
+    `Salary expense - ${memo}`,
+    Number(run.totalGross) + employer,
+  );
+  signed(
+    accounts.cash.id,
+    `Net salary payment - ${memo}`,
+    -run.lines.reduce((s, l) => s + Math.max(0, Number(l.netPay)), 0),
+  );
+  for (const r of accounts.recoveries)
+    signed(r.accountId, `Employee recovery - ${memo}`, r.amount);
+  signed(accounts.tax.id, `PPh 21 payable - ${memo}`, -Number(run.totalTax));
+  signed(accounts.bpjs.id, `BPJS payable - ${memo}`, -(employee + employer));
+  for (const d of accounts.deductions)
+    signed(d.accountId, `${d.name} - ${memo}`, -d.amount);
+  const entry = await postJournalEntry(tx, {
     organizationId: orgId,
-    date: payrollRun.periodEnd,
+    date: run.payDate ?? run.periodEnd,
     memo,
     source: 'SYSTEM',
-    lines: journalLines,
+    lines,
   });
-
-  // Link the journal entry to the payroll run (status set by caller).
   await tx.payrollRun.update({
-    where: { id: payrollRunId },
-    data: { journalEntryId: journalEntry.id },
+    where: { id },
+    data: { journalEntryId: entry.id },
   });
-
-  return { journalEntryId: journalEntry.id };
+  return { journalEntryId: entry.id };
 }
