@@ -8,6 +8,7 @@ import { AccessError } from '@/lib/document-access';
 import { CreditLimitError } from '@/lib/credit-limit';
 import { ApiError } from '@/lib/errors';
 import { validateListFilters } from '@/lib/list-filters';
+import { redactAuditPayload } from '@/lib/audit-redaction';
 
 // Re-exported so existing `import { ApiError } from '@/lib/api-utils'` keeps working.
 export { ApiError };
@@ -23,7 +24,7 @@ function normalizeAuditPayload(
   if (payload === null) return Prisma.JsonNull;
 
   // Round-trip through JSON to guarantee Prisma receives JSON-safe data.
-  return JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue;
+  return JSON.parse(JSON.stringify(redactAuditPayload(payload))) as Prisma.InputJsonValue;
 }
 
 type AuditOpts = {
@@ -36,13 +37,7 @@ type AuditOpts = {
 };
 
 function buildAuditData(opts: AuditOpts) {
-  let payload: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined;
-  try {
-    payload = normalizeAuditPayload(opts.payload);
-  } catch (error) {
-    console.error('[AuditLog] Failed to serialize payload:', error);
-    payload = undefined;
-  }
+  const payload = normalizeAuditPayload(opts.payload);
   return {
     organizationId: opts.orgId,
     actorId: opts.actorId ?? null,
@@ -59,7 +54,7 @@ function buildAuditData(opts: AuditOpts) {
  * Failures are logged but never bubble up to the caller.
  */
 export function logAudit(opts: AuditOpts): void {
-  defaultPrisma.auditLog.create({ data: buildAuditData(opts) }).catch((e) => {
+  Promise.resolve().then(() => defaultPrisma.auditLog.create({ data: buildAuditData(opts) })).catch((e) => {
     console.error('[AuditLog] Failed to write:', e);
   });
 }
