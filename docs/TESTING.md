@@ -1083,3 +1083,23 @@ backup/restore integration files need pg_dump/pg_restore and remain in Linux CI.
 The Windows unit suite has two existing pagination locale assertions (350,000
 expected versus the host's 350.000); do not weaken them. Stacked PRs now run the
 same CI checks against their selected base branch.
+
+
+## Per-control report screens and PDF export (ACC-02, 2026-10-29)
+
+[Control report acceptance](ACC-02-CONTROL-REPORTS.md) records the fixed AR/AP
+775/700/+75 and 375/450/−75 examples whose company totals agree. Seven new units,
+11 existing PostgreSQL reconciliation/cutoff cases and five Chromium report cases
+pass. The browser cases use real document/payment/note APIs and deliberate legacy
+QA journal fixtures, verify actual CSV/PDF downloads, later cutoff inclusion,
+failed-refresh/export refusal and recovery, and compare unchanged accounting
+snapshots. The PDF regression fails on the old utility with doc.autoTable missing;
+explicit plugin registration fixes the browser ESM path. Both downloaded report
+PDFs were rendered and visually checked. Finance/pilot/release and migration-screen
+acceptance remain open under #167. No production data or posting-policy changes.
+
+CI pins Ubuntu 24.04 for the installed Playwright browser support. Integration
+backup tests accept PG_TEST_TOOLS_PATH to select a matching PostgreSQL tool
+directory; CI points it at /usr/lib/postgresql/16/bin. A newer default client on
+the runner must not generate PostgreSQL 17+ restore settings for the version 16
+service. No restore assertions or test suites are disabled.

@@ -1,4 +1,7 @@
 import React, { Fragment, useEffect, useRef, useState } from 'react';
+import ControlReconciliationReport from './ControlReconciliationReport';
+import { controlReconciliationKind, controlReconciliationCsv } from './controlReconciliation';
+import type { ControlReconciliation } from '../../../lib/control-reconciliation';
 import {
   ShoppingCart, BookOpen, Landmark, ArrowDownLeft, ArrowUpRight, Package, Users,
   Search, Printer, Download, FileText, X, LayoutGrid, BarChart3, ChevronRight, RefreshCw,
@@ -32,6 +35,8 @@ export type ReportType =
   | 'monthly-chart'
   | 'share-by-customer'
   | 'share-by-item'
+  | 'ar-control-reconciliation'
+  | 'ap-control-reconciliation'
   | 'aging'
   | 'customer-balance'
   | 'overdue-list'
@@ -82,6 +87,7 @@ export interface ReportDefinition {
 
 /** Query parameters sent to the API for a given report run. */
 export interface ReportParams {
+  kind?: 'ar' | 'ap';
   type: ReportType;
   dateFrom?: string;
   dateTo?: string;
@@ -749,6 +755,7 @@ const SALES_REPORTS: ReportDefinition[] = [
 ];
 
 const AR_REPORTS: ReportDefinition[] = [
+  { id: 'ar-control-reconciliation', category: 'ar', apiPath: '/api/v1/reports/control-reconciliation', name: 'AR Control Reconciliation', description: 'Compare each control account with the independent subledger; review named differences, advances and opening balances.', type: 'table', filterMode: 'as-of' },
   {
     id: 'aging',
     category: 'ar',
@@ -854,6 +861,7 @@ const GL_REPORTS: ReportDefinition[] = [
 ];
 
 const AP_REPORTS: ReportDefinition[] = [
+  { id: 'ap-control-reconciliation', category: 'ap', apiPath: '/api/v1/reports/control-reconciliation', name: 'AP Control Reconciliation', description: 'Compare each control account with the independent subledger; review named differences, advances and opening balances.', type: 'table', filterMode: 'as-of' },
   {
     id: 'ap-aging',
     category: 'ap',
@@ -1698,6 +1706,8 @@ const Reports: React.FC<ReportsProps> = ({
   };
 
   const buildRequestParams = (report: ReportDefinition): ReportParams => {
+    const kind = controlReconciliationKind(report.id);
+    if (kind) return { type: report.id, kind, asOfDate };
     if (report.category === 'sales') {
       const params: ReportParams = { type: report.id, dateFrom, dateTo };
       if (report.id === 'by-customer') {
@@ -2078,7 +2088,9 @@ const Reports: React.FC<ReportsProps> = ({
   };
 
   const buildActiveReportCsv = (report: ReportDefinition, data: Record<string, unknown>): string =>
-    report.category === 'ar'
+    controlReconciliationKind(report.id)
+      ? controlReconciliationCsv(data as unknown as ControlReconciliation)
+      : report.category === 'ar'
       ? buildArCsv(report, data)
       : report.category === 'gl'
         ? buildGlCsv(report, data)
@@ -2096,6 +2108,7 @@ const Reports: React.FC<ReportsProps> = ({
     if (!activeReport) return;
 
     const { report, data } = activeReport;
+    if (controlReconciliationKind(report.id) && (isLoading || error)) return;
     let csv = buildActiveReportCsv(report, data as Record<string, unknown>);
     const credit = data?.summary?.unappliedCredits ?? data?.summary?.unallocatedCredit ?? 0;
     if (credit > 0) csv += `\nUnapplied credits / credit balances,${credit}\nNet balance,${data.summary.netOutstanding}`;
@@ -2114,6 +2127,7 @@ const Reports: React.FC<ReportsProps> = ({
     if (!activeReport) return;
 
     const { report, data } = activeReport;
+    if (controlReconciliationKind(report.id) && (isLoading || error)) return;
     const csv = buildActiveReportCsv(report, data as Record<string, unknown>);
     if (!csv.trim()) return;
 
@@ -2176,6 +2190,8 @@ const Reports: React.FC<ReportsProps> = ({
         {row.journalEntryNo ?? row.txnNumber ?? '—'}
       </button>
     );
+
+    if (controlReconciliationKind(report.id)) return <ControlReconciliationReport data={data as ControlReconciliation} />;
 
     if (report.id === 'statement' || report.id === 'ap-statement') {
       const stmt = data as StatementData;
@@ -3903,18 +3919,21 @@ const Reports: React.FC<ReportsProps> = ({
                       )}
                       <button
                         onClick={handlePrint}
+                        disabled={!!controlReconciliationKind(activeReport.report.id) && (isLoading || !!error)}
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
                       >
                         <Printer size={14} /> Print
                       </button>
                       <button
                         onClick={handleExportCsv}
+                        disabled={!!controlReconciliationKind(activeReport.report.id) && (isLoading || !!error)}
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
                       >
                         <Download size={14} /> Export CSV
                       </button>
                       <button
                         onClick={handleExportPdf}
+                        disabled={!!controlReconciliationKind(activeReport.report.id) && (isLoading || !!error)}
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
                       >
                         <FileText size={14} /> Export PDF
@@ -4202,6 +4221,7 @@ const Reports: React.FC<ReportsProps> = ({
                   <label className="block text-sm text-neutral-600 mb-1">As of Date</label>
                   <input
                     type="date"
+                    aria-label="Report as-of date"
                     value={asOfDate}
                     onChange={(e) => setAsOfDate(e.target.value)}
                     className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
