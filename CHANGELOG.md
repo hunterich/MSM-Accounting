@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — AR/AP control reconciliation reports (ACC-02)
+- Expose the existing independent per-control reconciliation through Receivables and Payables report cards, with cutoff filters, named issues, component balances and complete CSV/PDF output. Opposing differences remain flagged even when company totals agree; failed refreshes cannot export stale results. No posting or close-policy change.
+- Explicitly register the jsPDF table plugin so report PDF exports work in the ESM browser build. Actual AR/AP download regressions reproduce the previous failure.
+- Fixed examples and acceptance limits: [Control reports](docs/ACC-02-CONTROL-REPORTS.md).
+
 ### Fixed — payroll review regressions
 - A posted FINAL run no longer blocks REGULAR salary for continuing employees. Recalculation skips already-paid salaries while retaining duplicate, stale-basis and frozen-run guards.
 - Approved maternity, paternity and sick leave are paid; OTHER leave has explicit paid/unpaid setup. Snapshots retain paid/sick/leave counts and classifications. Add read-only employee pre-check lists for January PTKP and legacy inactive end dates. December/final-pay for mid-year adopters remains a documented pilot blocker pending verified YTD entry support.

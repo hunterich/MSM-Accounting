@@ -89,8 +89,10 @@ or converted to an expected failure.
 ## Remaining acceptance
 
 #167 stays open for finance review of these examples, production read-only account
-scope/reconciliation checks, migration-screen acceptance, a Reports screen for
-per-control reconciliation, and authorized deployment/pilot/release verification.
+scope/reconciliation checks, migration-screen acceptance and authorized deployment/pilot/release verification.
+Per-control Reports screens and actual export/browser acceptance are now implemented
+for review on `codex/acc02-control-reconciliation-ui`; see
+[control report acceptance](ACC-02-CONTROL-REPORTS.md).
 The older CSV-opening import's once-only guard remains a separate follow-up
 recorded by #197. Structured original/reversal links remain a schema follow-up.
 #164 note-cap policy and #166 draft-return deletion are separate work. Full
