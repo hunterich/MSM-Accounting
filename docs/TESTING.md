@@ -1097,3 +1097,9 @@ snapshots. The PDF regression fails on the old utility with doc.autoTable missin
 explicit plugin registration fixes the browser ESM path. Both downloaded report
 PDFs were rendered and visually checked. Finance/pilot/release and migration-screen
 acceptance remain open under #167. No production data or posting-policy changes.
+
+CI pins Ubuntu 24.04 for the installed Playwright browser support. Integration
+backup tests accept PG_TEST_TOOLS_PATH to select a matching PostgreSQL tool
+directory; CI points it at /usr/lib/postgresql/16/bin. A newer default client on
+the runner must not generate PostgreSQL 17+ restore settings for the version 16
+service. No restore assertions or test suites are disabled.

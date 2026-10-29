@@ -61,8 +61,8 @@ it('restores a backup into a fresh separate database with exact documents, alloc
       await execFile(docker, ['exec', container, 'pg_dump', '-U', sourceUrl.username, '-d', sourceUrl.pathname.slice(1), '-Fc', '-f', containerFile])
       await execFile(docker, ['exec', container, 'pg_restore', '-U', sourceUrl.username, '--exit-on-error', '--no-owner', '-d', targetName, containerFile])
     } else {
-      await runPgDump({ toolPath: resolvePgToolPath('pg_dump'), databaseUrl: sourceUrl.toString(), outFile: file })
-      await runPgRestore({ toolPath: resolvePgToolPath('pg_restore'), databaseUrl: targetUrl.toString(), inFile: file })
+      await runPgDump({ toolPath: resolvePgToolPath('pg_dump', { override: process.env.PG_TEST_TOOLS_PATH }), databaseUrl: sourceUrl.toString(), outFile: file })
+      await runPgRestore({ toolPath: resolvePgToolPath('pg_restore', { override: process.env.PG_TEST_TOOLS_PATH }), databaseUrl: targetUrl.toString(), inFile: file })
     }
     expect(await snapshot(target)).toEqual(before)
     // A restored copy must remain independent of later source changes.

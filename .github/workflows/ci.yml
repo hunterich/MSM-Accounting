@@ -9,7 +9,7 @@ on:
 jobs:
   ci:
     name: Lint, Type-check & Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
@@ -73,7 +73,7 @@ jobs:
 
   integration:
     name: Integration tests (real database)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
@@ -91,6 +91,8 @@ jobs:
           - 5432:5432
 
     env:
+      # Match pg_dump/pg_restore to the PostgreSQL service, not the runner's newest client.
+      PG_TEST_TOOLS_PATH: /usr/lib/postgresql/16/bin
       # The base database. `test:int:setup` derives `<db>_test` from this and
       # rebuilds it from the migration history, so DATABASE_URL must NOT already
       # point at the copy it is about to drop.
@@ -118,6 +120,8 @@ jobs:
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update
           sudo apt-get install -y postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_dump --version
+          /usr/lib/postgresql/16/bin/pg_restore --version
 
       - name: Build the test database
         run: npm run test:int:setup
@@ -127,7 +131,7 @@ jobs:
 
   e2e:
     name: End-to-end tests (real UI + API)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     services:
       postgres:

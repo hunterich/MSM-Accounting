@@ -30,6 +30,10 @@ Both rows say Review required and name the historical journal. A further 300 doc
 
 The existing ESM report exporter loaded jspdf-autotable for side effects but called doc.autoTable without registering the plugin. The new actual download regression fails on the previous utility with `doc.autoTable is not a function`. Explicit `applyPlugin(jsPDF)` follows the installed package README and restores the shared exporter. No dependency change is needed. Both AR/AP PDF downloads now succeed and their rendered pages were visually inspected with Poppler; tables, negative amounts and warnings are readable without clipping.
 
+## CI runner compatibility
+
+The first CI run exposed a runner-image change, not a report balance failure: ubuntu-latest selected Ubuntu 26.04, unsupported by the installed Playwright, and the backup restore used a newer PostgreSQL client that emits transaction_timeout against a PostgreSQL 16 server. CI now pins Ubuntu 24.04 and explicitly selects the installed PostgreSQL 16 dump/restore tools via the test-only PG_TEST_TOOLS_PATH override. Restore assertions and all browser/database checks remain enabled.
+
 ## Reproduce and acceptance
 
 Use only a disposable PostgreSQL 16 base database with DATABASE_URL. Run scripts/test-db-setup.mjs and scripts/e2e-db-setup.mjs to create the protected `_test` / `_e2e` siblings. Never run automated fixtures against a business database.
