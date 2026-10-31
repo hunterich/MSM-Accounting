@@ -1,10 +1,24 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { X, Printer, Download } from 'lucide-react';
+import { X, Printer, Download, Mail } from 'lucide-react';
 import Button from './Button';
-import { downloadElementAsPdf } from '../../utils/downloadPdf';
+import { downloadElementAsPdf, elementToPdfBase64 } from '../../utils/downloadPdf';
+import EmailDocumentDialog, { type EmailDocumentValues } from './EmailDocumentDialog';
+import { useToastStore } from '../../stores/useToastStore';
 
 type PaperSize = 'A4' | 'A5';
+
+/** Lets the preview offer "Send by email" with the rendered PDF attached. */
+export interface EmailAction {
+    /** Prefilled recipient, usually the customer's address. */
+    defaultTo: string;
+    /** Caution shown in the dialog, e.g. when sending will finalize a draft. */
+    warning?: string;
+    /** When set the button is disabled and this explains why. */
+    disabledReason?: string;
+    /** Performs the send; throw to show the error in the dialog. */
+    send: (args: EmailDocumentValues & { pdfBase64: string; pdfName: string }) => Promise<void>;
+}
 
 interface PrintPreviewModalProps {
     isOpen: boolean;
@@ -13,6 +27,7 @@ interface PrintPreviewModalProps {
     documentTitle?: string;
     /** Initial paper size when no saved preference exists (default 'A4'). */
     defaultPaperSize?: PaperSize;
+    emailAction?: EmailAction;
     children?: React.ReactNode;
 }
 
@@ -39,7 +54,7 @@ const readSavedPaperSize = (fallback: PaperSize): PaperSize => {
  * paper size drives both the on-screen preview and the printed @page size, and
  * is remembered across sessions.
  */
-const PrintPreviewModal = ({ isOpen, onClose, title = "Print Preview", documentTitle = "Document", defaultPaperSize = 'A4', children }: PrintPreviewModalProps): React.ReactElement | null => {
+const PrintPreviewModal = ({ isOpen, onClose, title = "Print Preview", documentTitle = "Document", defaultPaperSize = 'A4', emailAction, children }: PrintPreviewModalProps): React.ReactElement | null => {
     const printRef = useRef<HTMLDivElement>(null);
     const [paperSize, setPaperSize] = useState<PaperSize>(() => readSavedPaperSize(defaultPaperSize));
 
@@ -67,6 +82,27 @@ const PrintPreviewModal = ({ isOpen, onClose, title = "Print Preview", documentT
             handlePrint();
         } finally {
             setIsExporting(false);
+        }
+    };
+
+    const pushToast = useToastStore((s) => s.pushToast);
+    const [emailOpen, setEmailOpen] = useState(false);
+    const [emailSending, setEmailSending] = useState(false);
+    const [emailError, setEmailError] = useState<string | null>(null);
+
+    const handleSendEmail = async (values: EmailDocumentValues) => {
+        if (!printRef.current || !emailAction) return;
+        setEmailSending(true);
+        setEmailError(null);
+        try {
+            const pdf = await elementToPdfBase64(printRef.current, { documentTitle, paperSize });
+            await emailAction.send({ ...values, pdfBase64: pdf.base64, pdfName: pdf.filename });
+            setEmailOpen(false);
+            pushToast(`Email sent to ${values.to}`, 'success');
+        } catch (err) {
+            setEmailError(err instanceof Error ? err.message : 'Could not send the email.');
+        } finally {
+            setEmailSending(false);
         }
     };
 
@@ -119,6 +155,16 @@ const PrintPreviewModal = ({ isOpen, onClose, title = "Print Preview", documentT
                             onClick={handleDownloadPdf}
                             disabled={isExporting}
                         />
+                        {emailAction && (
+                            <Button
+                                text="Send by email"
+                                variant="secondary"
+                                icon={<Mail size={16} />}
+                                onClick={() => { setEmailError(null); setEmailOpen(true); }}
+                                disabled={Boolean(emailAction.disabledReason)}
+                                title={emailAction.disabledReason}
+                            />
+                        )}
                         <Button
                             text="Print Document"
                             variant="primary"
@@ -152,6 +198,19 @@ const PrintPreviewModal = ({ isOpen, onClose, title = "Print Preview", documentT
                 </div>
 
             </div>
+
+            {emailAction && (
+                <EmailDocumentDialog
+                    isOpen={emailOpen}
+                    onClose={() => setEmailOpen(false)}
+                    defaultTo={emailAction.defaultTo}
+                    attachmentLabel={`${documentTitle}.pdf`}
+                    warning={emailAction.warning}
+                    sending={emailSending}
+                    error={emailError}
+                    onSubmit={handleSendEmail}
+                />
+            )}
 
             <style>{`
                 .print-preview-scroll-area::-webkit-scrollbar {

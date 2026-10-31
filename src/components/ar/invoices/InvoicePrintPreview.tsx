@@ -1,5 +1,5 @@
 import React from 'react';
-import { useInvoice } from '../../../hooks/useAR';
+import { useInvoice, useSendInvoiceEmail } from '../../../hooks/useAR';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import PrintPreviewModal from '../../UI/PrintPreviewModal';
 import InvoicePrintTemplate from '../../print/InvoicePrintTemplate';
@@ -14,6 +14,28 @@ const InvoicePrintPreview: React.FC<Props> = ({ invoiceId, onClose }) => {
     const { data: invoice, isLoading, error } = useInvoice(invoiceId ?? undefined);
     const company = useSettingsStore((state) => state.companyInfo);
     const printSettings = useSettingsStore((state) => state.printSettings);
+    const sendEmail = useSendInvoiceEmail();
+
+    const status = String(invoice?.status ?? '').toLowerCase();
+    const disabledReason =
+        status === 'void' ? 'A voided invoice cannot be emailed'
+        : status === 'pending_approval' || status === 'pending approval' ? 'This invoice is awaiting approval'
+        : status === 'draft' ? 'Finalize this invoice before emailing it to the customer'
+        : undefined;
+    const emailAction = invoice ? {
+        defaultTo: invoice.email || invoice.customerEmail || '',
+        disabledReason,
+        send: async ({ to, cc, message, pdfBase64, pdfName }: { to: string; cc: string; message: string; pdfBase64: string; pdfName: string }) => {
+            await sendEmail.mutateAsync({
+                invoiceId: invoice.id,
+                to,
+                cc: cc || undefined,
+                message: message || undefined,
+                pdfBase64,
+                pdfName,
+            });
+        },
+    } : undefined;
 
     return (
         <PrintPreviewModal
@@ -22,6 +44,7 @@ const InvoicePrintPreview: React.FC<Props> = ({ invoiceId, onClose }) => {
             title="Invoice Print Preview"
             documentTitle={`Invoice_${invoice?.number || invoiceId || ''}`}
             defaultPaperSize={printSettings.defaultPaperSize}
+            emailAction={emailAction}
         >
             {invoice ? (
                 <InvoicePrintTemplate

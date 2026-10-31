@@ -26,6 +26,20 @@ export async function sendFinanceNotification(opts: {
   if (result.error) throw new Error(`Resend error: ${result.error.message}`);
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** A personal note typed by the sender, kept as plain text with line breaks. */
+function messageHtml(message: string): string {
+  return escapeHtml(message).replace(/\r?\n/g, '<br>')
+}
+
 function formatFrom(name?: string | null): string {
   return name ? `${name} <${FROM}>` : FROM
 }
@@ -75,6 +89,8 @@ export interface SendInvoiceEmailOpts {
   emailFromName?: string | null
   message?: string
   invoiceUrl?: string
+  /** Files to attach (e.g. the invoice PDF). */
+  attachments?: { filename: string; content: Buffer }[]
 }
 
 export async function sendInvoiceEmail(opts: SendInvoiceEmailOpts & { orgId?: string }): Promise<void> {
@@ -95,7 +111,9 @@ export async function sendInvoiceEmail(opts: SendInvoiceEmailOpts & { orgId?: st
         companyPhone: '',
       }
       const subject = renderTemplate(template.subject, vars)
-      const html = renderTemplate(template.bodyHtml, vars)
+      let html = renderTemplate(template.bodyHtml, vars)
+      // The sender's personal note goes ahead of the templated body.
+      if (opts.message) html = `<p>${messageHtml(opts.message)}</p>${html}`
 
       const result = await resend.emails.send({
         from: formatFrom(opts.emailFromName),
@@ -103,6 +121,7 @@ export async function sendInvoiceEmail(opts: SendInvoiceEmailOpts & { orgId?: st
         ...(opts.cc ? { cc: opts.cc } : {}),
         subject,
         html,
+        ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
       })
       if (result.error) throw new Error(`Resend error: ${result.error.message}`)
       return
@@ -129,7 +148,7 @@ export async function sendInvoiceEmail(opts: SendInvoiceEmailOpts & { orgId?: st
     <div class="header"><h1>${opts.orgName}</h1><div style="font-size:13px;opacity:0.8;margin-top:4px">Invoice Notification</div></div>
     <div class="body">
       <p>Dear ${opts.customerName},</p>
-      ${opts.message ? `<p>${opts.message}</p>` : `<p>Please find below the details of your invoice. Kindly arrange payment before the due date.</p>`}
+      ${opts.message ? `<p>${messageHtml(opts.message)}</p>` : `<p>Please find below the details of your invoice. Kindly arrange payment before the due date.</p>`}
       <table class="info-table">
         <tr><td>Invoice Number</td><td>${opts.invoiceNumber}</td></tr>
         <tr><td>Due Date</td><td>${opts.dueDate}</td></tr>
@@ -148,6 +167,7 @@ export async function sendInvoiceEmail(opts: SendInvoiceEmailOpts & { orgId?: st
     ...(opts.cc ? { cc: opts.cc } : {}),
     subject: `Invoice ${opts.invoiceNumber} from ${opts.orgName} — Due ${opts.dueDate}`,
     html,
+    ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
   })
   if (result.error) throw new Error(`Resend error: ${result.error.message}`)
 }

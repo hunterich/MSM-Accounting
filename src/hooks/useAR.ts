@@ -86,6 +86,7 @@ function normalizeInvoice(raw: RawInvoice): Invoice {
         customerId:   raw.customerId || '',
         customerName: raw.customer?.name || '',
         customerCode: raw.customer?.code || '',
+        customerEmail: raw.customer?.email || '',
         invoiceType:  raw.invoiceType || 'Sales Invoice',
         issueDate:    raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
         date:         raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
@@ -504,9 +505,13 @@ export function useRejectInvoice() {
 }
 
 export function useSendInvoiceEmail() {
+    const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ invoiceId, to, cc, message }: { invoiceId: string; to: string; cc?: string; message?: string }) =>
-            api.post(`/api/v1/invoices/${invoiceId}/send-email`, { to, cc, message }),
+        mutationFn: ({ invoiceId, to, cc, message, pdfBase64, pdfName }: {
+            invoiceId: string; to: string; cc?: string; message?: string; pdfBase64?: string; pdfName?: string;
+        }) => api.post(`/api/v1/invoices/${invoiceId}/send-email`, { to, cc, message, pdfBase64, pdfName }),
+        // Sending a draft finalizes it, so the list and detail status can change.
+        onSuccess: () => qc.invalidateQueries({ queryKey: AR_KEYS.invoices }),
     });
 }
 
