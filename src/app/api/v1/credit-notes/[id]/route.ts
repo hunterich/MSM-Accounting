@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit, validateForeignKey } from '@/lib/api-utils';
+import { logAudit, logAuditTx, validateForeignKey } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { asMoney, toNumber } from '@/lib/money';
 import { updateCreditNoteInputSchema } from '@/types/api';
@@ -17,8 +17,8 @@ export const runtime = 'nodejs';
 // fields make it an edit and require the note to still be DRAFT.
 const STATUS_ONLY_FIELDS = new Set(['status']);
 
-function isPosted(prior: { status: string; journalEntryId?: string | null }): boolean {
-  return prior.status === 'APPLIED' || Boolean(prior.journalEntryId);
+function isPosted(prior: { status: string; journalEntryId?: string | null; postedAt?: Date | null }): boolean {
+  return prior.status === 'APPLIED' || Boolean(prior.journalEntryId || prior.postedAt);
 }
 
 export async function OPTIONS() {
@@ -90,13 +90,16 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.creditNote.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, journalEntryId: true, customerId: true, sourceInvoiceId: true, salesReturnId: true },
+        select: { id: true, status: true, journalEntryId: true, postedAt: true, customerId: true, sourceInvoiceId: true, salesReturnId: true },
       });
       if (!prior) {
         throw Object.assign(new Error('Not found'), { status: 404 });
       }
 
       const nextStatus = d.status;
+      if (prior.salesReturnId && d.salesReturnId !== undefined && d.salesReturnId !== prior.salesReturnId && nextStatus === 'APPLIED') {
+        throw Object.assign(new Error('Change the return link in a separate draft edit before submitting this note'), { status: 422 });
+      }
       const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));
       if (prior.status !== 'DRAFT' && (!isStatusOnly || (nextStatus !== undefined && nextStatus !== prior.status))) {
         throw Object.assign(new Error('Only draft credit notes can change; pending notes must finish approval and void notes are terminal'), { status: 422 });
@@ -143,6 +146,10 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       });
 
       await validateNoteRefundAccount(tx, orgId, updated.settlementType, updated.settlementAccountId, updated.arAccountId);
+      if (d.salesReturnId !== undefined && d.salesReturnId !== prior.salesReturnId) {
+        await logAuditTx(tx, { orgId, actorId: userId, entityType: 'CreditNote', entityId: id,
+          action: 'UPDATE', payload: { returnLink: { before: prior.salesReturnId, after: d.salesReturnId } } });
+      }
       // Auto-route the DRAFT → APPLIED finalize through the approval engine.
       // The update above may have already stamped status='APPLIED'; if approval
       // is required, hold the note at PENDING_APPROVAL and post NO GL.
@@ -183,10 +190,11 @@ export const DELETE = withPermission({ module: 'AR_CREDITS', action: 'delete' },
       await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.creditNote.findFirst({ where: { id, organizationId: orgId } });
       if (!prior) throw Object.assign(new Error('Not found'), { status: 404 });
-      if (prior.status !== 'DRAFT' || prior.journalEntryId) throw Object.assign(new Error('Only unposted draft credit notes can be deleted'), { status: 422 });
+      if (prior.status !== 'DRAFT' || prior.journalEntryId || prior.postedAt) throw Object.assign(new Error('Only unposted draft credit notes can be deleted'), { status: 422 });
+      await logAuditTx(tx, { orgId, actorId: req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id,
+        action: 'DELETE', payload: { number: prior.number, salesReturnId: prior.salesReturnId } });
       await tx.creditNote.delete({ where: { id, organizationId: orgId } });
     });
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'CreditNote', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

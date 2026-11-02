@@ -8,6 +8,7 @@ import { routeForApproval } from '@/lib/approval/engine';
 import { updateSalesReturnInputSchema } from '@/types/api';
 import { prepareSalesReturnLines, lockSalesReturns } from '@/lib/sales-return-lines';
 import { ApiError } from '@/lib/errors';
+import { lockReturnForDeletion, assertNoLinkedNotes } from '@/lib/return-deletion-guard';
 
 export const runtime = 'nodejs';
 
@@ -164,10 +165,15 @@ export const DELETE = withPermission({ module: 'AR_CREDITS', action: 'delete' },
       const initial = await tx.salesReturn.findFirst({ where: { id, organizationId: orgId } });
       if (!initial) throw new ApiError('Sales return not found', 404);
       await lockSalesReturns(tx, orgId, initial.invoiceId);
+      await lockReturnForDeletion(tx, 'sales', orgId, id);
       const prior = await tx.salesReturn.findFirst({ where: { id, organizationId: orgId } });
+      if (prior && prior.invoiceId !== initial.invoiceId) {
+        throw new ApiError('Sales return changed its source invoice; retry deletion', 409);
+      }
       if (!prior || prior.status !== 'DRAFT' || prior.postedAt || prior.journalEntryId) {
         throw new ApiError('Only draft sales returns can be deleted; void finalized returns instead', 422);
       }
+      await assertNoLinkedNotes(tx, 'sales', orgId, id);
       await tx.salesReturnLine.deleteMany({ where: { salesReturnId: id } });
       await tx.salesReturn.delete({ where: { id, organizationId: orgId } });
     });

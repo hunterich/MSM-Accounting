@@ -8,7 +8,7 @@ import StatusTag from '../../UI/StatusTag';
 import PrintPreviewModal from '../../UI/PrintPreviewModal';
 import NotePrintTemplate from '../../print/NotePrintTemplate';
 import { formatDateID, formatIDR } from '../../../utils/formatters';
-import { useCreditNotes, useSalesReturns, useWarehouses, useVoidCreditNote, useVoidSalesReturn } from '../../../hooks/useReturns';
+import { useCreditNotes, useSalesReturns, useWarehouses, useVoidCreditNote, useVoidSalesReturn, useDeleteCreditNote, useDeleteSalesReturn, useUnlinkCreditReturn } from '../../../hooks/useReturns';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions } from '../../../hooks/useModulePermissions';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -30,6 +30,9 @@ const CreditNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
     const { data: warehouses = [] } = useWarehouses();
     const voidCreditNote = useVoidCreditNote();
     const voidSalesReturn = useVoidSalesReturn();
+    const deleteNote = useDeleteCreditNote();
+    const deleteReturn = useDeleteSalesReturn();
+    const unlinkReturn = useUnlinkCreditReturn();
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
     const [detailTab, setDetailTab] = useState('summary');
@@ -48,6 +51,19 @@ const CreditNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
     const handleVoidReturn = () => { if (!ret || !window.confirm('Void this sales return? Its journal entry will be reversed and the restocked inventory removed. This cannot be undone.')) return; voidSalesReturn.mutate(ret.id, { onError: (e: unknown) => window.alert(e instanceof Error ? e.message : 'Failed to void sales return') }); };
     const editCredit = () => credit && open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `credit:${credit.id}`, mode: 'edit' }, title: `Edit ${credit.id}`, path: `/ar/credits/edit?creditId=${credit.id}` });
     const editReturn = () => ret && open({ kind: 'doc-form', target: { module: 'ar', entity: 'credit-note', recordId: `return:${ret.id}`, mode: 'edit' }, title: `Edit ${ret.id}`, path: `/ar/returns/new?returnId=${ret.id}` });
+
+    const handleDelete = async () => {
+        const doc = type === 'credit' ? credit : ret;
+        if (!doc || !window.confirm('Delete this draft document?')) return;
+        try {
+            await (type === 'credit' ? deleteNote.mutateAsync(doc.id) : deleteReturn.mutateAsync(doc.id));
+        } catch (error) { window.alert(error instanceof Error ? error.message : 'Could not delete document'); }
+    };
+    const handleUnlink = async () => {
+        if (!credit || !window.confirm('Unlink this draft note from the return? It will become a standalone note.')) return;
+        try { await unlinkReturn.mutateAsync(credit.id); }
+        catch (error) { window.alert(error instanceof Error ? error.message : 'Could not unlink note'); }
+    };
 
     const printCredit = () => { if (!credit) return; const lines = creditLines; const subtotal = lineSubtotal(lines); const total = Number(credit.amount || 0); setPrintDoc({ title: 'CREDIT NOTE', partyLabel: 'Customer', partyName: credit.customerName, document: { number: credit.id, date: credit.date, status: credit.status, reference: credit.sourceInvoiceId }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total }); setIsPrintOpen(true); };
     const printReturn = () => { if (!ret) return; const lines = (ret.lines as ReturnLine[] | undefined) || []; const subtotal = lineSubtotal(lines); const total = getReturnTotal(ret as unknown as Record<string, unknown>); setPrintDoc({ title: 'SALES RETURN', partyLabel: 'Customer', partyName: ret.customerName, document: { number: ret.id, date: ret.returnDate, status: ret.status, reference: ret.invoiceId }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total }); setIsPrintOpen(true); };
@@ -77,7 +93,7 @@ const CreditNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
             <button className="dense-side-btn" title="Details"><FileText size={18} /></button>
             <button className="dense-side-btn" title="Attachments"><Paperclip size={18} /></button>
             <button className="dense-side-btn success" title="More"><MoreHorizontal size={18} /></button>
-            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
+            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete || (type === 'credit' ? credit?.status !== 'Draft' : ret?.status !== 'Draft') || deleteNote.isPending || deleteReturn.isPending} onClick={handleDelete}><Trash2 size={18} /></button>
         </div>
     );
 
@@ -96,6 +112,7 @@ const CreditNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
                         <div className="detail-header-title"><h2 className="detail-header-h2">{credit.id}</h2><StatusTag status={credit.status === 'Applied' ? 'Success' : 'Info'} label={credit.status} /></div>
                         <div className="detail-header-actions">
                             {credit.status === 'Applied' && <Button text="Void" size="small" variant="secondary" disabled={!canEdit || voidCreditNote.isPending} onClick={handleVoidCredit} />}
+                            {credit.status === 'Draft' && credit.returnId && <Button text="Unlink return" size="small" variant="secondary" disabled={!canEdit || unlinkReturn.isPending} onClick={handleUnlink} />}
                             <Button text="Print" size="small" variant="secondary" onClick={printCredit} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={editCredit} />
                         </div>
