@@ -37,6 +37,8 @@ for (const kind of ['ar', 'ap'] as const) {
       : (await db.debitNote.findUniqueOrThrow({ where: { id: note.id } })).purchaseReturnId).toBeNull();
     const audit = await db.auditLog.findFirstOrThrow({ where: { organizationId: orgId, entityId: note.id, action: 'UPDATE', payload: { path: ['returnLink', 'before'], equals: ret.id } } });
     expect(audit.payload).toMatchObject({ returnLink: { before: ret.id, after: null } });
+    await page.getByRole('button', { name: 'Audit / Journal' }).click();
+    await expect(page.getByText('For recorded changes, including return links, see Data & Tools → Audit Log.')).toBeVisible();
 
     await page.locator('.workbench-doc-tab-catalog').click();
     await page.getByRole('button', { name: kind === 'ar' ? 'Sales Returns' : 'Purchase Returns', exact: true }).click();

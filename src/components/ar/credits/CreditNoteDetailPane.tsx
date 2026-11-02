@@ -148,7 +148,7 @@ const CreditNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
                                     </div>
                                 )}
                                 {detailTab === 'attachments' && <div className="attachment-empty">No attachments.</div>}
-                                {detailTab === 'audit' && <ul className="audit-list"><li><div><strong>Credit note created</strong></div><div>{formatDateID(credit.date)} • System</div></li><li><div><strong>Linked to return {credit.returnId}</strong></div><div>{formatDateID(credit.date)} • Auto process</div></li></ul>}
+                                {detailTab === 'audit' && <p className="text-sm text-neutral-600">For recorded changes, including return links, see Data &amp; Tools → Audit Log.</p>}
                             </div>
                         </div>
                         <SideActions />
