@@ -128,6 +128,10 @@ const EntityStageStep: React.FC<EntityStageStepProps> = ({
         rows: objectRows as MigrationRow[],
       });
       setResult(res);
+      if (res.errors.length > 0) {
+        pushToast('Some rows were rejected. Review the errors and upload a corrected complete file.', 'error');
+        return;
+      }
       pushToast(`Staged ${res.staged} ${entity}`, 'success');
       onStaged(res);
     } catch (err) {
@@ -151,18 +155,24 @@ const EntityStageStep: React.FC<EntityStageStepProps> = ({
           </p>
 
           <FileDropzone onFile={handleFile} selectedName={fileName} />
+          {result && result.errors.length > 0 && (
+            <p role="alert" className="text-sm text-danger-700">
+              This step has rejected rows. Upload a corrected complete file; staging it
+              replaces the {result.staged} valid rows currently staged for this step.
+            </p>
+          )}
 
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={handleDownloadTemplate}>
               Download template
             </Button>
             {onBack && (
-              <Button variant="ghost" onClick={onBack}>
+              <Button variant="ghost" onClick={onBack} disabled={!!result?.errors.length}>
                 Back
               </Button>
             )}
             {optional && (
-              <Button variant="ghost" onClick={() => onSkip?.()} className="ml-auto">
+              <Button variant="ghost" onClick={() => onSkip?.()} disabled={!!result?.errors.length} className="ml-auto">
                 Skip this step
               </Button>
             )}
@@ -228,6 +238,10 @@ const EntityStageStep: React.FC<EntityStageStepProps> = ({
 
           {result?.errors && result.errors.length > 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-medium text-amber-800 mb-1">
+                {result.staged} valid rows are staged, but cannot be accepted as a complete file.
+                Upload the corrected complete file to replace them.
+              </p>
               <p className="text-sm font-medium text-amber-800 mb-1">
                 {result.errors.length} row{result.errors.length === 1 ? '' : 's'} reported
                 errors:
