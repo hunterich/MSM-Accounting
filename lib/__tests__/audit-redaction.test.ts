@@ -8,6 +8,23 @@ describe('audit payload redaction', () => {
     expect(original.nested[0].api_key).toBe('key');
   });
 
+  it('keeps foreign keys and boolean flags that only look sensitive', () => {
+    const payload = {
+      bankAccountId: 'ba_1',
+      refundBankAccountId: 'ba_2',
+      bankAccountIds: ['ba_1'],
+      mustChangePassword: true,
+      bankAccount: { id: 'ba_1', name: 'BCA Operasional', accountNumber: '1234567890' },
+    };
+    expect(redactAuditPayload(payload)).toEqual({
+      bankAccountId: 'ba_1',
+      refundBankAccountId: 'ba_2',
+      bankAccountIds: ['ba_1'],
+      mustChangePassword: true,
+      bankAccount: { id: 'ba_1', name: 'BCA Operasional', accountNumber: '[REDACTED]' },
+    });
+  });
+
   it('rejects cyclic payloads', () => {
     const cyclic: { self?: unknown } = {};
     cyclic.self = cyclic;
