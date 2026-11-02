@@ -80,6 +80,8 @@ describe('return deletion preserves linked financial notes', () => {
         const audit = await prisma.auditLog.findFirstOrThrow({ where: { organizationId: f.org.orgId, entityId: f.note.id, action: 'UPDATE', payload: { path: ['returnLink', 'before'], equals: f.ret.id } } });
         expect(audit.payload).toMatchObject({ returnLink: { before: f.ret.id, after: null } });
         expect((await removeReturn(f)).status).toBe(200);
+        const deletedReturn = await prisma.auditLog.findFirstOrThrow({ where: { organizationId: f.org.orgId, entityId: f.ret.id, action: 'DELETE' } });
+        expect(deletedReturn.payload).toMatchObject({ number: f.ret.number, [kind === 'ar' ? 'invoiceId' : 'billId']: kind === 'ar' ? f.invoice.id : f.bill.id });
         const after = await snapshot(f);
         expect(after.ret).toBeNull();
         expect(after.note).toMatchObject({ id: f.note.id, status: 'DRAFT', [kind === 'ar' ? 'salesReturnId' : 'purchaseReturnId']: null });

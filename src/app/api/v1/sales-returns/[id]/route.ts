@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { logAudit, logAuditTx } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -174,10 +174,11 @@ export const DELETE = withPermission({ module: 'AR_CREDITS', action: 'delete' },
         throw new ApiError('Only draft sales returns can be deleted; void finalized returns instead', 422);
       }
       await assertNoLinkedNotes(tx, 'sales', orgId, id);
+      await logAuditTx(tx, { orgId, actorId: req.headers.get('x-user-id'), entityType: 'SalesReturn', entityId: id,
+        action: 'DELETE', payload: { number: prior.number, invoiceId: prior.invoiceId } });
       await tx.salesReturnLine.deleteMany({ where: { salesReturnId: id } });
       await tx.salesReturn.delete({ where: { id, organizationId: orgId } });
     });
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'SalesReturn', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

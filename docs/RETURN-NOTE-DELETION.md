@@ -9,7 +9,7 @@ automatically removed.
 
 For an unposted draft note, the detail screen offers a confirmed unlink action,
 which makes the note standalone, or a confirmed draft deletion. Each records
-the previous return ID transactionally in the audit log. Unlinking and submitting
+the previous return ID transactionally in the audit log. Deleting the return also records its number and source invoice or bill atomically. Unlinking and submitting
 in the same request is refused; the user must deliberately perform separate
 actions. Submitted, applied and void notes cannot be edited or unlinked here.
 The existing authorization checks apply to each action.
