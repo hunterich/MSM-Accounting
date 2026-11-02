@@ -22,7 +22,7 @@ for (const kind of ['ar', 'ap'] as const) {
     await page.getByRole('row').filter({ hasText: kind === 'ar' ? 'QA-SR' : 'QA-PR' }).getByRole('button', { name: 'Open' }).click();
     const messages: string[] = [];
     page.on('dialog', dialog => { messages.push(dialog.message()); void dialog.accept(); });
-    await page.getByTitle('Delete', { exact: true }).click();
+    await page.getByTitle('Delete', { exact: true }).filter({ visible: true }).click();
     await expect.poll(() => messages.some(m => m.includes(kind === 'ar' ? 'QA-CN (DRAFT)' : 'QA-DN (DRAFT)'))).toBe(true);
     expect(kind === 'ar'
       ? (await db.creditNote.findUniqueOrThrow({ where: { id: note.id } })).salesReturnId
@@ -41,7 +41,7 @@ for (const kind of ['ar', 'ap'] as const) {
     await page.locator('.workbench-doc-tab-catalog').click();
     await page.getByRole('button', { name: kind === 'ar' ? 'Sales Returns' : 'Purchase Returns', exact: true }).click();
     await page.getByRole('row').filter({ hasText: kind === 'ar' ? 'QA-SR' : 'QA-PR' }).getByRole('button', { name: 'Open' }).click();
-    await page.getByTitle('Delete', { exact: true }).click();
+    await page.getByTitle('Delete', { exact: true }).filter({ visible: true }).click();
     await expect.poll(async () => kind === 'ar'
       ? db.salesReturn.findUnique({ where: { id: ret.id } })
       : db.purchaseReturn.findUnique({ where: { id: ret.id } })).toBeNull();
