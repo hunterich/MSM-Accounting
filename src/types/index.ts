@@ -52,7 +52,7 @@ export interface RawInvoice {
   id: string;
   number?: string | null;
   customerId?: string | null;
-  customer?: { name?: string; code?: string } | null;
+  customer?: { name?: string; code?: string; email?: string | null } | null;
   invoiceType?: string | null;
   issueDate?: string | null;
   dueDate?: string | null;
@@ -580,6 +580,8 @@ export interface Invoice {
   customerId: string;
   customerName: string;
   customerCode: string;
+  /** The customer record's email, used as the default recipient when emailing. */
+  customerEmail?: string;
   invoiceType?: string;
   issueDate: string;
   /** Alias for issueDate — kept for date-range filter compatibility. */
