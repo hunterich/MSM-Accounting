@@ -106,6 +106,22 @@ test.describe('sales return → credit note → ledger', () => {
     await page.goto('/ar/credits')
     await page.locator('.workbench-doc-tab-new').click()
 
+    // Other browser journeys may close the demo company's current period.
+    // Choose an existing open or undefined month after the source invoice;
+    // never reopen a period or depend on today's date for this unrelated flow.
+    const periods: Array<{ startDate: string; endDate: string; status: string; isLocked: boolean }> =
+      await apiJson(page.request, '/api/v1/accounting-periods?limit=100')
+    const issue = new Date(postedSource.issueDate)
+    let openDate = ''
+    for (let month = 1; month <= 48; month++) {
+      const candidate = new Date(Date.UTC(issue.getUTCFullYear(), issue.getUTCMonth() + month, 15))
+      const blocked = periods.some(p => (p.status === 'CLOSED' || p.isLocked)
+        && candidate >= new Date(p.startDate) && candidate <= new Date(p.endDate))
+      if (!blocked) { openDate = candidate.toISOString().slice(0, 10); break }
+    }
+    expect(openDate, 'no open date for the sales return test').not.toBe('')
+    await page.locator('main input[type="date"]:visible').first().fill(openDate)
+
     await choose(page, 'Select Customer...', 'Acme Corp')
     await choose(page, 'Select Invoice...', /INV-0004/)
 
@@ -117,7 +133,10 @@ test.describe('sales return → credit note → ledger', () => {
     // whichever of the two `.first()` picks may be scrolled out of view.
     await expect(page.locator('.panel-summary-total .value')).toHaveText('Rp 222.000,00')
 
+    const save = page.waitForResponse(r => r.url().endsWith('/api/v1/sales-returns') && r.request().method() === 'POST')
     await page.getByRole('button', { name: 'Save & Create Credit Note' }).click()
+    const saved = await save
+    expect(saved.ok(), `save return: ${await saved.text()}`).toBeTruthy()
 
     // The hand-off: the return tab closes and a PREFILLED credit note opens.
     // This used to drop the user on the empty list with the draft gone.
