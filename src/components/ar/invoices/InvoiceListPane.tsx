@@ -1,6 +1,7 @@
 // src/components/ar/invoices/InvoiceListPane.tsx
 import React, { useEffect, useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Download, Upload } from 'lucide-react';
+import { api } from '../../../api/apiClient';
 import InvoiceCatalogPanel from './InvoiceCatalogPanel';
 import InvoicePrintPreview from './InvoicePrintPreview';
 import ImportInvoicesModal from './ImportInvoicesModal';
@@ -18,6 +19,8 @@ const InvoiceListPane = (): React.ReactElement => {
     const canReprint = useExtraAction('ar_invoices', 'reprint');
     const { open } = useWorkspaceNav();
     const [isImportOpen, setIsImportOpen] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState('');
     const [printInvoiceId, setPrintInvoiceId] = useState<string | null>(null);
     const [filters, setFilters] = useState<InvoiceFilters>({ searchTerm: '', status: '', dateFrom: '', dateTo: '' });
     const { page: _page, limit: _limit, ...queryFilters } = invoiceListQuery(filters, 1, 20);
@@ -35,6 +38,27 @@ const InvoiceListPane = (): React.ReactElement => {
     }, [invoicesResult, page, totalPages]);
     const changeFilter = (key: keyof InvoiceFilters, value: string) => {
         setFilters((previous) => ({ ...previous, [key]: value }));
+    };
+
+    const exportAll = async () => {
+        setExportError('');
+        setExporting(true);
+        try {
+            const { page: _page, limit: _limit, ...activeFilters } = paging.query;
+            const csv = await api.getText('/api/v1/invoices/export', activeFilters);
+            const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'invoices-filtered.csv';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            setExportError(err instanceof Error ? err.message : 'Unable to export invoices');
+        } finally {
+            setExporting(false);
+        }
     };
 
     // Invoice ids are cuids; the human-facing label is the invoice number.
@@ -64,11 +88,15 @@ const InvoiceListPane = (): React.ReactElement => {
             <PageHeader
                 title="Invoices"
                 subtitle="Create, send, and track customer invoices."
-                actions={canCreate ? (
-                    <Button text="Import" size="small" variant="secondary" icon={<Upload size={16} />} onClick={() => setIsImportOpen(true)} />
-                ) : undefined}
+                actions={<div className="flex gap-2">
+                    <Button text="Export all filtered CSV" size="small" variant="secondary" icon={<Download size={16} />}
+                        disabled={exporting || isFetching || Boolean(error) || String(paging.query.search ?? '') !== filters.searchTerm.trim()}
+                        onClick={() => void exportAll()} />
+                    {canCreate && <Button text="Import" size="small" variant="secondary" icon={<Upload size={16} />} onClick={() => setIsImportOpen(true)} />}
+                </div>}
             />
             </div>
+            {exportError && <div role="alert" className="shrink-0 p-2 text-sm text-danger-600">{exportError}</div>}
             {error && <div role="alert" className="shrink-0 p-2 text-sm text-danger-600">
                 Unable to load invoices. <button type="button" className="underline" onClick={() => void refetch()}>Retry</button>
             </div>}

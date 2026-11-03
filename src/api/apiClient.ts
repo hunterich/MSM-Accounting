@@ -18,7 +18,7 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
   };
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}, responseType: 'json' | 'text' = 'json'): Promise<T> {
   const { headers: extraHeaders, ...rest } = options;
   const isFormData = typeof FormData !== 'undefined' && rest.body instanceof FormData;
   const activeOrg = getActiveOrgId();
@@ -45,7 +45,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw Object.assign(new Error(body.error || `API error ${res.status}`), { status: res.status, code: body.code });
   }
 
-  return res.json() as Promise<T>;
+  return (responseType === 'text' ? res.text() : res.json()) as Promise<T>;
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -69,6 +69,7 @@ function buildUrl(path: string, params?: Record<string, unknown>): string {
 
 export const api = {
   get:    <T>(path: string, params?: Record<string, unknown>)  => apiFetch<T>(buildUrl(path, params)),
+  getText: (path: string, params?: Record<string, unknown>) => request<string>(buildUrl(path, params), {}, 'text'),
   post:   <T>(path: string, body?: unknown)                    => apiFetch<T>(path, { method: 'POST',   body: JSON.stringify(body) }),
   postForm: <T>(path: string, body: FormData)                  => apiFetch<T>(path, { method: 'POST', body }),
   put:    <T>(path: string, body?: unknown)                    => apiFetch<T>(path, { method: 'PUT',    body: JSON.stringify(body) }),
