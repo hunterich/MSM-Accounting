@@ -11,7 +11,8 @@ import { toNumber } from '@/lib/money';
 import { calculateInvoiceTotals } from '@/lib/invoice-totals';
 import { nextInvoiceNumber } from '@/lib/invoice-number';
 import { enforceCustomerCreditLimit } from '@/lib/credit-limit';
-import { applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
+import { getInvoiceAccessContext } from '@/lib/document-access';
+import { invoiceListWhere } from '@/lib/invoice-list-filter';
 import { assertItemsActive } from '@/lib/item-availability';
 import { assertDocumentOffsetAccounts } from '@/lib/document-offset-accounts';
 
@@ -25,29 +26,8 @@ export const GET = withHandler(async (req: NextRequest) => {
   const { orgId, userId } = requireAuth(req);
 
   const { searchParams, page, limit } = parsePaginationParams(req);
-  const status = searchParams.get('status');
-  const search = searchParams.get('search');
-  const dateFrom = searchParams.get('dateFrom');
-  const dateTo = searchParams.get('dateTo');
-  const customerId = searchParams.get('customerId');
-
   const access = await getInvoiceAccessContext(orgId, userId);
-  const where: any = applyInvoiceAccessScope({ organizationId: orgId, deletedAt: null }, access);
-  if (status) where.status = status;
-  if (search) where.OR = [
-    { number: { contains: search, mode: 'insensitive' } },
-    { customer: { name: { contains: search, mode: 'insensitive' } } },
-    { poNumber: { contains: search, mode: 'insensitive' } },
-    { trackingNumber: { contains: search, mode: 'insensitive' } },
-    { shippingCarrier: { contains: search, mode: 'insensitive' } },
-  ];
-  if (dateFrom || dateTo) {
-    where.issueDate = {
-      ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-      ...(dateTo   ? { lt: new Date(new Date(dateTo).getTime() + 86400000) } : {}),
-    };
-  }
-  if (customerId) where.customerId = customerId;
+  const where = invoiceListWhere(searchParams, orgId, access);
 
   const [data, total] = await Promise.all([
     prisma.salesInvoice.findMany({
