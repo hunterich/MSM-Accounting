@@ -791,35 +791,40 @@ model SalesOrderItem {
 }
 
 model ARPayment {
-  id                String        @id @default(cuid())
-  organizationId    String
-  number            String
-  customerId        String
-  date              DateTime
-  method            PaymentMethod @default(BANK_TRANSFER)
-  bankAccountId     String?
-  depositAccountId  String?
-  arAccountId       String?
-  discountAccountId String?
-  penaltyAccountId  String?
-  reference         String?
-  status            PaymentStatus @default(DRAFT)
-  totalAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  id                    String          @id @default(cuid())
+  organizationId        String
+  number                String
+  customerId            String
+  source                ARPaymentSource @default(MANUAL)
+  ecommerceConnectionId String?
+  marketplaceOrderNo    String?
+  date                  DateTime
+  method                PaymentMethod   @default(BANK_TRANSFER)
+  bankAccountId         String?
+  depositAccountId      String?
+  arAccountId           String?
+  discountAccountId     String?
+  penaltyAccountId      String?
+  reference             String?
+  status                PaymentStatus   @default(DRAFT)
+  totalAmount           Decimal         @default(0) @db.Decimal(18, 2)
   /// Idempotency token: set once the DR/CR pair is posted to the GL.
-  journalEntryId String?  @unique
-  settledAt           DateTime?
-  settlementJournalId String?       @unique
-  settlementJournal   JournalEntry? @relation("ARPaymentSettlement", fields: [settlementJournalId], references: [id], onDelete: SetNull)
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  journalEntryId        String?         @unique
+  settledAt             DateTime?
+  settlementJournalId   String?         @unique
+  settlementJournal     JournalEntry?   @relation("ARPaymentSettlement", fields: [settlementJournalId], references: [id], onDelete: SetNull)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
-  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer          Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  allocations       ARPaymentAllocation[]
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer            Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  ecommerceConnection EcommerceConnection?  @relation(fields: [ecommerceConnectionId], references: [id], onDelete: SetNull)
+  allocations         ARPaymentAllocation[]
 
   @@unique([organizationId, number])
   @@index([organizationId, date, status])
   @@index([customerId])
+  @@index([ecommerceConnectionId])
 }
 
 model ARPaymentAllocation {
@@ -900,36 +905,36 @@ model SalesReturnLine {
 }
 
 model CreditNote {
-  id                 String            @id @default(cuid())
-  organizationId     String
-  number             String
-  salesReturnId      String?
-  customerId         String
-  sourceInvoiceId    String?
-  date               DateTime
-  settlementType     CreditSettlementType @default(APPLY_TO_INVOICE)
-  settlementRef      String?
+  id                  String               @id @default(cuid())
+  organizationId      String
+  number              String
+  salesReturnId       String?
+  customerId          String
+  sourceInvoiceId     String?
+  date                DateTime
+  settlementType      CreditSettlementType @default(APPLY_TO_INVOICE)
+  settlementRef       String?
   refundBankAccountId String?
-  refundMethod       PaymentMethod?
-  arAccountId        String?
-  returnAccountId    String?
-  taxAccountId       String?
+  refundMethod        PaymentMethod?
+  arAccountId         String?
+  returnAccountId     String?
+  taxAccountId        String?
   settlementAccountId String?
-  applyTax           Boolean           @default(true)
-  amount             Decimal           @default(0) @db.Decimal(18, 2)
-  taxAmount          Decimal           @default(0) @db.Decimal(18, 2)
-  note               String?
-  status             CreditNoteStatus  @default(DRAFT)
-  journalEntryId     String?           @unique
-  postedAt           DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  applyTax            Boolean              @default(true)
+  amount              Decimal              @default(0) @db.Decimal(18, 2)
+  taxAmount           Decimal              @default(0) @db.Decimal(18, 2)
+  note                String?
+  status              CreditNoteStatus     @default(DRAFT)
+  journalEntryId      String?              @unique
+  postedAt            DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
-  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  salesReturn        SalesReturn?      @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
-  customer           Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  sourceInvoice      SalesInvoice?     @relation(fields: [sourceInvoiceId], references: [id], onDelete: SetNull)
-  journalEntry       JournalEntry?     @relation("CreditNoteJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  salesReturn   SalesReturn?  @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  sourceInvoice SalesInvoice? @relation(fields: [sourceInvoiceId], references: [id], onDelete: SetNull)
+  journalEntry  JournalEntry? @relation("CreditNoteJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, number])
   @@index([organizationId, date])
@@ -1765,25 +1770,26 @@ model PayrollLine {
 }
 
 model EcommerceConnection {
-  id               String           @id @default(cuid())
-  organizationId   String
-  platform         EcommercePlatform
-  shopName         String
-  customerId       String?
-  holdingAccountId String?
-  status           ConnectionStatus @default(ACTIVE)
-  importStatusFilter String         @default("Selesai")
-  itemMappings     Json?
+  id                 String            @id @default(cuid())
+  organizationId     String
+  platform           EcommercePlatform
+  shopName           String
+  customerId         String?
+  holdingAccountId   String?
+  status             ConnectionStatus  @default(ACTIVE)
+  importStatusFilter String            @default("Selesai")
+  itemMappings       Json?
   // Tabbed shop config: paymentMode, vatInclusive, fees{}, shipping{}, others{}, notes
-  mappings         Json?
-  salesTypeId      String?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  mappings           Json?
+  salesTypeId        String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
-  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer         Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  holdingAccount   BankAccount?     @relation(fields: [holdingAccountId], references: [id], onDelete: SetNull)
-  salesType        SalesType?       @relation(fields: [salesTypeId], references: [id], onDelete: SetNull)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  holdingAccount BankAccount? @relation(fields: [holdingAccountId], references: [id], onDelete: SetNull)
+  salesType      SalesType?   @relation(fields: [salesTypeId], references: [id], onDelete: SetNull)
+  arPayments     ARPayment[]
 
   @@unique([organizationId, platform, shopName])
 }
@@ -1926,6 +1932,11 @@ enum PaymentMethod {
   CREDIT_CARD
   CASH
   OTHER
+}
+
+enum ARPaymentSource {
+  MANUAL
+  MARKETPLACE_IMPORT
 }
 
 enum PaymentStatus {

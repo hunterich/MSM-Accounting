@@ -249,6 +249,9 @@ export async function importMarketplaceOrders(
               date: issueDate,
               method: 'BANK_TRANSFER',
               status: 'COMPLETED',
+              source: 'MARKETPLACE_IMPORT',
+              ecommerceConnectionId: conn.id,
+              marketplaceOrderNo: order.orderNo,
               depositAccountId: settlementGlAccountId ?? undefined,
               totalAmount: invoiceTotal,
               allocations: {
