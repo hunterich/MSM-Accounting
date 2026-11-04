@@ -97,7 +97,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       }
 
       const nextStatus = d.status;
-      if (prior.salesReturnId && d.salesReturnId !== undefined && d.salesReturnId !== prior.salesReturnId && nextStatus === 'APPLIED') {
+      if (prior.salesReturnId && d.salesReturnId !== undefined && d.salesReturnId !== prior.salesReturnId && nextStatus !== undefined && nextStatus !== 'DRAFT') {
         throw Object.assign(new Error('Change the return link in a separate draft edit before submitting this note'), { status: 422 });
       }
       const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));

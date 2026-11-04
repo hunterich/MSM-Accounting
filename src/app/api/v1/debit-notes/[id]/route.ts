@@ -89,7 +89,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       }
 
       const nextStatus = d.status;
-      if (prior.purchaseReturnId && d.purchaseReturnId !== undefined && d.purchaseReturnId !== prior.purchaseReturnId && nextStatus === 'APPLIED') {
+      if (prior.purchaseReturnId && d.purchaseReturnId !== undefined && d.purchaseReturnId !== prior.purchaseReturnId && nextStatus !== undefined && nextStatus !== 'DRAFT') {
         throw Object.assign(new Error('Change the return link in a separate draft edit before submitting this note'), { status: 422 });
       }
       const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));

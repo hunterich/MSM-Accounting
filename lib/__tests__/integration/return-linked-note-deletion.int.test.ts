@@ -62,16 +62,18 @@ describe('return deletion preserves linked financial notes', () => {
         } finally { await cleanupOrg(f.org.orgId); }
       });
     }
-    it(`${kind}: a linked note cannot be unlinked and submitted in one request`, async () => {
-      const f = await fixture(kind);
-      try {
-        const before = await snapshot(f);
-        const body = kind === 'ar' ? { status: 'APPLIED', salesReturnId: null } : { status: 'APPLIED', purchaseReturnId: null };
-        const response = await (kind === 'ar' ? putCredit : putDebit)(req(f, 'PUT', body), params(f.note.id));
-        expect(response.status).toBe(422);
-        expect(await snapshot(f)).toEqual(before);
-      } finally { await cleanupOrg(f.org.orgId); }
-    });
+    for (const status of ['APPLIED', 'PENDING_APPROVAL'] as const) {
+      it(`${kind}: a linked note cannot be unlinked and moved to ${status} in one request`, async () => {
+        const f = await fixture(kind);
+        try {
+          const before = await snapshot(f);
+          const body = kind === 'ar' ? { status, salesReturnId: null } : { status, purchaseReturnId: null };
+          const response = await (kind === 'ar' ? putCredit : putDebit)(req(f, 'PUT', body), params(f.note.id));
+          expect(response.status).toBe(422);
+          expect(await snapshot(f)).toEqual(before);
+        } finally { await cleanupOrg(f.org.orgId); }
+      });
+    }
     it(`${kind}: explicit unlink is audited and permits deleting the return without deleting the standalone note`, async () => {
       const f = await fixture(kind);
       try {
