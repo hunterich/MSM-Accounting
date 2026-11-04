@@ -401,7 +401,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         });
     };
 
-    const handleSaveReturn = async (saveAsDraft = false) => {
+    const handleSaveReturn = async (mode: 'draft' | 'return-only' | 'credit' = 'credit') => {
         if (!returnData.customerId) {
             window.alert('Select a customer before saving sales return.');
             return;
@@ -414,7 +414,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
 
         const selectedLines = returnData.lines.filter((line) => Number(line.qtyReturn) > 0);
         if (selectedLines.length === 0) {
-            window.alert('Set Qty Return for at least one item before creating credit note.');
+            window.alert('Set Qty Return for at least one item before saving the sales return.');
             return;
         }
 
@@ -438,7 +438,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         const returnRecord = {
             ...(returnNumber && { id: returnNumber }),
             ...payload,
-            status: saveAsDraft ? 'Draft' : 'Pending Credit Note',
+            status: mode === 'draft' ? 'Draft' : mode === 'return-only' ? 'Approved' : 'Pending Credit Note',
         };
         // Await the write rather than firing and forgetting: the credit note has
         // to link to the SAVED return, and only the response carries the id and
@@ -454,8 +454,8 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             return;
         }
 
-        if (saveAsDraft) {
-            // Drafts park the return without spawning a credit note.
+        if (mode !== 'credit') {
+            // Both draft and return-only actions skip the credit note.
             navigate('/ar/credits');
             return;
         }
@@ -543,8 +543,9 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             actions={(
                 <>
                     <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
-                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveReturn(true); }} />}
-                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveReturn(false); }} />
+                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveReturn('draft'); }} />}
+                    {!isView && <Button text="Save Return (no credit note)" variant="secondary" onClick={() => { void handleSaveReturn('return-only'); }} />}
+                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveReturn('credit'); }} />
                 </>
             )}
         >
