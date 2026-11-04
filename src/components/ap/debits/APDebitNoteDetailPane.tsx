@@ -8,7 +8,7 @@ import StatusTag from '../../UI/StatusTag';
 import PrintPreviewModal from '../../UI/PrintPreviewModal';
 import NotePrintTemplate from '../../print/NotePrintTemplate';
 import { formatDateID, formatIDR } from '../../../utils/formatters';
-import { useDebitNotes, usePurchaseReturns, useWarehouses, useVoidDebitNote, useVoidPurchaseReturn } from '../../../hooks/useReturns';
+import { useDebitNotes, usePurchaseReturns, useWarehouses, useVoidDebitNote, useVoidPurchaseReturn, useDeleteDebitNote, useDeletePurchaseReturn, useUnlinkDebitReturn } from '../../../hooks/useReturns';
 import { useWorkspaceNav } from '../../../hooks/useWorkspaceNav';
 import { useModulePermissions } from '../../../hooks/useModulePermissions';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -30,6 +30,9 @@ const APDebitNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
     const { data: warehouses = [] } = useWarehouses();
     const voidDebitNote = useVoidDebitNote();
     const voidPurchaseReturn = useVoidPurchaseReturn();
+    const deleteNote = useDeleteDebitNote();
+    const deleteReturn = useDeletePurchaseReturn();
+    const unlinkReturn = useUnlinkDebitReturn();
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
     const [detailTab, setDetailTab] = useState('summary');
@@ -47,6 +50,19 @@ const APDebitNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
     const handleVoidReturn = () => { if (!ret || !window.confirm('Void this purchase return? Its journal entry will be reversed and the returned stock added back to inventory. This cannot be undone.')) return; voidPurchaseReturn.mutate(ret.id, { onError: (e: unknown) => window.alert(e instanceof Error ? e.message : 'Failed to void purchase return') }); };
     const editDebit = () => debit && open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `debit:${debit.id}`, mode: 'edit' }, title: `Edit ${debit.id}`, path: `/ap/debits/edit?debitId=${debit.id}` });
     const editReturn = () => ret && open({ kind: 'doc-form', target: { module: 'ap', entity: 'debit-note', recordId: `return:${ret.id}`, mode: 'edit' }, title: `Edit ${ret.id}`, path: `/ap/returns/new?returnId=${ret.id}` });
+
+    const handleDelete = async () => {
+        const doc = type === 'debit' ? debit : ret;
+        if (!doc || !window.confirm('Delete this draft document?')) return;
+        try {
+            await (type === 'debit' ? deleteNote.mutateAsync(doc.id) : deleteReturn.mutateAsync(doc.id));
+        } catch (error) { window.alert(error instanceof Error ? error.message : 'Could not delete document'); }
+    };
+    const handleUnlink = async () => {
+        if (!debit || !window.confirm('Unlink this draft note from the return? It will become a standalone note.')) return;
+        try { await unlinkReturn.mutateAsync(debit.id); }
+        catch (error) { window.alert(error instanceof Error ? error.message : 'Could not unlink note'); }
+    };
 
     const printDebit = () => { if (!debit) return; const lines = debitLines; const subtotal = lineSubtotal(lines); const total = Number(debit.amount || 0); setPrintDoc({ title: 'DEBIT NOTE', partyLabel: 'Vendor', partyName: debit.vendorName, document: { number: debit.id, date: debit.date, status: debit.status, reference: debit.sourceBillId }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total }); setIsPrintOpen(true); };
     const printReturn = () => { if (!ret) return; const lines = (ret.lines as ReturnLine[] | undefined) || []; const subtotal = lineSubtotal(lines); const total = getReturnTotal(ret as unknown as Record<string, unknown>); setPrintDoc({ title: 'PURCHASE RETURN', partyLabel: 'Vendor', partyName: ret.vendorName, document: { number: ret.id, date: ret.returnDate, status: ret.status, reference: ret.billId }, lineItems: lines, subtotal, taxAmount: Math.max(0, total - subtotal), total }); setIsPrintOpen(true); };
@@ -76,7 +92,7 @@ const APDebitNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
             <button className="dense-side-btn" title="Details"><FileText size={18} /></button>
             <button className="dense-side-btn" title="Attachments"><Paperclip size={18} /></button>
             <button className="dense-side-btn success" title="More"><MoreHorizontal size={18} /></button>
-            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete}><Trash2 size={18} /></button>
+            <button className={`dense-side-btn danger ${canDelete ? '' : 'opacity-60 cursor-not-allowed'}`} title="Delete" disabled={!canDelete || (type === 'debit' ? debit?.status !== 'Draft' : ret?.status !== 'Draft') || deleteNote.isPending || deleteReturn.isPending} onClick={handleDelete}><Trash2 size={18} /></button>
         </div>
     );
     const printModal = (
@@ -94,6 +110,7 @@ const APDebitNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
                         <div className="detail-header-title"><h2 className="detail-header-h2">{debit.id}</h2><StatusTag status={debit.status === 'Applied' ? 'Success' : 'Info'} label={debit.status} /></div>
                         <div className="detail-header-actions">
                             {debit.status === 'Applied' && <Button text="Void" size="small" variant="secondary" disabled={!canEdit || voidDebitNote.isPending} onClick={handleVoidDebit} />}
+                            {debit.status === 'Draft' && debit.returnId && <Button text="Unlink return" size="small" variant="secondary" disabled={!canEdit || unlinkReturn.isPending} onClick={handleUnlink} />}
                             <Button text="Print" size="small" variant="secondary" onClick={printDebit} />
                             <Button text="Edit" size="small" variant="primary" disabled={!canEdit} onClick={editDebit} />
                         </div>
@@ -129,7 +146,7 @@ const APDebitNoteDetailPane = ({ docKey }: Props): React.ReactElement => {
                                     </div>
                                 )}
                                 {detailTab === 'attachments' && <div className="attachment-empty">No attachments.</div>}
-                                {detailTab === 'audit' && <ul className="audit-list"><li><div><strong>Debit note created</strong></div><div>{formatDateID(debit.date)} • System</div></li><li><div><strong>Linked to purchase return {debit.returnId}</strong></div><div>{formatDateID(debit.date)} • Auto process</div></li></ul>}
+                                {detailTab === 'audit' && <p className="text-sm text-neutral-600">For recorded changes, including return links, see Data &amp; Tools → Audit Log.</p>}
                             </div>
                         </div>
                         <SideActions />

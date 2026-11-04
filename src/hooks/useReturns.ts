@@ -541,3 +541,26 @@ export function useDeleteCustomerCategory() {
     onSuccess: () => qc.invalidateQueries({ queryKey: CATEGORY_KEYS.categories }),
   });
 }
+
+
+/** Explicit deletion and unlink actions preserve the server's note/return guards. */
+export function useDeleteSalesReturn() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.delete(`/api/v1/sales-returns/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['salesReturns'] }) });
+}
+export function useDeletePurchaseReturn() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.delete(`/api/v1/purchase-returns/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['purchaseReturns'] }) });
+}
+export function useUnlinkCreditReturn() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.put(`/api/v1/credit-notes/${id}`, { salesReturnId: null }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['creditNotes'] }) });
+}
+export function useUnlinkDebitReturn() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.put(`/api/v1/debit-notes/${id}`, { purchaseReturnId: null }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['debitNotes'] }) });
+}

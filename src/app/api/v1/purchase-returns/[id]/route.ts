@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit } from '@/lib/api-utils';
+import { logAudit, logAuditTx } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { updatePurchaseReturnInputSchema } from '@/types/api';
+import { ApiError } from '@/lib/errors';
+import { lockReturnForDeletion, assertNoLinkedNotes } from '@/lib/return-deletion-guard';
 
 export const runtime = 'nodejs';
 
@@ -148,13 +150,21 @@ export const DELETE = withPermission({ module: 'AP_DEBITS', action: 'delete' }, 
   const orgId = req.headers.get('x-org-id')!;
   try {
     await prisma.$transaction(async (tx) => {
+      await lockReturnForDeletion(tx, 'purchase', orgId, id);
+      const prior = await tx.purchaseReturn.findFirst({ where: { id, organizationId: orgId } });
+      if (!prior) throw new ApiError('Purchase return not found', 404);
+      if (prior.status !== 'DRAFT' || prior.postedAt || prior.journalEntryId) {
+        throw new ApiError('Only draft purchase returns can be deleted; void finalized returns instead', 422);
+      }
+      await assertNoLinkedNotes(tx, 'purchase', orgId, id);
+      await logAuditTx(tx, { orgId, actorId: req.headers.get('x-user-id'), entityType: 'PurchaseReturn', entityId: id,
+        action: 'DELETE', payload: { number: prior.number, billId: prior.billId } });
       await tx.purchaseReturnLine.deleteMany({ where: { purchaseReturnId: id } });
       await tx.purchaseReturn.delete({ where: { id, organizationId: orgId } });
     });
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'PurchaseReturn', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
+    return withCors(NextResponse.json({ error: message }, { status: error instanceof ApiError ? error.status : 500 }));
   }
 });
