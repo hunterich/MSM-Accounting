@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { PUT as putCredit } from '@/src/app/api/v1/credit-notes/[id]/route';
 import { PUT as putDebit } from '@/src/app/api/v1/debit-notes/[id]/route';
@@ -16,6 +16,7 @@ import { voidSalesReturn, voidPurchaseReturn } from '@/lib/return-void';
 import { voidCreditNote, voidDebitNote } from '@/lib/note-void';
 import { approveRequest, rejectRequest, routeForApproval } from '@/lib/approval/engine';
 import { lockEligibleNoteReturn } from '@/lib/note-return-eligibility';
+import { auditLinkedReturnLimits } from '@/lib/note-return-audit';
 import { postArPaymentIfNeeded, postApPaymentIfNeeded } from '@/lib/payment-posting';
 import { prisma, createTestOrg, createItem, createCustomer, createVendor, cleanupOrg, disconnect,
   accountBalance, assertTrialBalanced, assertInventoryReconciled, journalEntryCount } from './harness';
@@ -38,16 +39,17 @@ async function fixture(kind: Kind) {
     lines: { create: { itemId, lineNo: 1, description: 'Stock', quantity: 10, price: 100, lineTotal: 1000 } } }, include: { lines: true } });
   await prisma.$transaction(tx => postBillToLedger(tx, org.orgId, bill));
   const invoice = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number: 'INV-SALE',
-    issueDate: DATE, status: 'SENT', subtotal: 1500, totalAmount: 1500,
+    issueDate: DATE, status: 'SENT', taxEnabled: false, subtotal: 1500, totalAmount: 1500,
     lines: { create: { itemId, lineNo: 1, description: 'Stock', quantity: 5, price: 300, lineSubtotal: 1500 } } }, include: { lines: true } });
   if (kind === 'ar') await prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, invoice.id));
   const ret = kind === 'ar'
     ? await prisma.salesReturn.create({ data: { organizationId: org.orgId, customerId, invoiceId: invoice.id, number: 'SR-1',
-      returnDate: DATE, status: 'APPROVED', lines: { create: { itemId, sourceInvoiceLineId: invoice.lines[0].id,
-        lineNo: 1, itemName: 'Stock', qtyReturn: 2, goodsReceived: true } } } })
+      returnDate: DATE, status: 'APPROVED', applyTax: false, subtotal: 600, totalAmount: 600,
+      lines: { create: { itemId, sourceInvoiceLineId: invoice.lines[0].id,
+        lineNo: 1, itemName: 'Stock', qtyReturn: 2, price: 300, lineTotal: 600, goodsReceived: true } } } })
     : await prisma.purchaseReturn.create({ data: { organizationId: org.orgId, vendorId, billId: bill.id, number: 'PR-1',
-      returnDate: DATE, status: 'APPROVED', returnAccountId: clearing.id,
-      lines: { create: { itemId, lineNo: 1, description: 'Stock', qtyReturn: 2 } } } });
+      returnDate: DATE, status: 'APPROVED', returnAccountId: clearing.id, applyTax: false, subtotal: 200, totalAmount: 200,
+      lines: { create: { itemId, lineNo: 1, description: 'Stock', qtyReturn: 2, price: 100, lineTotal: 200 } } } });
   await prisma.$transaction(tx => kind === 'ar' ? postSalesReturnOnApproval(tx, ret.id) : postPurchaseReturnOnApproval(tx, ret.id));
   const note = kind === 'ar'
     ? await prisma.creditNote.create({ data: { organizationId: org.orgId, customerId, sourceInvoiceId: invoice.id,
@@ -195,7 +197,7 @@ describe('linked notes and physical returns share eligibility and a row lock', (
         const error = await overlap(async tx => {
           if (kind === 'ar') await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${f.note.id} FOR UPDATE`;
           else await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${f.note.id} FOR UPDATE`;
-          await lockEligibleNoteReturn(tx, kind === 'ar' ? 'credit' : 'debit', { organizationId: f.org.orgId,
+          await lockEligibleNoteReturn(tx, kind === 'ar' ? 'credit' : 'debit', { id: f.note.id, amount: f.note.amount, organizationId: f.org.orgId,
             partyId: kind === 'ar' ? f.customerId : f.vendorId, sourceId: kind === 'ar' ? f.invoice.id : f.bill.id, returnId: f.ret.id });
           expect(await routeForApproval(tx, { orgId: f.org.orgId, userId: f.actor.userId,
             documentType: kind === 'ar' ? 'CREDIT_NOTE' : 'DEBIT_NOTE', documentId: f.note.id })).toBe(true);
@@ -335,6 +337,144 @@ describe('linked notes and physical returns share eligibility and a row lock', (
         }, () => put(f)) as Response;
         expect(response.status).toBe(422);
         expect(await state(f)).toEqual(before);
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+  }
+});
+
+async function sibling(f: Fixture, amount: number) {
+  const data = { organizationId: f.org.orgId, number: `N-${randomUUID()}`, date: DATE, amount, applyTax: false };
+  const note = f.kind === 'ar'
+    ? await prisma.creditNote.create({ data: { ...data, customerId: f.customerId, sourceInvoiceId: f.invoice.id,
+      salesReturnId: f.ret.id, returnAccountId: f.returnsAccount.id } })
+    : await prisma.debitNote.create({ data: { ...data, vendorId: f.vendorId, sourceBillId: f.bill.id,
+      purchaseReturnId: f.ret.id, returnAccountId: f.clearing.id } });
+  return { ...f, note };
+}
+
+describe('aggregate financial note limits (#164)', () => {
+  for (const kind of ['ar', 'ap'] as const) {
+    it(`${kind}: drafts reserve nothing; split applied notes reach exact cap and a cent more rolls back`, async () => {
+      const f = await fixture(kind);
+      try {
+        const limit = Number(f.note.amount);
+        const b = await sibling(f, limit / 2);
+        expect((await put(f, { status: 'APPLIED', amount: limit / 2 })).status).toBe(200);
+        expect((await put(b)).status).toBe(200);
+        const c = await sibling(f, 0.01), before = await state(c);
+        expect((await put(c)).status).toBe(422);
+        expect(await state(c)).toEqual(before);
+        // Already-posted retries do not consume the same value twice.
+        await prisma.$transaction(tx => (kind === 'ar' ? postCreditNoteOnApply : postDebitNoteOnApply)(tx, b.note.id));
+        expect(await state(c)).toEqual(before);
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+
+    it(`${kind}: pending approval reserves value, rejection releases it, and final approval counts itself once`, async () => {
+      const f = await fixture(kind);
+      try {
+        const b = await sibling(f, Number(f.note.amount));
+        const aRequest = await approval(f);
+        const before = await state(b);
+        expect((await put(b)).status).toBe(422);
+        expect(await state(b)).toEqual(before);
+        await rejectRequest(aRequest.id, f.actor, 'Release reserved value');
+        const bRequest = await approval(b);
+        await approveRequest(bRequest.id, f.actor);
+        expect(await state(b)).toMatchObject({ note: 'APPLIED', posted: true });
+        expect((await put(f)).status).toBe(422);
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+
+    it(`${kind}: submission checks the effective edited amount before creating an approval request`, async () => {
+      const f = await fixture(kind);
+      try {
+        await prisma.organization.update({ where: { id: f.org.orgId }, data: {
+          approvalRequirements: { [kind === 'ar' ? 'ar_credits' : 'ap_debits']: true } } });
+        const before = await state(f);
+        const response = await put(f, { status: 'APPLIED', amount: Number(f.note.amount) + 0.01 });
+        expect(response.status).toBe(422);
+        expect(await state(f)).toEqual(before);
+        expect(await prisma.approvalRequest.count({ where: { organizationId: f.org.orgId } })).toBe(0);
+        expect((await put(f, { status: 'APPLIED', amount: Number(f.note.amount) })).status).toBe(200);
+        expect(await state(f)).toMatchObject({ note: 'PENDING_APPROVAL', posted: false });
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+
+    it(`${kind}: final approval rechecks historical excess and rolls the approval claim back`, async () => {
+      const f = await fixture(kind);
+      try {
+        const req = await approval(f);
+        const b = await sibling(f, 0.01);
+        // Model a legacy overdraw predating enforcement, not a supported API write.
+        if (kind === 'ar') await prisma.creditNote.update({ where: { id: b.note.id }, data: { status: 'PENDING_APPROVAL' } });
+        else await prisma.debitNote.update({ where: { id: b.note.id }, data: { status: 'PENDING_APPROVAL' } });
+        const before = await state(f);
+        await expect(approveRequest(req.id, f.actor)).rejects.toMatchObject({ status: 422 });
+        expect(await state(f)).toEqual(before);
+        expect((await prisma.approvalRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe('PENDING');
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+
+    it(`${kind}: concurrent split notes both succeed when their combined value equals the cap`, async () => {
+      const f = await fixture(kind);
+      try {
+        const half = Number(f.note.amount) / 2;
+        if (kind === 'ar') await prisma.creditNote.update({ where: { id: f.note.id }, data: { amount: half } });
+        else await prisma.debitNote.update({ where: { id: f.note.id }, data: { amount: half } });
+        const b = await sibling(f, half);
+        const response = await overlap(tx => apply(tx, f), () => put(b)) as Response;
+        expect(response.status).toBe(200);
+        expect(await state(f)).toMatchObject({ note: 'APPLIED', posted: true });
+        expect(await state(b)).toMatchObject({ note: 'APPLIED', posted: true });
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+
+    it(`${kind}: cash refunds consume value and successful note reversal releases it without restocking`, async () => {
+      const f = await fixture(kind);
+      try {
+        const b = await sibling(f, Number(f.note.amount));
+        const initial = await state(f);
+        expect((await put(f, { status: 'APPLIED', settlementType: kind === 'ar' ? 'REFUND' : 'REFUND_FROM_VENDOR',
+          settlementAccountId: f.org.accounts.bankAsset })).status).toBe(200);
+        expect((await put(b)).status).toBe(422);
+        await prisma.$transaction(tx => (kind === 'ar' ? voidCreditNote : voidDebitNote)(tx, f.org.orgId, f.note.id, { date: DATE }));
+        expect((await put(b)).status).toBe(200);
+        expect(await state(b)).toMatchObject({ quantity: initial.quantity, inventory: initial.inventory });
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+
+    for (const reserve of [false, true]) it(`${kind}: concurrent ${reserve ? 'approval submission' : 'application'} serializes on the return and refuses excess`, async () => {
+      const f = await fixture(kind);
+      try {
+        const b = await sibling(f, Number(f.note.amount));
+        const response = await overlap(async tx => {
+          if (reserve) {
+            await tx.$queryRaw`SELECT "id" FROM ${Prisma.raw(kind === 'ar' ? '"CreditNote"' : '"DebitNote"')} WHERE "id" = ${f.note.id} FOR UPDATE`;
+            await lockEligibleNoteReturn(tx, kind === 'ar' ? 'credit' : 'debit', { id: f.note.id, amount: f.note.amount,
+              organizationId: f.org.orgId, partyId: kind === 'ar' ? f.customerId : f.vendorId,
+              sourceId: kind === 'ar' ? f.invoice.id : f.bill.id, returnId: f.ret.id });
+            if (kind === 'ar') await tx.creditNote.update({ where: { id: f.note.id }, data: { status: 'PENDING_APPROVAL' } });
+            else await tx.debitNote.update({ where: { id: f.note.id }, data: { status: 'PENDING_APPROVAL' } });
+          } else await apply(tx, f);
+        }, () => put(b)) as Response;
+        expect(response.status).toBe(422);
+        expect(await state(b)).toMatchObject({ note: 'DRAFT', posted: false });
+      } finally { await cleanupOrg(f.org.orgId); }
+    });
+
+    it(`${kind}: audit reports historical excess without rewriting and blocks new consumption`, async () => {
+      const f = await fixture(kind);
+      try {
+        const b = await sibling(f, 0.01);
+        if (kind === 'ar') await prisma.creditNote.update({ where: { id: f.note.id }, data: { status: 'PENDING_APPROVAL', amount: Number(f.note.amount) + 1 } });
+        else await prisma.debitNote.update({ where: { id: f.note.id }, data: { status: 'PENDING_APPROVAL', amount: Number(f.note.amount) + 1 } });
+        const report = await prisma.$transaction(tx => auditLinkedReturnLimits(tx, f.org.orgId));
+        expect(report.findings).toEqual([expect.objectContaining({ returnId: f.ret.id, excess: '1.00' })]);
+        const before = await state(b);
+        expect((await put(b)).status).toBe(422);
+        expect(await state(b)).toEqual(before);
+        expect(await prisma.$transaction(tx => auditLinkedReturnLimits(tx, f.org.orgId))).toEqual(report);
       } finally { await cleanupOrg(f.org.orgId); }
     });
   }

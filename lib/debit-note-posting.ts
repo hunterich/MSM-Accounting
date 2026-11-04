@@ -68,6 +68,7 @@ export async function postDebitNoteOnApply(
   // Idempotency token — already posted, nothing to do.
   if (dn.journalEntryId) return;
   await lockEligibleNoteReturn(tx, 'debit', {
+    id: dn.id, amount: dn.amount,
     organizationId: dn.organizationId, partyId: dn.vendorId,
     sourceId: dn.sourceBillId, returnId: dn.purchaseReturnId,
   });
