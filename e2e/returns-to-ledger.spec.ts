@@ -229,6 +229,18 @@ test('return-only confirmation can cancel without a write or save without a cred
   const returnsBefore = await idsOf(page.request, '/api/v1/sales-returns?limit=100')
   await page.goto('/ar/credits')
   await page.locator('.workbench-doc-tab-new').click()
+  const periods: Array<{ startDate: string; endDate: string; status: string; isLocked: boolean }> =
+    await apiJson(page.request, '/api/v1/accounting-periods?limit=100')
+  const issue = new Date(invoice.issueDate)
+  let openDate = ''
+  for (let month = 1; month <= 48; month++) {
+    const candidate = new Date(Date.UTC(issue.getUTCFullYear(), issue.getUTCMonth() + month, 15))
+    if (!periods.some(p => (p.status === 'CLOSED' || p.isLocked) && candidate >= new Date(p.startDate) && candidate <= new Date(p.endDate))) {
+      openDate = candidate.toISOString().slice(0, 10); break
+    }
+  }
+  expect(openDate, 'no open date for the return-only test').not.toBe('')
+  await page.locator('main input[type="date"]:visible').first().fill(openDate)
   await choose(page, 'Select Customer...', 'Acme Corp')
   await choose(page, 'Select Invoice...', /INV-0004/)
   await page.getByRole('row').filter({ hasText: 'Widget A x5' }).locator('input[type="number"]').fill('1')
