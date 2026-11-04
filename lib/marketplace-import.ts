@@ -143,6 +143,10 @@ export async function importMarketplaceOrders(
       // transaction commits (mirrors payment-posting) so a Prisma retry of the
       // callback can never double-count.
       const outcome = await prisma.$transaction(async (tx): Promise<'created' | 'logistics_updated' | 'skipped'> => {
+        // Serialize the duplicate check and posting for this company/order.
+        // The same key spans connections because the existing duplicate rule
+        // treats order numbers as company-wide. The lock lasts until commit.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([orgId, order.orderNo])}, 0))`;
         // 1. Idempotency — skip orders already imported (ignore VOID re-use).
         const existing = await tx.salesInvoice.findFirst({
           where: {
