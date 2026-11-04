@@ -216,6 +216,12 @@ export async function closeFiscalYear(
   fiscalYearStart: Date,
   userId: string,
 ): Promise<{ closingEntryId: string; entryNo: string; netIncome: number; range: FiscalYearRange }> {
+  // Serialize year close with reopening any overlapping month. Re-read the
+  // preview only after these locks: a reopen that won the race must block close.
+  const range = fiscalYearRange(fiscalYearStart);
+  await tx.$queryRaw`SELECT "id" FROM "AccountingPeriod"
+    WHERE "organizationId" = ${orgId} AND "startDate" <= ${range.endDate} AND "endDate" >= ${range.startDate}
+    ORDER BY "startDate", "id" FOR UPDATE`;
   const preview = await buildClosingPreview(tx, orgId, fiscalYearStart);
   if (!preview.canClose) {
     throw new ApiError(preview.blockedReason ?? 'Fiscal year cannot be closed', 422);
