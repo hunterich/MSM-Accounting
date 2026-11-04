@@ -791,6 +791,9 @@ model SalesOrderItem {
 }
 
 model ARPayment {
+  source ARPaymentSource @default(MANUAL)
+  ecommerceConnectionId String?
+  marketplaceOrderNo String?
   id                String        @id @default(cuid())
   organizationId    String
   number            String
@@ -815,11 +818,13 @@ model ARPayment {
 
   organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer          Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  ecommerceConnection EcommerceConnection? @relation(fields: [ecommerceConnectionId], references: [id], onDelete: SetNull)
   allocations       ARPaymentAllocation[]
 
   @@unique([organizationId, number])
   @@index([organizationId, date, status])
   @@index([customerId])
+  @@index([ecommerceConnectionId])
 }
 
 model ARPaymentAllocation {
@@ -900,6 +905,7 @@ model SalesReturnLine {
 }
 
 model CreditNote {
+  marketplaceOverrideReason String?
   id                 String            @id @default(cuid())
   organizationId     String
   number             String
@@ -1765,6 +1771,7 @@ model PayrollLine {
 }
 
 model EcommerceConnection {
+  arPayments ARPayment[]
   id               String           @id @default(cuid())
   organizationId   String
   platform         EcommercePlatform
@@ -1926,6 +1933,11 @@ enum PaymentMethod {
   CREDIT_CARD
   CASH
   OTHER
+}
+
+enum ARPaymentSource {
+  MANUAL
+  MARKETPLACE_IMPORT
 }
 
 enum PaymentStatus {
