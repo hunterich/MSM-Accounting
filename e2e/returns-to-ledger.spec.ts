@@ -194,3 +194,42 @@ test.describe('sales return → credit note → ledger', () => {
       ])
   })
 })
+
+test('return-only confirmation can cancel without a write or save without a credit note', async ({ page }) => {
+  await login(page)
+  const orgId = await page.evaluate(() => sessionStorage.getItem('msm-active-org'))
+  await page.context().setExtraHTTPHeaders({ 'x-active-org': orgId! })
+  const invoices = await apiJson(page.request, '/api/v1/invoices?limit=100')
+  const invoice = invoices.find((i: { number: string }) => i.number === 'INV-0004')
+  expect(invoice).toBeTruthy()
+  if (invoice.status === 'DRAFT') {
+    const res = await page.request.put(`http://localhost:3100/api/v1/invoices/${invoice.id}`, { data: { status: 'SENT' } })
+    expect(res.ok(), await res.text()).toBeTruthy()
+  }
+  const notesBefore = await idsOf(page.request, '/api/v1/credit-notes?limit=100')
+  const returnsBefore = await idsOf(page.request, '/api/v1/sales-returns?limit=100')
+  await page.goto('/ar/credits')
+  await page.locator('.workbench-doc-tab-new').click()
+  await choose(page, 'Select Customer...', 'Acme Corp')
+  await choose(page, 'Select Invoice...', /INV-0004/)
+  await page.getByRole('row').filter({ hasText: 'Widget A x5' }).locator('input[type="number"]').fill('1')
+  let writes = 0
+  page.on('request', req => { if (/\/api\/v1\/(sales-returns|credit-notes)(\/|$)/.test(req.url()) && ['POST', 'PUT'].includes(req.method())) writes++ })
+  const cancelDialog = page.waitForEvent('dialog').then(async dialog => {
+    expect(dialog.type()).toBe('confirm')
+    expect(dialog.message()).toContain('no refund or credit is recorded')
+    await dialog.dismiss()
+  })
+  await Promise.all([cancelDialog, page.getByRole('button', { name: 'Save Return (no credit note)' }).click()])
+  expect(writes).toBe(0)
+  expect(await idsOf(page.request, '/api/v1/sales-returns?limit=100')).toEqual(returnsBefore)
+  const confirmDialog = page.waitForEvent('dialog').then(dialog => dialog.accept())
+  const saved = page.waitForResponse(res => res.url().endsWith('/api/v1/sales-returns') && res.request().method() === 'POST')
+  await Promise.all([confirmDialog, page.getByRole('button', { name: 'Save Return (no credit note)' }).click()])
+  const response = await saved
+  expect(response.ok(), await response.text()).toBeTruthy()
+  expect(response.request().postDataJSON().status).toBe('APPROVED')
+  expect(theNewOne<{ id: string; status: string }>(await apiJson(page.request, '/api/v1/sales-returns?limit=100'), returnsBefore, 'return').status).toBe('APPROVED')
+  expect(await idsOf(page.request, '/api/v1/credit-notes?limit=100')).toEqual(notesBefore)
+})
+

@@ -544,7 +544,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                 <>
                     <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
                     {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveReturn('draft'); }} />}
-                    {!isView && <Button text="Save Return (no credit note)" variant="secondary" onClick={() => { void handleSaveReturn('return-only'); }} />}
+                    {!isView && <Button text="Save Return (no credit note)" variant="secondary" onClick={() => { if (window.confirm('Save this return without a credit note? Stock is updated, but no refund or credit is recorded for the customer, and you cannot add a credit note to this return later. Use this for Shopee/TikTok orders (the settlement import records the refund) or free replacements.')) void handleSaveReturn('return-only'); }} />}
                     <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveReturn('credit'); }} />
                 </>
             )}
