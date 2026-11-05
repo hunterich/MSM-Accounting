@@ -3,17 +3,18 @@
 Policy approved in review on 19 October 2026. Applies equally to AR credit notes
 and AP debit notes. Physical inventory posting remains separate from settlement.
 
-## Review blocker: sales-return form valuation
+## Sales-return valuation
 
-This is a draft, not release-ready. The current sales-return form initializes
-return line prices from the invoice's undiscounted unit price and computes its
-total from those prices. It does not allocate invoice line or header discounts.
-The policy below requires those discounts to be included in the return cap.
-Consequently, a return made through the current form for a discounted invoice
-can have a recorded total that fails the new validation, preventing a legitimate
-linked credit note. Align the actual return workflow with the approved basis,
-including rounding and historical handling, and test the full browser journey
-before merge. Do not adjust existing posted returns automatically.
+New sales returns and edits to drafts derive the subtotal, tax and gross from
+the original invoice, including proportional line and header discounts. The
+server calculates the authoritative amount; cumulative rounding assigns cents
+to lines without changing the document total. The form previews the same basis,
+and the credit-note handoff uses the saved amounts. Existing finalized returns
+are not rewritten: inconsistent historical valuations require finance review.
+
+A browser journey returns two of five items with both line and invoice discounts:
+Rp162,000 subtotal plus Rp17,820 tax produces an applied Rp179,820 credit and
+matching journal. Database coverage also exercises a tax-inclusive draft edit.
 
 ## Value and reservations
 

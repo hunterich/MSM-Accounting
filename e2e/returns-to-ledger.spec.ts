@@ -166,7 +166,7 @@ test.describe('sales return → credit note → ledger', () => {
     await page.getByRole('button', { name: 'Save & Apply' }).click()
 
     // Back on the catalog, showing document numbers rather than raw cuids.
-    await expect(page.getByText(/^CRN-/).first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/^CRN-/).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 })
 
     // What the API actually stored: linked to the return, the customer and the
     // source invoice — the three fields the client used to get wrong.

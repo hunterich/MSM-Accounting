@@ -13,6 +13,7 @@ interface CreditNoteLine {
     qtyReturn: number;
     unit:     string;
     price:    number;
+    lineTotal?: number | string;
 }
 
 interface CreditNoteFormData {
@@ -38,6 +39,7 @@ interface CreditNoteFormData {
     settlementAccountId: string;
     note:                string;
     amount:              number;
+    recordedTaxAmount:   number;
     lines:               CreditNoteLine[];
     applyTax:            boolean;
     taxIncluded:         boolean;
@@ -65,7 +67,7 @@ const buildCreditNo = (dateStr: string, seq = 1) => {
 
 const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
     if (!ret) return { subtotal: 0, taxAmount: 0, total: 0 };
-    const subtotal = (ret.lines || []).reduce((sum, line) => sum + (Number(line.qtyReturn || 0) * Number(line.price || 0)), 0);
+    const subtotal = (ret.lines || []).reduce((sum, line) => sum + (line.lineTotal == null ? Number(line.qtyReturn || 0) * Number(line.price || 0) : Number(line.lineTotal)), 0);
     if (!ret.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
     const taxRate = Number(ret.taxRate || 0) / 100;
     if (ret.taxIncluded) {
@@ -137,6 +139,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
         settlementAccountId: '',
         note: '',
         amount: 0,
+        recordedTaxAmount: 0,
         lines: [],
         applyTax: true,
         taxIncluded: false,
@@ -160,7 +163,8 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                 returnAccountId: draft.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.arReturn,
                 taxAccountId: draft.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
                 settlementAccountId: prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
-                amount: toReturnTotals(draft).total,
+                amount: Number(draft.totalAmount ?? toReturnTotals(draft).total),
+                recordedTaxAmount: Number(draft.taxAmount ?? toReturnTotals(draft).taxAmount),
                 lines: (draft.lines || []) as CreditNoteLine[],
                 applyTax: draft.applyTax,
                 taxIncluded: draft.taxIncluded,
@@ -193,6 +197,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                 taxAccountId: found.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
                 settlementAccountId: found.settlementAccountId || prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
                 amount: found.amount,
+                recordedTaxAmount: found.taxAmount,
                 lines: (linkedReturn?.lines || []) as CreditNoteLine[],
                 applyTax: found.applyTax,
                 taxIncluded: linkedReturn?.taxIncluded ?? false,
@@ -280,16 +285,9 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     }, [formData.sourceInvoiceId, invoices]);
 
     const totals = useMemo(() => {
-        const subtotal = formData.lines.reduce((sum, line) => sum + Number(line.qtyReturn || 0) * Number(line.price || 0), 0);
-        if (!formData.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
-        const rate = Number(formData.taxRate || 0) / 100;
-        if (formData.taxIncluded) {
-            const base = subtotal / (1 + rate);
-            return { subtotal, taxAmount: subtotal - base, total: subtotal };
-        }
-        const taxAmount = subtotal * rate;
-        return { subtotal, taxAmount, total: subtotal + taxAmount };
-    }, [formData.lines, formData.applyTax, formData.taxIncluded, formData.taxRate]);
+        const total = Number(formData.amount), taxAmount = formData.applyTax ? Number(formData.recordedTaxAmount) : 0;
+        return { subtotal: total - taxAmount, taxAmount, total };
+    }, [formData.amount, formData.recordedTaxAmount, formData.applyTax]);
 
     const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
@@ -553,7 +551,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                                 <td className="text-right">{line.qtyReturn}</td>
                                 <td>{line.unit}</td>
                                 <td className="text-right">{formatIDR(line.price)}</td>
-                                <td className="text-right text-strong">{formatIDR(Number(line.qtyReturn || 0) * Number(line.price || 0))}</td>
+                                <td className="text-right text-strong">{formatIDR(line.lineTotal == null ? Number(line.qtyReturn || 0) * Number(line.price || 0) : Number(line.lineTotal))}</td>
                             </tr>
                         ))}
                     </tbody>

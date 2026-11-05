@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
 import { lockEligibleNoteReturn } from '../note-return-eligibility';
-import { linkedReturnValue } from '../note-return-value';
+import { linkedReturnValue, salesReturnAmounts } from '../note-return-value';
 import { auditLinkedReturnLimits } from '../note-return-audit';
 
 const d = (value: string | number) => new Prisma.Decimal(value);
@@ -9,7 +9,7 @@ function fixture(kind: 'credit' | 'debit', used = '0', total = '111.00') {
   const source = { invoiceId: 'source', quantity: d(2), lineSubtotal: d(200) };
   const ret = { status: 'APPROVED', customerId: 'party', vendorId: 'party', invoiceId: 'source', billId: 'source',
     totalAmount: d(total), applyTax: true, taxIncluded: false, taxRate: d(11),
-    invoice: { discountAmount: d(0), subtotal: d(200), taxEnabled: true, taxInclusive: false, taxRate: d(11) },
+    invoice: { id: 'source', discountAmount: d(0), subtotal: d(200), taxEnabled: true, taxInclusive: false, taxRate: d(11) },
     lines: [{ qtyReturn: d(1), price: d(100), sourceInvoiceLine: source }] };
   const aggregate = vi.fn().mockResolvedValue({ _sum: { amount: d(used) } });
   const tx = { $queryRaw: vi.fn().mockResolvedValue([]),
@@ -50,6 +50,13 @@ for (const kind of ['credit', 'debit'] as const) describe(`${kind} return limits
 });
 
 describe('return valuation basis', () => {
+  it('allocates fractional-cent line values without losing the rounded document total', () => {
+    const invoice = { id: 'source', subtotal: d(3), discountAmount: d(0), taxEnabled: true, taxInclusive: true, taxRate: d(11) };
+    const source = { invoiceId: 'source', quantity: d(3), lineSubtotal: d(1) };
+    const result = salesReturnAmounts(invoice, Array.from({ length: 3 }, () => ({ source, qtyReturn: d(1) })));
+    expect(result.lineTotals.map(amount => amount.toFixed(2))).toEqual(['0.33', '0.34', '0.33']);
+    expect([result.subtotal.toFixed(2), result.taxAmount.toFixed(2), result.total.toFixed(2)]).toEqual(['1.00', '0.10', '1.00']);
+  });
   it('uses original sale less line and invoice discounts', async () => {
     const f = fixture('credit', '0', '79.92');
     f.ret.lines[0].sourceInvoiceLine.lineSubtotal = d(160); // 20% line discount
