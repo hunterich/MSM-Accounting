@@ -75,7 +75,20 @@ export const GET = withHandler(async function GET(req: NextRequest) {
     prisma.accountingPeriod.count({ where }),
   ]);
 
-  return listResponse(data, total, page, limit);
+  // A month inside a closed fiscal year cannot be reopened until the year is
+  // (the reopen route refuses it), so the screen needs to know which ones.
+  const yearCloses = await prisma.fiscalYearClose.findMany({
+    where: { organizationId: orgId },
+    select: { startDate: true, endDate: true },
+  });
+  const withYear = data.map((period) => ({
+    ...period,
+    fiscalYearClosed: yearCloses.some(
+      (y) => y.startDate <= period.endDate && y.endDate >= period.startDate,
+    ),
+  }));
+
+  return listResponse(withYear, total, page, limit);
 });
 
 export const POST = withPermission({ module: 'SETTINGS', action: 'create' }, async function POST(req: NextRequest) {

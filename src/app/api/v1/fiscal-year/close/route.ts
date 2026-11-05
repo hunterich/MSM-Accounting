@@ -40,6 +40,15 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
       throw new ApiError('This fiscal year was closed by someone else just now', 409);
     }
+    // Close locks every month of the year; a posting that holds two of those
+    // months in the opposite order can deadlock with it. PostgreSQL aborts one
+    // side with nothing written — report a retryable conflict, not a 500.
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      (e.code === 'P2034' || (e.code === 'P2010' && e.meta?.code === '40P01'))
+    ) {
+      throw new ApiError('Another change to this year was in progress. Nothing was closed — try again.', 409);
+    }
     throw e;
   }
 
