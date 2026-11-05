@@ -8,6 +8,7 @@ import { routeForApproval } from '@/lib/approval/engine';
 import { asMoney, toNumber } from '@/lib/money';
 import { createSalesReturnInputSchema } from '@/types/api';
 import { prepareSalesReturnLines } from '@/lib/sales-return-lines';
+import { salesReturnAmounts } from '@/lib/note-return-value';
 
 export const runtime = 'nodejs';
 
@@ -72,6 +73,8 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
       await validateForeignKey(tx.item, { id: itemId, organizationId: orgId }, 'Item not found in organization');
     }
     const preparedLines = await prepareSalesReturnLines(tx, orgId, header.invoiceId, header.customerId, lines ?? []);
+    const invoice = await tx.salesInvoice.findFirstOrThrow({ where: { id: header.invoiceId, organizationId: orgId } });
+    const amounts = salesReturnAmounts(invoice, preparedLines.map((line, index) => ({ source: line.source, qtyReturn: toNumber(lines?.[index]?.qtyReturn) })));
     const number = await nextNumber(tx, 'SalesReturn', 'number', 'SRN');
     const created = await tx.salesReturn.create({
       data: {
@@ -79,10 +82,12 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
         number,
         organizationId: orgId,
         returnDate: new Date(header.returnDate),
-        subtotal:    asMoney(toNumber(header.subtotal)),
-        taxAmount:   asMoney(toNumber(header.taxAmount)),
-        totalAmount: asMoney(toNumber(header.totalAmount)),
-        taxRate:     toNumber(header.taxRate ?? 11),
+        subtotal: amounts.subtotal,
+        taxAmount: amounts.taxAmount,
+        totalAmount: amounts.total,
+        applyTax: invoice.taxEnabled,
+        taxIncluded: invoice.taxInclusive,
+        taxRate: invoice.taxRate,
         lines: lines?.length ? {
           create: lines.map((l: any, idx: number) => {
             const qtyReturn = toNumber(l.qtyReturn);
@@ -97,7 +102,7 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
               qtyReturn,
               unit:     l.unit || 'PCS',
               price,
-              lineTotal: asMoney(l.lineTotal != null ? toNumber(l.lineTotal) : qtyReturn * price),
+              lineTotal: amounts.lineTotals[idx],
             };
           }),
         } : undefined,

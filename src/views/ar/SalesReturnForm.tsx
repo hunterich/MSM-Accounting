@@ -13,6 +13,7 @@ interface SalesReturnLine {
     qtyReturn: number;
     unit:      string;
     price:     number;
+    lineTotal?: number;
 }
 
 interface SalesReturnData {
@@ -86,7 +87,8 @@ const normalizeLine = (line: SalesReturnLineInput): SalesReturnLine => ({
     qtySold: Number(line.qty || line.qtySold || 0),
     qtyReturn: Number(line.qtyReturn || 0),
     unit: String(line.unit || 'PCS'),
-    price: Number(line.price || 0)
+    price: Number(line.price || 0),
+    lineTotal: line.lineTotal == null ? undefined : Number(line.lineTotal)
 });
 
 interface SalesReturnFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
@@ -295,7 +297,16 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     }, [lookupItemId, returnData.customerId, invoices, invoiceItemTemplates, salesReturns, state.returnId]);
 
     const totals = useMemo(() => {
-        const subtotal = returnData.lines.reduce((sum, line) => sum + (line.qtyReturn * line.price), 0);
+        const invoice = invoices.find(item => item.id === returnData.invoiceId);
+        const stored = isView ? salesReturns.find(item => item.id === state.returnId) : undefined;
+        if (stored) return { subtotal: stored.subtotal, taxAmount: stored.taxAmount, total: stored.totalAmount };
+        const lineSum = returnData.lines.reduce((sum, line) => {
+            const source = invoice?.lines.find(item => item.id === line.sourceInvoiceLineId);
+            return sum + (source && Number(source.quantity) > 0
+                ? Number(source.lineSubtotal) * line.qtyReturn / Number(source.quantity) : 0);
+        }, 0);
+        const discountFactor = invoice && invoice.subtotal > 0 ? 1 - invoice.discountAmount / invoice.subtotal : 1;
+        const subtotal = Math.round((lineSum * discountFactor + Number.EPSILON) * 100) / 100;
         const taxRate = Number(returnData.taxRate || 0) / 100;
         let taxAmount = 0;
         let total = subtotal;
@@ -303,10 +314,10 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         if (returnData.applyTax) {
             if (returnData.taxIncluded) {
                 const base = subtotal / (1 + taxRate);
-                taxAmount = subtotal - base;
+                taxAmount = Math.round((subtotal - base + Number.EPSILON) * 100) / 100;
                 total = subtotal;
             } else {
-                taxAmount = subtotal * taxRate;
+                taxAmount = Math.round((subtotal * taxRate + Number.EPSILON) * 100) / 100;
                 total = subtotal + taxAmount;
             }
         }
@@ -316,7 +327,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             taxAmount,
             total
         };
-    }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate]);
+    }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate, returnData.invoiceId, invoices, isView, salesReturns, state.returnId]);
 
     const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
@@ -333,7 +344,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             {
                 side: 'DR',
                 accountId: returnData.returnAccountId,
-                amount: totals.subtotal
+                amount: totals.total - totals.taxAmount
             }
         ];
 
@@ -380,6 +391,9 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             ...prev,
             invoiceId,
             customerId: inv ? inv.customerId : prev.customerId,
+            applyTax: inv?.taxEnabled ?? false,
+            taxIncluded: inv?.taxInclusive ?? false,
+            taxRate: Number(inv?.taxRate ?? 0),
             lines: hydrateLinesFromInvoice(invoiceId)
         }));
     };
@@ -444,11 +458,11 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         // to link to the SAVED return, and only the response carries the id and
         // the server-assigned number. It also means a failed save is reported
         // instead of silently swallowed while we navigate away.
-        let saved: { id?: string; number?: string } | null = null;
+        let saved: any = null;
         try {
             saved = (state.returnId
                 ? await updateSalesReturnMutation.mutateAsync({ id: state.returnId, ...returnRecord } as any)
-                : await createSalesReturnMutation.mutateAsync(returnRecord as any)) as { id?: string; number?: string } | null;
+                : await createSalesReturnMutation.mutateAsync(returnRecord as any));
         } catch (err) {
             window.alert(`Failed to save sales return: ${err instanceof Error ? err.message : 'Unknown error'}`);
             return;
@@ -464,7 +478,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         const savedNumber = saved?.number || payload.returnNumber || '';
         // Seed with the canonical SalesReturn field names so the credit note can
         // read `id`/`number` straight off the draft.
-        const returnSeed = { ...payload, id: savedId, number: savedNumber };
+        const returnSeed = { ...payload, ...saved, returnDate: String(saved?.returnDate ?? payload.returnDate).slice(0, 10), id: savedId, number: savedNumber };
 
         // Hand the prefilled credit note over through the new tab's draft. In
         // the workspace a route carries only a path string, so router `state`
@@ -607,18 +621,18 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                         <label className="form-label">Tax</label>
                         <div className="tax-checkbox-row">
                             <label className="checkbox-inline">
-                                <input type="checkbox" checked={returnData.applyTax} onChange={(e) => setReturnData((prev) => ({ ...prev, applyTax: e.target.checked }))} disabled={isView} />
+                                <input type="checkbox" checked={returnData.applyTax} disabled />
                                 Apply Tax
                             </label>
                             <label className="checkbox-inline">
-                                <input type="checkbox" checked={returnData.taxIncluded} onChange={(e) => setReturnData((prev) => ({ ...prev, taxIncluded: e.target.checked }))} disabled={isView || !returnData.applyTax} />
+                                <input type="checkbox" checked={returnData.taxIncluded} disabled />
                                 Total includes tax
                             </label>
                         </div>
                     </div>
                     <div className="col-span-2">
                         <label className="form-label">Tax Rate (%)</label>
-                        <Input className="mb-0" type="number" value={returnData.taxRate} onChange={(e) => setReturnData((prev) => ({ ...prev, taxRate: Number(e.target.value) }))} disabled={isView || !returnData.applyTax} />
+                        <Input className="mb-0" type="number" value={returnData.taxRate} disabled />
                     </div>
                     <div className="col-span-4">
                         <label className="form-label">Reason</label>
@@ -715,7 +729,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                             <th className="text-right">Qty Return</th>
                             <th>Goods received back</th>
                             <th>Unit</th>
-                            <th className="text-right">Price</th>
+                            <th className="text-right">Original Price</th>
                             <th className="text-right">Line Total</th>
                         </tr>
                     </thead>
@@ -750,7 +764,12 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                                 </td>
                                 <td>{line.unit}</td>
                                 <td className="text-right">{formatIDR(line.price)}</td>
-                                <td className="text-right text-strong">{formatIDR(line.qtyReturn * line.price)}</td>
+                                <td className="text-right text-strong">{formatIDR(isView && line.lineTotal != null ? line.lineTotal : (() => {
+                                    const invoice = invoices.find(item => item.id === returnData.invoiceId);
+                                    const source = invoice?.lines.find(item => item.id === line.sourceInvoiceLineId);
+                                    const factor = invoice && invoice.subtotal > 0 ? 1 - invoice.discountAmount / invoice.subtotal : 1;
+                                    return source && Number(source.quantity) > 0 ? Number(source.lineSubtotal) * line.qtyReturn / Number(source.quantity) * factor : 0;
+                                })())}</td>
                             </tr>
                         ))}
                     </tbody>

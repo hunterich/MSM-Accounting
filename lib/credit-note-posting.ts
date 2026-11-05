@@ -72,6 +72,7 @@ export async function postCreditNoteOnApply(
   // Idempotency token — already posted, nothing to do.
   if (cn.journalEntryId) return;
   await lockEligibleNoteReturn(tx, 'credit', {
+    id: cn.id, amount: cn.amount,
     organizationId: cn.organizationId, partyId: cn.customerId,
     sourceId: cn.sourceInvoiceId, returnId: cn.salesReturnId,
   });

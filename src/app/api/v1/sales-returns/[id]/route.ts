@@ -9,6 +9,7 @@ import { updateSalesReturnInputSchema } from '@/types/api';
 import { prepareSalesReturnLines, lockSalesReturns } from '@/lib/sales-return-lines';
 import { ApiError } from '@/lib/errors';
 import { lockReturnForDeletion, assertNoLinkedNotes } from '@/lib/return-deletion-guard';
+import { salesReturnAmounts } from '@/lib/note-return-value';
 
 export const runtime = 'nodejs';
 
@@ -89,8 +90,18 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         lines ?? prior.lines, id,
       );
 
+      const invoice = await tx.salesInvoice.findFirstOrThrow({ where: { id: header.invoiceId ?? prior.invoiceId, organizationId: orgId } });
+      const effectiveLines = lines ?? prior.lines;
+      const amounts = prior.status === 'DRAFT' ? salesReturnAmounts(invoice, preparedLines.map((line, index) => ({
+        source: line.source, qtyReturn: Number(effectiveLines[index]?.qtyReturn ?? 0),
+      }))) : null;
+
       if (lines) {
         await tx.salesReturnLine.deleteMany({ where: { salesReturnId: id } });
+      } else if (amounts) {
+        for (let i = 0; i < prior.lines.length; i++) {
+          await tx.salesReturnLine.update({ where: { id: prior.lines[i].id }, data: { lineTotal: amounts.lineTotals[i] } });
+        }
       }
 
       const updated = await tx.salesReturn.update({
@@ -98,9 +109,8 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         data: {
           ...header,
           ...(header.returnDate && { returnDate: new Date(header.returnDate) }),
-          ...(header.subtotal != null    && { subtotal:    Number(header.subtotal) }),
-          ...(header.taxAmount != null   && { taxAmount:   Number(header.taxAmount) }),
-          ...(header.totalAmount != null && { totalAmount: Number(header.totalAmount) }),
+          ...(amounts && { subtotal: amounts.subtotal, taxAmount: amounts.taxAmount, totalAmount: amounts.total,
+            applyTax: invoice.taxEnabled, taxIncluded: invoice.taxInclusive, taxRate: invoice.taxRate }),
           updatedAt: new Date(),
           ...(lines ? {
             lines: {
@@ -114,7 +124,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
                 qtyReturn: Number(l.qtyReturn ?? 0),
                 unit:      l.unit || 'PCS',
                 price:     Number(l.price ?? 0),
-                lineTotal: Number(l.lineTotal ?? 0),
+                lineTotal: amounts!.lineTotals[idx],
               })),
             },
           } : {}),

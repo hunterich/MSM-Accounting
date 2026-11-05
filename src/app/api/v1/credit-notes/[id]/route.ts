@@ -90,7 +90,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.creditNote.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, journalEntryId: true, postedAt: true, customerId: true, sourceInvoiceId: true, salesReturnId: true },
+        select: { id: true, amount: true, status: true, journalEntryId: true, postedAt: true, customerId: true, sourceInvoiceId: true, salesReturnId: true },
       });
       if (!prior) {
         throw Object.assign(new Error('Not found'), { status: 404 });
@@ -123,6 +123,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       // also protects submission to approval, which posts no journal yet.
       if (prior.status === 'DRAFT' && nextStatus === 'APPLIED') {
         await lockEligibleNoteReturn(tx, 'credit', {
+          id, amount: d.amount !== undefined ? asMoney(toNumber(d.amount)) : prior.amount,
           organizationId: orgId, partyId: d.customerId ?? prior.customerId,
           sourceId: d.sourceInvoiceId !== undefined ? d.sourceInvoiceId : prior.sourceInvoiceId,
           returnId: d.salesReturnId !== undefined ? d.salesReturnId : prior.salesReturnId,
