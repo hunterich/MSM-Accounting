@@ -121,6 +121,14 @@ const AccountingPeriodsCard = ({ canManage }: Props): React.ReactElement => {
             align: 'right',
             render: (_v, row) => {
                 if (!canManage) return null;
+                // The reopen route refuses these; point at the year instead.
+                if (row.status === 'CLOSED' && row.fiscalYearClosed) {
+                    return (
+                        <span className="text-xs text-neutral-500" title="Reopen the fiscal year first to reopen this month.">
+                            Fiscal year closed
+                        </span>
+                    );
+                }
                 return row.status === 'CLOSED' ? (
                     <Button
                         text="Reopen"

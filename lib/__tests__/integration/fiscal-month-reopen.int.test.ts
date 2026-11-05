@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server';
 import { POST as closeYear } from '@/src/app/api/v1/fiscal-year/close/route';
 import { POST as reopenYear } from '@/src/app/api/v1/fiscal-year/reopen/route';
 import { POST as reopenMonth } from '@/src/app/api/v1/accounting-periods/[id]/reopen/route';
+import { GET as listPeriods } from '@/src/app/api/v1/accounting-periods/route';
 import { prisma, createTestOrg, cleanupOrg, disconnect } from './harness';
 
 afterAll(disconnect);
@@ -26,8 +27,17 @@ it('does not reopen a month while its fiscal-year closing entry remains posted',
     expect(reopened.status, await reopened.clone().text()).toBe(422);
     expect((await prisma.accountingPeriod.findUniqueOrThrow({ where: { id: october } })).status).toBe('CLOSED');
     expect(await prisma.fiscalYearClose.count({ where: { organizationId: org.orgId } })).toBe(1);
+    const flags = async () => {
+      const res = await listPeriods(new NextRequest('http://localhost/api/v1/accounting-periods?limit=100', { headers }));
+      const body = await res.json() as { data: Array<{ id: string; fiscalYearClosed: boolean }> };
+      return body.data.filter(p => p.fiscalYearClosed).map(p => p.id);
+    };
+    const flaggedWhileClosed = await flags();
+    expect(flaggedWhileClosed).toHaveLength(12);
+    expect(flaggedWhileClosed).toContain(october);
     const yearReopened = await reopenYear(new NextRequest('http://localhost/api/v1/fiscal-year/reopen', { method: 'POST', headers, body: '{}' }));
     expect(yearReopened.status, await yearReopened.clone().text()).toBe(200);
+    expect(await flags()).toEqual([]);
     const monthReopened = await reopenMonth(new NextRequest('http://localhost/api/v1/accounting-periods/reopen', { method: 'POST', headers }), { params: Promise.resolve({ id: october }) });
     expect(monthReopened.status, await monthReopened.clone().text()).toBe(200);
     expect((await prisma.accountingPeriod.findUniqueOrThrow({ where: { id: october } })).status).toBe('OPEN');
