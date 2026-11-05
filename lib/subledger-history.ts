@@ -24,6 +24,7 @@ export function reportDate(value: string | null, end: boolean): Date {
  */
 export async function readSubledgerHistory<T extends Document>(
   db: Reader, kind: Kind, orgId: string, documents: T[], asOf: Date, partyId?: string,
+  options: { includeTransactions?: boolean } = {},
 ) {
   const ar = kind === 'ar';
   const paymentWhere = { organizationId: orgId, date: { lte: asOf },
@@ -67,6 +68,7 @@ export async function readSubledgerHistory<T extends Document>(
   const active = (status: string, memo: string) => status !== 'VOID' || Boolean(reversalDates.get(memo) && reversalDates.get(memo)! > asOf);
   const txns: StatementTxn[] = [];
   const movement = (date: Date, number: string, type: string, amount: number, credit: boolean, reversal?: Date) => {
+    if (options.includeTransactions === false) return;
     txns.push({ date, number, type, debit: credit ? 0 : amount, credit: credit ? amount : 0, order: credit ? 1 : 0 });
     if (reversal && reversal <= asOf) txns.push({ date: reversal, number, type: `Void ${type}`, debit: credit ? amount : 0, credit: credit ? 0 : amount, order: 2 });
   };
