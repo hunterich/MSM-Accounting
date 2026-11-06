@@ -222,6 +222,17 @@ describe('settlement reconciliation service', () => {
     await cleanupOrg(s.orgId);
   });
 
+  it('settles against the receipt account after the shop account changes', async () => {
+    const s = await seedImportedOrder();
+    const newWallet = await prisma.bankAccount.create({ data: { organizationId: s.orgId, name: 'New marketplace wallet', bankName: 'New marketplace wallet' } });
+    await prisma.ecommerceConnection.update({ where: { id: s.connectionId }, data: { holdingAccountId: newWallet.id } });
+    const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross - 10_000, charges: { serviceFee: 10_000 } }] });
+    expect(result.posted).toBe(1);
+    expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(s.gross - 10_000, 2);
+    await assertTrialBalanced(s.orgId, 'settlement after account change');
+    await cleanupOrg(s.orgId);
+  });
+
   it('unmatched: an unimported order is skipped and posts nothing', async () => {
     const s = await seedImportedOrder();
     const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
@@ -411,3 +422,4 @@ describe('settlement reconciliation service', () => {
     await cleanupOrg(s.orgId);
   });
 });
+

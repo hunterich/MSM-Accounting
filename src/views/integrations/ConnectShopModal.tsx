@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Modal from '../../components/UI/Modal';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
@@ -6,8 +6,8 @@ import SearchableSelect from '../../components/UI/SearchableSelect';
 import { useCustomers, useCreateCustomer } from '../../hooks/useAR';
 import { useBankAccounts, useCreateBankAccount } from '../../hooks/useBanking';
 import { useAccountsByType } from '../../hooks/useGL';
-import { useCreateEcommerceConnection } from '../../hooks/useIntegrations';
-import { shopMappingsSchema } from '../../../types/api';
+import { useCreateEcommerceConnection, useUpdateEcommerceConnection } from '../../hooks/useIntegrations';
+import { shopMappingsBaseSchema, shopMappingsSchema } from '../../../types/api';
 import type {
     EcommerceConnection,
     EcommercePlatform,
@@ -22,6 +22,7 @@ interface Props {
     onClose: () => void;
     existingShops: EcommerceConnection[];
     canCreate: boolean;
+    editShop?: EcommerceConnection | null;
 }
 
 interface SelectOption { value: string; label: string }
@@ -43,7 +44,7 @@ const emptyMappings = (): ShopMappings => ({
     others: { notes: '' },
 });
 
-const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props): React.ReactElement => {
+const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop }: Props): React.ReactElement => {
     const [tab, setTab] = useState<Tab>('general');
 
     // Top-level connection fields
@@ -75,6 +76,16 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
 
     // Mutations
     const createConnection = useCreateEcommerceConnection();
+    const updateConnection = useUpdateEcommerceConnection();
+    const saving = createConnection.isPending || updateConnection.isPending;
+    useEffect(() => {
+        if (!isOpen || !editShop) return;
+        setTab('general'); setPlatform(editShop.platform); setName(editShop.name);
+        setCustomerId(editShop.customerId); setHoldingAccountId(editShop.holdingAccountId);
+        setImportStatusFilter(editShop.importStatusFilter);
+        setMappings({ ...emptyMappings(), ...(editShop.mappings ?? {}) });
+        setErrors({});
+    }, [isOpen, editShop?.id]);
     const createCustomer = useCreateCustomer();
     const createBankAccount = useCreateBankAccount();
 
@@ -170,15 +181,15 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
         const next: Record<string, string> = {};
         const trimmedName = name.trim();
         if (!trimmedName) next.name = 'Shop name is required.';
-        if (!customerId) next.customerId = 'Default customer is required.';
+        if (!editShop && !customerId) next.customerId = 'Default customer is required.';
         if (!holdingAccountId) next.holdingAccountId = 'Settlement account is required.';
 
         const dup = existingShops.some((s) =>
-            s.platform === platform && s.name.trim().toLowerCase() === trimmedName.toLowerCase()
+            s.id !== editShop?.id && s.platform === platform && s.name.trim().toLowerCase() === trimmedName.toLowerCase()
         );
         if (dup) next.name = 'This shop already exists for the selected platform.';
 
-        const parsed = shopMappingsSchema.safeParse(mappings);
+        const parsed = (editShop ? shopMappingsBaseSchema : shopMappingsSchema).safeParse(mappings);
         if (!parsed.success) {
             for (const issue of parsed.error.issues) {
                 next[issue.path.join('.')] = issue.message;
@@ -200,7 +211,9 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
             return;
         }
         try {
-            await createConnection.mutateAsync({
+            if (editShop) {
+                await updateConnection.mutateAsync({ id: editShop.id, holdingAccountId, mappings });
+            } else await createConnection.mutateAsync({
                 platform,
                 name: name.trim(),
                 customerId,
@@ -231,7 +244,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
         errors[k] ? <div className="form-feedback invalid-feedback">{errors[k]}</div> : null;
 
     return (
-        <Modal title="Connect New Shop" isOpen={isOpen} onClose={close} size="lg">
+        <Modal title={editShop ? `Edit accounting settings — ${editShop.name}` : "Connect New Shop"} isOpen={isOpen} onClose={close} size="lg">
             <div className="border-b border-neutral-200 -mx-6 -mt-6 px-6 mb-4">
                 <div className="flex gap-1">
                     {tabBtn('general', 'General')}
@@ -246,6 +259,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
                 </div>
             ) : null}
 
+            {editShop && <p className="mb-4 text-sm text-neutral-600">Changes apply to future imports and settlements. Posted invoices and journals are not changed. Existing unsettled receipts remain in their original settlement account; fee mappings apply when the settlement is imported. Transfer remaining balances separately.</p>}
             {/* ── General ─────────────────────────────────────────────── */}
             {tab === 'general' && (
                 <div className="space-y-4">
@@ -265,6 +279,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
                         <div>
                             <label className="form-label">Shop Name <span className="text-danger-600">*</span></label>
                             <Input
+                                disabled={!!editShop}
                                 placeholder="e.g. MyShopeeStore_01"
                                 value={name}
                                 onChange={(e) => { setName(e.target.value); setErrors((er) => ({ ...er, name: '' })); }}
@@ -401,7 +416,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
                         </label>
                     </div>
 
-                    <div>
+                    {!editShop && <div>
                         <label className="form-label">Import Sales with Status</label>
                         <div className="flex gap-4 mt-1">
                             <label className="flex items-center gap-2 cursor-pointer">
@@ -425,7 +440,8 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
                         </div>
                     </div>
 
-                    <div>
+                    }
+                    {!editShop && <div>
                         <label className="form-label">Default Customer <span className="text-danger-600">*</span></label>
                         <SearchableSelect
                             options={customerOptions}
@@ -437,6 +453,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
                         {fieldErr('customerId')}
                     </div>
 
+                    }
                     {showNewCustomer && (
                         <div className="rounded-lg border border-primary-200 bg-primary-50 p-3">
                             <div className="flex items-center justify-between mb-2">
@@ -577,9 +594,9 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
             <div className="integrations-modal-actions mt-6 pt-4 border-t border-neutral-200">
                 <Button text="Cancel" variant="tertiary" onClick={close} />
                 <Button
-                    text={createConnection.isPending ? 'Saving...' : 'Save Connection'}
+                    text={saving ? 'Saving...' : 'Save Connection'}
                     variant="primary"
-                    disabled={!canCreate || createConnection.isPending}
+                    disabled={!canCreate || saving}
                     onClick={handleSave}
                 />
             </div>
@@ -588,3 +605,4 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate }: Props):
 };
 
 export default ConnectShopModal;
+
