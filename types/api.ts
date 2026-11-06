@@ -820,7 +820,7 @@ const feesSchema = z.object({
   platformFeeAccountId: accountIdField,
   adjustmentAccountId: accountIdField,
   affiliateFeeAccountId: accountIdField,
-}).partial();
+}).partial().passthrough();
 
 const shippingSchema = z.object({
   buyerShippingRevenueAccountId: accountIdField,
@@ -828,7 +828,7 @@ const shippingSchema = z.object({
   platformShippingSubsidyAccountId: accountIdField,
   shippingInsuranceAccountId: accountIdField,
   codFeeAccountId: accountIdField,
-}).partial();
+}).partial().passthrough();
 
 const othersSchema = z.object({
   refundAccountId: accountIdField,
@@ -838,15 +838,17 @@ const othersSchema = z.object({
   withholdingTaxAccountId: accountIdField,
   roundingAccountId: accountIdField,
   notes: z.string().trim().max(2000).optional(),
-}).partial();
+}).partial().passthrough();
 
-export const shopMappingsSchema = z.object({
+export const shopMappingsBaseSchema = z.object({
   paymentMode: z.enum(['direct', 'settlement_import']).default('settlement_import'),
   vatInclusive: z.boolean().default(false),
   fees: feesSchema.optional(),
   shipping: shippingSchema.optional(),
   others: othersSchema.optional(),
-}).superRefine((val, ctx) => {
+}).passthrough();
+
+export const shopMappingsSchema = shopMappingsBaseSchema.superRefine((val, ctx) => {
   if (val.paymentMode !== 'settlement_import') return;
   const required: Array<[keyof z.infer<typeof feesSchema>, string]> = [
     ['sellerDiscountAccountId', 'Seller discount account is required when using settlement import.'],
@@ -877,7 +879,7 @@ export const integrationInputSchema = z.object({
   salesTypeId: z.string().nullish(),
 });
 
-export const updateIntegrationInputSchema = partialInput(integrationInputSchema.omit({ organizationId: true }));
+export const updateIntegrationInputSchema = partialInput(integrationInputSchema.omit({ organizationId: true })).extend({ mappings: shopMappingsBaseSchema.optional() });
 
 export const agingBucketSchema = z.object({
   current: decimalNumber,
@@ -1394,3 +1396,5 @@ const purchaseReturnBaseSchema = z.object({
 
 export const createPurchaseReturnInputSchema = purchaseReturnBaseSchema;
 export const updatePurchaseReturnInputSchema = purchaseReturnBaseSchema.partial();
+
+

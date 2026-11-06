@@ -37,6 +37,7 @@ const Integrations = () => {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [settingsShopId, setSettingsShopId] = useState<string | null>(null);
+    const [editShopId, setEditShopId] = useState<string | null>(null);
     const [settlementShopId, setSettlementShopId] = useState<string | null>(null);
 
     const bankOptions: SelectOption[] = bankAccounts.map(b => ({ value: b.id, label: b.name }));
@@ -149,6 +150,7 @@ const Integrations = () => {
                 existingShops={shops}
                 canCreate={canCreate}
             />
+            <ConnectShopModal isOpen={!!editShopId} onClose={() => setEditShopId(null)} existingShops={shops} canCreate={canEdit} editShop={shops.find(s => s.id === editShopId) ?? null} />
 
             <SettlementImportModal
                 isOpen={!!settlementShopId}
@@ -166,6 +168,7 @@ const Integrations = () => {
             >
                 {settingsShop && (
                     <div className="integrations-modal-body">
+                        <Button text="Edit VAT and accounting mappings" variant="secondary" disabled={!canEdit} onClick={() => { setEditShopId(settingsShop.id); setSettingsShopId(null); }} />
                         <div className="mb-4">
                             <label className="form-label">Import Status Filter</label>
                             <span className="integrations-field-hint mb-2 block">
@@ -222,3 +225,4 @@ const Integrations = () => {
 };
 
 export default Integrations;
+
