@@ -72,8 +72,9 @@ function normalizeTxn(raw: RawBankTransaction): BankTransaction {
 
 // ─── Account Hooks ────────────────────────────────────────────────────────────
 
-export function useBankAccounts() {
+export function useBankAccounts(options: { enabled?: boolean } = {}) {
   return useQuery({
+    enabled: options.enabled,
     queryKey: BANK_KEYS.accounts,
     queryFn:  () => api.get<RawBankAccount[]>('/api/v1/bank-accounts').then((data) =>
       Array.isArray(data) ? data.map(normalizeAccount) : []

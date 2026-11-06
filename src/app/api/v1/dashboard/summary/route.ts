@@ -1,3 +1,4 @@
+import { toNumber, asMoney } from '@/lib/money';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
@@ -7,16 +8,6 @@ import {
 import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { ledgerCashOnHand } from '@/lib/cash-accounts';
 import { dashboardAging } from '@/lib/dashboard-aging';
-
-const toNumber = (value: unknown): number => {
-  if (value === null || value === undefined) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const asMoney = (value: number): number => {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-};
 
 export const GET = withHandler(async function GET(request: NextRequest) {
   const orgId = requireOrg(request);

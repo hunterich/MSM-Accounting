@@ -1,6 +1,8 @@
 import React from 'react';
-import Reports, { findReportById, type ReportParams } from '../../views/reports/Reports';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { findReportById } from '../../views/reports/reportDefinitions';
+import Reports from '../../views/reports/Reports';
+import type { ReportParams } from '../../views/reports/reportTypes';
 import { reportTabTitle } from './reportTabs';
 
 /** A single open report, rendered from the params stashed on its workspace tab

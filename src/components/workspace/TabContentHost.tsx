@@ -1,5 +1,5 @@
 // src/components/workspace/TabContentHost.tsx
-import React from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { ErrorBoundary, PageErrorFallback } from '../UI/ErrorBoundary';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -15,6 +15,15 @@ const TabContentHost = (): React.ReactElement => {
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const language = useLanguageStore((s) => s.language) ?? 'en';
     const location = useLocation();
+    // Restored tabs load on first focus. Once visited, forms stay mounted so
+    // switching tabs preserves their local state and unsaved edits.
+    const [visited, setVisited] = useState(() => new Set(activeTabId ? [activeTabId] : []));
+    useEffect(() => {
+        setVisited((previous) => {
+            const next = new Set(tabs.filter((tab) => tab.id === activeTabId || previous.has(tab.id)).map((tab) => tab.id));
+            return next.size === previous.size && [...next].every((id) => previous.has(id)) ? previous : next;
+        });
+    }, [tabs, activeTabId]);
     // /403 and the redirect-only area paths have no tab: render the router's
     // element over the (still mounted, hidden) tabs so nothing is lost.
     const tabless = isTablessPath(location.pathname);
@@ -46,6 +55,7 @@ const TabContentHost = (): React.ReactElement => {
                         </div>
                     ) : null;
                 }
+                if (!isActive && !visited.has(tab.id)) return null;
                 // Workspace-native tabs stay mounted (keep-alive), hidden when inactive.
                 // Deny in place rather than redirecting: every document tab stays
                 // mounted for keep-alive, so a redirect from a hidden tab would
@@ -60,7 +70,9 @@ const TabContentHost = (): React.ReactElement => {
                                     {language === 'id' ? `Anda tidak memiliki izin untuk melihat ${translate(language, tab.title)}.` : `You do not have permission to view ${tab.title}.`}
                                 </div>
                             ) : (
-                                renderTab(tab)
+                                <Suspense fallback={<div role="status" className="p-6 text-sm text-neutral-500">{translate(language, 'Loading...')}</div>}>
+                                    {renderTab(tab)}
+                                </Suspense>
                             )}
                         </ErrorBoundary>
                     </div>
