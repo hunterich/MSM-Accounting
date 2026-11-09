@@ -8,7 +8,7 @@ import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defau
 import { toNumber, asMoney } from './money';
 import { postJournalEntry } from './journal-posting';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
-import { itemPostingAccount } from './item-posting-accounts';
+import { itemPostingAccount, lotsWithBookValue } from './item-posting-accounts';
 
 /**
  * Posts the GL + COGS for an invoice transitioning to SENT.
@@ -254,10 +254,11 @@ export async function postInvoiceSend(
             { allowNegativeStock: opts.allowNegativeStock ?? false, inventoryPostingAccountId: inventoryAccountId, cogsPostingAccountId: cogsAccountId },
           );
 
-          if (cogs > 0 && lots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId)) {
+          const valuedLots = lotsWithBookValue(lots);
+          if (cogs > 0 && valuedLots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId)) {
             throw new ApiError('Original stock account history is unavailable. Review the historical stock before posting this sale.', 422);
           }
-          if (cogs > 0 && lots.some(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId !== inventoryAccountId)) {
+          if (cogs > 0 && valuedLots.some(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId !== inventoryAccountId)) {
             throw new ApiError('Recorded stock and the item use different inventory accounts. Review the stock account history before posting this sale.', 422);
           }
 

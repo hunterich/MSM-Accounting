@@ -23,6 +23,7 @@ import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defau
 import { calculateAndPostCOGS, lockInventoryItems } from './inventory-costing';
 import { asMoney, toNumber } from './money';
 import { ApiError } from './errors';
+import { lotsWithBookValue } from './item-posting-accounts';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
@@ -72,8 +73,9 @@ export async function postPurchaseReturnOnApproval(
       where: { organizationId: pr.organizationId, itemId: line.itemId, warehouseId: pr.warehouseId ?? null, qtyBalance: { gt: 0 } },
       include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } },
     });
-    const recorded = new Set(lots.map(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId).filter((id): id is string => Boolean(id)));
-    const missing = lots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId);
+    const valuedLots = lotsWithBookValue(lots);
+    const recorded = new Set(valuedLots.map(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId).filter((id): id is string => Boolean(id)));
+    const missing = valuedLots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId);
     if (recorded.size > 1) throw new ApiError('Stock spans multiple recorded inventory accounts. Review its account history before posting this return.', 422);
     const inventoryAccountId = [...recorded][0] ?? null;
     // calculateAndPostCOGS performs FIFO/WA consumption + writes the outbound

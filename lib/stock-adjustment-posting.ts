@@ -7,7 +7,7 @@ import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defau
 import { addCostLayer, relieveCostLayers, lockInventoryItems } from './inventory-costing';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
-import { itemPostingAccount } from './item-posting-accounts';
+import { itemPostingAccount, lotsWithBookValue } from './item-posting-accounts';
 import { ApiError } from './errors';
 
 type Tx = Prisma.TransactionClient;
@@ -95,7 +95,8 @@ export async function postStockAdjustmentToLedger(
       netValue += value;
     } else if (qtyDiff < 0) {
       const lots = await tx.inventoryLot.findMany({ where: { organizationId: orgId, itemId: l.itemId, warehouseId: args.warehouseId ?? null, qtyBalance: { gt: 0 } }, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } });
-      const recorded = new Set(lots.map(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId).filter((id): id is string => Boolean(id)));
+      const valuedLots = lotsWithBookValue(lots);
+      const recorded = new Set(valuedLots.map(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId).filter((id): id is string => Boolean(id)));
       if (recorded.size > 1) throw new ApiError('Stock spans multiple recorded inventory accounts. Review its account history before adjusting it.', 422);
       const inventoryAccountId = [...recorded][0] ?? configuredAccount;
       const cost = await relieveCostLayers(
@@ -103,7 +104,7 @@ export async function postStockAdjustmentToLedger(
         -qtyDiff, InventoryDocumentType.ADJUSTMENT, args.id, args.date,
         inventoryAccountId,
       );
-      if (cost > 0 && (!inventoryAccountId || lots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId))) throw new ApiError('Original stock account history is unavailable. Review the historical stock before adjusting it.', 422);
+      if (cost > 0 && (!inventoryAccountId || valuedLots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId))) throw new ApiError('Original stock account history is unavailable. Review the historical stock before adjusting it.', 422);
       if (inventoryAccountId) valuesByAccount.set(inventoryAccountId, asMoney((valuesByAccount.get(inventoryAccountId) ?? 0) - cost));
       netValue -= cost;
     }

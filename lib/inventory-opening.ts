@@ -98,9 +98,21 @@ export async function postOpeningStockIfNeeded(
   // Only post a journal entry when the opening stock carries value — and only
   // when GL posting is enabled (migration passes postGl:false: lots only).
   const value = asMoney(qty * unitCost);
-  if (value <= 0 || !postGl) {
-    // No inventory GL line was posted; do not invent an account snapshot.
+  if (value <= 0) {
+    // Zero-value stock never reaches an inventory GL account.
     await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date);
+    return;
+  }
+  if (!postGl) {
+    // The migration's opening journal books this value on the company default,
+    // so that is the account holding it. Without it this stock could not be sold.
+    const accounts = await tx.account.findMany({
+      where: { organizationId: orgId, isActive: true },
+      select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+    });
+    const inventoryAccountId = resolveAccountDefaultId(accounts, await loadOrgAccountDefaults(tx, orgId), 'inventoryAsset');
+    if (!inventoryAccountId) throw new ApiError(`Cannot record opening stock for ${item.sku}: configure the Inventory Asset account in Settings first.`, 422);
+    await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date, undefined, inventoryAccountId);
     return;
   }
 
