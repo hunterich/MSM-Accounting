@@ -7,6 +7,8 @@ import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defau
 import { addCostLayer, relieveCostLayers, lockInventoryItems } from './inventory-costing';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
+import { itemPostingAccount } from './item-posting-accounts';
+import { ApiError } from './errors';
 
 type Tx = Prisma.TransactionClient;
 
@@ -64,64 +66,60 @@ export async function postStockAdjustmentToLedger(
   // cost layers or taking the journal-number lock, including increase-only lines.
   await lockInventoryItems(tx, orgId, lines.map(line => line.itemId));
 
+  const accounts = await tx.account.findMany({
+    where: { organizationId: orgId, isActive: true },
+    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+  });
+  const settings = await loadOrgAccountDefaults(tx, orgId);
+  const defaultInventory = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+  const varianceAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment') || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
+  const items = await tx.item.findMany({ where: { organizationId: orgId, id: { in: lines.map(line => line.itemId) } }, select: { id: true, inventoryAccountId: true } });
+  const itemById = new Map(items.map(item => [item.id, item]));
+  const valuesByAccount = new Map<string, number>();
   let netValue = 0;
   for (const l of lines) {
     const qtyDiff = lineQtyDiff(l);
+    const item = itemById.get(l.itemId);
+    if (!item) throw new ApiError('Stock adjustment item was not found in this company.', 422);
+    const configuredAccount = itemPostingAccount(accounts, item.inventoryAccountId, defaultInventory, 'ASSET', 'inventory');
     if (qtyDiff > 0) {
       const unitCost = toNumber(l.unitCost);
+      const value = asMoney(qtyDiff * unitCost);
+      if (value !== 0 && !configuredAccount) throw new ApiError('No inventory account is configured for this item.', 422);
       await addCostLayer(
         tx, orgId, l.itemId, args.warehouseId ?? null,
         qtyDiff, unitCost, InventoryDocumentType.ADJUSTMENT, args.id, args.date,
+        undefined, value !== 0 ? configuredAccount : undefined,
       );
-      netValue += asMoney(qtyDiff * unitCost);
+      if (configuredAccount) valuesByAccount.set(configuredAccount, asMoney((valuesByAccount.get(configuredAccount) ?? 0) + value));
+      netValue += value;
     } else if (qtyDiff < 0) {
+      const lots = await tx.inventoryLot.findMany({ where: { organizationId: orgId, itemId: l.itemId, warehouseId: args.warehouseId ?? null, qtyBalance: { gt: 0 } }, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } });
+      const recorded = new Set(lots.map(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId).filter((id): id is string => Boolean(id)));
+      if (recorded.size > 1) throw new ApiError('Stock spans multiple recorded inventory accounts. Review its account history before adjusting it.', 422);
+      const inventoryAccountId = [...recorded][0] ?? configuredAccount;
       const cost = await relieveCostLayers(
         tx, orgId, l.itemId, args.warehouseId ?? null,
         -qtyDiff, InventoryDocumentType.ADJUSTMENT, args.id, args.date,
+        inventoryAccountId,
       );
+      if (cost > 0 && (!inventoryAccountId || lots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId))) throw new ApiError('Original stock account history is unavailable. Review the historical stock before adjusting it.', 422);
+      if (inventoryAccountId) valuesByAccount.set(inventoryAccountId, asMoney((valuesByAccount.get(inventoryAccountId) ?? 0) - cost));
       netValue -= cost;
     }
     // qtyDiff === 0 → no movement
   }
 
   const netRounded = asMoney(netValue);
-  if (Math.abs(netRounded) === 0) return;
-
-  const accounts = await tx.account.findMany({
-    where: { organizationId: orgId, isActive: true },
-    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-  });
-  const settings = await loadOrgAccountDefaults(tx, orgId);
-  const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-  const varianceAccountId =
-    resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment') ||
-    resolveAccountDefaultId(accounts, settings, 'cogsExpense');
-  if (!inventoryAccountId || !varianceAccountId) return;
-  await assertDocumentOffsetAccounts(tx, orgId, [inventoryAccountId, varianceAccountId]);
+  const inventoryLines = [...valuesByAccount].filter(([, value]) => value !== 0);
+  if (inventoryLines.length === 0) return;
+  if (netRounded !== 0 && !varianceAccountId) throw new ApiError('No stock variance account is configured.', 422);
+  await assertDocumentOffsetAccounts(tx, orgId, [...inventoryLines.map(([id]) => id), varianceAccountId]);
 
   const memo = `Stock adjustment: ${args.number}`;
-  if (netRounded > 0) {
-    await postJournalEntry(tx, {
-      organizationId: orgId,
-      date: args.date,
-      memo,
-      lines: [
-        { accountId: inventoryAccountId, description: `Inventory increase - ${args.number}`, debit: netRounded, credit: 0 },
-        { accountId: varianceAccountId,  description: `Stock variance - ${args.number}`,    debit: 0,           credit: netRounded },
-      ],
-    });
-  } else {
-    const amount = -netRounded;
-    await postJournalEntry(tx, {
-      organizationId: orgId,
-      date: args.date,
-      memo,
-      lines: [
-        { accountId: varianceAccountId,  description: `Stock variance - ${args.number}`,    debit: amount, credit: 0 },
-        { accountId: inventoryAccountId, description: `Inventory decrease - ${args.number}`, debit: 0,     credit: amount },
-      ],
-    });
-  }
+  const journalLines = inventoryLines.map(([accountId, value]) => ({ accountId, description: `Inventory ${value > 0 ? 'increase' : 'decrease'} - ${args.number}`, debit: Math.max(value, 0), credit: Math.max(-value, 0) }));
+  const variance = netRounded !== 0 ? [{ accountId: varianceAccountId!, description: `Stock variance - ${args.number}`, debit: Math.max(-netRounded, 0), credit: Math.max(netRounded, 0) }] : [];
+  await postJournalEntry(tx, { organizationId: orgId, date: args.date, memo, lines: netRounded < 0 ? [...variance, ...journalLines] : [...journalLines, ...variance] });
 }
 
 /**

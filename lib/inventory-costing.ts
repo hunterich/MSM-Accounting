@@ -458,6 +458,7 @@ export async function reverseAdjustmentInventory(
   // The increase layers this adjustment added.
   let addedLots = await tx.inventoryLot.findMany({
     where: { organizationId: orgId, documentType: InventoryDocumentType.ADJUSTMENT, documentId },
+    include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } },
   })
   const method = await getOrgCostingMethod(tx, orgId)
   if (method === 'WEIGHTED_AVERAGE') {
@@ -465,6 +466,7 @@ export async function reverseAdjustmentInventory(
     await unwindReceiptSettlements(tx, orgId, addedLots.map(lot => lot.id), { documentId, date })
     addedLots = await tx.inventoryLot.findMany({
       where: { organizationId: orgId, documentType: InventoryDocumentType.ADJUSTMENT, documentId },
+      include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } },
     })
   }
   for (const lot of addedLots) {
@@ -475,6 +477,7 @@ export async function reverseAdjustmentInventory(
       )
     }
     const originalValue = lot.initialValue != null ? toNumber(lot.initialValue) : asMoney(toNumber(lot.qtyIn) * toNumber(lot.unitCost))
+    if (originalValue !== 0 && !lot.inboundLedgerEntry?.inventoryPostingAccountId) throw new ApiError('Original adjustment account history is unavailable. Review the historical adjustment before voiding it.', 422)
     if (method === 'FIFO' && lot.carryingValue != null && Math.abs(toNumber(lot.carryingValue) - originalValue) > 0.001) {
       throw new ApiError('Cannot void: stock carrying value differs from its original posted value. Reverse the dependent transactions first.', 422)
     }
@@ -500,6 +503,7 @@ export async function reverseAdjustmentInventory(
         qtyOut: qty,
         unitCost,
         valueChange: -value,
+        ...(lot.inboundLedgerEntry?.inventoryPostingAccountId ? { inventoryPostingAccountId: lot.inboundLedgerEntry.inventoryPostingAccountId } : {}),
         reversedAt: date, // removes a reversed increase; never a stock issue
       },
     })
@@ -511,10 +515,20 @@ export async function reverseAdjustmentInventory(
     if (method === 'WEIGHTED_AVERAGE') await assertNoOutstandingShortfall(tx, orgId, entry.itemId, entry.warehouseId)
     const qty = toNumber(entry.qtyOut)
     const value = asMoney(-toNumber(entry.valueChange))
+    if (value !== 0 && !entry.inventoryPostingAccountId) throw new ApiError('Original adjustment account history is unavailable. Review the historical adjustment before voiding it.', 422)
     const unitCost = qty > 0 ? value / qty : 0
     netReversed += value
+    const restoredEntry = await tx.inventoryLedgerEntry.create({
+      data: {
+        organizationId: orgId, itemId: entry.itemId, warehouseId: entry.warehouseId ?? null,
+        date, documentType: InventoryDocumentType.ADJUSTMENT, documentId,
+        qtyIn: qty, qtyOut: 0, unitCost, valueChange: value,
+        ...(entry.inventoryPostingAccountId ? { inventoryPostingAccountId: entry.inventoryPostingAccountId } : {}),
+      },
+    })
     await tx.inventoryLot.create({
       data: {
+        inboundLedgerEntryId: restoredEntry.id,
         organizationId: orgId,
         itemId: entry.itemId,
         warehouseId: entry.warehouseId ?? null,
@@ -527,20 +541,6 @@ export async function reverseAdjustmentInventory(
         unitCost,
         initialValue: value,
         carryingValue: value,
-      },
-    })
-    await tx.inventoryLedgerEntry.create({
-      data: {
-        organizationId: orgId,
-        itemId: entry.itemId,
-        warehouseId: entry.warehouseId ?? null,
-        date,
-        documentType: InventoryDocumentType.ADJUSTMENT,
-        documentId,
-        qtyIn: qty,
-        qtyOut: 0,
-        unitCost,
-        valueChange: value,
       },
     })
     await tx.inventoryLedgerEntry.update({ where: { id: entry.id }, data: { reversedAt: date } })
