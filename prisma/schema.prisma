@@ -655,6 +655,11 @@ model SalesInvoiceLine {
   lineSubtotal  Decimal  @default(0) @db.Decimal(18, 2)
   // Actual COGS consumed at posting; null means historical cost is unavailable.
   cogsAmount    Decimal? @db.Decimal(18, 2)
+  // Immutable snapshots of accounts used by the current posting. Null on
+  // historical lines; never infer their original accounts from item settings.
+  revenuePostingAccountId   String?
+  inventoryPostingAccountId String?
+  cogsPostingAccountId      String?
   performedById String?
   parentLineNo  Int?
   isModifier    Boolean  @default(false)
