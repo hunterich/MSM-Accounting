@@ -166,7 +166,7 @@ export async function addCostLayer(
   if (await getOrgCostingMethod(tx, orgId) === 'WEIGHTED_AVERAGE') {
     // Goods arriving into a pool with estimated sale shortages cover them first.
     await settleShortfallsFromReceipt(tx, orgId, { lotId: lot.id, inboundLedgerEntryId: inbound.id, itemId,
-      warehouseId: warehouseId ?? null, quantity: lot.qtyIn, value: lot.initialValue!, documentType: docType, documentId: docId, date })
+      warehouseId: warehouseId ?? null, quantity: lot.qtyIn, value: lot.initialValue!, documentType: docType, documentId: docId, date, inventoryPostingAccountId })
     await refreshWarehouseCarryingValues(tx, orgId, itemId, warehouseId)
   }
 }

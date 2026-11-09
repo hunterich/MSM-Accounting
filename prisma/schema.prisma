@@ -2222,6 +2222,8 @@ model InventoryShortfallSettlement {
   receiptLotId            String?
   adjustmentLedgerEntryId String?
   journalEntryId          String?
+  inventoryPostingAccountId String?
+  cogsPostingAccountId    String?
   date                    DateTime
   quantity                Decimal   @db.Decimal(15, 4)
   estimatedValue          Decimal   @db.Decimal(18, 2)
