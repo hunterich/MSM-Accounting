@@ -4,7 +4,9 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, softDelete, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { updateItemInputSchema } from '@/types/api';
-import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
+import { lockOpeningStock, postOpeningStockIfNeeded } from '@/lib/inventory-opening';
+import { assertInventoryAccountChangeAllowed } from '@/lib/item-inventory-account-guard';
+import { lockInventoryItems } from '@/lib/inventory-costing';
 
 export const runtime = 'nodejs';
 
@@ -35,13 +37,13 @@ export const PUT = withPermission({ module: 'INV_ITEMS', action: 'edit' }, async
       await validateForeignKey(prisma.itemCategory, { id: parsed.data.categoryId, organizationId: orgId, isActive: true }, 'Item category not found in organization');
     }
     if (parsed.data.inventoryAccountId) {
-      await validateForeignKey(prisma.account, { id: parsed.data.inventoryAccountId, organizationId: orgId, isActive: true }, 'Inventory account not found in organization');
+      await validateForeignKey(prisma.account, { id: parsed.data.inventoryAccountId, organizationId: orgId, isActive: true, isPostable: true, type: 'ASSET' }, 'Choose an active, postable inventory asset account in this company');
     }
     if (parsed.data.revenueAccountId) {
-      await validateForeignKey(prisma.account, { id: parsed.data.revenueAccountId, organizationId: orgId, isActive: true }, 'Revenue account not found in organization');
+      await validateForeignKey(prisma.account, { id: parsed.data.revenueAccountId, organizationId: orgId, isActive: true, isPostable: true, type: 'REVENUE' }, 'Choose an active, postable revenue account in this company');
     }
     if (parsed.data.cogsAccountId) {
-      await validateForeignKey(prisma.account, { id: parsed.data.cogsAccountId, organizationId: orgId, isActive: true }, 'COGS account not found in organization');
+      await validateForeignKey(prisma.account, { id: parsed.data.cogsAccountId, organizationId: orgId, isActive: true, isPostable: true, type: 'EXPENSE' }, 'Choose an active, postable COGS expense account in this company');
     }
 
     const isActive = parsed.data.isActive ?? (
@@ -78,6 +80,16 @@ export const PUT = withPermission({ module: 'INV_ITEMS', action: 'edit' }, async
     if (Object.keys(updateData).length === 1) return err('No changes provided', 400);
 
     const item = await prisma.$transaction(async (tx) => {
+      // Opening posts take the opening lock before the item stock lock. Acquire
+      // it before updating the row too, so another account edit cannot hold it
+      // while waiting for a row locked by this transaction.
+      if (parsed.data.openingStock !== undefined) {
+        await lockOpeningStock(tx, orgId, id);
+        await lockInventoryItems(tx, orgId, [id]);
+      }
+      if (parsed.data.inventoryAccountId !== undefined) {
+        await assertInventoryAccountChangeAllowed(tx, orgId, id, parsed.data.inventoryAccountId || null);
+      }
       const updated = await tx.item.update({
         where: { id, organizationId: orgId },
         data: updateData,

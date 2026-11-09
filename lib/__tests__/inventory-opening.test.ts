@@ -101,4 +101,10 @@ describe('postOpeningStockIfNeeded', () => {
     const tx = makeTx({ ...stockedItem });
     await expect(postOpeningStockIfNeeded(tx as never, 'org-1', 'item-1')).rejects.toThrow(/Opening Balance Equity/);
   });
+
+  it('rejects a stored item inventory account that is not a company asset', async () => {
+    const tx = makeTx({ ...stockedItem, inventoryAccountId: 'FOREIGN' });
+    await expect(postOpeningStockIfNeeded(tx as never, 'org-1', 'item-1')).rejects.toThrow(/active, postable inventory asset/);
+    expect(postJE).not.toHaveBeenCalled();
+  });
 });

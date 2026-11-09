@@ -38,6 +38,12 @@ function fnv1aHash(input: string): number {
   return hash || 1;
 }
 
+/** Opening-stock idempotency lock must precede the shared stock-item lock. */
+export async function lockOpeningStock(tx: Tx, orgId: string, itemId: string) {
+  const lockId = fnv1aHash(`opening:${orgId}:${itemId}`);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+}
+
 export async function postOpeningStockIfNeeded(
   tx: Tx,
   orgId: string,
@@ -56,14 +62,13 @@ export async function postOpeningStockIfNeeded(
   // two concurrent item updates could both pass it and double-post. Holding this
   // transaction-scoped lock first means the loser blocks here, then sees the
   // committed OPENING entry and returns a no-op.
-  const lockId = fnv1aHash(`opening:${orgId}:${itemId}`);
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+  await lockOpeningStock(tx, orgId, itemId);
   // Opening idempotency -> shared item lock -> journal numbering. Coordinate
   // this addition with sales/returns before reading or changing stock.
   await lockInventoryItems(tx, orgId, [itemId]);
 
   const item = await tx.item.findUnique({
-    where: { id: itemId },
+    where: { id: itemId, organizationId: orgId },
     select: {
       id: true,
       sku: true,
@@ -109,6 +114,11 @@ export async function postOpeningStockIfNeeded(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
+  if (item.inventoryAccountId && !accounts.some(account =>
+    account.id === item.inventoryAccountId && account.isPostable && account.type === 'ASSET'
+  )) {
+    throw new ApiError(`Cannot post opening stock for ${item.sku}: choose an active, postable inventory asset account in this company.`, 422);
+  }
   const inventoryAccountId =
     item.inventoryAccountId || resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
   const equityAccountId = resolveAccountDefaultId(accounts, settings, 'openingBalanceEquity');
