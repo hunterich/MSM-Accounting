@@ -1,11 +1,9 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { toNumber } from './money';
 import { assertPeriodOpen } from './period-guard';
 import { reversePurchaseLayers } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
-import { ensureGrIrAccount } from './grir';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { advisoryLockKey } from './advisory-lock';
 
 type Tx = Prisma.TransactionClient;
@@ -37,6 +35,7 @@ export async function unreceiveGoodsReceipt(
       number: true,
       status: true,
       poId: true,
+      receiptPostingJournalId: true,
       deletedAt: true,
       lines: { select: { quantity: true, purchaseOrderLineId: true } },
     },
@@ -95,26 +94,14 @@ export async function unreceiveGoodsReceipt(
 
   // GL contra of the receipt: Dr GR/IR, Cr Inventory for the removed value.
   if (valueRemoved > 0) {
-    const accounts = await tx.account.findMany({
-      where: { organizationId: orgId, isActive: true },
-      select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-    });
-    const settings = await loadOrgAccountDefaults(tx, orgId);
-    const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-    if (!inventoryAccountId) {
-      throw new ApiError('Cannot un-receive: no Inventory asset account is configured.', 422);
-    }
-    const grirAccountId = await ensureGrIrAccount(tx, orgId);
-    await postJournalEntry(tx, {
-      organizationId: orgId,
-      date: opts.date,
-      memo: `Un-receive: ${bill.number}`,
-      source: 'REVERSAL',
-      lines: [
-        { accountId: grirAccountId, description: `GR/IR reversal - ${bill.number}`, debit: valueRemoved, credit: 0 },
-        { accountId: inventoryAccountId, description: `Inventory reversal - ${bill.number}`, debit: 0, credit: valueRemoved },
-      ],
-    });
+    if (!bill.receiptPostingJournalId) throw new ApiError('The original receipt account history is unavailable. Review the historical receipt before reversing it.', 422);
+    const original = await tx.journalEntry.findFirst({ where: { id: bill.receiptPostingJournalId, organizationId: orgId, status: 'POSTED' }, select: { totalDebit: true, totalCredit: true, lines: { orderBy: { lineNo: 'asc' }, select: { accountId: true, debit: true, credit: true } } } });
+    if (!original || !new Prisma.Decimal(original.totalDebit).equals(valueRemoved) || !new Prisma.Decimal(original.totalCredit).equals(valueRemoved)) throw new ApiError('The original receipt journal does not match the inventory reversal. Review it before reversing.', 422);
+    const lines = [
+      ...original.lines.filter(line => toNumber(line.credit) > 0).map(line => ({ accountId: line.accountId, description: `GR/IR reversal - ${bill.number}`, debit: toNumber(line.credit), credit: 0 })),
+      ...original.lines.filter(line => toNumber(line.debit) > 0).map(line => ({ accountId: line.accountId, description: `Inventory reversal - ${bill.number}`, debit: 0, credit: toNumber(line.debit) })),
+    ];
+    await postJournalEntry(tx, { organizationId: orgId, date: opts.date, memo: `Un-receive: ${bill.number}`, source: 'REVERSAL', lines });
   }
 
   // The receipt bill was already soft-deleted by the atomic claim above.

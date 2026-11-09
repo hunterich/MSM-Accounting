@@ -1040,6 +1040,7 @@ model Bill {
   notes          String?
   recurringBillId String?
   journalEntryId String?
+  receiptPostingJournalId String?
   migrationBatchId String?
   voidedAt       DateTime?
   deletedAt      DateTime?
