@@ -12,7 +12,7 @@ vi.mock('../account-defaults', () => ({
 }));
 
 function fixture({ qty = 1, received = true, cost = 100, postedAt = null as Date | null, priorQty = 0, priorCost = 0.33 } = {}) {
-  const source = { id: 'line-1', invoiceId: 'inv-1', itemId: 'item-1', description: 'Product', quantity: 3, cogsAmount: cost };
+  const source = { id: 'line-1', invoiceId: 'inv-1', itemId: 'item-1', description: 'Product', quantity: 3, cogsAmount: cost, inventoryPostingAccountId: 'inventoryAsset', cogsPostingAccountId: 'cogsExpense' };
   const line = { id: 'return-line', sourceInvoiceLineId: source.id, itemId: source.itemId, itemName: 'Product', qtyReturn: qty, goodsReceived: received };
   const ret = { id: 'sr-1', number: 'SR-1', organizationId: 'org-1', invoiceId: 'inv-1', customerId: 'customer-1', status: 'APPROVED', journalEntryId: null, postedAt, returnDate: new Date('2026-09-01'), warehouseId: null, lines: [line] };
   const prior = priorQty ? [{ ...line, qtyReturn: priorQty, inventoryCost: priorCost }] : [];
@@ -24,7 +24,7 @@ function fixture({ qty = 1, received = true, cost = 100, postedAt = null as Date
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => []) },
   };
-  return { tx, ret };
+  return { tx, ret, source };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -32,7 +32,7 @@ describe('sales return posting', () => {
   it('restocks and reverses original COGS rather than current inventory cost', async () => {
     const { tx } = fixture();
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 33.33);
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 33.33, 'inventoryAsset');
     expect(postJournalEntry).toHaveBeenCalledWith(tx, expect.objectContaining({ lines: [
       expect.objectContaining({ accountId: 'inventoryAsset', debit: 33.33, credit: 0 }),
       expect.objectContaining({ accountId: 'cogsExpense', debit: 0, credit: 33.33 }),
@@ -48,13 +48,13 @@ describe('sales return posting', () => {
   it('posts zero-cost stock quantities without a journal entry', async () => {
     const { tx } = fixture({ cost: 0 });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0, 'SALES_RETURN', 'sr-1', expect.any(Date), 0);
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0, 'SALES_RETURN', 'sr-1', expect.any(Date), 0, undefined);
     expect(postJournalEntry).not.toHaveBeenCalled();
   });
   it('uses cumulative rounding for repeated partial returns', async () => {
     const { tx } = fixture({ cost: 1, priorQty: 1 });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.34, 'SALES_RETURN', 'sr-1', expect.any(Date), 0.34);
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.34, 'SALES_RETURN', 'sr-1', expect.any(Date), 0.34, 'inventoryAsset');
   });
   it('a second posting of a no-journal return has no side effects', async () => {
     const { tx } = fixture({ postedAt: new Date() });
@@ -65,13 +65,20 @@ describe('sales return posting', () => {
   it('a replacement after void respects the cost of surviving partial returns', async () => {
     const { tx } = fixture({ cost: 1, priorQty: 1, priorCost: 0.34 });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 0.33);
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 0.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 0.33, 'inventoryAsset');
   });
   it('handles mixed received and kept lines in the same return', async () => {
     const { tx, ret } = fixture({ received: false });
     ret.lines.push({ ...ret.lines[0], id: 'received-line', goodsReceived: true });
     await postSalesReturnOnApproval(tx as any, 'sr-1');
     expect(addCostLayer).toHaveBeenCalledTimes(1);
-    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 33.33);
+    expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 33.33, 'inventoryAsset');
+  });
+  it('refuses to guess the account for an older sale', async () => {
+    const { tx, source } = fixture();
+    source.inventoryPostingAccountId = null as any;
+    await expect(postSalesReturnOnApproval(tx as any, 'sr-1')).rejects.toThrow(/account history is unavailable/i);
+    expect(addCostLayer).not.toHaveBeenCalled();
+    expect(postJournalEntry).not.toHaveBeenCalled();
   });
 });
