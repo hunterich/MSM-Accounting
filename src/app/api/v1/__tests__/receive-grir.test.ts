@@ -68,7 +68,7 @@ it('posts Dr Inventory / Cr GR/IR at net cost and a cost layer for an inventory 
   const tx = {
     $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(async () => ({ id: 'pol-1', quantity: 10, receivedQty: 0, purchaseOrderId: 'po-1', description: 'Widget', price: 1000, unit: 'PCS', itemId: 'item-1' })), update: vi.fn(), findMany: vi.fn(async () => [{ quantity: 10, receivedQty: 10 }]) },
-    bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })) },
+    bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })), update: vi.fn() },
     purchaseOrder: { findFirst: vi.fn(async () => ({ status: 'APPROVED' })), update: vi.fn() },
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
@@ -125,7 +125,7 @@ it('values a discounted PO line at its net (post-discount) cost', async () => {
   const tx = {
     $executeRaw: vi.fn(async () => undefined),
     purchaseOrderLine: { findUnique: vi.fn(async () => ({ id: 'pol-1', quantity: 10, receivedQty: 0, purchaseOrderId: 'po-1', description: 'Widget', price: 1000, discountPct: 10, unit: 'PCS', itemId: 'item-1' })), update: vi.fn(), findMany: vi.fn(async () => [{ quantity: 10, receivedQty: 10 }]) },
-    bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })) },
+    bill: { create: vi.fn(async () => ({ id: 'bill-1', number: 'BILL-0001' })), update: vi.fn() },
     purchaseOrder: { findFirst: vi.fn(async () => ({ status: 'APPROVED' })), update: vi.fn() },
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) },
     account: { findMany: vi.fn(async () => [{ id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true }]) },
