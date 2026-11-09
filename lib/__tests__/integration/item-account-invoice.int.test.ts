@@ -59,6 +59,9 @@ describe('invoice item account posting', () => {
     expect(lines.map(line => [line.revenuePostingAccountId, line.inventoryPostingAccountId, line.cogsPostingAccountId])).toEqual([
       [customRevenue.id, customInventory.id, customCogs.id], [org.accounts.salesRevenue, org.accounts.inventoryAsset, org.accounts.cogsExpense],
     ]);
+    const movements = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: org.orgId, documentId: invoice.id, documentType: 'SALES' } });
+    expect(movements.find(m => m.itemId === custom.id)).toMatchObject({ inventoryPostingAccountId: customInventory.id, cogsPostingAccountId: customCogs.id });
+    expect(movements.find(m => m.itemId === fallback.id)).toMatchObject({ inventoryPostingAccountId: org.accounts.inventoryAsset, cogsPostingAccountId: org.accounts.cogsExpense });
   });
 
   it('rejects a stored invalid revenue account without leaving a journal or stock movement', async () => {

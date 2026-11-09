@@ -700,6 +700,7 @@ export async function relieveCostLayers(
   docId: string,
   date: Date,
   inventoryPostingAccountId?: string | null,
+  cogsPostingAccountId?: string | null,
 ): Promise<number> {
   await lockInventoryItems(tx, orgId, [itemId])
   const method = await getOrgCostingMethod(tx, orgId)
@@ -769,7 +770,8 @@ export async function relieveCostLayers(
       organizationId: orgId, itemId, warehouseId: sourceWarehouse, date,
       documentType: docType, documentId: docId, qtyIn: 0, qtyOut: group.quantity,
       unitCost, valueChange: -cost,
-      ...(inventoryPostingAccountId && cost !== 0 ? { inventoryPostingAccountId } : {}),
+      ...(inventoryPostingAccountId ? { inventoryPostingAccountId } : {}),
+      ...(cogsPostingAccountId ? { cogsPostingAccountId } : {}),
       ...(docType === 'SALES' ? { drawsTracked: true, lotDraws: { create: draws } } : {}),
     } })
     if (method === 'WEIGHTED_AVERAGE') await refreshWarehouseCarryingValues(tx, orgId, itemId, sourceWarehouse)
@@ -791,7 +793,7 @@ export async function calculateAndPostCOGS(
   docType: InventoryDocumentType,
   docId: string,
   date: Date,
-  opts: { allowNegativeStock?: boolean; inventoryPostingAccountId?: string | null } = {},
+  opts: { allowNegativeStock?: boolean; inventoryPostingAccountId?: string | null; cogsPostingAccountId?: string | null } = {},
 ): Promise<number> {
   // Serialize outbound consumption per item BEFORE the sufficiency check. Two
   // concurrent sales of the same item each read on-hand with a plain findMany
@@ -802,5 +804,5 @@ export async function calculateAndPostCOGS(
   // correctly fails. (The lock is txn-scoped — released at commit/rollback.)
   await lockInventoryItems(tx, orgId, [itemId])
   await assertSufficientStock(tx, orgId, itemId, warehouseId, qty, opts.allowNegativeStock ?? false, docType === 'SALES')
-  return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date, opts.inventoryPostingAccountId)
+  return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date, opts.inventoryPostingAccountId, opts.cogsPostingAccountId)
 }

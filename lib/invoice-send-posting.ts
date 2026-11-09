@@ -246,7 +246,7 @@ export async function postInvoiceSend(
             InventoryDocumentType.SALES,
             invoiceId,
             invoiceDate,
-            { allowNegativeStock: opts.allowNegativeStock ?? false },
+            { allowNegativeStock: opts.allowNegativeStock ?? false, inventoryPostingAccountId: inventoryAccountId, cogsPostingAccountId: cogsAccountId },
           );
 
           await tx.salesInvoiceLine.update({
