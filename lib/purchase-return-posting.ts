@@ -21,7 +21,8 @@ import { InventoryDocumentType } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { calculateAndPostCOGS, lockInventoryItems } from './inventory-costing';
-import { toNumber } from './money';
+import { asMoney, toNumber } from './money';
+import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
@@ -61,9 +62,20 @@ export async function postPurchaseReturnOnApproval(
   await lockInventoryItems(tx, pr.organizationId, [...inventoryItemIds]);
 
   let totalConsumedCost = 0;
+  const inventoryByAccount = new Map<string, number>();
   for (const line of pr.lines) {
     const qty = toNumber(line.qtyReturn);
     if (qty <= 0 || !line.itemId || !inventoryItemIds.has(line.itemId)) continue;
+    // A return removes stock already on the books. Do not infer its account
+    // from today's item settings or company defaults. Refuse an ambiguous pool.
+    const lots = await tx.inventoryLot.findMany({
+      where: { organizationId: pr.organizationId, itemId: line.itemId, warehouseId: pr.warehouseId ?? null, qtyBalance: { gt: 0 } },
+      include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } },
+    });
+    const recorded = new Set(lots.map(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId).filter((id): id is string => Boolean(id)));
+    const missing = lots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId);
+    if (recorded.size > 1) throw new ApiError('Stock spans multiple recorded inventory accounts. Review its account history before posting this return.', 422);
+    const inventoryAccountId = [...recorded][0] ?? null;
     // calculateAndPostCOGS performs FIFO/WA consumption + writes the outbound
     // InventoryLedgerEntry. It does NOT post a JournalEntry — we do that
     // ourselves below for the GL leg.
@@ -76,8 +88,11 @@ export async function postPurchaseReturnOnApproval(
       InventoryDocumentType.PURCHASE_RETURN,
       pr.id,
       pr.returnDate,
+      { inventoryPostingAccountId: inventoryAccountId },
     );
-    totalConsumedCost += cost;
+    if (cost > 0 && (missing || !inventoryAccountId)) throw new ApiError('Original stock account history is unavailable. Review the historical stock before posting this return.', 422);
+    if (cost > 0 && inventoryAccountId) inventoryByAccount.set(inventoryAccountId, asMoney((inventoryByAccount.get(inventoryAccountId) ?? 0) + cost));
+    totalConsumedCost = asMoney(totalConsumedCost + cost);
   }
 
   if (totalConsumedCost <= 0) {
@@ -95,11 +110,10 @@ export async function postPurchaseReturnOnApproval(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
   });
   const settings = await loadOrgAccountDefaults(tx, pr.organizationId);
-  const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
   const apReturnAccountId =
     pr.returnAccountId ?? resolveAccountDefaultId(accounts, settings, 'apReturn');
 
-  if (!inventoryAccountId || !apReturnAccountId) {
+  if (!apReturnAccountId) {
     throw new Error(
       `PurchaseReturn ${pr.number}: missing inventoryAsset/apReturn account defaults`,
     );
@@ -116,12 +130,12 @@ export async function postPurchaseReturnOnApproval(
         debit: totalConsumedCost,
         credit: 0,
       },
-      {
-        accountId: inventoryAccountId,
+      ...[...inventoryByAccount].map(([accountId, amount]) => ({
+        accountId,
         description: `Inventory removal - ${pr.number}`,
         debit: 0,
-        credit: totalConsumedCost,
-      },
+        credit: amount,
+      })),
     ],
   });
 

@@ -339,6 +339,9 @@ export async function restoreConsumedLayers(
   for (const entry of outbound) {
     const qty = toNumber(entry.qtyOut)
     const value = asMoney(-toNumber(entry.valueChange)) // exact total removed
+    if (documentType === 'PURCHASE_RETURN' && value > 0 && !entry.inventoryPostingAccountId) {
+      throw new ApiError('Original purchase return account history is unavailable. Review the historical return before voiding it.', 422)
+    }
     const unitCost = qty > 0 ? value / qty : 0
     valueRestored += value
 
@@ -359,6 +362,7 @@ export async function restoreConsumedLayers(
     }
     // The original estimate stays on the sale; only its settlement is undone.
     if (shortfallDrawIds.length) await unwindSaleSettlements(tx, orgId, shortfallDrawIds, { documentId, date })
+    let restoredLotId: string | undefined
     if (exact) {
       for (const draw of entry.lotDraws) {
         if (draw.shortfall) continue
@@ -372,7 +376,7 @@ export async function restoreConsumedLayers(
     } else {
       if (opts.requireExact) throw new ApiError('Original stock lots cannot be restored exactly — void this invoice to change.', 422)
 
-      await tx.inventoryLot.create({
+      const restoredLot = await tx.inventoryLot.create({
         data: {
           organizationId: orgId,
           itemId: entry.itemId,
@@ -388,8 +392,9 @@ export async function restoreConsumedLayers(
           carryingValue: value,
         },
       })
+      if (documentType === 'PURCHASE_RETURN' && entry.inventoryPostingAccountId) restoredLotId = restoredLot.id
     }
-    await tx.inventoryLedgerEntry.create({
+    const restoredEntry = await tx.inventoryLedgerEntry.create({
       data: {
         organizationId: orgId,
         itemId: entry.itemId,
@@ -401,8 +406,10 @@ export async function restoreConsumedLayers(
         qtyOut: 0,
         unitCost,
         valueChange: value,
+        ...(documentType === 'PURCHASE_RETURN' && entry.inventoryPostingAccountId ? { inventoryPostingAccountId: entry.inventoryPostingAccountId } : {}),
       },
     })
+    if (restoredLotId) await tx.inventoryLot.update({ where: { id: restoredLotId }, data: { inboundLedgerEntryId: restoredEntry.id } })
     await tx.inventoryLedgerEntry.update({ where: { id: entry.id }, data: { reversedAt: date } })
     if (method === 'WEIGHTED_AVERAGE') {
       await refreshWarehouseCarryingValues(tx, orgId, entry.itemId, entry.warehouseId)
@@ -559,7 +566,7 @@ export async function consumeFIFO(
   qty: number,
   docType: InventoryDocumentType,
   docId: string,
-  date: Date
+  date: Date,
 ): Promise<{ totalCost: number; cogsPerUnit: number; draws: Array<{ lotId: string | null; quantity: number; costValue: number }> }> {
   // Fetch open lots ordered oldest-first (FIFO)
   const lots = await tx.inventoryLot.findMany({
@@ -691,7 +698,8 @@ export async function relieveCostLayers(
   qty: number,
   docType: InventoryDocumentType,
   docId: string,
-  date: Date
+  date: Date,
+  inventoryPostingAccountId?: string | null,
 ): Promise<number> {
   await lockInventoryItems(tx, orgId, [itemId])
   const method = await getOrgCostingMethod(tx, orgId)
@@ -761,6 +769,7 @@ export async function relieveCostLayers(
       organizationId: orgId, itemId, warehouseId: sourceWarehouse, date,
       documentType: docType, documentId: docId, qtyIn: 0, qtyOut: group.quantity,
       unitCost, valueChange: -cost,
+      ...(inventoryPostingAccountId && cost !== 0 ? { inventoryPostingAccountId } : {}),
       ...(docType === 'SALES' ? { drawsTracked: true, lotDraws: { create: draws } } : {}),
     } })
     if (method === 'WEIGHTED_AVERAGE') await refreshWarehouseCarryingValues(tx, orgId, itemId, sourceWarehouse)
@@ -782,7 +791,7 @@ export async function calculateAndPostCOGS(
   docType: InventoryDocumentType,
   docId: string,
   date: Date,
-  opts: { allowNegativeStock?: boolean } = {},
+  opts: { allowNegativeStock?: boolean; inventoryPostingAccountId?: string | null } = {},
 ): Promise<number> {
   // Serialize outbound consumption per item BEFORE the sufficiency check. Two
   // concurrent sales of the same item each read on-hand with a plain findMany
@@ -793,5 +802,5 @@ export async function calculateAndPostCOGS(
   // correctly fails. (The lock is txn-scoped — released at commit/rollback.)
   await lockInventoryItems(tx, orgId, [itemId])
   await assertSufficientStock(tx, orgId, itemId, warehouseId, qty, opts.allowNegativeStock ?? false, docType === 'SALES')
-  return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date)
+  return relieveCostLayers(tx, orgId, itemId, warehouseId, qty, docType, docId, date, opts.inventoryPostingAccountId)
 }
