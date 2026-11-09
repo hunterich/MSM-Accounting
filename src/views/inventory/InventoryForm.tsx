@@ -544,6 +544,9 @@ const InventoryForm = () => {
                     </div>
                 </div>
 
+                <p className="text-sm text-neutral-600 mb-4" role="note">
+                    Leave an account blank to use the company default. Accounts set here are used for this item&apos;s sales, purchases, returns and stock adjustments. The inventory account cannot be changed while this item has stock or inventory value.
+                </p>
                 <div className="grid-12 form-grid-start">
                     <div className="col-span-4">
                         <SelectField label="Inventory Account" name="inventoryAccountId" value={formData.inventoryAccountId} onChange={handleChange} error={errors.inventoryAccountId} disabled={isViewMode}>

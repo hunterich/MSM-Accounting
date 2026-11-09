@@ -50,7 +50,7 @@ describe('sales return void round-trip', () => {
 
     // Approve: restock 5 @ 200 + post DR Inventory / CR COGS, stamp journalEntryId.
     await prisma.$transaction(async (tx) => {
-      await addCostLayer(tx, org.orgId, itemId, null, 5, 200, InventoryDocumentType.SALES_RETURN, sr.id, DATE);
+      await addCostLayer(tx, org.orgId, itemId, null, 5, 200, InventoryDocumentType.SALES_RETURN, sr.id, DATE, undefined, org.accounts.inventoryAsset);
       const entry = await postJournalEntry(tx, {
         organizationId: org.orgId, date: DATE, memo: `Sales return inventory: ${sr.number}`,
         lines: [
@@ -90,7 +90,7 @@ describe('sales return void round-trip', () => {
     });
 
     await prisma.$transaction(async (tx) => {
-      await addCostLayer(tx, org.orgId, itemId, null, 5, 200, InventoryDocumentType.SALES_RETURN, sr.id, DATE);
+      await addCostLayer(tx, org.orgId, itemId, null, 5, 200, InventoryDocumentType.SALES_RETURN, sr.id, DATE, undefined, org.accounts.inventoryAsset);
       const entry = await postJournalEntry(tx, {
         organizationId: org.orgId, date: DATE, memo: `Sales return inventory: ${sr.number}`,
         lines: [
@@ -133,7 +133,7 @@ describe('purchase return void round-trip', () => {
 
     // Approve: remove 4 (PURCHASE_RETURN draw-down) + post DR apReturn / CR Inventory.
     await prisma.$transaction(async (tx) => {
-      const cost = await calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.PURCHASE_RETURN, pr.id, DATE);
+      const cost = await calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.PURCHASE_RETURN, pr.id, DATE, { inventoryPostingAccountId: org.accounts.inventoryAsset });
       const entry = await postJournalEntry(tx, {
         organizationId: org.orgId, date: DATE, memo: `Purchase return inventory: ${pr.number}`,
         lines: [

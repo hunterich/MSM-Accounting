@@ -18,6 +18,7 @@ function makeTx(accounts: any[] = ACCOUNTS) {
     organization: { findUnique: vi.fn(async () => ({ accountDefaults: null })) },
     account: { findMany: vi.fn(async () => accounts), findFirst: vi.fn(), create: vi.fn() },
     item: { findMany: vi.fn(async () => [{ id: 'item-1' }]) }, // item-1 is inventory
+    bill: { update: vi.fn(async () => ({})) },
   };
 }
 
@@ -41,6 +42,7 @@ describe('postGoodsReceiptToLedger', () => {
     const je = (postJournalEntry as any).mock.calls[0][1];
     expect(je.lines.find((l: any) => l.accountId === 'acc-inv').debit).toBe(10000);
     expect(je.lines.find((l: any) => l.accountId === 'acc-grir').credit).toBe(10000);
+    expect(tx.bill.update).toHaveBeenCalledWith(expect.objectContaining({ data: { receiptPostingJournalId: 'je-1' } }));
   });
 
   it('values inventory at net when VAT-inclusive', async () => {

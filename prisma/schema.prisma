@@ -655,6 +655,11 @@ model SalesInvoiceLine {
   lineSubtotal  Decimal  @default(0) @db.Decimal(18, 2)
   // Actual COGS consumed at posting; null means historical cost is unavailable.
   cogsAmount    Decimal? @db.Decimal(18, 2)
+  // Immutable snapshots of accounts used by the current posting. Null on
+  // historical lines; never infer their original accounts from item settings.
+  revenuePostingAccountId   String?
+  inventoryPostingAccountId String?
+  cogsPostingAccountId      String?
   performedById String?
   parentLineNo  Int?
   isModifier    Boolean  @default(false)
@@ -1035,6 +1040,7 @@ model Bill {
   notes          String?
   recurringBillId String?
   journalEntryId String?
+  receiptPostingJournalId String?
   migrationBatchId String?
   voidedAt       DateTime?
   deletedAt      DateTime?
@@ -1407,6 +1413,9 @@ model InventoryLedgerEntry {
   qtyOut         Decimal     @default(0) @db.Decimal(18, 4)
   unitCost       Decimal     @default(0) @db.Decimal(18, 6)
   valueChange    Decimal     @default(0) @db.Decimal(18, 2)
+  // GL account used for this movement, when known. Legacy rows stay null.
+  inventoryPostingAccountId String?
+  cogsPostingAccountId String?
   migrationBatchId String?
   createdAt      DateTime    @default(now())
   drawsTracked   Boolean     @default(false)
@@ -2213,6 +2222,8 @@ model InventoryShortfallSettlement {
   receiptLotId            String?
   adjustmentLedgerEntryId String?
   journalEntryId          String?
+  inventoryPostingAccountId String?
+  cogsPostingAccountId    String?
   date                    DateTime
   quantity                Decimal   @db.Decimal(15, 4)
   estimatedValue          Decimal   @db.Decimal(18, 2)

@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { withHandler, requireOrg, ok, err, logAudit, ApiError } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { changeInventoryCostingMethod } from '@/lib/inventory-costing-switch';
+import { assertInventoryDefaultChangeAllowed } from '@/lib/item-inventory-account-guard';
 import { updateOrganizationSettingsInputSchema } from '@/types/api';
 import {
   ACCOUNT_DEFAULT_SPECS,
@@ -305,6 +306,9 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
   }
 
   const updated = await prisma.$transaction(async tx => {
+    if (updateData.accountDefaults !== undefined) {
+      await assertInventoryDefaultChangeAllowed(tx, orgId, updateData.accountDefaults as Partial<AccountDefaultsConfig>);
+    }
     if (parsed.data.costingMethod !== undefined) {
       await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
       const current = await tx.organization.findUnique({ where: { id: orgId }, select: { costingMethod: true } });

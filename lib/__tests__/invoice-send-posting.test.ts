@@ -31,6 +31,7 @@ function makeTx(invoiceOver: any = {}) {
     organization: { findUnique: vi.fn(async () => ({ accountDefaults: null, costingMethod: null })) },
     salesInvoiceLine: { findMany: vi.fn(async () => []) },
     item: { findMany: vi.fn(async () => []) },
+    inventoryLot: { findMany: vi.fn(async () => []) },
   };
 }
 
@@ -100,8 +101,10 @@ describe('postInvoiceSend — original cost snapshots', () => {
     vi.mocked(calculateAndPostCOGS).mockResolvedValueOnce(225).mockResolvedValueOnce(0);
     await postInvoiceSend(tx, 'org-a', 'inv-1');
     expect(tx.salesInvoiceLine.update.mock.calls).toEqual([
-      [{ where: { id: 'line-1' }, data: { cogsAmount: 225 } }],
-      [{ where: { id: 'line-2' }, data: { cogsAmount: 0 } }],
+      [{ where: { id: 'line-1' }, data: { revenuePostingAccountId: 'acc-sales' } }],
+      [{ where: { id: 'line-2' }, data: { revenuePostingAccountId: 'acc-sales' } }],
+      [{ where: { id: 'line-1' }, data: { cogsAmount: 225, inventoryPostingAccountId: 'acc-inventory', cogsPostingAccountId: 'acc-cogs' } }],
+      [{ where: { id: 'line-2' }, data: { cogsAmount: 0, inventoryPostingAccountId: 'acc-inventory', cogsPostingAccountId: 'acc-cogs' } }],
     ]);
   });
 });
