@@ -1412,6 +1412,8 @@ model InventoryLedgerEntry {
   qtyOut         Decimal     @default(0) @db.Decimal(18, 4)
   unitCost       Decimal     @default(0) @db.Decimal(18, 6)
   valueChange    Decimal     @default(0) @db.Decimal(18, 2)
+  // GL account used for this movement, when known. Legacy rows stay null.
+  inventoryPostingAccountId String?
   migrationBatchId String?
   createdAt      DateTime    @default(now())
   drawsTracked   Boolean     @default(false)

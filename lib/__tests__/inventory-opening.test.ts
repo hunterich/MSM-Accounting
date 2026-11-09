@@ -59,6 +59,7 @@ describe('postOpeningStockIfNeeded', () => {
     await postOpeningStockIfNeeded(tx as never, 'org-1', 'item-1', new Date('2026-01-01'));
 
     expect((tx.inventoryLot as AnyRecord).create).toHaveBeenCalledTimes(1);
+    expect((tx.inventoryLedgerEntry as AnyRecord).create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ inventoryPostingAccountId: 'ACC-INV' }) }));
     const lines = postJE.mock.calls[0][1].lines;
     expect(lines).toEqual([
       expect.objectContaining({ accountId: 'ACC-INV', debit: 1000, credit: 0 }),

@@ -95,14 +95,14 @@ export async function postOpeningStockIfNeeded(
 
   const unitCost = toNumber(item.costPrice);
 
-  // Always write the cost layer + perpetual ledger so on-hand quantity is
-  // correct even for zero-cost items.
-  await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date);
-
   // Only post a journal entry when the opening stock carries value — and only
   // when GL posting is enabled (migration passes postGl:false: lots only).
   const value = asMoney(qty * unitCost);
-  if (value <= 0 || !postGl) return;
+  if (value <= 0 || !postGl) {
+    // No inventory GL line was posted; do not invent an account snapshot.
+    await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date);
+    return;
+  }
 
   // A POSTED entry on `date`, so it obeys the period lock like every other
   // posting. Placed after the postGl early-return: the migration path writes
@@ -130,6 +130,9 @@ export async function postOpeningStockIfNeeded(
       422,
     );
   }
+
+  // Persist the account on the movement alongside the matching opening entry.
+  await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date, undefined, inventoryAccountId);
 
   await postJournalEntry(tx, {
     organizationId: orgId,

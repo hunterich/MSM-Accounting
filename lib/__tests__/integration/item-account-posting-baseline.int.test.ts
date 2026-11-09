@@ -12,6 +12,8 @@ describe('item inventory account posting', () => {
     const item = await prisma.item.create({ data: { organizationId: org.orgId, sku: 'ACCOUNT-BASELINE', name: 'Mapped product', costPrice: 100, openingStock: 2, inventoryAccountId: itemAccount.id } });
     const date = new Date('2026-01-01T00:00:00Z');
     await prisma.$transaction(tx => postOpeningStockIfNeeded(tx, org.orgId, item.id, date));
+    const opening = await prisma.inventoryLedgerEntry.findFirstOrThrow({ where: { organizationId: org.orgId, itemId: item.id, documentType: 'OPENING' } });
+    expect(opening.inventoryPostingAccountId).toBe(itemAccount.id);
     const customerId = await createCustomer(org.orgId);
     const invoice = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number: 'ITEM-ACCOUNT-BASELINE', issueDate: date,
       status: 'SENT', subtotal: 200, totalAmount: 200, taxEnabled: false, taxRate: 0,

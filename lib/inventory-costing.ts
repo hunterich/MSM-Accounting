@@ -134,6 +134,7 @@ export async function addCostLayer(
   docId: string,
   date: Date,
   bookedValue?: number,
+  inventoryPostingAccountId?: string | null,
 ): Promise<void> {
   await lockInventoryItems(tx, orgId, [itemId])
   // A rounded unit price cannot reconstruct every exact document line value.
@@ -141,6 +142,7 @@ export async function addCostLayer(
   const inbound = await tx.inventoryLedgerEntry.create({ data: {
     organizationId: orgId, itemId, warehouseId: warehouseId ?? null, date,
     documentType: docType, documentId: docId, qtyIn: qty, qtyOut: 0, unitCost, valueChange: initialValue,
+    ...(inventoryPostingAccountId ? { inventoryPostingAccountId } : {}),
   }, select: { id: true } })
   const lot = await tx.inventoryLot.create({
     data: {
