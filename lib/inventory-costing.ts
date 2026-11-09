@@ -203,6 +203,7 @@ export async function reverseAddedLayers(
   await lockInventoryItems(tx, orgId, identities.map(lot => lot.itemId))
   let lots = await tx.inventoryLot.findMany({
     where: { organizationId: orgId, documentType, documentId },
+    include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } },
   })
   if (lots.length === 0) return 0
   const method = await getOrgCostingMethod(tx, orgId)
@@ -210,7 +211,7 @@ export async function reverseAddedLayers(
     // Covered shortage quantity returns to the lots before they can be removed.
     for (const lot of lots) await assertNoLaterStockIssue(tx, orgId, lot)
     await unwindReceiptSettlements(tx, orgId, lots.map(lot => lot.id), { documentId, date })
-    lots = await tx.inventoryLot.findMany({ where: { organizationId: orgId, documentType, documentId } })
+    lots = await tx.inventoryLot.findMany({ where: { organizationId: orgId, documentType, documentId }, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } })
   }
   for (const lot of lots) {
     if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {
@@ -220,6 +221,7 @@ export async function reverseAddedLayers(
       )
     }
     const originalValue = lot.initialValue != null ? toNumber(lot.initialValue) : asMoney(toNumber(lot.qtyIn) * toNumber(lot.unitCost))
+    if (originalValue !== 0 && !lot.inboundLedgerEntry?.inventoryPostingAccountId) throw new ApiError('Original stock account history is unavailable. Review the historical transaction before reversing it.', 422)
     if (method === 'FIFO' && lot.carryingValue != null && Math.abs(toNumber(lot.carryingValue) - originalValue) > 0.001) {
       throw new ApiError('Cannot reverse: this receipt has a different carrying value after valuation changes. Reverse the dependent transactions first.', 422)
     }
@@ -243,6 +245,7 @@ export async function reverseAddedLayers(
         qtyOut: qty,
         unitCost,
         valueChange: -value,
+        ...(lot.inboundLedgerEntry?.inventoryPostingAccountId ? { inventoryPostingAccountId: lot.inboundLedgerEntry.inventoryPostingAccountId } : {}),
         reversedAt: date, // removes a reversed inbound; never a stock issue
       },
     })

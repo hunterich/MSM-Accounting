@@ -44,6 +44,8 @@ export async function postGoodsReceiptToLedger(
   const rate = args.taxInclusive ? toNumber(args.taxRate) / 100 : 0;
 
   const itemIds = args.lines.map((l) => l.itemId).filter((x): x is string => Boolean(x));
+  // Hold the item locks while reading account mappings and posting stock.
+  await lockInventoryItems(tx, orgId, itemIds);
   const inventoryItems = itemIds.length
     ? await tx.item.findMany({
         where: { id: { in: itemIds }, organizationId: orgId, type: { in: ['PRODUCT', 'RAW_MATERIAL'] } },
@@ -66,7 +68,6 @@ export async function postGoodsReceiptToLedger(
   }
   grirNet = asMoney(grirNet);
   if (!layers.length || grirNet < 0) return;
-  await lockInventoryItems(tx, orgId, layers.map(layer => layer.itemId));
 
   // Quantity is independent of price. Free receipts still create stock and
   // may settle an estimated shortage (whose COGS journal is posted by the
