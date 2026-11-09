@@ -39,7 +39,7 @@ describe('invoice void round-trip', () => {
 
     // Receive 10 @ 100 into inventory.
     await prisma.$transaction((tx) =>
-      addCostLayer(tx, org.orgId, itemId, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE),
+      addCostLayer(tx, org.orgId, itemId, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE, undefined, org.accounts.inventoryAsset),
     );
     expect(await inventoryLotValue(org.orgId)).toBeCloseTo(1000, 2);
 
@@ -73,7 +73,7 @@ describe('invoice void round-trip', () => {
 
     // Consume 4 units (tagged SALES) and post the COGS journal (DR COGS / CR Inventory).
     const cogs = await prisma.$transaction((tx) =>
-      calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.SALES, inv.id, DATE),
+      calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.SALES, inv.id, DATE, { inventoryPostingAccountId: org.accounts.inventoryAsset, cogsPostingAccountId: org.accounts.cogsExpense }),
     );
     expect(cogs).toBeCloseTo(400, 2);
     await prisma.$transaction((tx) =>
@@ -118,8 +118,8 @@ describe('invoice void round-trip', () => {
     const itemB = await createItem(org.orgId);
 
     // Receive: A 5 @ 100 (=500), B 3 @ 200 (=600). Total on-hand 1100.
-    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemA, null, 5, 100, InventoryDocumentType.PURCHASE, 'po-a', DATE));
-    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemB, null, 3, 200, InventoryDocumentType.PURCHASE, 'po-b', DATE));
+    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemA, null, 5, 100, InventoryDocumentType.PURCHASE, 'po-a', DATE, undefined, org.accounts.inventoryAsset));
+    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemB, null, 3, 200, InventoryDocumentType.PURCHASE, 'po-b', DATE, undefined, org.accounts.inventoryAsset));
     expect(await inventoryLotValue(org.orgId)).toBeCloseTo(1100, 2);
 
     const inv = await prisma.salesInvoice.create({
@@ -137,7 +137,7 @@ describe('invoice void round-trip', () => {
 
     // Two inventory lines → two separate COGS journals (same memo).
     for (const [itemId, qty, cost] of [[itemA, 2, 200], [itemB, 1, 200]] as const) {
-      const cogs = await prisma.$transaction((tx) => calculateAndPostCOGS(tx, org.orgId, itemId, null, qty, InventoryDocumentType.SALES, inv.id, DATE));
+      const cogs = await prisma.$transaction((tx) => calculateAndPostCOGS(tx, org.orgId, itemId, null, qty, InventoryDocumentType.SALES, inv.id, DATE, { inventoryPostingAccountId: org.accounts.inventoryAsset, cogsPostingAccountId: org.accounts.cogsExpense }));
       expect(cogs).toBeCloseTo(cost, 2);
       await prisma.$transaction((tx) => postJournalEntry(tx, {
         organizationId: org.orgId, date: DATE, memo: `COGS auto-post: ${inv.number}`,
