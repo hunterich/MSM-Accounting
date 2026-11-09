@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
+import { voidInvoice } from '@/lib/invoice-void';
 import { accountBalance, createCustomer, createTestOrg, disconnect, prisma } from './harness';
 import type { Prisma } from '@prisma/client';
 
@@ -77,5 +78,37 @@ describe('invoice item account posting', () => {
     await expect(prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, invoice.id))).rejects.toThrow(/revenue item account/);
     expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(beforeJournals);
     expect(await prisma.inventoryLedgerEntry.count({ where: { organizationId: org.orgId } })).toBe(beforeLedger);
+  });
+
+  it('rejects a sale of old stock with unknown account history without partial postings', async () => {
+    const org = await createTestOrg();
+    const item = await prisma.item.create({ data: { organizationId: org.orgId, sku: 'LEGACY-STOCK', name: 'Legacy stock', openingStock: 1, costPrice: 50 } });
+    await prisma.$transaction(tx => postOpeningStockIfNeeded(tx, org.orgId, item.id, date));
+    await prisma.inventoryLedgerEntry.updateMany({ where: { organizationId: org.orgId, itemId: item.id, documentType: 'OPENING' }, data: { inventoryPostingAccountId: null } });
+    const customerId = await createCustomer(org.orgId);
+    const invoice = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number: 'LEGACY-INV', issueDate: date, status: 'DRAFT', subtotal: 100, totalAmount: 100,
+      lines: { create: { itemId: item.id, description: 'Legacy', lineNo: 1, quantity: 1, price: 100, lineSubtotal: 100 } } } });
+    const journals = await prisma.journalEntry.count({ where: { organizationId: org.orgId } });
+    await expect(prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, invoice.id))).rejects.toThrow(/account history is unavailable/i);
+    expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(journals);
+    expect(await prisma.inventoryLedgerEntry.count({ where: { organizationId: org.orgId, documentId: invoice.id } })).toBe(0);
+    expect(Number((await prisma.inventoryLot.findFirstOrThrow({ where: { organizationId: org.orgId, itemId: item.id } })).qtyBalance)).toBe(1);
+  });
+
+  it('voids a sale using the accounts recorded before the item mapping changed', async () => {
+    const org = await createTestOrg();
+    const inventory = await prisma.account.create({ data: { organizationId: org.orgId, code: '1398', name: 'Item stock', type: 'ASSET', normalSide: 'DEBIT' } });
+    const item = await prisma.item.create({ data: { organizationId: org.orgId, sku: 'VOID-ITEM', name: 'Item', openingStock: 2, costPrice: 100, inventoryAccountId: inventory.id } });
+    await prisma.$transaction(tx => postOpeningStockIfNeeded(tx, org.orgId, item.id, date));
+    const customerId = await createCustomer(org.orgId);
+    const invoice = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number: 'VOID-ITEM-INV', issueDate: date, status: 'SENT', subtotal: 200, totalAmount: 200,
+      lines: { create: { itemId: item.id, description: 'Item', lineNo: 1, quantity: 1, price: 200, lineSubtotal: 200 } } } });
+    await prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, invoice.id));
+    await prisma.item.update({ where: { id: item.id }, data: { inventoryAccountId: org.accounts.inventoryAsset } });
+    await prisma.$transaction(tx => voidInvoice(tx, org.orgId, invoice.id, { date }));
+    expect(await accountBalance(org.orgId, inventory.id)).toBe(200);
+    expect(await accountBalance(org.orgId, org.accounts.inventoryAsset)).toBe(0);
+    const restored = await prisma.inventoryLedgerEntry.findFirstOrThrow({ where: { organizationId: org.orgId, documentId: invoice.id, documentType: 'ADJUSTMENT', qtyIn: { gt: 0 } } });
+    expect(restored.inventoryPostingAccountId).toBe(inventory.id);
   });
 });

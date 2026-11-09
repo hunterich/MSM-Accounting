@@ -31,6 +31,7 @@ function makeTx(invoiceOver: any = {}) {
     organization: { findUnique: vi.fn(async () => ({ accountDefaults: null, costingMethod: null })) },
     salesInvoiceLine: { findMany: vi.fn(async () => []) },
     item: { findMany: vi.fn(async () => []) },
+    inventoryLot: { findMany: vi.fn(async () => []) },
   };
 }
 

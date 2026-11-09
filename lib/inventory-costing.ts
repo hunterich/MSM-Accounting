@@ -339,8 +339,8 @@ export async function restoreConsumedLayers(
   for (const entry of outbound) {
     const qty = toNumber(entry.qtyOut)
     const value = asMoney(-toNumber(entry.valueChange)) // exact total removed
-    if (documentType === 'PURCHASE_RETURN' && value > 0 && !entry.inventoryPostingAccountId) {
-      throw new ApiError('Original purchase return account history is unavailable. Review the historical return before voiding it.', 422)
+    if ((documentType === 'PURCHASE_RETURN' || documentType === 'SALES') && value > 0 && !entry.inventoryPostingAccountId) {
+      throw new ApiError('Original stock movement account history is unavailable. Review the historical transaction before reversing it.', 422)
     }
     const unitCost = qty > 0 ? value / qty : 0
     valueRestored += value
@@ -392,7 +392,7 @@ export async function restoreConsumedLayers(
           carryingValue: value,
         },
       })
-      if (documentType === 'PURCHASE_RETURN' && entry.inventoryPostingAccountId) restoredLotId = restoredLot.id
+      if ((documentType === 'PURCHASE_RETURN' || documentType === 'SALES') && entry.inventoryPostingAccountId) restoredLotId = restoredLot.id
     }
     const restoredEntry = await tx.inventoryLedgerEntry.create({
       data: {
@@ -406,7 +406,8 @@ export async function restoreConsumedLayers(
         qtyOut: 0,
         unitCost,
         valueChange: value,
-        ...(documentType === 'PURCHASE_RETURN' && entry.inventoryPostingAccountId ? { inventoryPostingAccountId: entry.inventoryPostingAccountId } : {}),
+        ...((documentType === 'PURCHASE_RETURN' || documentType === 'SALES') && entry.inventoryPostingAccountId ? { inventoryPostingAccountId: entry.inventoryPostingAccountId } : {}),
+        ...(documentType === 'SALES' && entry.cogsPostingAccountId ? { cogsPostingAccountId: entry.cogsPostingAccountId } : {}),
       },
     })
     if (restoredLotId) await tx.inventoryLot.update({ where: { id: restoredLotId }, data: { inboundLedgerEntryId: restoredEntry.id } })

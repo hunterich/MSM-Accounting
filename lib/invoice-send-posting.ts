@@ -237,6 +237,11 @@ export async function postInvoiceSend(
           const inventoryAccountId = itemPostingAccount(accounts, item.inventoryAccountId, defaultInventoryAccountId, 'ASSET', 'inventory');
           if (!cogsAccountId || !inventoryAccountId) throw new ApiError(`Cannot post COGS for ${invoiceNumber}: no Inventory Asset / COGS account is configured. Map default accounts in Settings before sending invoices with stocked items.`, 422);
 
+          const lots = await tx.inventoryLot.findMany({ where: {
+            organizationId: orgId, itemId: line.itemId, qtyBalance: { gt: 0 },
+            ...(opts.warehouseId ? { warehouseId: opts.warehouseId } : {}),
+          }, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } });
+
           const cogs = await calculateAndPostCOGS(
             tx,
             orgId,
@@ -248,6 +253,13 @@ export async function postInvoiceSend(
             invoiceDate,
             { allowNegativeStock: opts.allowNegativeStock ?? false, inventoryPostingAccountId: inventoryAccountId, cogsPostingAccountId: cogsAccountId },
           );
+
+          if (cogs > 0 && lots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId)) {
+            throw new ApiError('Original stock account history is unavailable. Review the historical stock before posting this sale.', 422);
+          }
+          if (cogs > 0 && lots.some(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId !== inventoryAccountId)) {
+            throw new ApiError('Recorded stock and the item use different inventory accounts. Review the stock account history before posting this sale.', 422);
+          }
 
           await tx.salesInvoiceLine.update({
             where: { id: line.id },
