@@ -22,13 +22,13 @@ An additional defect surfaced during acceptance: the bill approval finalizer loa
 
 ### Stock-adjustment scope
 
-The existing posting engine records line account choices but posts the net adjustment through the configured variance account. This change rejects bad line selections and bad actual defaults; it deliberately preserves that existing allocation behavior. Implementing per-line variance-account allocation would be a separately scoped accounting change. No inventory costing, tax policy, opening/migration policy or historical balance rewriting is introduced here.
+New stock adjustments post each line's lot-derived difference to its selected offset account, or to the resolved variance default when no account is selected. Existing adjustments, including drafts and pending approvals, continue to post their net difference to the variance default; editing a draft does not change that choice. Stock-count adjustments use the variance default. Posting rejects an offset equal to that line's inventory account. Existing journals and costing are unchanged.
 
 ## Read-only audit
 
 `scripts/audit-document-offset-accounts.ts --company ID` requires an explicitly supplied `DATABASE_URL`. It runs with database-enforced READ ONLY and Repeatable Read, and a 30-second statement/transaction timeout. It reports stored invalid selections plus recorded control-account journal lines for review, using bill journal links, invoice posting IDs and the exact legacy stock-adjustment memo convention.
 
-This report identifies review candidates; it does not quantify or certify reconciliation differences. A stock-adjustment selection may not be the actual posting offset. Legacy invoices without recorded journal IDs require separate historical investigation. Independent per-account reconciliation remains #167. No production audit or repair has been performed.
+This report identifies review candidates; it does not quantify or certify reconciliation differences. A legacy stock-adjustment selection may not be the actual posting offset. Legacy invoices without recorded journal IDs require separate historical investigation. Independent per-account reconciliation remains #167. No production audit or repair has been performed.
 
 ## Verification — 18 October 2026
 

@@ -8,6 +8,7 @@ import { lockInventoryItems } from '@/lib/inventory-costing';
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { assertDocumentOffsetAccounts } from '@/lib/document-offset-accounts';
+import { assertStockAdjustmentOffsetsNotInventory } from '@/lib/stock-adjustment-offset-guard';
 
 export const runtime = 'nodejs';
 
@@ -78,6 +79,7 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
       // Inactive items remain adjustable so residual stock can be written down.
       await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId }, 'Item not found in organization');
     }
+    await assertStockAdjustmentOffsetsNotInventory(tx, orgId, lines.map(line => line.accountId));
 
     // Stock-count posting also holds item locks while allocating ADJ numbers.
     // Use that order here so direct posting cannot take the opposite order.
@@ -92,6 +94,7 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
         reason,
         notes: notes ?? null,
         warehouseId: warehouseId ?? null,
+        postsLineAccounts: true,
         status,
       },
     });
@@ -145,6 +148,7 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
         number: adj.number,
         date: new Date(date),
         warehouseId: warehouseId ?? null,
+        postsLineAccounts: true,
         lines,
       }, dateOverride);
     }

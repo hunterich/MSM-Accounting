@@ -9,6 +9,8 @@ import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { itemPostingAccount, lotsWithBookValue } from './item-posting-accounts';
 import { ApiError } from './errors';
+import { allocateAdjustmentOffsets, type AdjustmentMovement } from './stock-adjustment-allocation';
+import { assertStockAdjustmentOffsetsNotInventory } from './stock-adjustment-offset-guard';
 
 type Tx = Prisma.TransactionClient;
 
@@ -28,6 +30,7 @@ export interface StockAdjustmentPostingArgs {
   number: string;
   date: Date;
   warehouseId: string | null;
+  postsLineAccounts?: boolean;
   lines: StockAdjustmentPostingLine[];
 }
 
@@ -42,7 +45,7 @@ function lineQtyDiff(l: StockAdjustmentPostingLine): number {
  * ledger move together:
  *   - increase (qtyDiff > 0): addCostLayer at the typed unit cost (new layer + ledger row).
  *   - decrease (qtyDiff < 0): relieveCostLayers at carrying cost (FIFO/WA) + ledger row.
- * The single net journal entry is posted from those lot-derived values, so
+ * The journal is posted from those lot-derived values, so
  * lots = ledger = GL by construction (FIFO; see the WA note in the integration tests).
  * Adjustments are never blocked on insufficient layers — a shortfall is valued at
  * item.costPrice (consumeFIFO's fallback).
@@ -76,7 +79,7 @@ export async function postStockAdjustmentToLedger(
   const items = await tx.item.findMany({ where: { organizationId: orgId, id: { in: lines.map(line => line.itemId) } }, select: { id: true, inventoryAccountId: true } });
   const itemById = new Map(items.map(item => [item.id, item]));
   const valuesByAccount = new Map<string, number>();
-  let netValue = 0;
+  const movements: AdjustmentMovement[] = [];
   for (const l of lines) {
     const qtyDiff = lineQtyDiff(l);
     const item = itemById.get(l.itemId);
@@ -92,7 +95,7 @@ export async function postStockAdjustmentToLedger(
         undefined, value !== 0 ? configuredAccount : undefined,
       );
       if (configuredAccount) valuesByAccount.set(configuredAccount, asMoney((valuesByAccount.get(configuredAccount) ?? 0) + value));
-      netValue += value;
+      if (configuredAccount) movements.push({ inventoryAccountId: configuredAccount, accountId: l.accountId, value });
     } else if (qtyDiff < 0) {
       const lots = await tx.inventoryLot.findMany({ where: { organizationId: orgId, itemId: l.itemId, warehouseId: args.warehouseId ?? null, qtyBalance: { gt: 0 } }, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } });
       const valuedLots = lotsWithBookValue(lots);
@@ -106,21 +109,21 @@ export async function postStockAdjustmentToLedger(
       );
       if (cost > 0 && (!inventoryAccountId || valuedLots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId))) throw new ApiError('Original stock account history is unavailable. Review the historical stock before adjusting it.', 422);
       if (inventoryAccountId) valuesByAccount.set(inventoryAccountId, asMoney((valuesByAccount.get(inventoryAccountId) ?? 0) - cost));
-      netValue -= cost;
+      if (inventoryAccountId) movements.push({ inventoryAccountId, accountId: l.accountId, value: -cost });
     }
     // qtyDiff === 0 → no movement
   }
 
-  const netRounded = asMoney(netValue);
   const inventoryLines = [...valuesByAccount].filter(([, value]) => value !== 0);
-  if (inventoryLines.length === 0) return;
-  if (netRounded !== 0 && !varianceAccountId) throw new ApiError('No stock variance account is configured.', 422);
-  await assertDocumentOffsetAccounts(tx, orgId, [...inventoryLines.map(([id]) => id), varianceAccountId]);
+  if (args.postsLineAccounts) await assertStockAdjustmentOffsetsNotInventory(tx, orgId, lines.map(line => line.accountId), { adjustmentId: args.id, movementAccountIds: movements.map(movement => movement.inventoryAccountId) });
+  const offsets = allocateAdjustmentOffsets(movements, args.postsLineAccounts === true, varianceAccountId);
+  if (inventoryLines.length === 0 && offsets.length === 0) return;
+  await assertDocumentOffsetAccounts(tx, orgId, [...inventoryLines.map(([id]) => id), ...offsets.map(offset => offset.accountId)]);
 
   const memo = `Stock adjustment: ${args.number}`;
   const journalLines = inventoryLines.map(([accountId, value]) => ({ accountId, description: `Inventory ${value > 0 ? 'increase' : 'decrease'} - ${args.number}`, debit: Math.max(value, 0), credit: Math.max(-value, 0) }));
-  const variance = netRounded !== 0 ? [{ accountId: varianceAccountId!, description: `Stock variance - ${args.number}`, debit: Math.max(-netRounded, 0), credit: Math.max(netRounded, 0) }] : [];
-  await postJournalEntry(tx, { organizationId: orgId, date: args.date, memo, lines: netRounded < 0 ? [...variance, ...journalLines] : [...journalLines, ...variance] });
+  const variance = offsets.map(({ accountId, value }) => ({ accountId, description: `Stock variance - ${args.number}`, debit: Math.max(-value, 0), credit: Math.max(value, 0) }));
+  await postJournalEntry(tx, { organizationId: orgId, date: args.date, memo, lines: [...variance, ...journalLines] });
 }
 
 /**
@@ -151,6 +154,7 @@ export async function postStockAdjustmentIfNeeded(
     number: adj.number,
     date: adj.date,
     warehouseId: adj.warehouseId,
+    postsLineAccounts: adj.postsLineAccounts,
     lines: adj.lines.map((l) => ({
       accountId: l.accountId,
       itemId: l.itemId,
