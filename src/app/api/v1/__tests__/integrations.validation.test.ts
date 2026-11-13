@@ -110,13 +110,19 @@ describe('integrations route validation', () => {
 
   it('saves VAT and preserves other mapping fields', async () => {
     vi.mocked(prisma.ecommerceConnection.findFirst).mockResolvedValueOnce({ id: 'conn-1', organizationId: 'org-a', platform: 'SHOPEE', shopName: 'Shop', customerId: null, holdingAccountId: null } as never).mockResolvedValueOnce(null);
-    vi.mocked(prisma.account.findMany).mockResolvedValueOnce([{ id: 'fee' }] as never);
+    vi.mocked(prisma.account.findMany).mockResolvedValueOnce([{ id: 'fee' }, { id: 'discount' }, { id: 'shipping' }, { id: 'adjustment' }, { id: 'affiliate' }] as never);
     vi.mocked(prisma.ecommerceConnection.update).mockResolvedValueOnce({ id: 'conn-1' } as never);
-    const mappings = { paymentMode: 'settlement_import', vatInclusive: true, fees: { platformFeeAccountId: 'fee', extra: 'keep' }, extraConfig: { value: 1 } };
+    const mappings = { paymentMode: 'settlement_import', vatInclusive: true, fees: { platformFeeAccountId: 'fee', sellerDiscountAccountId: 'discount', shippingVarianceAccountId: 'shipping', adjustmentAccountId: 'adjustment', affiliateFeeAccountId: 'affiliate', extra: 'keep' }, extraConfig: { value: 1 } };
     const res = await updateIntegration(makeReq('org-a', 'PUT', { mappings }), params('conn-1'));
     expect(res.status).toBe(200);
     expect(prisma.ecommerceConnection.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ mappings }) }));
   });
 
-});
+  it('rejects clearing a required fee mapping in settlement mode', async () => {
+    vi.mocked(prisma.ecommerceConnection.findFirst).mockResolvedValueOnce({ id: 'conn-1', organizationId: 'org-a', platform: 'SHOPEE', shopName: 'Shop', customerId: null, holdingAccountId: null } as never);
+    const res = await updateIntegration(makeReq('org-a', 'PUT', { mappings: { paymentMode: 'settlement_import', vatInclusive: true, fees: { sellerDiscountAccountId: 'discount', shippingVarianceAccountId: 'shipping', platformFeeAccountId: null, adjustmentAccountId: 'adjustment', affiliateFeeAccountId: 'affiliate' } } }), params('conn-1'));
+    expect(res.status).toBe(400);
+    expect(prisma.ecommerceConnection.update).not.toHaveBeenCalled();
+  });
 
+});

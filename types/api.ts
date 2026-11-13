@@ -879,7 +879,7 @@ export const integrationInputSchema = z.object({
   salesTypeId: z.string().nullish(),
 });
 
-export const updateIntegrationInputSchema = partialInput(integrationInputSchema.omit({ organizationId: true })).extend({ mappings: shopMappingsBaseSchema.optional() });
+export const updateIntegrationInputSchema = partialInput(integrationInputSchema.omit({ organizationId: true })).extend({ mappings: shopMappingsSchema.optional() });
 
 export const agingBucketSchema = z.object({
   current: decimalNumber,
@@ -1396,5 +1396,3 @@ const purchaseReturnBaseSchema = z.object({
 
 export const createPurchaseReturnInputSchema = purchaseReturnBaseSchema;
 export const updatePurchaseReturnInputSchema = purchaseReturnBaseSchema.partial();
-
-

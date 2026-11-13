@@ -7,7 +7,7 @@ import { useCustomers, useCreateCustomer } from '../../hooks/useAR';
 import { useBankAccounts, useCreateBankAccount } from '../../hooks/useBanking';
 import { useAccountsByType } from '../../hooks/useGL';
 import { useCreateEcommerceConnection, useUpdateEcommerceConnection } from '../../hooks/useIntegrations';
-import { shopMappingsBaseSchema, shopMappingsSchema } from '../../../types/api';
+import { shopMappingsSchema } from '../../../types/api';
 import type {
     EcommerceConnection,
     EcommercePlatform,
@@ -189,7 +189,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
         );
         if (dup) next.name = 'This shop already exists for the selected platform.';
 
-        const parsed = (editShop ? shopMappingsBaseSchema : shopMappingsSchema).safeParse(mappings);
+        const parsed = shopMappingsSchema.safeParse(mappings);
         if (!parsed.success) {
             for (const issue of parsed.error.issues) {
                 next[issue.path.join('.')] = issue.message;
@@ -605,4 +605,3 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
 };
 
 export default ConnectShopModal;
-

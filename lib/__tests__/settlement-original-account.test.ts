@@ -37,5 +37,12 @@ describe('marketplace settlement original account', () => {
     expect(state.post).not.toHaveBeenCalled();
     expect(state.tx.aRPayment.update).not.toHaveBeenCalled();
   });
+  it('reports an allocated receipt with unverifiable provenance for review', async () => {
+    state.tx.aRPayment.findFirst.mockResolvedValue(null);
+    const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'legacy-order', netReleased: 90, charges: {} }] });
+    expect(result.skipped).toEqual([]);
+    expect(result.failed).toEqual([{ orderId: 'legacy-order', reason: expect.stringContaining('review its provenance') }]);
+    expect(state.post).not.toHaveBeenCalled();
+    expect(state.tx.aRPayment.update).not.toHaveBeenCalled();
+  });
 });
-
