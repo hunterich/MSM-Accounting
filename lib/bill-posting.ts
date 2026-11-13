@@ -8,6 +8,7 @@ import { ensureGrIrAccount } from './grir';
 import { ensurePphPayableAccount } from './withholding';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { ApiError } from './errors';
+import { itemPostingAccount } from './item-posting-accounts';
 
 type Tx = Prisma.TransactionClient;
 
@@ -69,14 +70,6 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   }
 
   const itemIds = lines.map((l) => l.itemId).filter((x): x is string => Boolean(x));
-  const inventoryItems = itemIds.length
-    ? await tx.item.findMany({
-        where: { id: { in: itemIds }, organizationId: orgId, type: { in: ['PRODUCT', 'RAW_MATERIAL'] } },
-        select: { id: true },
-      })
-    : [];
-  const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
-
   // If goods were already received against this bill (cost layers booked at
   // receipt), inventory is already on the books — every stocked line must clear
   // GR/IR, never re-book inventory, even if the per-line PO link was dropped on
@@ -86,6 +79,18 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
     (await tx.inventoryLot.count({
       where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId: bill.id },
     })) > 0;
+
+  // Lock before reading the mapping so an account change cannot race posting.
+  const directItemIds = receiptAlreadyBooked ? [] : lines.filter(l => l.itemId && !l.purchaseOrderLineId).map(l => l.itemId!);
+  if (directItemIds.length) await lockInventoryItems(tx, orgId, directItemIds);
+  const inventoryItems = itemIds.length
+    ? await tx.item.findMany({
+        where: { id: { in: itemIds }, organizationId: orgId, type: { in: ['PRODUCT', 'RAW_MATERIAL'] } },
+        select: { id: true, inventoryAccountId: true },
+      })
+    : [];
+  const inventoryItemById = new Map(inventoryItems.map(i => [i.id, i]));
+  const inventoryItemIds = new Set(inventoryItems.map(i => i.id));
 
   const accounts = await tx.account.findMany({
     where: { organizationId: orgId, isActive: true },
@@ -113,7 +118,8 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   // fall back to the org's cogsExpense default. Keyed by accountId so multiple
   // lines hitting the same account collapse into one balanced debit.
   const expenseByAccount = new Map<string, number>();
-  const manualInventoryLines: Array<{ itemId: string; qty: number; unitCost: number; value: number }> = [];
+  const inventoryByAccount = new Map<string, number>();
+  const manualInventoryLines: Array<{ itemId: string; qty: number; unitCost: number; value: number; accountId: string | null }> = [];
 
   for (const line of lines) {
     const gross = toNumber(line.lineTotal);
@@ -126,8 +132,11 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
       grirNet += net;
     } else if (isInventory) {
       inventoryNet += net;
+      const accountId = itemPostingAccount(accounts, inventoryItemById.get(line.itemId!)?.inventoryAccountId, inventoryAccountId, 'ASSET', 'inventory');
+      if (net > 0 && !accountId) throw new ApiError('No inventory account is configured for this item.', 422);
+      if (accountId) inventoryByAccount.set(accountId, (inventoryByAccount.get(accountId) ?? 0) + net);
       const qty = toNumber(line.quantity);
-      if (qty > 0) manualInventoryLines.push({ itemId: line.itemId as string, qty, unitCost: net / qty, value: asMoney(net) });
+      if (qty > 0) manualInventoryLines.push({ itemId: line.itemId as string, qty, unitCost: net / qty, value: asMoney(net), accountId });
     } else {
       const codedId = line.accountId && postableById.has(line.accountId) ? line.accountId : expenseAccountId;
       if (codedId) expenseByAccount.set(codedId, (expenseByAccount.get(codedId) ?? 0) + net);
@@ -184,11 +193,8 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
 
   // GR/IR-only bills never change stock. In particular, a PO re-post may
   // already hold journal numbering: it must not acquire unrelated item locks.
-  if (manualInventoryLines.length) {
-    await lockInventoryItems(tx, orgId, manualInventoryLines.map(line => line.itemId));
-  }
   for (const m of manualInventoryLines) {
-    await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate, m.value);
+    await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate, m.value, m.value > 0 ? m.accountId : undefined);
   }
 
   const journalLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [];
@@ -196,8 +202,8 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
     const grirAccountId = await ensureGrIrAccount(tx, orgId);
     journalLines.push({ accountId: grirAccountId, description: `GR/IR clearing - ${bill.number}`, debit: grirNet, credit: 0 });
   }
-  if (inventoryNet > 0 && inventoryAccountId) {
-    journalLines.push({ accountId: inventoryAccountId, description: `Inventory - ${bill.number}`, debit: inventoryNet, credit: 0 });
+  for (const [accountId, amount] of inventoryByAccount) {
+    if (amount > 0) journalLines.push({ accountId, description: `Inventory - ${bill.number}`, debit: asMoney(amount), credit: 0 });
   }
   for (const [accountId, amount] of expenseByAccount) {
     if (amount > 0) {

@@ -111,6 +111,71 @@ async function overlapVoids(first: (tx: Prisma.TransactionClient) => Promise<unk
 }
 
 describe('INV-02 approved WA negative stock: receipt-date COGS settlement', () => {
+  it('settles and reverses using the original item accounts after mapping changes', async () => {
+    const f = await fixture();
+    const inventory = await prisma.account.create({ data: { organizationId: f.org.orgId, code: '1398', name: 'Item stock', type: 'ASSET', normalSide: 'DEBIT' } });
+    const cogs = await prisma.account.create({ data: { organizationId: f.org.orgId, code: '5198', name: 'Item cost', type: 'EXPENSE', normalSide: 'DEBIT' } });
+    try {
+      await prisma.item.update({ where: { id: f.itemId }, data: { inventoryAccountId: inventory.id, cogsAccountId: cogs.id } });
+      await f.buy(5, 100, SALE_DATE);
+      await f.sell(7);
+      await prisma.item.update({ where: { id: f.itemId }, data: { cogsAccountId: f.org.accounts.cogsExpense } });
+      const bill = await f.buy(2, 120);
+      expect(await accountBalance(f.org.orgId, inventory.id)).toBe(0);
+      expect(await accountBalance(f.org.orgId, cogs.id)).toBe(740);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(0);
+      expect((await f.settlements())[0]).toMatchObject({ inventoryPostingAccountId: inventory.id, cogsPostingAccountId: cogs.id });
+      await prisma.item.update({ where: { id: f.itemId }, data: { inventoryAccountId: f.org.accounts.inventoryAsset } });
+      await prisma.$transaction(tx => voidBill(tx, f.org.orgId, bill.id, { date: VOID_DATE }));
+      expect(await accountBalance(f.org.orgId, inventory.id)).toBe(-200);
+      expect(await accountBalance(f.org.orgId, cogs.id)).toBe(700);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.inventoryAsset)).toBe(0);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
+  it('rejects a receipt when a historical sale lacks its account snapshot', async () => {
+    const f = await fixture();
+    try {
+      await f.buy(5, 100, SALE_DATE);
+      const sale = await f.sell(7);
+      await prisma.inventoryLedgerEntry.updateMany({ where: { organizationId: f.org.orgId, documentId: sale.id, documentType: 'SALES' }, data: { inventoryPostingAccountId: null, cogsPostingAccountId: null } });
+      const bill = await f.draftBill(2, 120);
+      const before = await snapshot(prisma, f.org.orgId);
+      await expect(f.postBill(bill)).rejects.toThrow(/account history is unavailable/i);
+      expect(await snapshot(prisma, f.org.orgId)).toEqual(before);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
+  it('allocates a receipt across shortages with different original cost accounts', async () => {
+    const f = await fixture();
+    const otherCogs = await prisma.account.create({ data: { organizationId: f.org.orgId, code: '5198', name: 'Other cost', type: 'EXPENSE', normalSide: 'DEBIT' } });
+    try {
+      await f.buy(5, 100, SALE_DATE);
+      await f.sell(7);
+      await prisma.item.update({ where: { id: f.itemId }, data: { cogsAccountId: otherCogs.id } });
+      await f.sell(1);
+      await f.buy(3, 120);
+      expect(await accountBalance(f.org.orgId, f.org.accounts.cogsExpense)).toBe(740);
+      expect(await accountBalance(f.org.orgId, otherCogs.id)).toBe(120);
+      expect((await f.settlements()).map(row => row.cogsPostingAccountId)).toEqual([f.org.accounts.cogsExpense, otherCogs.id]);
+      await assertTrialBalanced(f.org.orgId);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
+  it('rejects a receipt whose inventory account differs from the original shortage', async () => {
+    const f = await fixture();
+    const otherInventory = await prisma.account.create({ data: { organizationId: f.org.orgId, code: '1398', name: 'Other stock', type: 'ASSET', normalSide: 'DEBIT' } });
+    try {
+      await f.buy(5, 100, SALE_DATE);
+      await f.sell(7);
+      await prisma.item.update({ where: { id: f.itemId }, data: { inventoryAccountId: otherInventory.id } });
+      const bill = await f.draftBill(2, 120);
+      const before = await snapshot(prisma, f.org.orgId);
+      await expect(f.postBill(bill)).rejects.toThrow(/different inventory accounts/i);
+      expect(await snapshot(prisma, f.org.orgId)).toEqual(before);
+    } finally { await cleanupOrg(f.org.orgId); }
+  });
+
   it('receives into an already-negative pool and posts the approved 40 difference on the receipt date', async () => {
     const f = await fixture();
     try {
@@ -191,7 +256,7 @@ describe('INV-02 approved WA negative stock: receipt-date COGS settlement', () =
       expect(await f.preview(f.org.warehouseId)).toMatchObject({ ledgerQuantity: '-2.0000', outstandingShortfallEstimate: '200.00' });
       await prisma.$transaction(async tx => {
         await lockInventoryItems(tx, f.org.orgId, [f.itemId]);
-        await addCostLayer(tx, f.org.orgId, f.itemId, f.org.warehouseId, 2, 130, 'ADJUSTMENT', 'warehouse-receipt', RECEIPT_DATE, 260);
+        await addCostLayer(tx, f.org.orgId, f.itemId, f.org.warehouseId, 2, 130, 'ADJUSTMENT', 'warehouse-receipt', RECEIPT_DATE, 260, f.org.accounts.inventoryAsset);
       });
       const [row] = await f.settlements();
       expect(row.warehouseId).toBe(f.org.warehouseId);

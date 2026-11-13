@@ -1,12 +1,17 @@
 import { test, expect } from '@playwright/test'
 import { accountingCompany, cleanupAccountingCompany, db } from './accounting-helpers'
 import { addCostLayer } from '../lib/inventory-costing'
+import { loadOrgAccountDefaults, resolveAccountDefaultId } from '../lib/account-defaults'
 
 test.afterAll(() => db.$disconnect())
 test.afterEach(cleanupAccountingCompany)
 test('discounted partial return creates a matching applied credit note', async ({ page }) => {
   const { orgId, customer, item } = await accountingCompany(page)
-  await db.$transaction(tx => addCostLayer(tx, orgId, item.id, null, 5, 1000, 'PURCHASE', 'discount-qa', new Date('2026-01-01')))
+  await db.$transaction(async tx => {
+    const accounts = await tx.account.findMany({ where: { organizationId: orgId, isActive: true } })
+    const inventoryAccountId = resolveAccountDefaultId(accounts, await loadOrgAccountDefaults(tx, orgId), 'inventoryAsset')
+    await addCostLayer(tx, orgId, item.id, null, 5, 1000, 'PURCHASE', 'discount-qa', new Date('2026-01-01'), undefined, inventoryAccountId)
+  })
   const invoice = await db.salesInvoice.create({ data: { organizationId: orgId, customerId: customer.id,
     number: 'INV-DISCOUNT', issueDate: new Date('2026-01-01'), status: 'DRAFT', subtotal: 450000, discountAmount: 45000,
     taxEnabled: true, taxInclusive: false, taxRate: 11, taxAmount: 44550, totalAmount: 449550,

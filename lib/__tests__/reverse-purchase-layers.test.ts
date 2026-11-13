@@ -11,7 +11,7 @@ function makeTx(lots: any[]) {
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO' })) },
     $executeRaw: vi.fn(async () => 1),
     inventoryLot: {
-      findMany: vi.fn(async () => lots),
+      findMany: vi.fn(async () => lots.map(lot => ({ inboundLedgerEntry: { inventoryPostingAccountId: 'inv' }, ...lot }))),
       delete: vi.fn(async () => ({})),
     },
     inventoryLedgerEntry: { create: vi.fn(async () => ({})) },

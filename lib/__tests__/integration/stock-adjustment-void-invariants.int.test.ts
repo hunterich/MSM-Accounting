@@ -37,7 +37,7 @@ describe('stock adjustment void round-trip (mixed increase + decrease)', () => {
     const itemDown = await createItem(org.orgId);
 
     // Base stock for the item that will be decreased: 10 @ 100.
-    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemDown, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE));
+    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemDown, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE, undefined, org.accounts.inventoryAsset));
     expect(await inventoryLotValue(org.orgId)).toBeCloseTo(1000, 2);
 
     const adj = await prisma.stockAdjustment.create({

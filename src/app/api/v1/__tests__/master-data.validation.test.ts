@@ -191,7 +191,7 @@ describe('master-data detail route validation', () => {
     );
 
     expect(res.status).toBe(404);
-    await expect(res.json()).resolves.toEqual({ error: 'Inventory account not found in organization' });
+    await expect(res.json()).resolves.toEqual({ error: 'Choose an active, postable inventory asset account in this company' });
     expect(prisma.item.update).not.toHaveBeenCalled();
   });
 
@@ -213,6 +213,9 @@ describe('master-data detail route validation', () => {
     }));
 
     expect(res.status).toBe(201);
+    expect(prisma.account.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'acc-1', organizationId: 'org-a', isActive: true, isPostable: true, type: 'ASSET' }) }));
+    expect(prisma.account.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'acc-1', organizationId: 'org-a', isActive: true, isPostable: true, type: 'REVENUE' }) }));
+    expect(prisma.account.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'acc-1', organizationId: 'org-a', isActive: true, isPostable: true, type: 'EXPENSE' }) }));
     expect(prisma.item.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organizationId: 'org-a',

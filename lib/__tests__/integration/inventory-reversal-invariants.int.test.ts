@@ -38,7 +38,7 @@ describe('reverseAddedLayers round-trip', () => {
     const itemId = await createItem(org.orgId);
 
     await prisma.$transaction((tx) =>
-      addCostLayer(tx, org.orgId, itemId, org.warehouseId, 5, 200, InventoryDocumentType.SALES_RETURN, 'sr-1', DATE),
+      addCostLayer(tx, org.orgId, itemId, org.warehouseId, 5, 200, InventoryDocumentType.SALES_RETURN, 'sr-1', DATE, undefined, org.accounts.inventoryAsset),
     );
     await assertInventoryReconciled(org.orgId, 'after restock');
     expect(await inventoryLotValue(org.orgId)).toBeCloseTo(1000, 2);
@@ -86,7 +86,7 @@ describe('restoreConsumedLayers round-trip', () => {
 
     // An invoice consumes 4 (tagged SALES).
     const cost = await prisma.$transaction((tx) =>
-      relieveCostLayers(tx, org.orgId, itemId, org.warehouseId, 4, InventoryDocumentType.SALES, 'inv-1', DATE),
+      relieveCostLayers(tx, org.orgId, itemId, org.warehouseId, 4, InventoryDocumentType.SALES, 'inv-1', DATE, org.accounts.inventoryAsset),
     );
     expect(cost).toBeCloseTo(400, 2);
     await assertInventoryReconciled(org.orgId, 'after consume');
@@ -118,7 +118,7 @@ describe('restoreConsumedLayers round-trip', () => {
 
     // Consume all 3 across both lots → cogsPerUnit = 250/3 = 83.333… (rounds to 83.33).
     const cost = await prisma.$transaction((tx) =>
-      relieveCostLayers(tx, org.orgId, itemId, org.warehouseId, 3, InventoryDocumentType.SALES, 'inv-2', DATE),
+      relieveCostLayers(tx, org.orgId, itemId, org.warehouseId, 3, InventoryDocumentType.SALES, 'inv-2', DATE, org.accounts.inventoryAsset),
     );
     expect(cost).toBeCloseTo(250, 2);
     expect(await inventoryLotValue(org.orgId)).toBeCloseTo(0, 2);

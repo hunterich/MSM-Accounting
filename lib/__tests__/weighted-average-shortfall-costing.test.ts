@@ -111,6 +111,7 @@ describe('Weighted Average voids with estimated shortages', () => {
   const lotA = { id: 'lot-a', organizationId: 'org', itemId: 'item', unitCost: D(100), carryingValue: D(0) }
   const shortSale = {
     id: 'sale-entry', itemId: 'item', warehouseId: null, documentType: 'SALES', drawsTracked: true, postingSequence: 7,
+    inventoryPostingAccountId: 'inv',
     qtyOut: D(7), valueChange: D(-700),
     lotDraws: [
       { id: 'draw-lot', lotId: 'lot-a', lot: lotA, quantity: D(5), costValue: D(500), shortfall: false },
@@ -159,14 +160,14 @@ describe('Weighted Average voids with estimated shortages', () => {
 
   it('supplier-return void cannot put stock beside an uncovered estimate', async () => {
     vi.mocked(settlement.assertNoOutstandingShortfall).mockRejectedValueOnce(new Error('Void that sale or receive stock first'))
-    const tx = voidTx([{ id: 'return-entry', itemId: 'item', warehouseId: null, qtyOut: D(1), valueChange: D(-100), lotDraws: [] }])
+    const tx = voidTx([{ id: 'return-entry', itemId: 'item', warehouseId: null, qtyOut: D(1), valueChange: D(-100), lotDraws: [], inventoryPostingAccountId: 'inv' }])
     await expect(restoreConsumedLayers(tx as never, 'org', InventoryDocumentType.PURCHASE_RETURN, 'pr', DATE)).rejects.toThrow('Void that sale')
     expect(tx.inventoryLot.create).not.toHaveBeenCalled()
   })
 
   it('receipt void unwinds the document\'s settlements, then re-reads the whole lots it removes', async () => {
     const lot = { id: 'lot-r', itemId: 'item', warehouseId: null, qtyIn: D(2), qtyBalance: D(2), unitCost: D(120), initialValue: D(240),
-      carryingValue: D(240), inboundLedgerEntryId: 'inbound-1', documentType: 'PURCHASE', documentId: 'bill-1' }
+      carryingValue: D(240), inboundLedgerEntryId: 'inbound-1', inboundLedgerEntry: { inventoryPostingAccountId: 'inv' }, documentType: 'PURCHASE', documentId: 'bill-1' }
     const findMany = vi.fn()
       .mockResolvedValueOnce([{ itemId: 'item' }])
       .mockResolvedValueOnce([{ ...lot, qtyBalance: D(0) }])

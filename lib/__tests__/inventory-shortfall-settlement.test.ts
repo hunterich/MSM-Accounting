@@ -53,7 +53,7 @@ function makeTx(opts: {
     inventoryLotDraw: { findMany: vi.fn(async () => opts.draws.map(draw => ({
       id: draw.id, ledgerEntryId: draw.ledgerEntryId ?? `sale-${draw.id}`, lotId: draw.lotId ?? null,
       quantity: D(draw.quantity), costValue: draw.costValue == null ? null : D(draw.costValue),
-      ledgerEntry: { postingSequence: draw.postingSequence },
+      ledgerEntry: { postingSequence: draw.postingSequence, inventoryPostingAccountId: accountsConfigured ? 'inv' : null, cogsPostingAccountId: accountsConfigured ? 'cogs' : null },
       settlements: state.settlements.filter(row => row.saleDrawId === draw.id && row.reversedAt == null),
     }))) },
     inventoryLot: { updateMany: vi.fn(async (args: Row) => { state.lotUpdates.push(args); return { count: 1 } }) },
@@ -93,6 +93,7 @@ const VOID_DATE = new Date('2026-10-20')
 const receipt = (quantity: string, value: string, lotId = 'lot-r', documentId = 'bill-1') => ({
   lotId, inboundLedgerEntryId: `in-${lotId}`, itemId: 'item-1', warehouseId: null, quantity: D(quantity), value: D(value),
   documentType: 'PURCHASE' as const, documentId, date: RECEIPT_DATE,
+  inventoryPostingAccountId: 'inv',
 })
 const journalLines = (journal: Row) => journal.lines.create.map((line: Row) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit }))
 
@@ -154,9 +155,9 @@ describe('receipt-date Weighted Average shortage settlement', () => {
     expect(state).toMatchObject({ lotUpdates: [], ledger: [], journals: [], settlements: [] })
   })
 
-  it('refuses without Inventory/COGS accounts before changing stock', async () => {
+  it('refuses without recorded Inventory/COGS accounts before changing stock', async () => {
     const { tx, state } = makeTx({ accounts: false, draws: [{ id: 'draw-1', postingSequence: 7, quantity: '2', costValue: '200' }] })
-    await expect(settleShortfallsFromReceipt(tx, 'org-1', receipt('2', '240'))).rejects.toThrow('Inventory Asset and COGS')
+    await expect(settleShortfallsFromReceipt(tx, 'org-1', receipt('2', '240'))).rejects.toThrow('account history is unavailable')
     expect(state).toMatchObject({ lotUpdates: [], ledger: [], journals: [] })
   })
 

@@ -6,6 +6,7 @@ import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
+import { itemPostingAccount } from './item-posting-accounts';
 
 type Tx = Prisma.TransactionClient;
 
@@ -43,13 +44,16 @@ export async function postGoodsReceiptToLedger(
   const rate = args.taxInclusive ? toNumber(args.taxRate) / 100 : 0;
 
   const itemIds = args.lines.map((l) => l.itemId).filter((x): x is string => Boolean(x));
+  // Hold the item locks while reading account mappings and posting stock.
+  await lockInventoryItems(tx, orgId, itemIds);
   const inventoryItems = itemIds.length
     ? await tx.item.findMany({
         where: { id: { in: itemIds }, organizationId: orgId, type: { in: ['PRODUCT', 'RAW_MATERIAL'] } },
-        select: { id: true },
+        select: { id: true, inventoryAccountId: true },
       })
     : [];
   const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
+  const itemById = new Map(inventoryItems.map(item => [item.id, item]));
 
   let grirNet = 0;
   const layers: Array<{ itemId: string; qty: number; unitCost: number; value: number }> = [];
@@ -64,7 +68,6 @@ export async function postGoodsReceiptToLedger(
   }
   grirNet = asMoney(grirNet);
   if (!layers.length || grirNet < 0) return;
-  await lockInventoryItems(tx, orgId, layers.map(layer => layer.itemId));
 
   // Quantity is independent of price. Free receipts still create stock and
   // may settle an estimated shortage (whose COGS journal is posted by the
@@ -81,26 +84,28 @@ export async function postGoodsReceiptToLedger(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
-  const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-  if (!inventoryAccountId) {
-    throw new ApiError(
-      'Cannot receive stock: no Inventory asset account is configured. Set the Inventory default in Settings → Accounts.',
-      422,
-    );
-  }
+  const defaultInventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+  const inventoryByAccount = new Map<string, number>();
+  const layerAccounts = layers.map(layer => {
+    const accountId = itemPostingAccount(accounts, itemById.get(layer.itemId)?.inventoryAccountId, defaultInventoryAccountId, 'ASSET', 'inventory');
+    if (!accountId) throw new ApiError('Cannot receive stock: no Inventory asset account is configured. Set the Inventory default in Settings → Accounts.', 422);
+    inventoryByAccount.set(accountId, asMoney((inventoryByAccount.get(accountId) ?? 0) + layer.value));
+    return accountId;
+  });
   const grirAccountId = await ensureGrIrAccount(tx, orgId);
 
-  for (const layer of layers) {
-    await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value);
+  for (const [index, layer] of layers.entries()) {
+    await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value, layerAccounts[index]);
   }
 
-  await postJournalEntry(tx, {
+  const journal = await postJournalEntry(tx, {
     organizationId: orgId,
     date: args.date,
     memo: `Goods receipt: PO ${args.poNumber}`,
     lines: [
-      { accountId: inventoryAccountId, description: `Inventory - PO ${args.poNumber}`, debit: grirNet, credit: 0 },
+      ...[...inventoryByAccount].map(([accountId, amount]) => ({ accountId, description: `Inventory - PO ${args.poNumber}`, debit: amount, credit: 0 })),
       { accountId: grirAccountId, description: `GR/IR clearing - PO ${args.poNumber}`, debit: 0, credit: grirNet },
     ],
   });
+  await tx.bill.update({ where: { id: args.billId, organizationId: orgId }, data: { receiptPostingJournalId: journal.id } });
 }

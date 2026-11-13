@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { assertDocumentOffsetAccounts } from './document-offset-accounts';
-import { InventoryDocumentType } from '@prisma/client';
+import { InventoryDocumentType, Prisma as PrismaRuntime } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { calculateAndPostCOGS, lockInventoryItems } from './inventory-costing';
@@ -8,6 +8,7 @@ import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defau
 import { toNumber, asMoney } from './money';
 import { postJournalEntry } from './journal-posting';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
+import { itemPostingAccount, lotsWithBookValue } from './item-posting-accounts';
 
 /**
  * Posts the GL + COGS for an invoice transitioning to SENT.
@@ -44,7 +45,7 @@ export async function postInvoiceSend(
   await assertDocumentOffsetAccounts(tx, orgId, invoice.charges.map(charge => charge.accountId));
   const postingJournalIds: string[] = [];
   const invoiceLines = await tx.salesInvoiceLine.findMany({
-    where: { invoiceId }, select: { id: true, itemId: true, quantity: true }, orderBy: { lineNo: 'asc' },
+    where: { invoiceId }, select: { id: true, itemId: true, quantity: true, lineSubtotal: true }, orderBy: { lineNo: 'asc' },
   });
   await lockInventoryItems(tx, orgId, invoiceLines.flatMap(line => line.itemId ? [line.itemId] : []));
 
@@ -55,6 +56,13 @@ export async function postInvoiceSend(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
+  const itemIdsForPosting = [...new Set(invoiceLines.flatMap(line => line.itemId ? [line.itemId] : []))];
+  const postingItems = itemIdsForPosting.length ? await tx.item.findMany({
+    where: { id: { in: itemIdsForPosting }, organizationId: orgId },
+    select: { id: true, revenueAccountId: true, inventoryAccountId: true, cogsAccountId: true },
+  }) : [];
+  const postingItemById = new Map(postingItems.map(item => [item.id, item]));
+  if (itemIdsForPosting.some(id => !postingItemById.has(id))) throw new ApiError('An invoice item is unavailable in this company.', 422);
 
   const totalAmount = toNumber(invoice.totalAmount);
   const taxAmount = toNumber(invoice.taxAmount);
@@ -65,6 +73,10 @@ export async function postInvoiceSend(
   const baseRevenue = totalAmount - taxAmount;
   const arAccountId = resolveAccountDefaultId(accounts, settings, 'arControl');
   const salesAccountId = resolveAccountDefaultId(accounts, settings, 'salesRevenue');
+  const revenueByLine = new Map(invoiceLines.map(line => {
+    const item = line.itemId ? postingItemById.get(line.itemId) : undefined;
+    return [line.id, itemPostingAccount(accounts, item?.revenueAccountId, salesAccountId, 'REVENUE', 'revenue')] as const;
+  }));
   const taxAccountId = taxAmount > 0
     ? resolveAccountDefaultId(accounts, settings, 'arTax')
     : null;
@@ -113,13 +125,31 @@ export async function postInvoiceSend(
         debit: totalAmount,
         credit: 0,
       },
-      {
-        accountId: salesAccountId,
-        description: `Sales - ${invoice.number}`,
-        debit: 0,
-        credit: revenueCredit,
-      },
     ];
+    const customRevenue = [...revenueByLine.values()].some(id => id !== salesAccountId);
+    if (!customRevenue) {
+      // Preserve the exact existing journal shape for blank/default mappings.
+      arLines.push({ accountId: salesAccountId, description: `Sales - ${invoice.number}`, debit: 0, credit: revenueCredit });
+    } else {
+      const weights = invoiceLines.map(line => new PrismaRuntime.Decimal(line.lineSubtotal ?? 0));
+      if (weights.some(weight => weight.isNegative())) throw new ApiError('Cannot allocate sales revenue across negative invoice lines.', 422);
+      const sum = weights.reduce((total, weight) => total.plus(weight), new PrismaRuntime.Decimal(0));
+      if (sum.isZero() || revenueCredit < 0) throw new ApiError('Cannot allocate sales revenue across these invoice lines.', 422);
+      let cumulative = new PrismaRuntime.Decimal(0), assigned = new PrismaRuntime.Decimal(0);
+      const totals = new Map<string, PrismaRuntime.Decimal>();
+      for (const [index, line] of invoiceLines.entries()) {
+        cumulative = cumulative.plus(weights[index]);
+        const rounded = new PrismaRuntime.Decimal(revenueCredit).mul(cumulative).div(sum).toDecimalPlaces(2, PrismaRuntime.Decimal.ROUND_HALF_UP);
+        const amount = rounded.minus(assigned); assigned = rounded;
+        const accountId = revenueByLine.get(line.id);
+        if (!accountId) throw new ApiError('An invoice line has no sales revenue account.', 422);
+        totals.set(accountId, (totals.get(accountId) ?? new PrismaRuntime.Decimal(0)).plus(amount));
+      }
+      for (const [accountId, amount] of totals) if (!amount.isZero()) {
+        arLines.push({ accountId, description: `Sales - ${invoice.number}`, debit: 0, credit: amount.toNumber() });
+      }
+    }
+    for (const line of invoiceLines) await tx.salesInvoiceLine.update({ where: { id: line.id }, data: { revenuePostingAccountId: revenueByLine.get(line.id) ?? null } });
     for (const [accountId, amount] of chargesByAccount) {
       if (amount > 0) {
         arLines.push({ accountId, description: `Additional cost - ${invoice.number}`, debit: 0, credit: asMoney(amount) });
@@ -192,23 +222,25 @@ export async function postInvoiceSend(
       );
 
       if (linesWithInventory.length > 0) {
-        const cogsAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
-        const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+        const defaultCogsAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
+        const defaultInventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
         const invoiceDate = new Date(invoice.issueDate);
 
         // Never relieve inventory without booking COGS. If the accounts
         // can't be resolved, block the SEND so revenue is not recognised
         // while the inventory asset is left overstated on the books.
-        if (!cogsAccountId || !inventoryAccountId) {
-          throw new ApiError(
-            `Cannot post COGS for ${invoiceNumber}: no Inventory Asset / COGS account is configured. Map default accounts in Settings before sending invoices with stocked items.`,
-            422,
-          );
-        }
-
         for (const line of linesWithInventory) {
           const qty = toNumber(line.quantity);
           if (qty <= 0 || !line.itemId) continue;
+          const item = postingItemById.get(line.itemId)!;
+          const cogsAccountId = itemPostingAccount(accounts, item.cogsAccountId, defaultCogsAccountId, 'EXPENSE', 'COGS');
+          const inventoryAccountId = itemPostingAccount(accounts, item.inventoryAccountId, defaultInventoryAccountId, 'ASSET', 'inventory');
+          if (!cogsAccountId || !inventoryAccountId) throw new ApiError(`Cannot post COGS for ${invoiceNumber}: no Inventory Asset / COGS account is configured. Map default accounts in Settings before sending invoices with stocked items.`, 422);
+
+          const lots = await tx.inventoryLot.findMany({ where: {
+            organizationId: orgId, itemId: line.itemId, qtyBalance: { gt: 0 },
+            ...(opts.warehouseId ? { warehouseId: opts.warehouseId } : {}),
+          }, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } });
 
           const cogs = await calculateAndPostCOGS(
             tx,
@@ -219,12 +251,20 @@ export async function postInvoiceSend(
             InventoryDocumentType.SALES,
             invoiceId,
             invoiceDate,
-            { allowNegativeStock: opts.allowNegativeStock ?? false },
+            { allowNegativeStock: opts.allowNegativeStock ?? false, inventoryPostingAccountId: inventoryAccountId, cogsPostingAccountId: cogsAccountId },
           );
+
+          const valuedLots = lotsWithBookValue(lots);
+          if (cogs > 0 && valuedLots.some(lot => !lot.inboundLedgerEntry?.inventoryPostingAccountId)) {
+            throw new ApiError('Original stock account history is unavailable. Review the historical stock before posting this sale.', 422);
+          }
+          if (cogs > 0 && valuedLots.some(lot => lot.inboundLedgerEntry?.inventoryPostingAccountId !== inventoryAccountId)) {
+            throw new ApiError('Recorded stock and the item use different inventory accounts. Review the stock account history before posting this sale.', 422);
+          }
 
           await tx.salesInvoiceLine.update({
             where: { id: line.id },
-            data: { cogsAmount: cogs },
+            data: { cogsAmount: cogs, inventoryPostingAccountId: inventoryAccountId, cogsPostingAccountId: cogsAccountId },
           });
 
           if (cogs > 0) {

@@ -38,6 +38,12 @@ function fnv1aHash(input: string): number {
   return hash || 1;
 }
 
+/** Opening-stock idempotency lock must precede the shared stock-item lock. */
+export async function lockOpeningStock(tx: Tx, orgId: string, itemId: string) {
+  const lockId = fnv1aHash(`opening:${orgId}:${itemId}`);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+}
+
 export async function postOpeningStockIfNeeded(
   tx: Tx,
   orgId: string,
@@ -56,14 +62,13 @@ export async function postOpeningStockIfNeeded(
   // two concurrent item updates could both pass it and double-post. Holding this
   // transaction-scoped lock first means the loser blocks here, then sees the
   // committed OPENING entry and returns a no-op.
-  const lockId = fnv1aHash(`opening:${orgId}:${itemId}`);
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+  await lockOpeningStock(tx, orgId, itemId);
   // Opening idempotency -> shared item lock -> journal numbering. Coordinate
   // this addition with sales/returns before reading or changing stock.
   await lockInventoryItems(tx, orgId, [itemId]);
 
   const item = await tx.item.findUnique({
-    where: { id: itemId },
+    where: { id: itemId, organizationId: orgId },
     select: {
       id: true,
       sku: true,
@@ -90,14 +95,26 @@ export async function postOpeningStockIfNeeded(
 
   const unitCost = toNumber(item.costPrice);
 
-  // Always write the cost layer + perpetual ledger so on-hand quantity is
-  // correct even for zero-cost items.
-  await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date);
-
   // Only post a journal entry when the opening stock carries value — and only
   // when GL posting is enabled (migration passes postGl:false: lots only).
   const value = asMoney(qty * unitCost);
-  if (value <= 0 || !postGl) return;
+  if (value <= 0) {
+    // Zero-value stock never reaches an inventory GL account.
+    await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date);
+    return;
+  }
+  if (!postGl) {
+    // The migration's opening journal books this value on the company default,
+    // so that is the account holding it. Without it this stock could not be sold.
+    const accounts = await tx.account.findMany({
+      where: { organizationId: orgId, isActive: true },
+      select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
+    });
+    const inventoryAccountId = resolveAccountDefaultId(accounts, await loadOrgAccountDefaults(tx, orgId), 'inventoryAsset');
+    if (!inventoryAccountId) throw new ApiError(`Cannot record opening stock for ${item.sku}: configure the Inventory Asset account in Settings first.`, 422);
+    await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date, undefined, inventoryAccountId);
+    return;
+  }
 
   // A POSTED entry on `date`, so it obeys the period lock like every other
   // posting. Placed after the postGl early-return: the migration path writes
@@ -109,6 +126,11 @@ export async function postOpeningStockIfNeeded(
     select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
+  if (item.inventoryAccountId && !accounts.some(account =>
+    account.id === item.inventoryAccountId && account.isPostable && account.type === 'ASSET'
+  )) {
+    throw new ApiError(`Cannot post opening stock for ${item.sku}: choose an active, postable inventory asset account in this company.`, 422);
+  }
   const inventoryAccountId =
     item.inventoryAccountId || resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
   const equityAccountId = resolveAccountDefaultId(accounts, settings, 'openingBalanceEquity');
@@ -120,6 +142,9 @@ export async function postOpeningStockIfNeeded(
       422,
     );
   }
+
+  // Persist the account on the movement alongside the matching opening entry.
+  await addCostLayer(tx, orgId, itemId, null, qty, unitCost, InventoryDocumentType.OPENING, item.id, date, undefined, inventoryAccountId);
 
   await postJournalEntry(tx, {
     organizationId: orgId,

@@ -41,7 +41,7 @@ describe('return without a credit note', () => {
       const role = await prisma.role.create({ data: { organizationId: org.orgId, name: 'Admin', roleType: 'ADMIN' } });
       await prisma.userOrganization.create({ data: { organizationId: org.orgId, userId: user.id, roleId: role.id } });
       const customerId = await createCustomer(org.orgId), itemId = await createItem(org.orgId);
-      await prisma.$transaction(tx => addCostLayer(tx, org.orgId, itemId, null, 3, 100, 'PURCHASE', 'receipt', new Date(date)));
+      await prisma.$transaction(tx => addCostLayer(tx, org.orgId, itemId, null, 3, 100, 'PURCHASE', 'receipt', new Date(date), undefined, org.accounts.inventoryAsset));
       const invoice = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number: 'INV-DISCOUNT', issueDate: new Date(date), status: 'SENT',
         subtotal: 160, discountAmount: 16, taxEnabled: true, taxInclusive: false, taxRate: 11, taxAmount: 15.84, totalAmount: 159.84,
         lines: { create: { lineNo: 1, itemId, description: 'Item', quantity: 2, price: 100, discountPct: 20, lineSubtotal: 160 } } }, include: { lines: true } });
@@ -71,7 +71,7 @@ describe('return without a credit note', () => {
         const role = await prisma.role.create({ data: { organizationId: org.orgId, name: 'Admin', roleType: 'ADMIN' } });
         await prisma.userOrganization.create({ data: { organizationId: org.orgId, userId: user.id, roleId: role.id } });
         const customerId = await createCustomer(org.orgId), itemId = await createItem(org.orgId);
-        await prisma.$transaction(tx => addCostLayer(tx, org.orgId, itemId, null, 3, 100, 'PURCHASE', 'receipt', new Date(date)));
+        await prisma.$transaction(tx => addCostLayer(tx, org.orgId, itemId, null, 3, 100, 'PURCHASE', 'receipt', new Date(date), undefined, org.accounts.inventoryAsset));
         const invoice = await prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number: 'INV-1', issueDate: new Date(date), status: 'SENT', subtotal: 600, totalAmount: 600, lines: { create: { lineNo: 1, itemId, description: 'Item', quantity: 2, price: 300, lineSubtotal: 600 } } }, include: { lines: true } });
         await prisma.$transaction(tx => postInvoiceSend(tx, org.orgId, invoice.id));
         const body = { customerId, invoiceId: invoice.id, returnDate: date, status: method === 'POST' ? 'APPROVED' : 'DRAFT', lines: [{ itemId, sourceInvoiceLineId: invoice.lines[0].id, itemName: 'Item', qtyReturn: 1, qtySold: 2, price: 300, goodsReceived: received }] };
