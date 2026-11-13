@@ -1,7 +1,7 @@
 # Warehouse stock, transfers and defect handling
 
 **Date:** 2026-11-13 (revised the same day with business-owner feedback)
-**Status:** Draft for review. Nothing here is built or approved.
+**Status:** Draft for review. Business-owner decisions recorded 13 November 2026 (section 10); finance review (D4, section 8) and engineering review still pending. Nothing is built.
 **Issues:** DIST-01 [#178](https://github.com/hunterich/MSM-Accounting/issues/178) (gaps W1, P2, P3, S1, S2, T1–T3, D1, D2 in `docs/DIST-01-PILOT-FIT-GAP.md`); feeds DIST-02 #179 and DIST-04 #181.
 **Reference behaviour:** Accurate Online, as shown by the business owner on 13 November 2026: *Preferences → Features → Inventory → Multiple Warehouses*, *Gudang* on sales and purchase lines with the stock of that warehouse, *Pemindahan Barang* (Transfer Out / Transfer In through a system Transit warehouse), *Gudang Barang Rusak*, and *Penyesuaian Persediaan* with *Get From → Item Transfer* and an *Akun Penyesuaian*.
 
@@ -21,8 +21,8 @@ Today the app cannot do this (section 2). This spec proposes how to add it witho
 
 | Reviewer | Focus |
 |---|---|
-| Business owner | Sections 4–6 (workflow), decisions D1–D3, D6–D8, D10 |
-| Finance | Section 7 (journal examples), decisions D4, D5, D9 |
+| Business owner | Decisions recorded 13 November 2026 (section 10) |
+| Finance | Section 8 (journal examples), open decision D4, and review of D5 |
 | Engineering / second-opinion reviewer | Sections 3, 4.3 and 6.2 (costing constraints, default-warehouse migration, Transit costing) |
 
 ## 2. Current behaviour (code on `main`, 13 November 2026)
@@ -53,9 +53,9 @@ Consequence: stock received for Bogor sits in the no-warehouse pool, and a Jakar
 
 ### 4.1 Default warehouse and the Multiple Warehouses switch
 
-- **Every company has one default warehouse**, created automatically (suggested name "Gudang Utama", renamable). It cannot be deleted or deactivated.
+- **Every company has one default warehouse**, created automatically (named "Gudang Utama" (D9), renamable). It cannot be deleted or deactivated.
 - **Multiple Warehouses off (default):** all stock documents post to the default warehouse. No warehouse field is shown anywhere; the Warehouses screen is hidden. Single-warehouse companies see no change.
-- **Multiple Warehouses on:** users can add warehouses, and purchases, sales, returns, adjustments, stock counts and transfers show a warehouse field, pre-filled with the default (or the user's own warehouse once D1 is decided).
+- **Multiple Warehouses on:** users can add warehouses, and purchases, sales, returns, adjustments, stock counts and transfers show a warehouse field, pre-filled with the user's own warehouse (D1), or the default warehouse for users with access to all.
 - **Turning it off** is refused while any warehouse other than the default holds stock, or while any transfer is open. The server enforces this; the switch is not just a screen setting.
 
 ### 4.2 Where the screens go
@@ -104,15 +104,15 @@ Add to `Warehouse`: `kind` (`STANDARD` | `DEFECT` | `TRANSIT`), `isDefault`, `is
 - Invoice posting passes the invoice warehouse to `calculateAndPostCOGS`, so stock is drawn **only from that warehouse**. The "any warehouse" fallback in `relieveCostLayers` is removed.
 - When adding a line, the item picker shows the stock and "can be sold" quantity **of the chosen warehouse**, as Accurate does.
 - Available-to-sell excludes `DEFECT` and `TRANSIT` warehouses.
-- **Timing:** stock keeps leaving at invoice posting, as today (decision D2).
+- **Timing:** stock keeps leaving at invoice posting, as today (D2, decided).
 - Related pilot fixes tracked separately: invoice only delivered quantities (S2) and the delivery-note completion status defect (S3).
 
 ### Header or line warehouse
-Accurate puts *Gudang* on each line. The pilot rule is one warehouse per order, so this spec puts the warehouse on the **document header** and copies it to every line. Per-line warehouses can be added later without changing the stock model (decision D10).
+Accurate puts *Gudang* on each line. The pilot rule is one warehouse per order, so this spec puts the warehouse on the **document header** and copies it to every line. Decided (D10): one warehouse per document, pre-filled with the user's own warehouse. Per-line warehouses could be added later without changing the stock model.
 
 ### Other stock sources
 - Opening balances are entered per warehouse (stock adjustment additions, or the migration import).
-- Marketplace imports need a warehouse per shop connection (decision D7). POS already has one per register.
+- Marketplace imports take stock from the warehouse chosen on each shop connection in the e-commerce settings (D7). POS already has one per register.
 
 ## 6. Stock transfers (Phase 2)
 
@@ -159,10 +159,11 @@ The transfer becomes **Closed with difference** once nothing is outstanding. The
 - Reversed movements are marked `reversedAt` like other voids.
 
 ### 6.6 Permissions
-- New module key `INV_TRANSFERS` (decision D8): create = ship, edit = receive, approve = void.
+- New module key `INV_TRANSFERS` (D8, decided): create = ship, edit = receive, approve = void.
 - Writing off a difference uses the existing Stock Adjustments permission and approval rules.
 - Optional `STOCK_TRANSFER` approval type for transfers above a value threshold.
-- Warehouse-scoped access (staff act only on their warehouse) is decision D1.
+- Warehouse-scoped access (D1, decided): users act only on their assigned warehouses. Shipping requires access to the source warehouse; receiving requires access to the destination.
+- Separation of duties (D1a, decided): the server refuses a Transfer In recorded by the same user who recorded that transfer's Transfer Out, unless an administrator has allowed that user to do both.
 
 ## 7. Defect warehouse (Phase 3)
 
@@ -176,11 +177,11 @@ Assume one company Inventory account, Weighted Average, Bogor average Rp 10,000/
 
 | Step | Stock ledger | Journal entry |
 |---|---|---|
-| Ship 100 pcs Bogor → Jakarta | Bogor −100 / −1,000,000; Transit +100 / +1,000,000 | **None**: both sides use the same Inventory account. With a separate in-transit account (D5): Dr In-transit 1,000,000 / Cr Inventory 1,000,000. |
-| Jakarta receives 98 | Transit −98 / −980,000; Jakarta +98 / +980,000 | None (or Dr Inventory 980,000 / Cr In-transit 980,000 under D5). |
-| Write off 2 lost pcs (adjustment from transfer) | Transit −2 / −20,000 | Dr Beban selisih persediaan 20,000 / Cr Inventory (or In-transit) 20,000 |
-| Charge 2 pcs to driver (adjustment from transfer) | Transit −2 / −20,000 | Dr Piutang karyawan/ekspedisi 20,000 / Cr Inventory (or In-transit) 20,000 |
-| Move 5 damaged pcs Jakarta → Defect | Same pattern as the first two rows | None (or the D5 pair) |
+| Ship 100 pcs Bogor → Jakarta | Bogor −100 / −1,000,000; Transit +100 / +1,000,000 | **None**: both sides use the same Inventory account. (D5 decided: transit stays inside Inventory. A separate in-transit account would instead post Dr In-transit 1,000,000 / Cr Inventory 1,000,000.) |
+| Jakarta receives 98 | Transit −98 / −980,000; Jakarta +98 / +980,000 | None. |
+| Write off 2 lost pcs (adjustment from transfer) | Transit −2 / −20,000 | Dr Beban selisih persediaan 20,000 / Cr Inventory 20,000 |
+| Charge 2 pcs to driver (adjustment from transfer) | Transit −2 / −20,000 | Dr Piutang karyawan/ekspedisi 20,000 / Cr Inventory 20,000 |
+| Move 5 damaged pcs Jakarta → Defect | Same pattern as the first two rows | None |
 | Write off damaged stock (adjustment in defect warehouse) | Defect −5 at defect pool cost | Dr Beban Barang Rusak / Cr Inventory |
 | Return damaged stock to supplier | Defect −5 at defect pool cost | Existing purchase-return posting with warehouse = Defect: Dr AP-return clearing / Cr Inventory at cost. The debit note then posts Dr AP / Cr AP-return clearing at the agreed return price, which settles any price-cost difference. |
 
@@ -190,7 +191,7 @@ If an item's lots carry different historical inventory accounts, the transfer mo
 
 | Phase | Scope | Done when |
 |---|---|---|
-| 0 | Decisions D1–D10 recorded on #178 | Business owner and finance sign-off |
+| 0 | Business owner decisions recorded (D1–D3, D5–D10, 13 Nov). D4 accounts open with finance; finance review of section 8 | Finance sign-off |
 | 1 | Default warehouse and migration (4.3); Multiple Warehouses switch; Warehouses screen; warehouse on PO, receipt, bill, SO, delivery note, invoice; remove the "any warehouse" fallback; per-warehouse stock on item entry; Item per Warehouse | PostgreSQL tests: migration keeps every pool's quantity and value; with the switch off everything posts to the default warehouse; a Jakarta invoice cannot draw Bogor stock; a WA shortage is settled only by a receipt into the same warehouse; turning the switch off is refused while other warehouses hold stock; per-warehouse totals equal Inventory GL |
 | 2 | Transfers: ship, receive (partial/multiple), Transit costing, differences report, adjustment Get From transfer, voids | Pilot example: 100 pcs Bogor → Jakarta, receive 98, 2 visible in Transit, then written off by an adjustment; FIFO and WA exact to the cent; voids refused after a later issue; browser journey |
 | 3 | Defect warehouse flows; warehouse-scoped access if D1 = yes | Defect stock never offered for sale; write-off and supplier return match section 8; finance review |
@@ -199,16 +200,17 @@ If an item's lots carry different historical inventory accounts, the transfer mo
 
 | # | Question | Recommendation |
 |---|---|---|
-| D1 | Must each warehouse's staff be limited to their own warehouse's documents? | Yes for the pilot (gap P1), as a Phase 3 item; it does not block Phases 1–2. |
-| D2 | Is it acceptable that stock leaves at invoice posting (not at delivery), given the pilot invoices right after delivery? | Yes for the pilot. |
-| D3 | Can a PO be received directly into the defect warehouse (damaged on arrival)? | No: receive into a standard warehouse, then transfer the damaged units, so the receipt matches the supplier invoice. |
-| D4 | Accounts for transit losses and for amounts charged to drivers or carriers. | Finance names them; they become the suggested adjustment accounts for Get From → Stock Transfer. |
-| D5 | Separate "inventory in transit" GL account, or keep transit inside Inventory? | Keep inside Inventory (simpler; Transit is still visible in stock reports). |
-| D6 | Who may write off a transfer difference? | Staff with Stock Adjustment rights, after the stock audit, with the adjustment approval rules. |
-| D7 | Which warehouse do marketplace orders ship from? | One warehouse per shop connection. |
-| D8 | Separate Stock Transfer permission, or reuse Stock Adjustments? | Separate, so warehouse staff can ship and receive without adjustment rights. |
-| D9 | Name of the default warehouse created by the migration. | "Gudang Utama", renamable. |
-| D10 | Warehouse on the document header (pilot rule) or on each line (Accurate)? | Header for the pilot; per-line later if needed. |
+| D1 | Must each warehouse's staff be limited to their own warehouse's documents? | **Decided (business owner, 13 Nov): yes.** The administrator assigns users to warehouses; a user sees and acts only on their assigned warehouses (for example, a Surabaya admin cannot see other warehouses). Phase 3; does not block Phases 1–2. |
+| D1a | Can the same user ship and receive one transfer? | **Decided (business owner, 13 Nov): no**, unless an administrator allows it for that user. The Transfer In must be recorded by a different user from the Transfer Out. |
+| D2 | Is it acceptable that stock leaves at invoice posting (not at delivery), given the pilot invoices right after delivery? | **Decided (business owner, 13 Nov): yes**, at invoice posting for the pilot. |
+| D3 | Can a PO be received directly into the defect warehouse (damaged on arrival)? | **Decided (business owner, 13 Nov): no.** Receive into a standard warehouse, then transfer the damaged units, so the receipt matches the supplier invoice. |
+| D4 | Accounts for transit losses and for amounts charged to drivers or carriers. | **Open, with finance.** Finance names the expense and receivable accounts; they become the suggested adjustment accounts for Get From → Stock Transfer. |
+| D5 | Separate "inventory in transit" GL account, or keep transit inside Inventory? | **Decided (business owner, 13 Nov): keep inside Inventory.** Transfers post no journal entry; Transit is visible in stock reports. Finance may still review. |
+| D6 | Who may write off a transfer difference? | **Decided (business owner, 13 Nov):** staff with Stock Adjustment rights, after the stock audit, following the adjustment approval rules. |
+| D7 | Which warehouse do marketplace orders ship from? | **Decided (business owner, 13 Nov): one warehouse per shop**, chosen in the e-commerce (shop connection) settings. |
+| D8 | Separate Stock Transfer permission, or reuse Stock Adjustments? | **Decided (business owner, 13 Nov): separate**, so warehouse staff can ship and receive without adjustment rights. |
+| D9 | Name of the default warehouse created by the migration. | **Decided (business owner, 13 Nov): "Gudang Utama"**, renamable. |
+| D10 | Warehouse on the document header (pilot rule) or on each line (Accurate)? | **Decided (business owner, 13 Nov): one per document**, pre-filled with the user's own warehouse and copied to every line. |
 
 ## 11. Out of scope
 
