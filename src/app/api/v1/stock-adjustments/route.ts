@@ -92,6 +92,7 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
         reason,
         notes: notes ?? null,
         warehouseId: warehouseId ?? null,
+        postsLineAccounts: true,
         status,
       },
     });
@@ -145,6 +146,7 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
         number: adj.number,
         date: new Date(date),
         warehouseId: warehouseId ?? null,
+        postsLineAccounts: true,
         lines,
       }, dateOverride);
     }

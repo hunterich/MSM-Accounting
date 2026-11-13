@@ -3,6 +3,8 @@ export type AppLanguage = 'en' | 'id';
 // Keys are the existing English UI labels. Unknown labels deliberately stay in
 // English so untranslated screens never display a broken key.
 const indonesian: Record<string, string> = {
+  'This line’s difference posts to this account.': 'Selisih baris ini diposting ke akun ini.',
+  'This older adjustment posts its net difference to the default variance account instead of the selected accounts.': 'Penyesuaian lama ini memposting selisih bersih ke akun selisih bawaan, bukan ke akun yang dipilih.',
   'Costing method updated': 'Metode penilaian persediaan diperbarui',
   'The new method applies to future stock postings. Receipt history and book value are preserved.': 'Metode baru berlaku untuk posting stok berikutnya. Riwayat penerimaan dan nilai buku tetap dipertahankan.',
   'No value adjustment': 'Tidak ada penyesuaian nilai',

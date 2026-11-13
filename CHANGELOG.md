@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — stock adjustment offset accounts
+- New stock adjustments post lot-derived differences to the chosen line accounts; older adjustments and stock counts retain variance-default posting. Existing journals and costing are unchanged.
+
 ### Added — AR/AP control reconciliation reports (ACC-02)
 - Expose the existing independent per-control reconciliation through Receivables and Payables report cards, with cutoff filters, named issues, component balances and complete CSV/PDF output. Opposing differences remain flagged even when company totals agree; failed refreshes cannot export stale results. No posting or close-policy change.
 - Explicitly register the jsPDF table plugin so report PDF exports work in the ESM browser build. Actual AR/AP download regressions reproduce the previous failure.
