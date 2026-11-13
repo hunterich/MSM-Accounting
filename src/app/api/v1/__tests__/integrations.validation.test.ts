@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => {
   const prisma = {
+    account: { findMany: vi.fn() },
     customer: {
       findFirst: vi.fn(),
     },
@@ -98,4 +99,30 @@ describe('integrations route validation', () => {
     await expect(res.json()).resolves.toEqual({ error: 'This shop already exists for the selected platform.' });
     expect(prisma.ecommerceConnection.update).not.toHaveBeenCalled();
   });
+  it('rejects a mapped GL account outside the company before saving', async () => {
+    vi.mocked(prisma.ecommerceConnection.findFirst).mockResolvedValueOnce({ id: 'conn-1', organizationId: 'org-a', platform: 'SHOPEE', shopName: 'Shop', customerId: null, holdingAccountId: null } as never);
+    vi.mocked(prisma.account.findMany).mockResolvedValueOnce([]);
+    const res = await updateIntegration(makeReq('org-a', 'PUT', { mappings: { paymentMode: 'direct', vatInclusive: true, fees: { platformFeeAccountId: 'foreign-account' } } }), params('conn-1'));
+    expect(res.status).toBe(400);
+    expect(prisma.account.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a', isActive: true, isPostable: true }) }));
+    expect(prisma.ecommerceConnection.update).not.toHaveBeenCalled();
+  });
+
+  it('saves VAT and preserves other mapping fields', async () => {
+    vi.mocked(prisma.ecommerceConnection.findFirst).mockResolvedValueOnce({ id: 'conn-1', organizationId: 'org-a', platform: 'SHOPEE', shopName: 'Shop', customerId: null, holdingAccountId: null } as never).mockResolvedValueOnce(null);
+    vi.mocked(prisma.account.findMany).mockResolvedValueOnce([{ id: 'fee' }, { id: 'discount' }, { id: 'shipping' }, { id: 'adjustment' }, { id: 'affiliate' }] as never);
+    vi.mocked(prisma.ecommerceConnection.update).mockResolvedValueOnce({ id: 'conn-1' } as never);
+    const mappings = { paymentMode: 'settlement_import', vatInclusive: true, fees: { platformFeeAccountId: 'fee', sellerDiscountAccountId: 'discount', shippingVarianceAccountId: 'shipping', adjustmentAccountId: 'adjustment', affiliateFeeAccountId: 'affiliate', extra: 'keep' }, extraConfig: { value: 1 } };
+    const res = await updateIntegration(makeReq('org-a', 'PUT', { mappings }), params('conn-1'));
+    expect(res.status).toBe(200);
+    expect(prisma.ecommerceConnection.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ mappings }) }));
+  });
+
+  it('rejects clearing a required fee mapping in settlement mode', async () => {
+    vi.mocked(prisma.ecommerceConnection.findFirst).mockResolvedValueOnce({ id: 'conn-1', organizationId: 'org-a', platform: 'SHOPEE', shopName: 'Shop', customerId: null, holdingAccountId: null } as never);
+    const res = await updateIntegration(makeReq('org-a', 'PUT', { mappings: { paymentMode: 'settlement_import', vatInclusive: true, fees: { sellerDiscountAccountId: 'discount', shippingVarianceAccountId: 'shipping', platformFeeAccountId: null, adjustmentAccountId: 'adjustment', affiliateFeeAccountId: 'affiliate' } } }), params('conn-1'));
+    expect(res.status).toBe(400);
+    expect(prisma.ecommerceConnection.update).not.toHaveBeenCalled();
+  });
+
 });

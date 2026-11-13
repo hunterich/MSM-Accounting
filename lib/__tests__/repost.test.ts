@@ -47,9 +47,18 @@ describe('reverseInvoicePosting', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it('reverses both AR + COGS entries and restores the sold stock', async () => {
-    const tx = { journalEntry: { findMany: vi.fn(async () => [{ id: 'je-ar' }, { id: 'je-cogs' }]) } } as never;
-    await reverseInvoicePosting(tx, 'org-a', { id: 'inv-1', number: 'INV-0001' }, { date: DATE });
+    const tx = { journalEntry: { findMany: vi.fn(async () => [
+      { id: 'je-ar', memo: 'Sales recognition: INV-0001' }, { id: 'je-cogs', memo: 'COGS auto-post: INV-0001' }]) } } as never;
+    await reverseInvoicePosting(tx, 'org-a', { id: 'inv-1', number: 'INV-0001', totalAmount: 1000 }, { date: DATE });
     expect(reverseJournalEntry).toHaveBeenCalledTimes(2);
     expect(restoreConsumedLayers).toHaveBeenCalledWith(tx, 'org-a', 'SALES', 'inv-1', DATE, { requireExact: true });
+  });
+
+  it('refuses a non-zero invoice without its sales posting before touching stock or the ledger', async () => {
+    const tx = { journalEntry: { findMany: vi.fn(async () => []) } } as never;
+    await expect(reverseInvoicePosting(tx, 'org-a', { id: 'inv-1', number: 'OPEN-INV', totalAmount: 1000 }, { date: DATE }))
+      .rejects.toThrow(/no sales posting to reverse/i);
+    expect(restoreConsumedLayers).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
   });
 });

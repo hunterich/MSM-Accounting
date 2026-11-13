@@ -28,6 +28,7 @@ import {
   MODULE_DEFS_BY_GROUP,
   MODULE_GROUP_ORDER,
 } from './moduleKeyMap';
+import { scheduleValidationError } from '../../../lib/access-schedule';
 
 /* ============================================================================
  * Users & Roles
@@ -45,7 +46,6 @@ import {
  * ========================================================================== */
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
-const DEFAULT_ALLOWED_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
 type PermFlag = 'canView' | 'canCreate' | 'canEdit' | 'canDelete' | 'canApprove';
 
@@ -89,7 +89,7 @@ const errorMessage = (err: unknown): string =>
 
 const parseAllowedDays = (raw: unknown): string[] => {
   if (Array.isArray(raw)) return raw.filter((d): d is string => typeof d === 'string');
-  return [...DEFAULT_ALLOWED_DAYS];
+  return [];
 };
 
 /** Hydrate a RoleDraft from an ApiRole, filling any missing module rows. */
@@ -114,8 +114,8 @@ const draftFromApiRole = (role: ApiRole): RoleDraft => {
     roleType: role.roleType || 'CUSTOM',
     isActive: role.isActive,
     allowedDays: parseAllowedDays(role.allowedDays),
-    startTime: role.startTime || '08:00',
-    endTime: role.endTime || '17:00',
+    startTime: role.startTime || '',
+    endTime: role.endTime || '',
     permissions,
   };
 };
@@ -125,9 +125,9 @@ const newRoleDraft = (): RoleDraft => ({
   name: 'New Role',
   roleType: 'CUSTOM',
   isActive: true,
-  allowedDays: [...DEFAULT_ALLOWED_DAYS],
-  startTime: '08:00',
-  endTime: '17:00',
+  allowedDays: [],
+  startTime: '',
+  endTime: '',
   permissions: emptyPermissionMap(),
 });
 
@@ -239,6 +239,8 @@ const UsersAndRoles = (): React.ReactElement => {
 
   const handleSaveRole = async (): Promise<void> => {
     if (!editingRole) return;
+    const scheduleError = scheduleValidationError(editingRole);
+    if (scheduleError) { window.alert(scheduleError); return; }
     if (!editingRole.name.trim()) {
       window.alert('Role name is required.');
       return;
@@ -251,8 +253,8 @@ const UsersAndRoles = (): React.ReactElement => {
       roleType: editingRole.roleType || 'CUSTOM',
       isActive: editingRole.isActive,
       allowedDays: editingRole.allowedDays,
-      startTime: editingRole.startTime,
-      endTime: editingRole.endTime,
+      startTime: editingRole.startTime || null,
+      endTime: editingRole.endTime || null,
       permissions,
     };
 
@@ -401,8 +403,10 @@ const UsersAndRoles = (): React.ReactElement => {
             <h4 className="text-sm font-semibold text-neutral-800 mb-3 flex items-center gap-2">
               <Clock size={16} className="text-primary-600" />
               Access Schedule (Time &amp; Day)
-              <span className="text-xs font-normal text-neutral-500">— Saved — not enforced yet</span>
+              <span className="text-xs font-normal text-neutral-500">— Enforced in company timezone; ADMIN roles are exempt</span>
             </h4>
+            <p className="mb-3 text-xs text-neutral-600">No selected days means every day. Blank times mean all day. Overnight hours belong to the starting day. Access ends at the end time; accepted saves/imports finish normally.</p>
+            <button type="button" className="mb-3 text-sm text-primary-700 underline" onClick={() => setEditingRole({ ...editingRole, allowedDays: [], startTime: '', endTime: '' })}>Remove schedule restrictions</button>
             <div className="grid grid-cols-12 gap-5">
               <div className="col-span-6">
                 <label className="block text-sm text-neutral-600 mb-2">Allowed Days</label>

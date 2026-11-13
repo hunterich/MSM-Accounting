@@ -8,6 +8,7 @@ import FormPage from '../../components/Layout/FormPage';
 import { useStockAdjustments, useAllItems, useCreateStockAdjustment, useUpdateStockAdjustment } from '../../hooks/useInventory';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import OffsetAccountSelect from '../../components/UI/OffsetAccountSelect';
 
 interface AdjustmentLineDraft {
     id?: string;
@@ -27,6 +28,7 @@ interface AdjustmentDraft {
     notes?: string;
     status?: string;
     items?: AdjustmentLineDraft[];
+    lines?: AdjustmentLineDraft[];
 }
 
 interface AdjustmentFormData {
@@ -74,8 +76,9 @@ const buildFormData = (adj: AdjustmentDraft | null) => {
 const buildItems = (adj: AdjustmentDraft | null, expenseAccounts: Array<{ id?: string }>): AdjustmentItemForm[] => {
     const defaultAccountId = expenseAccounts[0]?.id || '';
 
-    if (adj && adj.items && adj.items.length > 0) {
-        return adj.items.map((line, index) => ({
+    const savedLines = adj?.lines ?? adj?.items;
+    if (savedLines && savedLines.length > 0) {
+        return savedLines.map((line, index) => ({
             id: line.id || `line-${index}-${Date.now()}`,
             itemId: line.itemId || '',
             accountId: line.accountId || defaultAccountId,
@@ -113,18 +116,19 @@ const AdjustmentForm = () => {
     // Inventory cleanup remains available after an item is deactivated.
     const { data: itemsData, isLoading: itemsLoading } = useAllItems({ isActive: 'all' });
     const products = itemsData?.data ?? [];
-    const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts();
+    const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts({ withControlFlags: 1 });
 
     const isSaving = createAdjustment.isPending || updateAdjustmentMutation.isPending;
     const isPageLoading = adjustmentsLoading || itemsLoading || accountsLoading;
 
-    const selectedAdj = useMemo(() => adjustments.find((a) => a.id === adjId) || null, [adjId, adjustments]);
+    const selectedAdj = useMemo(() => adjustments.find((a) => a.id === adjId || a._id === adjId) || null, [adjId, adjustments]);
 
     const expenseTargetAccounts = useMemo(() => {
         return allAccounts.filter(
             (account) =>
                 account.isPostable &&
                 account.isActive &&
+                !account.isPartyControlAccount &&
                 (account.type === 'Expense' || account.type === 'Cost of Goods Sold' || account.type === 'Asset' || account.type === 'Equity')
         );
     }, [allAccounts]);
@@ -384,18 +388,14 @@ const AdjustmentForm = () => {
                                                 </select>
                                             </td>
                                             <td className="p-2">
-                                                <select
+                                                <OffsetAccountSelect
+                                                    label="Stock adjustment offset account"
                                                     className="block w-full px-2 text-sm leading-normal text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md min-h-8 focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed"
                                                     value={line.accountId}
-                                                    onChange={(e) => updateLine(line.id, 'accountId', e.target.value)}
+                                                    onChange={value => updateLine(line.id, 'accountId', value)}
                                                     disabled={isViewMode}
-                                                >
-                                                    {expenseTargetAccounts.map((account) => (
-                                                        <option key={account.id} value={account.id}>
-                                                            {account.code} - {account.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    options={allAccounts.map(account => ({ value: account.id, label: `${account.code} - ${account.name}`, disabled: !expenseTargetAccounts.some(valid => valid.id === account.id) }))}
+                                                />
                                             </td>
                                             <td className="p-2 text-center text-neutral-600 bg-neutral-50 rounded">
                                                 {line.oldQty}

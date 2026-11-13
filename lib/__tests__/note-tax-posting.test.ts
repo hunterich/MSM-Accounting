@@ -37,11 +37,20 @@ type AnyRecord = Record<string, unknown>;
 
 function makeTx(note: AnyRecord, kind: 'creditNote' | 'debitNote') {
   return {
+    aRPayment: { findFirst: vi.fn().mockResolvedValue(null) },
+    aPPayment: { findFirst: vi.fn().mockResolvedValue(null) },
+    salesReturn: { findFirst: vi.fn().mockResolvedValue(null) },
+    purchaseReturn: { findFirst: vi.fn().mockResolvedValue(null) },
+    creditNote: { findFirst: vi.fn().mockResolvedValue(null) },
+    debitNote: { findFirst: vi.fn().mockResolvedValue(null) },
+    bill: { findFirst: vi.fn().mockResolvedValue(null) },
     [kind]: {
       findUnique: vi.fn().mockResolvedValue(note),
+      findFirst: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue({}),
     },
-    account: { findMany: vi.fn().mockResolvedValue([]) },
+    account: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockImplementation(async ({ where }) =>
+      where.id === 'ACC-CASH' ? { id: 'ACC-CASH' } : null) },
     // assertPeriodOpen() FOR SHARE-locks the posting period via a raw query;
     // an empty result = no period defined = open.
     $queryRaw: vi.fn().mockResolvedValue([]),

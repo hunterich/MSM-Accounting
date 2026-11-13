@@ -32,6 +32,7 @@ let creditNoteRow: NoteRow | null = null;
 let debitNoteRow: NoteRow | null = null;
 
 const txStub = () => ({
+  auditLog: { create: vi.fn().mockResolvedValue({}) },
   // nextEntryNo (JE numbering) + calculateAndPostCOGS take a per-org/per-item
   // advisory lock via $executeRaw before their reads.
   $executeRaw: vi.fn().mockResolvedValue(0),

@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import Button from '../../components/UI/Button';
 import Input from '../../components/UI/Input';
+import { translate } from '../../i18n/language';
+import { useLanguageStore } from '../../stores/useLanguageStore';
 import StatusTag from '../../components/UI/StatusTag';
 
 interface CreditNoteLine {
@@ -11,6 +13,7 @@ interface CreditNoteLine {
     qtyReturn: number;
     unit:     string;
     price:    number;
+    lineTotal?: number | string;
 }
 
 interface CreditNoteFormData {
@@ -36,6 +39,7 @@ interface CreditNoteFormData {
     settlementAccountId: string;
     note:                string;
     amount:              number;
+    recordedTaxAmount:   number;
     lines:               CreditNoteLine[];
     applyTax:            boolean;
     taxIncluded:         boolean;
@@ -63,7 +67,7 @@ const buildCreditNo = (dateStr: string, seq = 1) => {
 
 const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
     if (!ret) return { subtotal: 0, taxAmount: 0, total: 0 };
-    const subtotal = (ret.lines || []).reduce((sum, line) => sum + (Number(line.qtyReturn || 0) * Number(line.price || 0)), 0);
+    const subtotal = (ret.lines || []).reduce((sum, line) => sum + (line.lineTotal == null ? Number(line.qtyReturn || 0) * Number(line.price || 0) : Number(line.lineTotal)), 0);
     if (!ret.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
     const taxRate = Number(ret.taxRate || 0) / 100;
     if (ret.taxIncluded) {
@@ -77,6 +81,7 @@ const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
 interface CreditNoteFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
 
 const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNoteFormProps = {}) => {
+    const language = useLanguageStore(state => state.language) ?? 'en';
     const navigate = useNavigate();
     const location = useLocation();
     // In the workspace, identity comes from the owning tab (props), not router
@@ -85,7 +90,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     const { data: bankAccounts = [], isLoading: bankAccountsLoading } = useBankAccounts();
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
     const invoices = invoicesData?.data ?? [];
-    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts();
+    const { data: chartOfAccounts = [], isLoading: chartOfAccountsLoading } = useChartOfAccounts({ withControlFlags: 1 });
     const { data: cnData, isLoading: creditNotesLoading } = useCreditNotes();
     const creditNotes = cnData?.data ?? [];
     const { data: srData, isLoading: salesReturnsLoading } = useSalesReturns();
@@ -134,6 +139,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
         settlementAccountId: '',
         note: '',
         amount: 0,
+        recordedTaxAmount: 0,
         lines: [],
         applyTax: true,
         taxIncluded: false,
@@ -156,8 +162,9 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                 arAccountId: draft.arAccountId || prev.arAccountId || resolvedAccountDefaults.arControl,
                 returnAccountId: draft.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.arReturn,
                 taxAccountId: draft.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
-                settlementAccountId: draft.arAccountId || prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
-                amount: toReturnTotals(draft).total,
+                settlementAccountId: prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
+                amount: Number(draft.totalAmount ?? toReturnTotals(draft).total),
+                recordedTaxAmount: Number(draft.taxAmount ?? toReturnTotals(draft).taxAmount),
                 lines: (draft.lines || []) as CreditNoteLine[],
                 applyTax: draft.applyTax,
                 taxIncluded: draft.taxIncluded,
@@ -190,6 +197,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                 taxAccountId: found.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
                 settlementAccountId: found.settlementAccountId || prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
                 amount: found.amount,
+                recordedTaxAmount: found.taxAmount,
                 lines: (linkedReturn?.lines || []) as CreditNoteLine[],
                 applyTax: found.applyTax,
                 taxIncluded: linkedReturn?.taxIncluded ?? false,
@@ -262,8 +270,9 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     }, [chartOfAccounts]);
 
     const settlementAccountOptions = useMemo(() => {
-        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
-    }, [chartOfAccounts]);
+        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset' &&
+            !account.isPartyControlAccount && account.id !== formData.arAccountId);
+    }, [chartOfAccounts, formData.arAccountId]);
 
     const openInvoicesForCustomer = useMemo(() => {
         if (!formData.sourceInvoiceId) return [];
@@ -276,16 +285,9 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     }, [formData.sourceInvoiceId, invoices]);
 
     const totals = useMemo(() => {
-        const subtotal = formData.lines.reduce((sum, line) => sum + Number(line.qtyReturn || 0) * Number(line.price || 0), 0);
-        if (!formData.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
-        const rate = Number(formData.taxRate || 0) / 100;
-        if (formData.taxIncluded) {
-            const base = subtotal / (1 + rate);
-            return { subtotal, taxAmount: subtotal - base, total: subtotal };
-        }
-        const taxAmount = subtotal * rate;
-        return { subtotal, taxAmount, total: subtotal + taxAmount };
-    }, [formData.lines, formData.applyTax, formData.taxIncluded, formData.taxRate]);
+        const total = Number(formData.amount), taxAmount = formData.applyTax ? Number(formData.recordedTaxAmount) : 0;
+        return { subtotal: total - taxAmount, taxAmount, total };
+    }, [formData.amount, formData.recordedTaxAmount, formData.applyTax]);
 
     const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
@@ -342,7 +344,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
     const renderAccountField = (label: string, key: CreditNoteAccountField, options: any[], disabled = false) => {
-        if (isAccountLegacy(formData[key])) {
+        if (key !== 'settlementAccountId' && isAccountLegacy(formData[key])) {
             return (
                 <div>
                     <label className="form-label">{label}</label>
@@ -358,11 +360,15 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
             <div>
                 <label className="form-label">{label}</label>
                 <select
+                    aria-label={label}
                     className={fcBase}
                     value={formData[key]}
                     onChange={(event) => setFormData((prev) => ({ ...prev, [key]: event.target.value }))}
                     disabled={isView || disabled}
                 >
+                    {key === 'settlementAccountId' && formData[key] && !options.some(account => account.id === formData[key]) && (
+                        <option value={formData[key]} disabled>{formatAccountOption(formData[key])} — {translate(language, 'Unavailable for refunds')}</option>
+                    )}
                     {options.map((account) => (
                         <option key={account.id} value={account.id}>
                             {account.code} - {account.name}
@@ -545,7 +551,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                                 <td className="text-right">{line.qtyReturn}</td>
                                 <td>{line.unit}</td>
                                 <td className="text-right">{formatIDR(line.price)}</td>
-                                <td className="text-right text-strong">{formatIDR(Number(line.qtyReturn || 0) * Number(line.price || 0))}</td>
+                                <td className="text-right text-strong">{formatIDR(line.lineTotal == null ? Number(line.qtyReturn || 0) * Number(line.price || 0) : Number(line.lineTotal))}</td>
                             </tr>
                         ))}
                     </tbody>

@@ -1,7 +1,8 @@
 import React from 'react';
-import Reports, { type ReportDefinition, type ReportParams } from '../../views/reports/Reports';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import Reports from '../../views/reports/Reports';
+import type { ReportDefinition, ReportParams } from '../../views/reports/reportTypes';
 import { reportTabId, reportTabTarget, reportTabTitle } from './reportTabs';
 
 /** The Reports module's catalog tab: renders the card grid, and opens each

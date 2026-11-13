@@ -15,7 +15,7 @@ async function fixture(method: 'FIFO' | 'WEIGHTED_AVERAGE' = 'FIFO', costs = [10
   const itemId = await createItem(org.orgId);
   await prisma.$transaction(async (tx) => {
     for (const [idx, cost] of costs.entries()) {
-      await addCostLayer(tx, org.orgId, itemId, null, quantities[idx], cost, 'PURCHASE', `receipt-${idx}`, new Date(DATE.getTime() + idx));
+      await addCostLayer(tx, org.orgId, itemId, null, quantities[idx], cost, 'PURCHASE', `receipt-${idx}`, new Date(DATE.getTime() + idx), undefined, org.accounts.inventoryAsset);
     }
   });
   const invoice = await prisma.salesInvoice.create({ data: {
@@ -38,7 +38,7 @@ describe('sales return at original sale cost', () => {
       try {
         const source = await prisma.salesInvoiceLine.findUniqueOrThrow({ where: { id: f.sourceId } });
         expect(Number(source.cogsAmount)).toBe(method === 'FIFO' ? 200 : 400);
-        await prisma.$transaction((tx) => addCostLayer(tx, f.orgId, f.itemId, null, 10, 900, 'PURCHASE', 'later-purchase', DATE));
+        await prisma.$transaction((tx) => addCostLayer(tx, f.orgId, f.itemId, null, 10, 900, 'PURCHASE', 'later-purchase', DATE, undefined, f.accounts.inventoryAsset));
         const ret = await f.createReturn('SR-COST', 1);
         await prisma.$transaction((tx) => postSalesReturnOnApproval(tx, ret.id));
         const posted = await prisma.salesReturn.findUniqueOrThrow({ where: { id: ret.id }, include: { lines: true } });

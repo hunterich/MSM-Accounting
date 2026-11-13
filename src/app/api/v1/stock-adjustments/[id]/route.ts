@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { updateStockAdjustmentInputSchema } from '@/types/api';
+import { assertDocumentOffsetAccounts } from '@/lib/document-offset-accounts';
 
 export const runtime = 'nodejs';
 
@@ -35,11 +36,12 @@ export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (
   const { lines, ...header } = parsed.data;
   try {
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.stockAdjustment.findFirst({ where: { id, organizationId: orgId } });
+      const existing = await tx.stockAdjustment.findFirst({ where: { id, organizationId: orgId }, include: { lines: true } });
       if (!existing) return null;
       if (existing.status !== 'DRAFT') {
         throw new ApiError('Only DRAFT adjustments can be edited', 400);
       }
+      await assertDocumentOffsetAccounts(tx, orgId, (lines ?? existing.lines).map(line => line.accountId));
       if (header.warehouseId) {
         await validateForeignKey(tx.warehouse, { id: header.warehouseId, organizationId: orgId }, 'Warehouse not found in organization');
       }

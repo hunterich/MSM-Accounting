@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pdfPageOffsets, sanitizePdfName } from '../downloadPdf';
+import { pdfPageOffsets, sanitizePdfName, pdfBase64FromDataUri } from '../downloadPdf';
 
 describe('pdfPageOffsets', () => {
   it('returns a single offset when content fits one page', () => {
@@ -43,5 +43,14 @@ describe('sanitizePdfName', () => {
   });
   it('returns document.pdf for a bare .pdf title', () => {
     expect(sanitizePdfName('.pdf')).toBe('document.pdf');
+  });
+});
+
+describe('pdfBase64FromDataUri', () => {
+  it('extracts the payload from a jsPDF data URI', () => {
+    expect(pdfBase64FromDataUri('data:application/pdf;filename=generated.pdf;base64,JVBERi0=')).toBe('JVBERi0=');
+  });
+  it('returns an empty string when there is no base64 marker', () => {
+    expect(pdfBase64FromDataUri('data:text/plain,hello')).toBe('');
   });
 });

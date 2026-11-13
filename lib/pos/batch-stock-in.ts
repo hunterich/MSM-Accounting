@@ -4,6 +4,7 @@ import { addCostLayer, lockInventoryItems } from '@/lib/inventory-costing';
 import { postJournalEntry } from '@/lib/journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
 import { ApiError } from '@/lib/errors';
+import { itemPostingAccount } from '@/lib/item-posting-accounts';
 
 export interface ReceiveBatchInput {
   itemId: string;
@@ -37,7 +38,9 @@ export async function receiveBatch(
       select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
     });
     const settings = await loadOrgAccountDefaults(tx, orgId);
-    inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
+    const item = await tx.item.findFirst({ where: { id: itemId, organizationId: orgId }, select: { inventoryAccountId: true } });
+    if (!item) throw new ApiError('Item not found in this company.', 422);
+    inventoryAccountId = itemPostingAccount(accounts, item.inventoryAccountId, resolveAccountDefaultId(accounts, settings, 'inventoryAsset'), 'ASSET', 'inventory');
     equityAccountId = resolveAccountDefaultId(accounts, settings, 'openingBalanceEquity');
     // Validate BEFORE a physical batch, cost layer or movement is changed.
     if (!inventoryAccountId || !equityAccountId) {
@@ -60,7 +63,7 @@ export async function receiveBatch(
         select: { id: true },
       })).id;
 
-  await addCostLayer(tx, orgId, itemId, warehouseId, qty, unitCost, InventoryDocumentType.OPENING, batchId, date);
+  await addCostLayer(tx, orgId, itemId, warehouseId, qty, unitCost, InventoryDocumentType.OPENING, batchId, date, undefined, inventoryAccountId);
 
   if (value > 0 && inventoryAccountId && equityAccountId) {
     await postJournalEntry(tx, {

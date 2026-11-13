@@ -82,13 +82,13 @@ export const POST = withPermission({ module: 'INV_ITEMS', action: 'create' }, as
     await validateForeignKey(prisma.itemCategory, { id: parsed.data.categoryId, organizationId: orgId, isActive: true }, 'Item category not found in organization');
   }
   if (parsed.data.inventoryAccountId) {
-    await validateForeignKey(prisma.account, { id: parsed.data.inventoryAccountId, organizationId: orgId, isActive: true }, 'Inventory account not found in organization');
+    await validateForeignKey(prisma.account, { id: parsed.data.inventoryAccountId, organizationId: orgId, isActive: true, isPostable: true, type: 'ASSET' }, 'Choose an active, postable inventory asset account in this company');
   }
   if (parsed.data.revenueAccountId) {
-    await validateForeignKey(prisma.account, { id: parsed.data.revenueAccountId, organizationId: orgId, isActive: true }, 'Revenue account not found in organization');
+    await validateForeignKey(prisma.account, { id: parsed.data.revenueAccountId, organizationId: orgId, isActive: true, isPostable: true, type: 'REVENUE' }, 'Choose an active, postable revenue account in this company');
   }
   if (parsed.data.cogsAccountId) {
-    await validateForeignKey(prisma.account, { id: parsed.data.cogsAccountId, organizationId: orgId, isActive: true }, 'COGS account not found in organization');
+    await validateForeignKey(prisma.account, { id: parsed.data.cogsAccountId, organizationId: orgId, isActive: true, isPostable: true, type: 'EXPENSE' }, 'Choose an active, postable COGS expense account in this company');
   }
 
   const itemData: Prisma.ItemUncheckedCreateInput = {

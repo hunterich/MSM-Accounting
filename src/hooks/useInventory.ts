@@ -207,8 +207,9 @@ export function useDeleteItem() {
 
 // ── Item Categories ───────────────────────────────────────────────────────────
 
-export function useItemCategories() {
+export function useItemCategories(options: { enabled?: boolean } = {}) {
     return useQuery({
+        enabled: options.enabled,
         queryKey: INV_KEYS.categories,
         queryFn:  () => api.get<ListResponse<RawItemCategory>>('/api/v1/item-categories', { limit: 200 }),
         select:   (res) => (res.data || []).map(normalizeItemCategory),
@@ -292,8 +293,9 @@ export interface Warehouse {
     isActive?: boolean;
 }
 
-export function useWarehouses() {
+export function useWarehouses(options: { enabled?: boolean } = {}) {
     return useQuery({
+        enabled: options.enabled,
         queryKey: INV_KEYS.warehouses,
         queryFn:  () => api.get<{ data?: Warehouse[] } | Warehouse[]>('/api/v1/warehouses'),
         select:   (res) => (Array.isArray(res) ? res : (res.data ?? [])),

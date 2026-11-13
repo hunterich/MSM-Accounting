@@ -1,4 +1,4 @@
-import type { ReportDefinition, ReportParams } from '../../views/reports/Reports';
+import type { ReportDefinition, ReportParams } from '../../views/reports/reportTypes';
 import { makeTabId, type TabTarget } from '../../stores/workspace/types';
 
 /** Key-order-independent serialization, so equal filters always map to one tab. */

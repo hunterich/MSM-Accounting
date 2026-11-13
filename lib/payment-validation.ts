@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 
 type Tx = Prisma.TransactionClient;
@@ -10,10 +10,14 @@ export class PaymentOverAllocationError extends ApiError {
 }
 type Allocation = { invoiceId?: string; billId?: string; amountApplied: unknown; discountAmount?: unknown; penaltyAmount?: unknown };
 
+// Round in decimal, half-up, exactly as Decimal(18,2) storage does: 150.105
+// is stored as 150.11, while Math.round(150.105 * 100) gives 15010.
 const cents = (value: unknown) => {
   const number = Number(value ?? 0);
-  const result = Math.round(number * 100);
-  if (!Number.isFinite(number) || number < 0 || !Number.isSafeInteger(result)) {
+  const result = Number.isFinite(number)
+    ? new Prisma.Decimal(number).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP).times(100).toNumber()
+    : NaN;
+  if (number < 0 || !Number.isSafeInteger(result)) {
     throw new ApiError('Payment amounts must be finite, non-negative currency values', 422);
   }
   return result;

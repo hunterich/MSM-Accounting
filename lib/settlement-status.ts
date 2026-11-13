@@ -24,8 +24,6 @@ import { asMoney, toNumber } from './money';
 
 type Tx = Prisma.TransactionClient;
 
-const TOLERANCE = 0.01;
-
 /** Invoice statuses that a payment may settle into PAID. */
 const INVOICE_OPEN_STATUSES = new Set(['SENT', 'OVERDUE']);
 /** Bill statuses that a payment may settle into PAID. */
@@ -164,5 +162,6 @@ export async function syncDebitNoteSettlement(tx: Tx, orgId: string, noteId: str
 
 /** A document is settled once the cleared amount reaches its total (to the cent). */
 export function isSettled(totalAmount: number, clearedAmount: number): boolean {
-  return asMoney(clearedAmount) >= asMoney(totalAmount) - TOLERANCE;
+  // Whole cents: a one-cent shortfall is still owed in aging and the control GL.
+  return Math.round(asMoney(clearedAmount) * 100) >= Math.round(asMoney(totalAmount) * 100);
 }

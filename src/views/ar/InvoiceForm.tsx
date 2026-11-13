@@ -1,5 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import OffsetAccountSelect from '../../components/UI/OffsetAccountSelect';
+
+interface InvoiceChargeDraft { label: string; accountId: string; amount: number; taxRate: number }
 
 interface InvoiceLineItem {
     id:          string | number;
@@ -20,6 +24,7 @@ interface InvoiceAttachment {
 }
 
 interface InvoiceFormData {
+    charges: InvoiceChargeDraft[];
     id?:             string;
     customerId:      string;
     email:           string;
@@ -67,33 +72,31 @@ interface InvoiceEditorState {
     };
 }
 
-type CustomerLike = any;
-type InvoiceLike = any;
-type ProductLike = any;
-import Input from '../../components/UI/Input';
-import Button from '../../components/UI/Button';
-import SearchableSelect from '../../components/UI/SearchableSelect';
-import { Printer, Save, Search, Info, Package, Paperclip, FileText, X, AlertTriangle } from 'lucide-react';
-import { formatDateID, formatIDR } from '../../utils/formatters';
+import { AlertTriangle, FileText, Info, Package, Paperclip, Search, X } from 'lucide-react';
 import DocumentFormLayout from '../../components/documents/DocumentFormLayout';
 import DocumentTotals from '../../components/documents/DocumentTotals';
-import Modal from '../../components/UI/Modal';
-import AuditLogPanel from '../../components/UI/AuditLogPanel';
-import { FormSkeleton } from '../../components/UI/LoadingSkeleton';
-import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
-import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import InvoicePrintTemplate from '../../components/print/InvoicePrintTemplate';
+import AuditLogPanel from '../../components/UI/AuditLogPanel';
+import Button from '../../components/UI/Button';
+import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
+import Input from '../../components/UI/Input';
+import { FormSkeleton } from '../../components/UI/LoadingSkeleton';
+import Modal from '../../components/UI/Modal';
+import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
+import SearchableSelect from '../../components/UI/SearchableSelect';
+import type { InventoryItem } from '../../types';
+import { formatIDR } from '../../utils/formatters';
 
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useLanguageStore } from '../../stores/useLanguageStore';
-import { translate } from '../../i18n/language';
-import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
-import { useExtraAction } from '../../hooks/useModulePermissions';
-import { useCustomers, useCreateCustomer, useInvoices, useCreateInvoice, useUpdateInvoice, useDeleteInvoice, useNextInvoiceNumber } from '../../hooks/useAR';
-import { useAllItems } from '../../hooks/useInventory';
-import { useSalesTypes } from '../../hooks/useSalesTypes';
-import { useOrganizationSettings } from '../../hooks/useOrganizationSettings';
+import { useCreateCustomer, useCreateInvoice, useCustomers, useDeleteInvoice, useInvoice, useInvoices, useNextInvoiceNumber, useUpdateInvoice } from '../../hooks/useAR';
 import { useDraftAutosave } from '../../hooks/useDraftAutosave';
+import { useAllItems } from '../../hooks/useInventory';
+import { useExtraAction } from '../../hooks/useModulePermissions';
+import { useOrganizationSettings } from '../../hooks/useOrganizationSettings';
+import { useSalesTypes } from '../../hooks/useSalesTypes';
+import { translate } from '../../i18n/language';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 
 class TableErrorBoundary extends React.Component<TableErrorBoundaryProps, TableErrorBoundaryState> {
     constructor(props: TableErrorBoundaryProps) {
@@ -124,6 +127,7 @@ interface InvoiceFormProps {
 
 /** Shape of the recoverable draft autosaved into a workspace tab. */
 interface InvoiceDraft {
+    charges: InvoiceChargeDraft[];
     customerId: string;
     email: string;
     billingAddress: string;
@@ -148,6 +152,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     // route mode it comes from location.state (set by the workbench's Edit action).
     const resolvedEditId = recordId ?? location.state?.openInvoiceId ?? null;
     const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+    const hydratedInvoiceId = useRef<string | null>(null);
 
     // Recover an autosaved draft for this workspace tab (workspace mode only).
     // Only drafts recovered at mount should bypass loading the saved invoice.
@@ -170,11 +175,14 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
 
     // Manage customers state dynamically
     const { data: customersData, isLoading: customersLoading } = useCustomers();
-    const customerList = (customersData?.data || []) as CustomerLike[];
+    const customerList = customersData?.data || [];
     const { data: invoicesData, isLoading: invoicesLoading } = useInvoices();
-    const invoices = ((invoicesData?.data || []).filter(Boolean)) as InvoiceLike[];
+    // List responses omit charges and may not contain this record's page.
+    // Editing/recovery must use the full, tenant-scoped document response.
+    const { data: invoiceDetail, isLoading: invoiceDetailLoading } = useInvoice(resolvedEditId || undefined);
+    const invoices = invoiceDetail ? [invoiceDetail] : (invoicesData?.data || []).filter(Boolean);
     const { data: itemsData, isLoading: itemsLoading } = useAllItems();
-    const products = (itemsData?.data || []) as ProductLike[];
+    const products = itemsData?.data || [];
     const { data: salesTypes = [] } = useSalesTypes();
     const createInvoice = useCreateInvoice();
     const updateInvoiceMutation = useUpdateInvoice();
@@ -192,6 +200,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const globalTaxSettings = useSettingsStore(s => s.taxSettings);
 
     const [formData, setFormData] = useState<InvoiceFormData>({
+        charges: draftSeed?.charges ?? [],
         customerId: draftSeed?.customerId ?? '',
         email: draftSeed?.email ?? '',
         billingAddress: draftSeed?.billingAddress ?? '',
@@ -233,8 +242,17 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     useEffect(() => {
         // A recovered draft already holds the user's in-progress edits — don't
         // overwrite it from the saved record.
+        if (resolvedEditId && !invoiceDetail) return;
+        if (resolvedEditId && hydratedInvoiceId.current === resolvedEditId) return;
         if (draftSeed) {
             if (resolvedEditId) setEditingInvoiceId(resolvedEditId);
+            // Older browser drafts predate charge recovery. Preserve their
+            // unsaved fields while hydrating charges from the saved invoice.
+            if (draftSeed.charges === undefined && resolvedEditId) {
+                const saved = invoices.find(invoice => invoice.id === resolvedEditId);
+                if (saved) setFormData(prev => ({ ...prev, charges: (saved.charges ?? []).map(charge => ({ label: charge.label, accountId: charge.accountId || '', amount: Number(charge.amount), taxRate: Number(charge.taxRate) })) }));
+            }
+            if (resolvedEditId) hydratedInvoiceId.current = resolvedEditId;
             return;
         }
         // Route mode requires location.state.mode === 'edit'; workspace mode
@@ -243,6 +261,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         if (resolvedEditId && isEditTarget && invoices.length > 0) {
             const exists = invoices.find((inv) => inv.id === resolvedEditId);
             if (exists) {
+                hydratedInvoiceId.current = resolvedEditId;
                 setEditingInvoiceId(exists.id);
                 setNumberingMode('manual');
                 setFormData(prev => ({
@@ -260,8 +279,14 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     notes: exists.notes || '',
                     invoiceType: exists.invoiceType || 'Sales Invoice',
                     salesTypeId: (exists as { salesTypeId?: string | null }).salesTypeId || '',
-                    items: (exists.items || []).map((line: InvoiceLineItem & { itemId?: string }) => ({
-                        ...line, productId: line.itemId || line.productId,
+                    charges: (exists.charges ?? []).map(charge => ({ label: charge.label, accountId: charge.accountId || '', amount: Number(charge.amount), taxRate: Number(charge.taxRate) })),
+                    items: (exists.items || []).map((line, index) => ({
+                        ...line,
+                        id: line.id || `line-${index}`,
+                        productId: line.itemId || (typeof line.productId === 'string' ? line.productId : undefined),
+                        code: line.code || '',
+                        description: line.description || '',
+                        unit: line.unit || 'PCS',
                     })),
                 }));
                 setTaxSettings({
@@ -272,7 +297,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                 setActiveTab('items');
             }
         }
-    }, [location.state, recordId, resolvedEditId, draftSeed, invoices.length]);
+    }, [location.state, recordId, resolvedEditId, draftSeed, invoices.length, invoiceDetail]);
 
     // Click outside to close item search range
     useEffect(() => {
@@ -341,7 +366,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         p.id.toLowerCase().includes(itemSearchTerm.toLowerCase())
     );
 
-    const selectProduct = (product: ProductLike) => {
+    const selectProduct = (product: InventoryItem) => {
         const newItem: InvoiceLineItem = {
             id: Date.now(),
             productId: product.id,
@@ -419,6 +444,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const calculateTaxAmount = (netAmount: number) => {
         if (!taxSettings.enabled) return 0;
         const rate = taxSettings.rate / 100;
+        netAmount += formData.charges.filter(charge => charge.taxRate > 0).reduce((sum, charge) => sum + charge.amount, 0);
         if (taxSettings.inclusive) {
             return netAmount - (netAmount / (1 + rate));
         }
@@ -428,17 +454,18 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     const calculateTotal = () => {
         const subtotal = calculateSubtotal();
         const discount = calculateDiscountAmount(subtotal);
-        const net = subtotal - discount;
-        const tax = calculateTaxAmount(net);
+        const tax = calculateTaxAmount(subtotal - discount);
+        const net = subtotal - discount + formData.charges.reduce((sum, charge) => sum + charge.amount, 0);
         return taxSettings.enabled && !taxSettings.inclusive ? net + tax : net;
     };
 
     const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
-    const isPageLoading = customersLoading || invoicesLoading || itemsLoading;
+    const isPageLoading = customersLoading || invoicesLoading || itemsLoading || (!!resolvedEditId && invoiceDetailLoading);
 
     // ── Workspace draft autosave + dirty mirroring (workspace mode only) ──────
     const isEditMode = Boolean(editingInvoiceId);
     const language = useLanguageStore(state => state.language) ?? 'en';
+    const { data: chargeAccounts = [] } = useChartOfAccounts({ withControlFlags: 1 }, { enabled: formData.charges.length > 0 });
     const { data: organizationSettings } = useOrganizationSettings();
     const isPostedCorrection = isEditMode && ['Sent', 'Overdue'].includes(invoices.find(inv => inv.id === editingInvoiceId)?.status ?? '');
     const snapshot = useMemo<InvoiceDraft>(() => ({
@@ -456,10 +483,12 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         invoiceType: formData.invoiceType,
         salesTypeId: formData.salesTypeId,
         items: formData.items,
+        charges: formData.charges,
         taxSettings,
     }), [formData, taxSettings]);
 
-    useDraftAutosave(resolvedEditId && !editingInvoiceId ? undefined : workspaceTabId, snapshot);
+    const chargeRecoveryPending = resolvedEditId && draftSeed && draftSeed.charges === undefined && !invoices.some(invoice => invoice.id === resolvedEditId);
+    useDraftAutosave(resolvedEditId && (!editingInvoiceId || chargeRecoveryPending) ? undefined : workspaceTabId, snapshot);
 
     const dirty = formData.items.length > 0 || !!formData.customerId
         || !!formData.poNumber || !!formData.notes || formData.discount > 0;
@@ -573,6 +602,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     discountAmount: discountAmt,
                     taxAmount: taxAmt,
                     totalAmount: calculateTotal(),
+                    charges: formData.charges,
                     lines: cleanedItems.map((line, idx) => ({
                         lineNo: idx + 1,
                         itemId: line.productId || null,
@@ -599,6 +629,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     ...(formData.billingAddress && { billingAddress: formData.billingAddress }),
                     ...(formData.shippingAddress && { shippingAddress: formData.shippingAddress }),
                     currency: 'IDR',
+                    charges: formData.charges,
                     discountPct: Number(formData.discount || 0),
                     tax: {
                         enabled: taxSettings.enabled,
@@ -745,7 +776,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             <DocumentTotals
                 totals={{
                     subtotal: railSubtotal,
-                    chargesTotal: 0,
+                    chargesTotal: formData.charges.reduce((sum, charge) => sum + charge.amount, 0),
                     documentDiscount: railDiscount,
                     taxableBase: railSubtotal - railDiscount,
                     tax: railTax,
@@ -782,6 +813,15 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             main={(
             <form onSubmit={(e) => e.preventDefault()}>
                     <ClosedPeriodBanner date={formData.issueDate} className="mt-4" />
+                    {formData.charges.length > 0 && <section className="mt-4 rounded-lg border border-neutral-200 bg-white p-4">
+                        <h2 className="font-semibold">{language === 'id' ? 'Akun biaya tambahan' : 'Additional cost accounts'}</h2>
+                        {formData.charges.map((charge, index) => <div key={index} className="mt-2 flex items-start gap-3">
+                            <span className="text-sm">{charge.label} · {charge.amount.toLocaleString()}</span>
+                            <OffsetAccountSelect label={`${charge.label} account`} value={charge.accountId}
+                                options={chargeAccounts.map(account => ({ value: account.id, label: `${account.code} · ${account.name}`, disabled: !account.isActive || !account.isPostable || !!account.isPartyControlAccount }))}
+                                onChange={value => setFormData(prev => ({ ...prev, charges: prev.charges.map((row, i) => i === index ? { ...row, accountId: value } : row) }))} />
+                        </div>)}
+                    </section>}
                     {isPostedCorrection && organizationSettings?.costingMethod === 'WEIGHTED_AVERAGE' && (
                         <div role="note" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                             {translate(language, 'Corrections require original stock-lot and recorded-cost tracking. Older invoices without complete tracking must be voided and replaced.')}
@@ -976,7 +1016,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                                     />
                                                     {(() => {
                                                         if (!item.productId) return null;
-                                                        const prod = products.find((p: ProductLike) => p.id === item.productId);
+                                                        const prod = products.find((p: InventoryItem) => p.id === item.productId);
                                                         if (!prod) return null;
                                                         const original = editingInvoiceId ? invoices.find(inv => inv.id === editingInvoiceId) : undefined;
                                                         const ownSoldQty = original && ['Sent', 'Overdue'].includes(original.status)

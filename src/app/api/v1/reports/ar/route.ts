@@ -1,3 +1,4 @@
+import { toNumber, asMoney } from '@/lib/money';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
@@ -15,16 +16,6 @@ export async function OPTIONS() {
 
 const OPEN_INVOICE_STATUSES: InvoiceStatus[] = ['SENT', 'OVERDUE', 'PAID', 'VOID'];
 const OVERDUE_STATUSES = new Set(['SENT', 'OVERDUE', 'PAID']);
-
-const toNumber = (value: unknown): number => {
-  if (value === null || value === undefined) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const asMoney = (value: number): number => {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-};
 
 const endOfDay = (value: string | null): Date => {
   try { return reportDate(value, true); } catch { throw new ApiError(`Invalid date: ${value}`, 400); }
@@ -55,8 +46,6 @@ const sortByOverdue = (a: any, b: any) => {
   if (aDue !== bDue) return aDue - bDue;
   return String(a.customerName || '').localeCompare(String(b.customerName || ''));
 };
-
-
 
 export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
@@ -159,7 +148,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       ],
     });
 
-    const history = await readSubledgerHistory(prisma, 'ar', orgId, fetchedDocuments, asOfDate);
+    const history = await readSubledgerHistory(prisma, 'ar', orgId, fetchedDocuments, asOfDate, undefined, { includeTransactions: false });
     const invoices = history.documents;
     const clearedByInvoice = history.cleared;
 

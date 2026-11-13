@@ -544,10 +544,9 @@ const InventoryForm = () => {
                     </div>
                 </div>
 
-                <p className="text-sm text-amber-700 mb-4" role="note">
-                    These item accounts are not used consistently in every transaction. Opening stock uses the item inventory account, but invoices, receipts and returns use company defaults for their main postings. Keep item accounts aligned with the company defaults until item-level posting is supported.
+                <p className="text-sm text-neutral-600 mb-4" role="note">
+                    Leave an account blank to use the company default. Accounts set here are used for this item&apos;s sales, purchases, returns and stock adjustments. The inventory account cannot be changed while this item has stock or inventory value.
                 </p>
-
                 <div className="grid-12 form-grid-start">
                     <div className="col-span-4">
                         <SelectField label="Inventory Account" name="inventoryAccountId" value={formData.inventoryAccountId} onChange={handleChange} error={errors.inventoryAccountId} disabled={isViewMode}>

@@ -4,14 +4,23 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { collectPosAssets } from './scripts/lib/pos-precache.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+let posAssets = new Set()
 
 // https://vitejs.dev/config/
 export default defineConfig({
     plugins: [
         react(),
         tailwindcss(),
+        {
+            name: 'pos-precache-dependencies',
+            apply: 'build',
+            generateBundle(_, bundle) {
+                posAssets = collectPosAssets(bundle)
+            },
+        },
         VitePWA({
             injectRegister: null,
             registerType: 'autoUpdate',
@@ -37,12 +46,13 @@ export default defineConfig({
             workbox: {
                 // Cache only the POS shell and its shared runtime. Back-office
                 // page chunks are intentionally absent from the offline cache.
-                globPatterns: [
-                    'pos.html',
-                    'assets/pos-*.js',
-                    'assets/index-*.{js,css}',
-                    'assets/workbox-window*.js',
-                ],
+                // Shared chunks change when back-office screens are split.
+                // Cache the actual POS graph, including nested imports and CSS.
+                globPatterns: ['pos.html', 'assets/**/*'],
+                manifestTransforms: [async (entries) => ({
+                    manifest: entries.filter(entry => entry.url === 'pos.html' || posAssets.has(entry.url)),
+                    warnings: [],
+                })],
                 navigateFallback: 'pos.html',
                 cleanupOutdatedCaches: true,
                 clientsClaim: true,

@@ -21,6 +21,8 @@ export interface AccountingPeriod {
     isLocked: boolean;
     closedAt: string | null;
     closedByName: string | null;
+    /** Inside a closed fiscal year: reopen the year before this month. */
+    fiscalYearClosed: boolean;
 }
 
 export interface CloseChecklistItem {
@@ -45,6 +47,7 @@ interface RawPeriod {
     isLocked: boolean;
     closedAt?: string | null;
     closedBy?: { id: string; fullName: string } | null;
+    fiscalYearClosed?: boolean;
 }
 
 const normalize = (raw: RawPeriod): AccountingPeriod => ({
@@ -56,6 +59,7 @@ const normalize = (raw: RawPeriod): AccountingPeriod => ({
     isLocked: raw.isLocked,
     closedAt: raw.closedAt ?? null,
     closedByName: raw.closedBy?.fullName ?? null,
+    fiscalYearClosed: raw.fiscalYearClosed ?? false,
 });
 
 export const accountingPeriodKeys = {

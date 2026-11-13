@@ -222,6 +222,34 @@ describe('settlement reconciliation service', () => {
     await cleanupOrg(s.orgId);
   });
 
+  it('settles against the receipt account after the shop account changes', async () => {
+    const s = await seedImportedOrder();
+    const newWallet = await prisma.bankAccount.create({ data: { organizationId: s.orgId, name: 'New marketplace wallet', bankName: 'New marketplace wallet' } });
+    await prisma.ecommerceConnection.update({ where: { id: s.connectionId }, data: { holdingAccountId: newWallet.id } });
+    const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross - 10_000, charges: { serviceFee: 10_000 } }] });
+    expect(result.posted).toBe(1);
+    expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(s.gross - 10_000, 2);
+    await assertTrialBalanced(s.orgId, 'settlement after account change');
+    await cleanupOrg(s.orgId);
+  });
+
+  it('flags a legacy receipt for review without posting or changing its balance', async () => {
+    const s = await seedImportedOrder();
+    const receipt = await prisma.aRPayment.findFirstOrThrow({ where: { organizationId: s.orgId, ecommerceConnectionId: s.connectionId } });
+    await prisma.aRPayment.update({ where: { id: receipt.id }, data: { source: 'MANUAL', ecommerceConnectionId: null, marketplaceOrderNo: null } });
+    const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+
+    const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross - 10_000, charges: { serviceFee: 10_000 } }] });
+
+    expect(result.posted).toBe(0);
+    expect(result.skipped).toEqual([]);
+    expect(result.failed).toEqual([{ orderId: 'ORD1', reason: expect.stringContaining('review its provenance') }]);
+    expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+    expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(s.gross, 2);
+    expect((await prisma.aRPayment.findUniqueOrThrow({ where: { id: receipt.id } })).settledAt).toBeNull();
+    await cleanupOrg(s.orgId);
+  });
+
   it('unmatched: an unimported order is skipped and posts nothing', async () => {
     const s = await seedImportedOrder();
     const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });

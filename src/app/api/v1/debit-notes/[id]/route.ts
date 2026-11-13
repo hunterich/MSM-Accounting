@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit, validateForeignKey } from '@/lib/api-utils';
+import { logAudit, logAuditTx, validateForeignKey } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
 import { updateDebitNoteInputSchema } from '@/types/api';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { lockEligibleNoteReturn } from '@/lib/note-return-eligibility';
+import { validateNoteRefundAccount } from '@/lib/note-refund-account';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
 const STATUS_ONLY_FIELDS = new Set(['status']);
 
-function isPosted(prior: { status: string; journalEntryId?: string | null }): boolean {
-  return prior.status === 'APPLIED' || Boolean(prior.journalEntryId);
+function isPosted(prior: { status: string; journalEntryId?: string | null; postedAt?: Date | null }): boolean {
+  return prior.status === 'APPLIED' || Boolean(prior.journalEntryId || prior.postedAt);
 }
 
 export async function OPTIONS() {
@@ -81,13 +82,16 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.debitNote.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, journalEntryId: true, vendorId: true, sourceBillId: true, purchaseReturnId: true },
+        select: { id: true, amount: true, status: true, journalEntryId: true, postedAt: true, vendorId: true, sourceBillId: true, purchaseReturnId: true },
       });
       if (!prior) {
         throw Object.assign(new Error('Not found'), { status: 404 });
       }
 
       const nextStatus = d.status;
+      if (prior.purchaseReturnId && d.purchaseReturnId !== undefined && d.purchaseReturnId !== prior.purchaseReturnId && nextStatus !== undefined && nextStatus !== 'DRAFT') {
+        throw Object.assign(new Error('Change the return link in a separate draft edit before submitting this note'), { status: 422 });
+      }
       const isStatusOnly = Object.keys(d).every((k) => STATUS_ONLY_FIELDS.has(k));
       if (prior.status !== 'DRAFT' && (!isStatusOnly || (nextStatus !== undefined && nextStatus !== prior.status))) {
         throw Object.assign(new Error('Only draft debit notes can change; pending notes must finish approval and void notes are terminal'), { status: 422 });
@@ -109,6 +113,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
 
       if (prior.status === 'DRAFT' && nextStatus === 'APPLIED') {
         await lockEligibleNoteReturn(tx, 'debit', {
+          id, amount: d.amount !== undefined ? asMoney(toNumber(d.amount)) : prior.amount,
           organizationId: orgId, partyId: d.vendorId ?? prior.vendorId,
           sourceId: d.sourceBillId !== undefined ? d.sourceBillId : prior.sourceBillId,
           returnId: d.purchaseReturnId !== undefined ? d.purchaseReturnId : prior.purchaseReturnId,
@@ -128,6 +133,11 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
         },
       });
 
+      await validateNoteRefundAccount(tx, orgId, updated.settlementType, updated.settlementAccountId, updated.apAccountId);
+      if (d.purchaseReturnId !== undefined && d.purchaseReturnId !== prior.purchaseReturnId) {
+        await logAuditTx(tx, { orgId, actorId: userId, entityType: 'DebitNote', entityId: id,
+          action: 'UPDATE', payload: { returnLink: { before: prior.purchaseReturnId, after: d.purchaseReturnId } } });
+      }
       // Auto-route the DRAFT → APPLIED finalize through the approval engine.
       // The update above may have already stamped status='APPLIED'; if approval
       // is required, hold the note at PENDING_APPROVAL and post NO GL.
@@ -169,10 +179,11 @@ export const DELETE = withPermission({ module: 'AP_DEBITS', action: 'delete' }, 
       await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.debitNote.findFirst({ where: { id, organizationId: orgId } });
       if (!prior) throw Object.assign(new Error('Not found'), { status: 404 });
-      if (prior.status !== 'DRAFT' || prior.journalEntryId) throw Object.assign(new Error('Only unposted draft debit notes can be deleted'), { status: 422 });
+      if (prior.status !== 'DRAFT' || prior.journalEntryId || prior.postedAt) throw Object.assign(new Error('Only unposted draft debit notes can be deleted'), { status: 422 });
+      await logAuditTx(tx, { orgId, actorId: req.headers.get('x-user-id'), entityType: 'DebitNote', entityId: id,
+        action: 'DELETE', payload: { number: prior.number, purchaseReturnId: prior.purchaseReturnId } });
       await tx.debitNote.delete({ where: { id, organizationId: orgId } });
     });
-    logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'DebitNote', entityId: id, action: 'DELETE', payload: null });
     return withCors(NextResponse.json({ deleted: true }));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';

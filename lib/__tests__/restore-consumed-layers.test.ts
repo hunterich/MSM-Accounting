@@ -13,7 +13,7 @@ function makeTx(outbound: any[]) {
   return {
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO' })) },
     $executeRaw: vi.fn(async () => 0),
-    inventoryLedgerEntry: { findMany: vi.fn(async () => outbound), create: vi.fn(async () => ({})), update: vi.fn(async () => ({})) },
+    inventoryLedgerEntry: { findMany: vi.fn(async () => outbound.map(entry => ({ inventoryPostingAccountId: 'inv', ...entry }))), create: vi.fn(async () => ({})), update: vi.fn(async () => ({})) },
     inventoryLot: { create: vi.fn(async () => ({})) },
   };
 }

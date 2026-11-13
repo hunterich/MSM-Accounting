@@ -13,7 +13,7 @@ function makeTx(lots: any[]) {
     organization: { findUnique: vi.fn(async () => ({ costingMethod: 'FIFO' })) },
     $executeRaw: vi.fn(async () => 1),
     inventoryLot: {
-      findMany: vi.fn(async () => lots),
+      findMany: vi.fn(async () => lots.map(lot => ({ inboundLedgerEntry: { inventoryPostingAccountId: 'inv' }, ...lot }))),
       delete: vi.fn(async () => ({})),
     },
     inventoryLedgerEntry: { create: vi.fn(async () => ({})) },
@@ -62,5 +62,10 @@ describe('reverseAddedLayers', () => {
         where: expect.objectContaining({ documentType: InventoryDocumentType.PURCHASE, documentId: 'bill-1' }),
       }),
     );
+  });
+  it('refuses an old valued movement with no recorded account', async () => {
+    const tx = makeTx([{ id: 'old', itemId: 'item-1', qtyIn: 1, qtyBalance: 1, unitCost: 100, inboundLedgerEntry: null }]);
+    await expect(reverseAddedLayers(tx as never, 'org-a', InventoryDocumentType.SALES_RETURN, 'old', DATE)).rejects.toThrow(/account history is unavailable/i);
+    expect(tx.inventoryLot.delete).not.toHaveBeenCalled();
   });
 });

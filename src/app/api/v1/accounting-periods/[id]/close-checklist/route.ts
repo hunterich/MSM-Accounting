@@ -4,6 +4,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { err, ok, requireOrg, withHandler } from '@/lib/api-utils';
 import { countUnpostedInPeriod } from '@/lib/period-close';
 import { pendingFinancialInPeriod } from '@/lib/approval/financial-period';
+import { reconcileControlAccounts } from '@/lib/control-reconciliation';
 
 export const runtime = 'nodejs';
 
@@ -24,7 +25,7 @@ export const GET = withHandler(async function GET(
   });
   if (!period) return err('Accounting period not found', 404);
 
-  const [unpostedJournals, unreconciledBank, pendingApprovals, overdueInvoices] =
+  const [unpostedJournals, unreconciledBank, pendingApprovals, overdueInvoices, arControls, apControls] =
     await Promise.all([
       // By DATE, not periodId — see lib/period-close.ts for why the periodId
       // column cannot be trusted for membership.
@@ -40,7 +41,14 @@ export const GET = withHandler(async function GET(
       prisma.salesInvoice.count({
         where: { organizationId: orgId, status: 'OVERDUE' },
       }),
+      reconcileControlAccounts(prisma, orgId, 'ar', period.endDate),
+      reconcileControlAccounts(prisma, orgId, 'ap', period.endDate),
     ]);
+  // Named differences are for finance review; no close-blocking policy exists yet.
+  const controlDifferences = [...arControls.accounts, ...apControls.accounts]
+    .filter((account) => Math.abs(account.difference) >= 0.005 || account.items.length > 0)
+    .map(({ accountId, accountCode, accountName, glBalance, subledgerBalance, difference, items }) =>
+      ({ accountId, accountCode, accountName, glBalance, subledgerBalance, difference, itemCount: items.length }));
 
   const items = [
     {
@@ -67,6 +75,13 @@ export const GET = withHandler(async function GET(
       label: 'Overdue invoices',
       count: overdueInvoices,
       blocking: false,
+    },
+    {
+      key: 'control_differences',
+      label: 'AR/AP control accounts with named differences at period end',
+      count: controlDifferences.length,
+      blocking: false,
+      accounts: controlDifferences,
     },
   ];
 

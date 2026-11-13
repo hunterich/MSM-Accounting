@@ -24,7 +24,7 @@ import {
     useUpdateBill,
 } from '../../../hooks/useAP';
 import { useAllItems } from '../../../hooks/useInventory';
-import { useAccountsByType } from '../../../hooks/useGL';
+import { useChartOfAccounts } from '../../../hooks/useGL';
 import { useAssetCategories, useAssets } from '../../../hooks/useAssets';
 import AssetPurchaseFields from './AssetPurchaseFields';
 
@@ -82,7 +82,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
     const { data: vendorsResult } = useVendors();
     const { data: itemsResult } = useAllItems();
     const { data: billsResult } = useBills();
-    const { data: expenseAccountsData } = useAccountsByType('Expense');
+    const { data: expenseAccountsData } = useChartOfAccounts({ withControlFlags: 1 });
     const { data: editingBillRaw } = useBill(isEdit ? billId : undefined);
     const { data: assetCategories = [] } = useAssetCategories();
     const { data: draftAssets } = useAssets({ status: 'DRAFT', limit: 100 });
@@ -100,6 +100,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
         () => (expenseAccountsData ?? []).map((a) => ({
             value: a.id,
             label: `${a.code} · ${a.name}`,
+            disabled: !a.isActive || !a.isPostable || !!a.isPartyControlAccount,
         })),
         [expenseAccountsData],
     );

@@ -106,6 +106,22 @@ test.describe('sales return → credit note → ledger', () => {
     await page.goto('/ar/credits')
     await page.locator('.workbench-doc-tab-new').click()
 
+    // Other browser journeys may close the demo company's current period.
+    // Choose an existing open or undefined month after the source invoice;
+    // never reopen a period or depend on today's date for this unrelated flow.
+    const periods: Array<{ startDate: string; endDate: string; status: string; isLocked: boolean }> =
+      await apiJson(page.request, '/api/v1/accounting-periods?limit=100')
+    const issue = new Date(postedSource.issueDate)
+    let openDate = ''
+    for (let month = 1; month <= 48; month++) {
+      const candidate = new Date(Date.UTC(issue.getUTCFullYear(), issue.getUTCMonth() + month, 15))
+      const blocked = periods.some(p => (p.status === 'CLOSED' || p.isLocked)
+        && candidate >= new Date(p.startDate) && candidate <= new Date(p.endDate))
+      if (!blocked) { openDate = candidate.toISOString().slice(0, 10); break }
+    }
+    expect(openDate, 'no open date for the sales return test').not.toBe('')
+    await page.locator('main input[type="date"]:visible').first().fill(openDate)
+
     await choose(page, 'Select Customer...', 'Acme Corp')
     await choose(page, 'Select Invoice...', /INV-0004/)
 
@@ -117,7 +133,10 @@ test.describe('sales return → credit note → ledger', () => {
     // whichever of the two `.first()` picks may be scrolled out of view.
     await expect(page.locator('.panel-summary-total .value')).toHaveText('Rp 222.000,00')
 
+    const save = page.waitForResponse(r => r.url().endsWith('/api/v1/sales-returns') && r.request().method() === 'POST')
     await page.getByRole('button', { name: 'Save & Create Credit Note' }).click()
+    const saved = await save
+    expect(saved.ok(), `save return: ${await saved.text()}`).toBeTruthy()
 
     // The hand-off: the return tab closes and a PREFILLED credit note opens.
     // This used to drop the user on the empty list with the draft gone.
@@ -147,7 +166,7 @@ test.describe('sales return → credit note → ledger', () => {
     await page.getByRole('button', { name: 'Save & Apply' }).click()
 
     // Back on the catalog, showing document numbers rather than raw cuids.
-    await expect(page.getByText(/^CRN-/).first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/^CRN-/).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 })
 
     // What the API actually stored: linked to the return, the customer and the
     // source invoice — the three fields the client used to get wrong.
@@ -194,3 +213,54 @@ test.describe('sales return → credit note → ledger', () => {
       ])
   })
 })
+
+test('return-only confirmation can cancel without a write or save without a credit note', async ({ page }) => {
+  await login(page)
+  const orgId = await page.evaluate(() => sessionStorage.getItem('msm-active-org'))
+  await page.context().setExtraHTTPHeaders({ 'x-active-org': orgId! })
+  const invoices = await apiJson(page.request, '/api/v1/invoices?limit=100')
+  const invoice = invoices.find((i: { number: string }) => i.number === 'INV-0004')
+  expect(invoice).toBeTruthy()
+  if (invoice.status === 'DRAFT') {
+    const res = await page.request.put(`http://localhost:3100/api/v1/invoices/${invoice.id}`, { data: { status: 'SENT' } })
+    expect(res.ok(), await res.text()).toBeTruthy()
+  }
+  const notesBefore = await idsOf(page.request, '/api/v1/credit-notes?limit=100')
+  const returnsBefore = await idsOf(page.request, '/api/v1/sales-returns?limit=100')
+  await page.goto('/ar/credits')
+  await page.locator('.workbench-doc-tab-new').click()
+  const periods: Array<{ startDate: string; endDate: string; status: string; isLocked: boolean }> =
+    await apiJson(page.request, '/api/v1/accounting-periods?limit=100')
+  const issue = new Date(invoice.issueDate)
+  let openDate = ''
+  for (let month = 1; month <= 48; month++) {
+    const candidate = new Date(Date.UTC(issue.getUTCFullYear(), issue.getUTCMonth() + month, 15))
+    if (!periods.some(p => (p.status === 'CLOSED' || p.isLocked) && candidate >= new Date(p.startDate) && candidate <= new Date(p.endDate))) {
+      openDate = candidate.toISOString().slice(0, 10); break
+    }
+  }
+  expect(openDate, 'no open date for the return-only test').not.toBe('')
+  await page.locator('main input[type="date"]:visible').first().fill(openDate)
+  await choose(page, 'Select Customer...', 'Acme Corp')
+  await choose(page, 'Select Invoice...', /INV-0004/)
+  await page.getByRole('row').filter({ hasText: 'Widget A x5' }).locator('input[type="number"]').fill('1')
+  let writes = 0
+  page.on('request', req => { if (/\/api\/v1\/(sales-returns|credit-notes)(\/|$)/.test(req.url()) && ['POST', 'PUT'].includes(req.method())) writes++ })
+  const cancelDialog = page.waitForEvent('dialog').then(async dialog => {
+    expect(dialog.type()).toBe('confirm')
+    expect(dialog.message()).toContain('no refund or credit is recorded')
+    await dialog.dismiss()
+  })
+  await Promise.all([cancelDialog, page.getByRole('button', { name: 'Save Return (no credit note)' }).click()])
+  expect(writes).toBe(0)
+  expect(await idsOf(page.request, '/api/v1/sales-returns?limit=100')).toEqual(returnsBefore)
+  const confirmDialog = page.waitForEvent('dialog').then(dialog => dialog.accept())
+  const saved = page.waitForResponse(res => res.url().endsWith('/api/v1/sales-returns') && res.request().method() === 'POST')
+  await Promise.all([confirmDialog, page.getByRole('button', { name: 'Save Return (no credit note)' }).click()])
+  const response = await saved
+  expect(response.ok(), await response.text()).toBeTruthy()
+  expect(response.request().postDataJSON().status).toBe('APPROVED')
+  expect(theNewOne<{ id: string; status: string }>(await apiJson(page.request, '/api/v1/sales-returns?limit=100'), returnsBefore, 'return').status).toBe('APPROVED')
+  expect(await idsOf(page.request, '/api/v1/credit-notes?limit=100')).toEqual(notesBefore)
+})
+

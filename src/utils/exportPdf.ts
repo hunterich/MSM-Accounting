@@ -1,6 +1,9 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { applyPlugin } from 'jspdf-autotable';
 import { formatDateID } from './formatters';
+
+// The ESM bundle does not register prototype methods through a side-effect import.
+applyPlugin(jsPDF);
 
 export interface PdfColumn {
     label: string;

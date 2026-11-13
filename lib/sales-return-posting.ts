@@ -16,7 +16,6 @@
 import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
-import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { lockSalesReturns, prepareSalesReturnLines, originalSalesLineCost } from './sales-return-lines';
 import { ApiError } from './errors';
@@ -99,6 +98,8 @@ export async function postSalesReturnOnApproval(
   }
 
   let totalRestockValue = 0;
+  const inventoryByAccount = new Map<string, number>();
+  const cogsByAccount = new Map<string, number>();
   for (const [index, line] of sr.lines.entries()) {
     const qty = toNumber(line.qtyReturn);
     const { source } = prepared[index];
@@ -113,6 +114,15 @@ export async function postSalesReturnOnApproval(
     const soldQty = toNumber(source.quantity);
     const cost = asMoney(asMoney(saleCost * (previousQty + qty) / soldQty) - (postedCost.get(source.id) ?? 0));
     if (cost < 0) throw new ApiError('Earlier returns exceed the original sale cost. Review their inventory postings before receiving more goods.', 422);
+    if (cost > 0 && (!source.inventoryPostingAccountId || !source.cogsPostingAccountId)) {
+      throw new ApiError('Original sale account history is unavailable. Review the historical invoice before receiving its return.', 422);
+    }
+    if (cost > 0) {
+      const inventoryId = source.inventoryPostingAccountId!;
+      const cogsId = source.cogsPostingAccountId!;
+      inventoryByAccount.set(inventoryId, asMoney((inventoryByAccount.get(inventoryId) ?? 0) + cost));
+      cogsByAccount.set(cogsId, asMoney((cogsByAccount.get(cogsId) ?? 0) + cost));
+    }
     postedQty.set(source.id, previousQty + qty);
     postedCost.set(source.id, (postedCost.get(source.id) ?? 0) + cost);
     const unitCost = cost / qty;
@@ -127,6 +137,7 @@ export async function postSalesReturnOnApproval(
       sr.id,
       sr.returnDate,
       cost,
+      cost > 0 ? source.inventoryPostingAccountId : undefined,
     );
     await tx.salesReturnLine.update({ where: { id: line.id }, data: { inventoryCost: cost } });
     totalRestockValue += cost;
@@ -142,37 +153,23 @@ export async function postSalesReturnOnApproval(
     return;
   }
 
-  const accounts = await tx.account.findMany({
-    where: { organizationId: sr.organizationId, isActive: true },
-    select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
-  });
-  const settings = await loadOrgAccountDefaults(tx, sr.organizationId);
-  const inventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-  const cogsAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
-
-  if (!inventoryAccountId || !cogsAccountId) {
-    throw new Error(
-      `SalesReturn ${sr.number}: missing inventoryAsset/cogsExpense account defaults`,
-    );
-  }
-
   const je = await postJournalEntry(tx, {
     organizationId: sr.organizationId,
     date: sr.returnDate,
     memo: `Sales return inventory: ${sr.number}`,
     lines: [
-      {
-        accountId: inventoryAccountId,
+      ...[...inventoryByAccount].map(([accountId, amount]) => ({
+        accountId,
         description: `Inventory restock - ${sr.number}`,
-        debit: totalRestockValue,
+        debit: amount,
         credit: 0,
-      },
-      {
-        accountId: cogsAccountId,
+      })),
+      ...[...cogsByAccount].map(([accountId, amount]) => ({
+        accountId,
         description: `COGS reversal - ${sr.number}`,
         debit: 0,
-        credit: totalRestockValue,
-      },
+        credit: amount,
+      })),
     ],
   });
 

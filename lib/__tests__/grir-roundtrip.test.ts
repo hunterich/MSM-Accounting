@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+// This suite checks GR/IR arithmetic. Offset authorization uses real DB tests.
+vi.mock('../document-offset-accounts', () => ({ assertDocumentOffsetAccounts: vi.fn(async () => undefined) }));
 
 vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined), lockInventoryItems: vi.fn(async () => undefined) }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je' })) }));

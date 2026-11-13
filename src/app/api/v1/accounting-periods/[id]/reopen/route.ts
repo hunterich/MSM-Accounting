@@ -17,11 +17,7 @@ export async function OPTIONS() {
  * period off can un-sign it. Every reopen writes an audit-log row naming the
  * original closer, so the trail survives the stamp being cleared.
  *
- * Deliberately simple, and only safe while a monthly close is a pure lock: no
- * closing journal entry exists to unwind. When fiscal-year closing entries land
- * (issue #29 part 3), reopening a year-end period must also delete its closing
- * JE, or the lock and the entry drift apart — do not extend this route to
- * year-end periods without that.
+ * Reopen the fiscal year first when its closing entry covers this month.
  */
 export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async function POST(
   req: NextRequest,
@@ -34,9 +30,9 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async
     // Same FOR UPDATE lock as close: it conflicts with assertPeriodOpen's FOR
     // SHARE, so a post can never observe a half-reopened period.
     const [period] = await tx.$queryRaw<
-      Array<{ id: string; status: string; closedById: string | null; closedAt: Date | null }>
+      Array<{ id: string; status: string; startDate: Date; endDate: Date; closedById: string | null; closedAt: Date | null }>
     >`
-      SELECT "id", "status", "closedById", "closedAt" FROM "AccountingPeriod"
+      SELECT "id", "status", "startDate", "endDate", "closedById", "closedAt" FROM "AccountingPeriod"
       WHERE "id" = ${id} AND "organizationId" = ${orgId}
       FOR UPDATE
     `;
@@ -44,6 +40,13 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async
     if (period.status !== 'CLOSED') {
       throw new ApiError('Accounting period is not closed', 422);
     }
+
+    // A year-end close owns the nominal balances for its entire date range.
+    // Reopen the fiscal year first; never leave its closing entry stale.
+    const fiscalClose = await tx.fiscalYearClose.findFirst({ where: {
+      organizationId: orgId, startDate: { lte: period.endDate }, endDate: { gte: period.startDate },
+    }, select: { id: true } });
+    if (fiscalClose) throw new ApiError('Reopen the fiscal year before reopening a month in that year', 422);
 
     const row = await tx.accountingPeriod.update({
       where: { id, organizationId: orgId },

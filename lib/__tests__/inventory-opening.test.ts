@@ -59,6 +59,7 @@ describe('postOpeningStockIfNeeded', () => {
     await postOpeningStockIfNeeded(tx as never, 'org-1', 'item-1', new Date('2026-01-01'));
 
     expect((tx.inventoryLot as AnyRecord).create).toHaveBeenCalledTimes(1);
+    expect((tx.inventoryLedgerEntry as AnyRecord).create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ inventoryPostingAccountId: 'ACC-INV' }) }));
     const lines = postJE.mock.calls[0][1].lines;
     expect(lines).toEqual([
       expect.objectContaining({ accountId: 'ACC-INV', debit: 1000, credit: 0 }),
@@ -100,5 +101,11 @@ describe('postOpeningStockIfNeeded', () => {
     vi.mocked(resolveAccountDefaultId).mockImplementationOnce(() => ''); // openingBalanceEquity missing
     const tx = makeTx({ ...stockedItem });
     await expect(postOpeningStockIfNeeded(tx as never, 'org-1', 'item-1')).rejects.toThrow(/Opening Balance Equity/);
+  });
+
+  it('rejects a stored item inventory account that is not a company asset', async () => {
+    const tx = makeTx({ ...stockedItem, inventoryAccountId: 'FOREIGN' });
+    await expect(postOpeningStockIfNeeded(tx as never, 'org-1', 'item-1')).rejects.toThrow(/active, postable inventory asset/);
+    expect(postJE).not.toHaveBeenCalled();
   });
 });

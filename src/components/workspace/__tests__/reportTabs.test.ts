@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { reportParamsKey, reportTabId, reportTabTarget, reportTabTitle } from '../reportTabs';
-import type { ReportDefinition, ReportParams } from '../../../views/reports/Reports';
+import type { ReportDefinition, ReportParams } from '../../../views/reports/reportTypes';
 
 const report = { id: 'by-customer', name: 'Sales by Customer' } as ReportDefinition;
 const october = { type: 'by-customer', dateFrom: '2026-10-01', dateTo: '2026-10-08' } as ReportParams;

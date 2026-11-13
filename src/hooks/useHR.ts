@@ -32,54 +32,74 @@ const EMP_TYPE_DOWN: Record<string, EmploymentType> = {
 // ── Normalizer ────────────────────────────────────────────────────────────────
 
 function normalizeEmployee(raw: RawEmployee): Employee {
-    const dept = raw.department;
-    const pos  = raw.position;
-    const compensationItems = raw.compensationItems || [];
-    const allowances = (raw.allowances && raw.allowances.length > 0
+  const dept = raw.department;
+  const pos = raw.position;
+  const compensationItems = raw.compensationItems || [];
+  const allowances = (raw.allowances && raw.allowances.length > 0
         ? raw.allowances
         : compensationItems.filter((item) => item.type === 'ALLOWANCE')
     ).map((item, index) => ({
-        id: String(item.id || `allowance-${index + 1}`),
-        name: String(item.name || ''),
-        amount: Number(item.amount ?? 0),
-    }));
-    const deductions = (raw.deductions && raw.deductions.length > 0
+    id: String(item.id || `allowance-${index + 1}`),
+    name: String(item.name || ''),
+    amount: Number(item.amount ?? 0),
+    postingAccountId: item.postingAccountId ?? null,
+    isFixed: item.isFixed ?? null,
+  }));
+  const deductions = (raw.deductions && raw.deductions.length > 0
         ? raw.deductions
         : compensationItems.filter((item) => item.type === 'DEDUCTION')
     ).map((item, index) => ({
-        id: String(item.id || `deduction-${index + 1}`),
-        name: String(item.name || ''),
-        amount: Number(item.amount ?? 0),
-    }));
-    return {
-        id:           raw.id,
-        employeeNo:   raw.employeeNo || '',
-        name:         raw.name       || '',
-        email:        raw.email      || '',
-        phone:        raw.phone      || '',
-        department:   (typeof dept === 'object' && dept !== null ? dept.name : dept) || '',
-        departmentId: raw.departmentId || (typeof dept === 'object' && dept !== null ? dept.id : '') || '',
-        position:     (typeof pos  === 'object' && pos  !== null ? pos.name  : pos)  || '',
-        positionId:   raw.positionId   || (typeof pos  === 'object' && pos  !== null ? pos.id   : '') || '',
-        status:       EMP_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as EmployeeStatus),
-        // The employee form edits all of these. They were dropped here, so
-        // opening a saved employee showed an empty form and saving it back
-        // would have blanked the record.
-        type:         EMP_TYPE_DOWN[raw.type ?? ''] ?? (raw.type as EmploymentType) ?? 'Full-time',
-        ktp:          raw.ktp || '',
-        dob:          raw.dob ? String(raw.dob).slice(0, 10) : '',
-        bankName:     raw.bankName || '',
-        accountNumber: raw.accountNumber || '',
-        accountHolder: raw.accountHolder || '',
-        npwp:         raw.npwp || '',
-        bpjsKesehatan: raw.bpjsKesehatan || '',
-        bpjsKetenagakerjaan: raw.bpjsKetenagakerjaan || '',
-        basicSalary:  Number(raw.basicSalary ?? 0),
-        joinDate:     raw.joinDate ? String(raw.joinDate).slice(0, 10) : '',
-        address:      raw.address || '',
-        allowances,
-        deductions,
-    };
+    id: String(item.id || `deduction-${index + 1}`),
+    name: String(item.name || ''),
+    amount: Number(item.amount ?? 0),
+    postingAccountId: item.postingAccountId ?? null,
+    isFixed: item.isFixed ?? null,
+  }));
+  return {
+    employmentEndDate: raw.employmentEndDate?.slice(0, 10) ?? null,
+    contractEndDate: raw.contractEndDate?.slice(0, 10) ?? null,
+    leavingReason: raw.leavingReason ?? null,
+    ptkpStatus: raw.ptkpStatus ?? null,
+    ptkpYear: raw.ptkpYear ?? null,
+    workWeekDays: raw.workWeekDays ?? 5,
+    id: raw.id,
+    employeeNo: raw.employeeNo || '',
+    name: raw.name || '',
+    email: raw.email || '',
+    phone: raw.phone || '',
+    department:   (typeof dept === 'object' && dept !== null ? dept.name : dept) || '',
+    departmentId: raw.departmentId || (typeof dept === 'object' && dept !== null ? dept.id : '') || '',
+    position:     (typeof pos  === 'object' && pos  !== null ? pos.name  : pos)  || '',
+    positionId:   raw.positionId   || (typeof pos  === 'object' && pos  !== null ? pos.id   : '') || '',
+    status:
+      raw.employmentEndDate &&
+      raw.employmentEndDate.slice(0, 10) <
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Jakarta',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date())
+        ? 'Inactive'
+        : (EMP_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as EmployeeStatus)),
+    // The employee form edits all of these. They were dropped here, so
+    // opening a saved employee showed an empty form and saving it back
+    // would have blanked the record.
+    type:         EMP_TYPE_DOWN[raw.type ?? ''] ?? (raw.type as EmploymentType) ?? 'Full-time',
+    ktp: raw.ktp || '',
+    dob: raw.dob ? String(raw.dob).slice(0, 10) : '',
+    bankName: raw.bankName || '',
+    accountNumber: raw.accountNumber || '',
+    accountHolder: raw.accountHolder || '',
+    npwp: raw.npwp || '',
+    bpjsKesehatan: raw.bpjsKesehatan || '',
+    bpjsKetenagakerjaan: raw.bpjsKetenagakerjaan || '',
+    basicSalary: Number(raw.basicSalary ?? 0),
+    joinDate:     raw.joinDate ? String(raw.joinDate).slice(0, 10) : '',
+    address: raw.address || '',
+    allowances,
+    deductions,
+  };
 }
 
 // ── Employees ─────────────────────────────────────────────────────────────────
@@ -148,7 +168,10 @@ export function useDeleteEmployee() {
  * while the API has had real Department and Position tables all along, and
  * creates either by name when an employee is saved with a new one.
  */
-interface NamedRecord { id: string; name: string }
+interface NamedRecord {
+  id: string;
+  name: string;
+}
 
 const normalizeNamed = (raw: { id?: string | null; name?: string | null }): NamedRecord => ({
     id: raw.id || '',

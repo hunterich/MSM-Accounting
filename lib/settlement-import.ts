@@ -29,8 +29,6 @@
 import { prisma } from '@/lib/prisma';
 import { postJournalEntry, JournalLineInput, BALANCE_TOLERANCE } from '@/lib/journal-posting';
 import { KEY_TO_SLOT, SettlementFeeKey } from '@/src/utils/settlementMapping';
-import { loadBankPostingContext } from '@/lib/bank-transaction-posting';
-import { resolveBankLinkedAssetAccountId } from '@/lib/account-defaults';
 import { assertPeriodOpen } from './period-guard';
 
 /**
@@ -66,18 +64,6 @@ export async function importSettlement(
   if (!conn) throw new Error('Connection not found');
   if (!conn.holdingAccountId) throw new Error('Connection has no settlement/holding account');
 
-  // Resolve the wallet GL account ONCE — holdingAccountId is constant for the
-  // batch. This mirrors ②'s resolution so fees land on the very account ②'s
-  // receipt debited.
-  const ctx = await loadBankPostingContext(prisma, orgId);
-  const walletAccountId = resolveBankLinkedAssetAccountId(
-    ctx.bankAccounts,
-    ctx.accounts,
-    ctx.settings,
-    conn.holdingAccountId,
-  );
-  if (!walletAccountId) throw new Error('Could not resolve the wallet GL account');
-
   const m =
     conn.mappings && typeof conn.mappings === 'object' && !Array.isArray(conn.mappings)
       ? (conn.mappings as Record<string, Record<string, string | null>>)
@@ -108,11 +94,12 @@ export async function importSettlement(
           });
           if (!alloc) return 'skipped';
           const receipt = await tx.aRPayment.findFirst({
-            where: { id: alloc.paymentId, organizationId: orgId },
-            select: { id: true, settledAt: true },
+            where: { id: alloc.paymentId, organizationId: orgId, ecommerceConnectionId: connectionId, source: 'MARKETPLACE_IMPORT', status: 'COMPLETED' },
+            select: { id: true, settledAt: true, depositAccountId: true, journalEntryId: true },
           });
-          if (!receipt) return 'skipped';
+          if (!receipt) throw new Error('The allocated receipt cannot be verified as a completed import for this shop. It may be a legacy receipt; review its provenance before settlement.');
           if (receipt.settledAt) return 'already';
+          if (!receipt.depositAccountId || !receipt.journalEntryId) throw new Error('The original settlement account is missing from this receipt; review it before settlement.');
 
           const X = Number(invoice.totalAmount);
           const N = order.netReleased;
@@ -135,7 +122,7 @@ export async function importSettlement(
 
           // 4. Credit the wallet by (X − N): the gross drops to the net released.
           lines.push({
-            accountId: walletAccountId,
+            accountId: receipt.depositAccountId,
             description: `Wallet settlement - ${invoice.number}`,
             debit: 0,
             credit: X - N,

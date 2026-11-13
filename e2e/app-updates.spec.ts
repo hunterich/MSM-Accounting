@@ -3,11 +3,15 @@ import { test, expect } from '@playwright/test'
 test('release board remembers dismissal per user and can reopen on mobile', async ({ page, context }) => {
   let userId = 'updates-user-one'
   await context.route('**/api/v1/**', async route => {
-    const data = route.request().url().includes('/auth/me') ? {
+    const url = route.request().url()
+    const data = url.includes('/auth/me') ? {
       user: { id: userId, fullName: 'Update Preview', email: 'preview@local.invalid' },
       org: { id: 'updates-org', name: 'Preview Company', costingMethod: 'FIFO' },
       role: { type: 'ADMIN', permissions: [] },
       memberships: [{ orgId: 'updates-org', name: 'Preview Company', roleType: 'ADMIN' }],
+    } : url.includes('/access-schedule') ? {
+      // The workspace stays locked until a valid schedule status arrives (#74).
+      allowed: true, exempt: true, timezone: 'Asia/Jakarta', serverNow: new Date().toISOString(), schedule: {},
     } : {}
     await route.fulfill({ json: data })
   })

@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+// This unit suite isolates the status/period gate; stored-account validation
+// is exercised by document-offset-accounts.int.test.ts using real routes/DB.
+vi.mock('@/lib/document-offset-accounts', () => ({ assertStoredDocumentOffsets: vi.fn(async () => undefined) }));
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {

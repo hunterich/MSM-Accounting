@@ -64,7 +64,7 @@ describe('void concurrency: invoice reverses AR + COGS exactly once', () => {
     const itemId = await createItem(org.orgId);
 
     await prisma.$transaction((tx) =>
-      addCostLayer(tx, org.orgId, itemId, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE),
+      addCostLayer(tx, org.orgId, itemId, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE, undefined, org.accounts.inventoryAsset),
     );
 
     const inv = await prisma.salesInvoice.create({
@@ -80,7 +80,7 @@ describe('void concurrency: invoice reverses AR + COGS exactly once', () => {
         ],
       }),
     );
-    await prisma.$transaction((tx) => calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.SALES, inv.id, DATE));
+    await prisma.$transaction((tx) => calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.SALES, inv.id, DATE, { inventoryPostingAccountId: org.accounts.inventoryAsset, cogsPostingAccountId: org.accounts.cogsExpense }));
     await prisma.$transaction((tx) =>
       postJournalEntry(tx, {
         organizationId: org.orgId, date: DATE, memo: `COGS auto-post: ${inv.number}`,
@@ -230,7 +230,7 @@ describe('void concurrency: sales return reverses exactly once', () => {
       select: { id: true, number: true },
     });
     await prisma.$transaction(async (tx) => {
-      await addCostLayer(tx, org.orgId, itemId, null, 5, 200, InventoryDocumentType.SALES_RETURN, sr.id, DATE);
+      await addCostLayer(tx, org.orgId, itemId, null, 5, 200, InventoryDocumentType.SALES_RETURN, sr.id, DATE, undefined, org.accounts.inventoryAsset);
       const entry = await postJournalEntry(tx, {
         organizationId: org.orgId, date: DATE, memo: `Sales return inventory: ${sr.number}`,
         lines: [
@@ -271,13 +271,13 @@ describe('void concurrency: purchase return reverses exactly once', () => {
       data: { organizationId: org.orgId, number: 'BILL-PR-VC', vendorId, issueDate: DATE, status: 'OPEN' },
       select: { id: true },
     });
-    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemId, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE));
+    await prisma.$transaction((tx) => addCostLayer(tx, org.orgId, itemId, null, 10, 100, InventoryDocumentType.PURCHASE, 'po-1', DATE, undefined, org.accounts.inventoryAsset));
     const pr = await prisma.purchaseReturn.create({
       data: { organizationId: org.orgId, number: 'PR-VC', vendorId, billId: bill.id, returnDate: DATE, status: 'DRAFT' },
       select: { id: true, number: true },
     });
     await prisma.$transaction(async (tx) => {
-      const cost = await calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.PURCHASE_RETURN, pr.id, DATE);
+      const cost = await calculateAndPostCOGS(tx, org.orgId, itemId, null, 4, InventoryDocumentType.PURCHASE_RETURN, pr.id, DATE, { inventoryPostingAccountId: org.accounts.inventoryAsset });
       const entry = await postJournalEntry(tx, {
         organizationId: org.orgId, date: DATE, memo: `Purchase return inventory: ${pr.number}`,
         lines: [

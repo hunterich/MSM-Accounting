@@ -8,6 +8,7 @@ import { getFinalizer } from './finalizers';
 import { assertApprovalAuthorized } from './can-approve';
 import { PaymentOverAllocationError } from '@/lib/payment-validation';
 import { lockFinancialApprovalPeriod } from './financial-period';
+import { assertStoredDocumentOffsets } from '../document-offset-accounts';
 
 /** FNV-1a 32-bit hash → stable advisory-lock id (same helper used for number sequences). */
 function fnv1aHash(input: string): number {
@@ -34,6 +35,7 @@ export async function routeForApproval(
   tx: Prisma.TransactionClient,
   args: { orgId: string; userId: string; documentType: ApprovalDocumentType; documentId: string },
 ): Promise<boolean> {
+  await assertStoredDocumentOffsets(tx, args.orgId, args.documentType, args.documentId);
   const org = await tx.organization.findUnique({
     where: { id: args.orgId },
     select: { approvalRequirements: true },

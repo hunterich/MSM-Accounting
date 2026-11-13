@@ -29,9 +29,14 @@ export const PUT = withPermission({ module: 'HR_ATTENDANCE', action: 'edit' }, a
   const existing = await prisma.leaveType.findFirst({ where: { id, organizationId: orgId } });
   if (!existing) return err('Not found', 404);
 
+  const category = parsed.data.category ?? existing.category;
+  const isPaid = parsed.data.isPaid === undefined ? existing.isPaid : parsed.data.isPaid;
+  if (category === 'OTHER' && typeof isPaid !== 'boolean') return err('OTHER leave requires an explicit paid/unpaid classification.', 422);
+
   const updated = await prisma.leaveType.update({
     where: { id },
     data: {
+      ...(parsed.data.isPaid !== undefined && { isPaid: parsed.data.isPaid }),
       ...(parsed.data.name !== undefined && { name: parsed.data.name }),
       ...(parsed.data.category !== undefined && { category: parsed.data.category }),
       ...(parsed.data.entitlementDays !== undefined && { entitlementDays: parsed.data.entitlementDays }),

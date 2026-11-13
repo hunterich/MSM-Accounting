@@ -5,6 +5,59 @@ test.setTimeout(120_000)
 test.afterEach(cleanupAccountingCompany)
 test.afterAll(async () => { await db.$disconnect() })
 
+for (const free of [true, false]) {
+  test(`WA shortage → ${free ? 'free receipt' : 'duplicate-item receipt'} through Receive Goods → un-receive restores the estimate`, async ({ page }) => {
+    const { orgId, vendor, customer, item } = await accountingCompany(page)
+    await db.organization.update({ where: { id: orgId }, data: { costingMethod: 'WEIGHTED_AVERAGE', allowNegativeStock: true } })
+    const invoice = await api(page, '/invoices', { customerId: customer.id, issueDate: DATE,
+      tax: { enabled: false, inclusive: false, rate: 0 },
+      lines: [{ itemId: item.id, description: item.name, quantity: 4, price: 3000 }] }, 'POST')
+    await api(page, `/invoices/${invoice.id}`, { status: 'SENT' }, 'PUT')
+    const lines = free
+      ? [{ itemId: item.id, description: item.name, quantity: 4, price: 0, lineTotal: 0 }]
+      : [1200, 1300].map(price => ({ itemId: item.id, description: item.name, quantity: 2, price, lineTotal: 2 * price }))
+    const total = free ? 0 : 5000
+    const po = await api(page, '/purchase-orders', { vendorId: vendor.id, date: DATE, status: 'APPROVED', taxable: false,
+      subtotal: total, totalAmount: total, lines }, 'POST')
+    await page.goto('/ap/receiving')
+    await page.getByRole('row').filter({ hasText: po.number }).getByRole('button', { name: 'Receive', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Receive Goods' })
+    const received = page.waitForResponse(r => r.url().endsWith(`/purchase-orders/${po.id}/receive`) && r.request().method() === 'POST')
+    await dialog.getByRole('button', { name: 'Confirm Receipt' }).click()
+    const response = await received
+    expect(response.ok(), await response.text()).toBeTruthy()
+    await expect(dialog).not.toBeVisible()
+    const receipt = await db.bill.findFirstOrThrow({ where: { organizationId: orgId, poId: po.id } })
+    const saleBefore = await db.salesInvoiceLine.findFirstOrThrow({ where: { invoiceId: invoice.id } })
+    expect(Number(saleBefore.cogsAmount)).toBe(4000)
+    const balance = async (code: string) => {
+      const rows = await db.journalLine.findMany({ where: { account: { organizationId: orgId, code }, entry: { status: 'POSTED' } } })
+      return rows.reduce((sum, line) => sum + Number(line.debit) - Number(line.credit), 0)
+    }
+    const stock = async () => {
+      const rows = await db.inventoryLedgerEntry.findMany({ where: { organizationId: orgId } })
+      return { quantity: rows.reduce((sum, row) => sum + Number(row.qtyIn) - Number(row.qtyOut), 0),
+        value: rows.reduce((sum, row) => sum + Number(row.valueChange), 0) }
+    }
+    expect(await stock()).toEqual({ quantity: 0, value: 0 })
+    expect(await balance('1-1300')).toBe(0)
+    expect(await balance('5-1000')).toBe(total)
+    expect(await balance('2150')).toBe(free ? 0 : -total)
+    const settlements = await db.inventoryShortfallSettlement.findMany({ where: { organizationId: orgId } })
+    expect(settlements).toHaveLength(free ? 1 : 2)
+    expect(settlements.reduce((sum, row) => sum + Number(row.cogsAdjustment), 0)).toBe(total - 4000)
+    await api(page, `/bills/${receipt.id}/unreceive`, {}, 'POST')
+    expect(await stock()).toEqual({ quantity: -4, value: -4000 })
+    expect(await balance('1-1300')).toBe(-4000)
+    expect(await balance('5-1000')).toBe(4000)
+    expect(await balance('2150')).toBe(0)
+    expect(await db.inventoryLot.count({ where: { organizationId: orgId } })).toBe(0)
+    expect((await db.purchaseOrder.findUniqueOrThrow({ where: { id: po.id } })).status).toBe('APPROVED')
+    expect((await db.inventoryShortfallSettlement.findMany({ where: { organizationId: orgId } })).every(row => row.reversedAt)).toBe(true)
+    expect(await db.salesInvoiceLine.findUniqueOrThrow({ where: { id: saleBefore.id } })).toEqual(saleBefore)
+  })
+}
+
 for (const path of ['/ap/pos', '/ap/receiving']) {
   test(`partial receipts through ${path} omit unreceived lines and post exact inventory/GRIR`, async ({ page }) => {
     const { orgId, vendor, item } = await accountingCompany(page)

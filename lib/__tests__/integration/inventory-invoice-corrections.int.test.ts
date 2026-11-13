@@ -155,12 +155,12 @@ describe('posted inventory invoice corrections', () => {
     const { org, invoice, itemId } = await setup();
     try {
       const before = { invoice: await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { lines: true } }),
-        lots: await lots(org.orgId), ledger: await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: org.orgId } }),
+        lots: await lots(org.orgId), ledger: await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: org.orgId }, orderBy: { id: 'asc' } }),
         journals: await prisma.journalEntry.count({ where: { organizationId: org.orgId } }) };
       await expect(edit(org, invoice.id, itemId, 8)).rejects.toThrow(/Insufficient stock/);
       expect(await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { lines: true } })).toEqual(before.invoice);
       expect(await lots(org.orgId)).toEqual(before.lots);
-      expect(await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: org.orgId } })).toEqual(before.ledger);
+      expect(await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: org.orgId }, orderBy: { id: 'asc' } })).toEqual(before.ledger);
       expect(await prisma.journalEntry.count({ where: { organizationId: org.orgId } })).toBe(before.journals);
     } finally { await cleanupOrg(org.orgId); }
   });

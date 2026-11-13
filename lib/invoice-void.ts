@@ -4,6 +4,7 @@ import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
 import { restoreConsumedLayers } from './inventory-costing';
+import { assertInvoiceSalesPosting, findInvoicePostingEntries } from './invoice-posting-entries';
 
 type Tx = Prisma.TransactionClient;
 
@@ -23,7 +24,8 @@ const VOIDABLE_STATUSES = new Set(['SENT', 'OVERDUE']);
  * amount, so the two stay reconciled without any new balancing post.
  *
  * Refuses draft/pending (not posted — delete instead), already-void, paid, and
- * receipt-allocated invoices (unallocate the receipts first).
+ * receipt-allocated invoices (unallocate the receipts first), and non-zero
+ * invoices without a sales posting to reverse (e.g. migrated opening balances).
  */
 export async function voidInvoice(
   tx: Tx,
@@ -38,6 +40,7 @@ export async function voidInvoice(
       id: true,
       number: true,
       status: true,
+      totalAmount: true,
       postingTracked: true,
       postingJournalIds: true,
       paymentAllocations: { where: { payment: { status: { not: 'VOID' } } }, select: { id: true } },
@@ -67,6 +70,15 @@ export async function voidInvoice(
 
   await assertPeriodOpen(tx, orgId, opts.date);
 
+  // Resolve the AR-recognition + COGS entries (no journalEntryId column on
+  // invoices; one COGS entry per inventory line) before claiming VOID, so an
+  // invoice with nothing to reverse is refused while it is still untouched.
+  const entries = await findInvoicePostingEntries(tx, orgId, inv);
+  if (inv.postingTracked && entries.length !== inv.postingJournalIds.length) {
+    throw new ApiError('Invoice posting history is incomplete — cannot safely reverse it.', 422);
+  }
+  assertInvoiceSalesPosting(inv, entries, 'void');
+
   // Atomically claim VOID before any GL/inventory side effect. The guarded
   // `updateMany` takes a row lock; a concurrent void blocks here, then sees the
   // invoice already VOID → count 0 → 409, so the reversal + restock run exactly
@@ -79,23 +91,8 @@ export async function voidInvoice(
     throw new ApiError('Invoice is already voided', 409);
   }
 
-  // Reverse the AR-recognition + COGS posting entries (resolved by memo — no
-  // journalEntryId column on invoices; there is one COGS entry per inventory line).
   // Stock locks precede journal numbering, matching send and edit posting.
   await restoreConsumedLayers(tx, orgId, InventoryDocumentType.SALES, inv.id, opts.date);
-  const entries = await tx.journalEntry.findMany({
-    where: {
-      organizationId: orgId,
-      status: 'POSTED',
-      ...(inv.postingTracked
-        ? { id: { in: inv.postingJournalIds } }
-        : { memo: { in: [`Sales recognition: ${inv.number}`, `COGS auto-post: ${inv.number}`] } }),
-    },
-    select: { id: true },
-  });
-  if (inv.postingTracked && entries.length !== inv.postingJournalIds.length) {
-    throw new ApiError('Invoice posting history is incomplete — cannot safely reverse it.', 422);
-  }
   for (const entry of entries) {
     await reverseJournalEntry(tx, entry.id, { date: opts.date, memo: `Void invoice: ${inv.number}` });
   }

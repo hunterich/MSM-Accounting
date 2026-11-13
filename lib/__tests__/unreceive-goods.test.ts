@@ -29,11 +29,14 @@ function makeTx(bill: any, poLinesAfter: any[] = [{ quantity: 10, receivedQty: 0
     purchaseOrderLine: { update: vi.fn(async () => ({})), findMany: vi.fn(async () => poLinesAfter) },
     purchaseOrder: { update: vi.fn(async () => ({})) },
     account: { findMany: vi.fn(async () => ACCOUNTS) },
+    journalEntry: { findFirst: vi.fn(async () => ({ totalDebit: 11000, totalCredit: 11000, lines: [
+      { accountId: 'acc-inv', debit: 11000, credit: 0 }, { accountId: 'acc-grir', debit: 0, credit: 11000 },
+    ] })) },
   };
 }
 
 const receiptBill = (over: any = {}) => ({
-  id: 'bill-1', number: 'BILL-0001', status: 'DRAFT', poId: 'po-1', deletedAt: null,
+  id: 'bill-1', number: 'BILL-0001', status: 'DRAFT', poId: 'po-1', deletedAt: null, receiptPostingJournalId: 'receipt-je',
   lines: [
     { id: 'bl-1', itemId: 'item-1', quantity: 10, purchaseOrderLineId: 'pol-1' },
     { id: 'bl-2', itemId: 'item-2', quantity: 4, purchaseOrderLineId: 'pol-2' },
@@ -76,6 +79,12 @@ describe('unreceiveGoodsReceipt', () => {
     // Lost the claim race → no lot reversal, no PO decrement.
     expect(reversePurchaseLayers).not.toHaveBeenCalled();
     expect(tx.purchaseOrderLine.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a valued legacy receipt when its original journal was not recorded', async () => {
+    const tx = makeTx(receiptBill({ receiptPostingJournalId: null }));
+    await expect(unreceiveGoodsReceipt(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/original receipt account history is unavailable/i);
+    expect(postJournalEntry).not.toHaveBeenCalled();
   });
 
   it('sets the PO back to PARTIAL_RECEIVED when other receipts remain', async () => {

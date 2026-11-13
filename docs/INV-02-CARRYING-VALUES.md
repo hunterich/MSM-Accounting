@@ -1,4 +1,26 @@
-# INV-02 carrying values — unfinished implementation
+# INV-02 carrying values — implementation and acceptance record
+
+## Current status (2026-10-21)
+
+The stored-value implementation merged in #174, reversal chronology in #176,
+and receipt-date negative-stock settlement in #177. The former hard negative-stock
+failure is resolved. #171 and #173 were incorporated; they are no longer pending
+engineering branches. The notes below preserve the design and earlier evidence.
+
+The receipt acceptance follow-up fixes repeated-item receipt voids and free PO
+receipts. See `TESTING.md` and `INV-02-NEGATIVE-STOCK.md` for reproducible cases.
+Historical audit/initialization, reviewed remediation, migration/recovery,
+remaining browser/month-end coverage, finance acceptance and authorized release
+verification remain open under #170. No production balances or historical
+postings are changed by this work.
+
+The 2026-10-21 acceptance follow-up adds PO receipt/outbound/method/monthly-close
+lock-order cases and real Receive Goods / 4-4-2 sale / reversal journeys. The
+read-only book audit now also names stored carrying-value mismatches and
+uninitialized positive lots per warehouse. See `INV-02-ACCEPTANCE.md` for exact
+examples and the remaining release gates.
+
+## Original implementation notes (historical)
 
 Finance approved remaining book value / remaining quantity and separate warehouse
 averages on 2026-10-14. Draft #171 is the earlier consumption fix. This isolated
@@ -115,8 +137,8 @@ the existing estimated 700 COGS / -200 inventory posting; the new positive-pool
 allocator currently refuses it and rolls back. This is not marked as an expected
 failure, hidden or counted as passing. Finance approved receipt-date COGS
 adjustments on 2026-10-15: a later receipt at a different price settles estimated
-cost through COGS while preserving the original sale. Implementation is pending.
-Do not merge this branch until compatibility and the selected treatment pass.
+cost through COGS while preserving the original sale. The treatment is now
+implemented in `docs/INV-02-NEGATIVE-STOCK.md`; its PostgreSQL cases have not run yet.
 
 The earlier stored-model broad run had 414 passing cases and exactly the negative-stock case
 failing. Old correction-policy assertions have been replaced with successful
@@ -225,7 +247,8 @@ offsetting warehouse/negative-lot defects. Together with the existing proposal's
 two cases, five pass. Production has not been queried by this increment.
 
 `scripts/audit-weighted-average-pools.sql` now checks the same separate pools and
-does not require the new columns. Review any legacy unscoped/mismatched or
+requires the `20261018130000_inventory_shortfall_settlements` migration to tell
+tracked shortage estimates from legacy negative stock. Review any legacy unscoped/mismatched or
 negative pools before an authorized release; do not guess warehouse history.
 
 Migration transaction coordination is now isolated in draft PR #173, independent

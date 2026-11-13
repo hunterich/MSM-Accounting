@@ -21,7 +21,7 @@ function testDbUrl(): string {
 
 describe('backup: pg_dump produces a valid, restorable archive', () => {
   it('dumps the real test database and the archive lists table data', async () => {
-    const dumpTool = resolvePgToolPath('pg_dump');
+    const dumpTool = resolvePgToolPath('pg_dump', { override: process.env.PG_TEST_TOOLS_PATH });
     await assertPgToolAvailable(dumpTool); // throws a clear message if tools are missing
 
     const org = await createTestOrg();
@@ -38,7 +38,7 @@ describe('backup: pg_dump produces a valid, restorable archive', () => {
 
     // Validate the archive is restorable WITHOUT a destructive restore against the
     // live (connection-held) test DB: `pg_restore --list` reads the archive TOC only.
-    const restoreTool = resolvePgToolPath('pg_restore');
+    const restoreTool = resolvePgToolPath('pg_restore', { override: process.env.PG_TEST_TOOLS_PATH });
     const { stdout } = await execFile(restoreTool, ['--list', file]);
     expect(stdout).toMatch(/TABLE DATA/);     // archive contains real table data
     expect(stdout).toContain('Organization'); // our schema is present

@@ -24,16 +24,15 @@ export function sanitizePdfName(title?: string): string {
     return `${base || 'document'}.pdf`;
 }
 
-/**
- * Rasterize a DOM element and save it as an A4/A5 PDF (image-based, multi-page).
- * Renders via the browser (html-to-image), so it matches the on-screen preview
- * and tolerates modern CSS (Tailwind v4 oklch) that html2canvas cannot parse.
- */
-export async function downloadElementAsPdf(
-    el: HTMLElement,
-    opts: { documentTitle?: string; paperSize?: PaperSize },
-): Promise<void> {
-    const format = opts.paperSize === 'A5' ? 'a5' : 'a4';
+/** Pull the raw base64 payload out of a jsPDF `datauristring` output. */
+export function pdfBase64FromDataUri(dataUri: string): string {
+    const marker = 'base64,';
+    const at = dataUri.indexOf(marker);
+    return at === -1 ? '' : dataUri.slice(at + marker.length);
+}
+
+async function renderElementToPdf(el: HTMLElement, paperSize?: PaperSize): Promise<jsPDF> {
+    const format = paperSize === 'A5' ? 'a5' : 'a4';
     const canvas = await toCanvas(el, { pixelRatio: 2, backgroundColor: '#ffffff', cacheBust: true });
     const pdf = new jsPDF({ unit: 'mm', format, orientation: 'portrait' });
     const pageW = pdf.internal.pageSize.getWidth();
@@ -44,5 +43,33 @@ export async function downloadElementAsPdf(
         if (i > 0) pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, y, pageW, imgH);
     });
+    return pdf;
+}
+
+/**
+ * Rasterize a DOM element and save it as an A4/A5 PDF (image-based, multi-page).
+ * Renders via the browser (html-to-image), so it matches the on-screen preview
+ * and tolerates modern CSS (Tailwind v4 oklch) that html2canvas cannot parse.
+ */
+export async function downloadElementAsPdf(
+    el: HTMLElement,
+    opts: { documentTitle?: string; paperSize?: PaperSize },
+): Promise<void> {
+    const pdf = await renderElementToPdf(el, opts.paperSize);
     pdf.save(sanitizePdfName(opts.documentTitle));
+}
+
+/**
+ * Same rendering as {@link downloadElementAsPdf}, but returns the PDF as a
+ * base64 string and its filename, e.g. to attach it to an email.
+ */
+export async function elementToPdfBase64(
+    el: HTMLElement,
+    opts: { documentTitle?: string; paperSize?: PaperSize },
+): Promise<{ base64: string; filename: string }> {
+    const pdf = await renderElementToPdf(el, opts.paperSize);
+    return {
+        base64: pdfBase64FromDataUri(pdf.output('datauristring')),
+        filename: sanitizePdfName(opts.documentTitle),
+    };
 }

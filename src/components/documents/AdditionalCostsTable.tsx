@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Plus } from 'lucide-react';
 import type { DocCharge } from './types';
+import OffsetAccountSelect, { type OffsetAccountOption } from '../UI/OffsetAccountSelect';
 
 /**
  * AdditionalCostsTable — delivery / insurance / entertainment / handling.
@@ -16,7 +17,7 @@ interface AdditionalCostsTableProps {
     onRemove: (id: string) => void;
     onAdd: () => void;
     /** account options for the GL select (host supplies from chart of accounts) */
-    accountOptions?: { value: string; label: string }[];
+    accountOptions?: OffsetAccountOption[];
 }
 
 const cell =
@@ -59,13 +60,13 @@ const AdditionalCostsTable = ({
                         </td>
                         <td className="px-2 py-1.5">
                             {accountOptions.length > 0 ? (
-                                <select
+                                <OffsetAccountSelect
+                                    label="Additional cost account"
                                     value={c.accountId}
-                                    onChange={(e) => onChange(c.id, 'accountId', e.target.value)}
+                                    onChange={value => onChange(c.id, 'accountId', value)}
                                     className={`${cell} font-mono text-[11px]`}
-                                >
-                                    {accountOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                </select>
+                                    options={accountOptions}
+                                />
                             ) : (
                                 <span className="font-mono text-[11px] text-neutral-500">{c.accountLabel}</span>
                             )}

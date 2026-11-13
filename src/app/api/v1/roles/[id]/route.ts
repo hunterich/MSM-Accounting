@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { ok, err, requireAuth, logAudit } from '@/lib/api-utils';
+import { ApiError, ok, err, requireAuth, logAudit } from '@/lib/api-utils';
 import { withPermission, authActor } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
 import { updateRoleInputSchema } from '@/types/api';
 import { normalizePermissionMatrix, roleGrantsSettingsEdit } from '@/lib/rbac/role-permissions';
 import type { ModuleKey } from '@prisma/client';
+import { scheduleValidationError } from '@/lib/access-schedule';
 
 export const runtime = 'nodejs';
 export function OPTIONS() { return corsPreflightResponse(); }
@@ -45,6 +46,13 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
   const parsed = updateRoleInputSchema.safeParse(await req.json());
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid role payload', 400);
   const d = parsed.data;
+  // Validate the MERGED schedule: PATCH-like edits must not leave half a window.
+  const scheduleError = scheduleValidationError({
+    allowedDays: d.allowedDays === undefined ? existing.allowedDays : d.allowedDays,
+    startTime: d.startTime === undefined ? existing.startTime : d.startTime,
+    endTime: d.endTime === undefined ? existing.endTime : d.endTime,
+  });
+  if (scheduleError) return err(scheduleError, 400);
 
   const nextType = d.roleType ?? existing.roleType;
   const nextRows = d.permissions !== undefined
@@ -66,6 +74,19 @@ export const PUT = withPermission({ module: 'SETTINGS', action: 'edit' }, async 
   }
 
   await prisma.$transaction(async (tx) => {
+    if (d.allowedDays !== undefined || d.startTime !== undefined || d.endTime !== undefined) {
+      // Serialize partial schedule edits. Two individually valid edits must
+      // not combine into an invalid/equal-time window and lock the role out.
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Role" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`);
+      const current = await tx.role.findUnique({ where: { id } });
+      if (!current) throw new ApiError('Role not found', 404);
+      const conflict = scheduleValidationError({
+        allowedDays: d.allowedDays === undefined ? current.allowedDays : d.allowedDays,
+        startTime: d.startTime === undefined ? current.startTime : d.startTime,
+        endTime: d.endTime === undefined ? current.endTime : d.endTime,
+      });
+      if (conflict) throw new ApiError(conflict, 400);
+    }
     await tx.role.update({
       where: { id },
       data: {

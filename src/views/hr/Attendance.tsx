@@ -1,17 +1,36 @@
 import { useCatalogPagination } from '../../hooks/useCatalogPagination';
 import React, { useMemo, useState } from 'react';
-import { Calendar, Users, Clock, AlertTriangle, Download, Plus, Check } from 'lucide-react';
+import {
+    Calendar,
+    Users,
+    Clock,
+    AlertTriangle,
+    Download,
+    Plus,
+    Check,
+} from 'lucide-react';
 import ListPage from '../../components/Layout/ListPage';
 import Card from '../../components/UI/Card';
 import Table, { TableColumn } from '../../components/UI/Table';
 import Button from '../../components/UI/Button';
 import Modal from '../../components/UI/Modal';
 import StatusTag from '../../components/UI/StatusTag';
-import { useAttendance, useCreateAttendance, useEmployees, useDeleteAttendance } from '../../hooks/useHR';
+import {
+    useAttendance,
+    useCreateAttendance,
+    useEmployees,
+    useDeleteAttendance,
+} from '../../hooks/useHR';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { exportToCsv } from '../../utils/exportCsv';
 
-type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'SICK' | 'LEAVE' | 'LATE' | 'HALF_DAY';
+type AttendanceStatus =
+    | 'PRESENT'
+    | 'ABSENT'
+    | 'SICK'
+    | 'LEAVE'
+    | 'LATE'
+    | 'HALF_DAY';
 
 const STATUS_OPTIONS: { value: AttendanceStatus | ''; label: string }[] = [
     { value: '', label: 'All Statuses' },
@@ -36,13 +55,19 @@ function formatTime(dateStr: string | null | undefined): string {
     if (!dateStr) return '-';
     try {
         const d = new Date(dateStr);
-        return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        return d.toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     } catch {
         return '-';
     }
 }
 
-function getMonthDateRange(year: number, month: number): { start: string; end: string } {
+function getMonthDateRange(
+    year: number,
+    month: number,
+): { start: string; end: string } {
     const start = `${year}-${String(month).padStart(2, '0')}-01`;
     const lastDay = new Date(year, month, 0).getDate();
     const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
@@ -54,35 +79,68 @@ const Attendance = () => {
     const today = new Date();
     const [selectedYear, setSelectedYear] = useState(today.getFullYear());
     const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
-    const [selectedDate, setSelectedDate] = useState(today.toISOString().slice(0, 10));
+    const [selectedDate, setSelectedDate] = useState(
+        today.toISOString().slice(0, 10),
+    );
     const [statusFilter, setStatusFilter] = useState<string>('');
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkDate, setBulkDate] = useState(today.toISOString().slice(0, 10));
     const [bulkCheckIn, setBulkCheckIn] = useState('08:00');
     const [bulkCheckOut, setBulkCheckOut] = useState('17:00');
     const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>('PRESENT');
-    const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
+    const [sickCertified, setSickCertified] = useState(false),
+        [overtimeHours, setOvertimeHours] = useState(0);
+    const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(
+        new Set(),
+    );
 
     const { start, end } = getMonthDateRange(selectedYear, selectedMonth);
-    const paging = useCatalogPagination({ startDate: selectedDate || start, endDate: selectedDate || end, status: statusFilter });
-    const { data: attendanceResult, isLoading, isFetching, error } = useAttendance(paging.query);
-    const { data: monthlyResult } = useAttendance({ startDate: start, endDate: end, status: statusFilter, summaryOnly: 'true' });
+    const paging = useCatalogPagination({
+        startDate: selectedDate || start,
+        endDate: selectedDate || end,
+        status: statusFilter,
+    });
+    const {
+        data: attendanceResult,
+        isLoading,
+        isFetching,
+        error,
+    } = useAttendance(paging.query);
+    const { data: monthlyResult } = useAttendance({
+        startDate: start,
+        endDate: end,
+        status: statusFilter,
+        summaryOnly: 'true',
+    });
     const attendanceList = attendanceResult?.data ?? [];
-    const { data: empResult } = useEmployees();
+    const { data: empResult } = useEmployees({
+        status: 'ALL',
+        employedOn: showBulkModal ? bulkDate : selectedDate,
+        limit: 100,
+    });
     const employeeList = empResult?.data ?? [];
     const createAttendance = useCreateAttendance();
     const deleteAttendance = useDeleteAttendance();
 
     const filteredData = attendanceList;
 
-    const monthlySummary = monthlyResult?.summary ?? { total: 0, present: 0, absent: 0, late: 0, sick: 0, leave: 0 };
+    const monthlySummary = monthlyResult?.summary ?? {
+        total: 0,
+        present: 0,
+        absent: 0,
+        late: 0,
+        sick: 0,
+        leave: 0,
+    };
 
     // Generate calendar dates for the month
     const calendarDates = useMemo(() => {
         const dates: string[] = [];
         const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
         for (let d = 1; d <= lastDay; d++) {
-            dates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+            dates.push(
+                `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+            );
         }
         return dates;
     }, [selectedYear, selectedMonth]);
@@ -90,9 +148,10 @@ const Attendance = () => {
     const dateCountMap = monthlyResult?.dates ?? {};
 
     const handleBulkCreate = async () => {
-        const employeeIds = selectedEmployeeIds.size > 0
-            ? Array.from(selectedEmployeeIds)
-            : employeeList.map((e: any) => e.id);
+        const employeeIds =
+            selectedEmployeeIds.size > 0
+                ? Array.from(selectedEmployeeIds)
+                : employeeList.map((e: any) => e.id);
 
         const records = employeeIds.map((employeeId) => ({
             employeeId,
@@ -100,6 +159,8 @@ const Attendance = () => {
             checkIn: bulkCheckIn,
             checkOut: bulkCheckOut,
             status: bulkStatus,
+            sickCertified: bulkStatus === 'SICK' && sickCertified,
+            overtimeHours,
         }));
 
         try {
@@ -112,27 +173,31 @@ const Attendance = () => {
     };
 
     const handleExport = () => {
-        exportToCsv(`attendance-${selectedYear}-${selectedMonth}`, attendanceList.map((a: any) => ({
-            employeeNo: a.employee?.employeeNo || '',
-            name: a.employee?.name || '',
-            date: a.date ? new Date(a.date).toISOString().slice(0, 10) : '',
-            checkIn: formatTime(a.checkIn),
-            checkOut: formatTime(a.checkOut),
-            hoursWorked: a.hoursWorked ?? '',
-            overtimeHours: a.overtimeHours ?? 0,
-            status: STATUS_LABELS[a.status] || a.status,
-            notes: a.notes || '',
-        })), [
-            { label: 'No. Karyawan', key: 'employeeNo' },
-            { label: 'Nama', key: 'name' },
-            { label: 'Tanggal', key: 'date' },
-            { label: 'Masuk', key: 'checkIn' },
-            { label: 'Keluar', key: 'checkOut' },
-            { label: 'Jam Kerja', key: 'hoursWorked' },
-            { label: 'Lembur', key: 'overtimeHours' },
-            { label: 'Status', key: 'status' },
-            { label: 'Catatan', key: 'notes' },
-        ]);
+        exportToCsv(
+            `attendance-${selectedYear}-${selectedMonth}`,
+            attendanceList.map((a: any) => ({
+                employeeNo: a.employee?.employeeNo || '',
+                name: a.employee?.name || '',
+                date: a.date ? new Date(a.date).toISOString().slice(0, 10) : '',
+                checkIn: formatTime(a.checkIn),
+                checkOut: formatTime(a.checkOut),
+                hoursWorked: a.hoursWorked ?? '',
+                overtimeHours: a.overtimeHours ?? 0,
+                status: STATUS_LABELS[a.status] || a.status,
+                notes: a.notes || '',
+            })),
+            [
+                { label: 'No. Karyawan', key: 'employeeNo' },
+                { label: 'Nama', key: 'name' },
+                { label: 'Tanggal', key: 'date' },
+                { label: 'Masuk', key: 'checkIn' },
+                { label: 'Keluar', key: 'checkOut' },
+                { label: 'Jam Kerja', key: 'hoursWorked' },
+                { label: 'Lembur', key: 'overtimeHours' },
+                { label: 'Status', key: 'status' },
+                { label: 'Catatan', key: 'notes' },
+            ],
+        );
     };
 
     const columns: TableColumn<any>[] = [
@@ -141,15 +206,20 @@ const Attendance = () => {
             label: 'Karyawan',
             render: (_v: unknown, row: any) => (
                 <div>
-                    <div className="font-medium text-neutral-900">{row.employee?.name}</div>
-                    <div className="text-xs text-neutral-500">{row.employee?.employeeNo}</div>
+                    <div className="font-medium text-neutral-900">
+                        {row.employee?.name}
+                    </div>
+                    <div className="text-xs text-neutral-500">
+                        {row.employee?.employeeNo}
+                    </div>
                 </div>
             ),
         },
         {
             key: 'date',
             label: 'Tanggal',
-            render: (v: unknown) => v ? new Date(v as string).toLocaleDateString('id-ID') : '-',
+            render: (v: unknown) =>
+                v ? new Date(v as string).toLocaleDateString('id-ID') : '-',
         },
         {
             key: 'checkIn',
@@ -165,41 +235,58 @@ const Attendance = () => {
             key: 'hoursWorked',
             label: 'Jam Kerja',
             align: 'right',
-            render: (v: unknown) => v != null ? `${Number(v).toFixed(1)}h` : '-',
+            render: (v: unknown) =>
+                v != null ? `${Number(v).toFixed(1)}h` : '-',
         },
         {
             key: 'overtimeHours',
             label: 'Lembur',
             align: 'right',
-            render: (v: unknown) => Number(v) > 0 ? `${Number(v).toFixed(1)}h` : '-',
+            render: (v: unknown) =>
+                Number(v) > 0 ? `${Number(v).toFixed(1)}h` : '-',
         },
         {
             key: 'status',
             label: 'Status',
-            render: (v: unknown) => <StatusTag status={STATUS_LABELS[v as string] || (v as string)} />,
+            render: (v: unknown) => (
+                <StatusTag
+                    status={STATUS_LABELS[v as string] || (v as string)}
+                />
+            ),
         },
         {
             key: 'actions',
             label: '',
-            render: (_v: unknown, row: any) => canCreate ? (
-                <button
-                    className="text-xs text-danger-500 hover:text-danger-700"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm('Hapus catatan kehadiran ini?')) {
-                            deleteAttendance.mutate(row.id);
-                        }
-                    }}
-                >
-                    Hapus
-                </button>
-            ) : null,
+            render: (_v: unknown, row: any) =>
+                canCreate ? (
+                    <button
+                        className="text-xs text-danger-500 hover:text-danger-700"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Hapus catatan kehadiran ini?')) {
+                                deleteAttendance.mutate(row.id);
+                            }
+                        }}
+                    >
+                        Hapus
+                    </button>
+                ) : null,
         },
     ];
 
     const monthNames = [
-        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+        'Januari',
+        'Februari',
+        'Maret',
+        'April',
+        'Mei',
+        'Juni',
+        'Juli',
+        'Agustus',
+        'September',
+        'Oktober',
+        'November',
+        'Desember',
     ];
 
     return (
@@ -235,19 +322,30 @@ const Attendance = () => {
                             <Users size={20} className="text-primary-700" />
                         </div>
                         <div>
-                            <div className="text-2xl font-bold text-neutral-900">{monthlySummary.present}</div>
-                            <div className="text-xs text-neutral-500">Hadir</div>
+                            <div className="text-2xl font-bold text-neutral-900">
+                                {monthlySummary.present}
+                            </div>
+                            <div className="text-xs text-neutral-500">
+                                Hadir
+                            </div>
                         </div>
                     </div>
                 </Card>
                 <Card>
                     <div className="p-3 flex items-center gap-3">
                         <div className="h-10 w-10 rounded-lg bg-danger-100 flex items-center justify-center">
-                            <AlertTriangle size={20} className="text-danger-500" />
+                            <AlertTriangle
+                                size={20}
+                                className="text-danger-500"
+                            />
                         </div>
                         <div>
-                            <div className="text-2xl font-bold text-neutral-900">{monthlySummary.absent}</div>
-                            <div className="text-xs text-neutral-500">Tidak Hadir</div>
+                            <div className="text-2xl font-bold text-neutral-900">
+                                {monthlySummary.absent}
+                            </div>
+                            <div className="text-xs text-neutral-500">
+                                Tidak Hadir
+                            </div>
                         </div>
                     </div>
                 </Card>
@@ -257,8 +355,12 @@ const Attendance = () => {
                             <Clock size={20} className="text-warning-500" />
                         </div>
                         <div>
-                            <div className="text-2xl font-bold text-neutral-900">{monthlySummary.late}</div>
-                            <div className="text-xs text-neutral-500">Terlambat</div>
+                            <div className="text-2xl font-bold text-neutral-900">
+                                {monthlySummary.late}
+                            </div>
+                            <div className="text-xs text-neutral-500">
+                                Terlambat
+                            </div>
                         </div>
                     </div>
                 </Card>
@@ -268,8 +370,12 @@ const Attendance = () => {
                             <Calendar size={20} className="text-info-500" />
                         </div>
                         <div>
-                            <div className="text-2xl font-bold text-neutral-900">{monthlySummary.sick + monthlySummary.leave}</div>
-                            <div className="text-xs text-neutral-500">Sakit / Cuti</div>
+                            <div className="text-2xl font-bold text-neutral-900">
+                                {monthlySummary.sick + monthlySummary.leave}
+                            </div>
+                            <div className="text-xs text-neutral-500">
+                                Sakit / Cuti
+                            </div>
                         </div>
                     </div>
                 </Card>
@@ -281,20 +387,28 @@ const Attendance = () => {
                     <div className="flex flex-wrap items-center gap-3 mb-4">
                         <select
                             value={selectedMonth}
-                            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                            onChange={(e) =>
+                                setSelectedMonth(Number(e.target.value))
+                            }
                             className="border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                         >
                             {monthNames.map((name, i) => (
-                                <option key={i} value={i + 1}>{name}</option>
+                                <option key={i} value={i + 1}>
+                                    {name}
+                                </option>
                             ))}
                         </select>
                         <select
                             value={selectedYear}
-                            onChange={(e) => setSelectedYear(Number(e.target.value))}
+                            onChange={(e) =>
+                                setSelectedYear(Number(e.target.value))
+                            }
                             className="border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                         >
                             {[2024, 2025, 2026, 2027].map((y) => (
-                                <option key={y} value={y}>{y}</option>
+                                <option key={y} value={y}>
+                                    {y}
+                                </option>
                             ))}
                         </select>
                         <select
@@ -303,7 +417,9 @@ const Attendance = () => {
                             className="border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                         >
                             {STATUS_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </option>
                             ))}
                         </select>
                     </div>
@@ -313,8 +429,11 @@ const Attendance = () => {
                         {calendarDates.map((dateStr) => {
                             const d = new Date(dateStr);
                             const dayNum = d.getDate();
-                            const dayName = d.toLocaleDateString('id-ID', { weekday: 'short' });
-                            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                            const dayName = d.toLocaleDateString('id-ID', {
+                                weekday: 'short',
+                            });
+                            const isWeekend =
+                                d.getDay() === 0 || d.getDay() === 6;
                             const isSelected = dateStr === selectedDate;
                             const count = dateCountMap[dateStr] || 0;
 
@@ -326,10 +445,16 @@ const Attendance = () => {
                                         ${isSelected ? 'bg-primary-700 text-white' : isWeekend ? 'bg-neutral-50 text-neutral-400' : 'hover:bg-neutral-100 text-neutral-700'}
                                     `}
                                 >
-                                    <span className="text-[10px]">{dayName}</span>
-                                    <span className="font-semibold text-sm">{dayNum}</span>
+                                    <span className="text-[10px]">
+                                        {dayName}
+                                    </span>
+                                    <span className="font-semibold text-sm">
+                                        {dayNum}
+                                    </span>
                                     {count > 0 && (
-                                        <span className={`text-[9px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-primary-600'}`}>
+                                        <span
+                                            className={`text-[9px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-primary-600'}`}
+                                        >
                                             {count}
                                         </span>
                                     )}
@@ -343,7 +468,13 @@ const Attendance = () => {
             {/* Attendance table */}
             <div className="mt-4">
                 <Card>
-                    <Table error={error} pagination={{ ...paging, total: attendanceResult?.total, busy: isFetching || !!error }}
+                    <Table
+                        error={error}
+                        pagination={{
+                            ...paging,
+                            total: attendanceResult?.total,
+                            busy: isFetching || !!error,
+                        }}
                         columns={columns}
                         data={filteredData}
                         isLoading={isLoading}
@@ -363,28 +494,74 @@ const Attendance = () => {
                 <div className="p-4 space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Tanggal</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">
+                                Tanggal
+                            </label>
                             <input
                                 type="date"
+                                aria-label="Attendance entry date"
                                 value={bulkDate}
                                 onChange={(e) => setBulkDate(e.target.value)}
                                 className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Status</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">
+                                Status
+                            </label>
                             <select
+                                aria-label="Attendance entry status"
                                 value={bulkStatus}
-                                onChange={(e) => setBulkStatus(e.target.value as AttendanceStatus)}
+                                onChange={(e) =>
+                                    setBulkStatus(
+                                        e.target.value as AttendanceStatus,
+                                    )
+                                }
                                 className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                             >
-                                {STATUS_OPTIONS.filter((o) => o.value).map((opt) => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                ))}
+                                {STATUS_OPTIONS.filter((o) => o.value).map(
+                                    (opt) => (
+                                        <option
+                                            key={opt.value}
+                                            value={opt.value}
+                                        >
+                                            {opt.label}
+                                        </option>
+                                    ),
+                                )}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Jam Masuk</label>
+                            <label className="block">
+                                Daily overtime hours
+                                <input
+                                    type="number"
+                                    aria-label="Daily overtime hours"
+                                    min={0}
+                                    max={12}
+                                    step={0.5}
+                                    value={overtimeHours}
+                                    onChange={(e) =>
+                                        setOvertimeHours(Number(e.target.value))
+                                    }
+                                    className="block border rounded p-2"
+                                />
+                            </label>
+                            {bulkStatus === 'SICK' && (
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={sickCertified}
+                                        onChange={(e) =>
+                                            setSickCertified(e.target.checked)
+                                        }
+                                    />{' '}
+                                    Doctor-certified sick leave
+                                </label>
+                            )}
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">
+                                Jam Masuk
+                            </label>
                             <input
                                 type="time"
                                 value={bulkCheckIn}
@@ -393,11 +570,15 @@ const Attendance = () => {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-neutral-700 mb-1">Jam Keluar</label>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1">
+                                Jam Keluar
+                            </label>
                             <input
                                 type="time"
                                 value={bulkCheckOut}
-                                onChange={(e) => setBulkCheckOut(e.target.value)}
+                                onChange={(e) =>
+                                    setBulkCheckOut(e.target.value)
+                                }
                                 className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
                             />
                         </div>
@@ -406,19 +587,35 @@ const Attendance = () => {
                     <div>
                         <div className="flex items-center justify-between mb-2">
                             <label className="text-sm font-medium text-neutral-700">
-                                Pilih Karyawan ({selectedEmployeeIds.size > 0 ? `${selectedEmployeeIds.size} dipilih` : 'semua'})
+                                Pilih Karyawan (
+                                {selectedEmployeeIds.size > 0
+                                    ? `${selectedEmployeeIds.size} dipilih`
+                                    : 'semua'}
+                                )
                             </label>
                             <button
                                 className="text-xs text-primary-700 hover:text-primary-800"
                                 onClick={() => {
-                                    if (selectedEmployeeIds.size === employeeList.length) {
+                                    if (
+                                        selectedEmployeeIds.size ===
+                                        employeeList.length
+                                    ) {
                                         setSelectedEmployeeIds(new Set());
                                     } else {
-                                        setSelectedEmployeeIds(new Set(employeeList.map((e: any) => e.id)));
+                                        setSelectedEmployeeIds(
+                                            new Set(
+                                                employeeList.map(
+                                                    (e: any) => e.id,
+                                                ),
+                                            ),
+                                        );
                                     }
                                 }}
                             >
-                                {selectedEmployeeIds.size === employeeList.length ? 'Batalkan Semua' : 'Pilih Semua'}
+                                {selectedEmployeeIds.size ===
+                                employeeList.length
+                                    ? 'Batalkan Semua'
+                                    : 'Pilih Semua'}
                             </button>
                         </div>
                         <div className="max-h-48 overflow-y-auto border border-neutral-200 rounded-lg">
@@ -429,26 +626,41 @@ const Attendance = () => {
                                 >
                                     <input
                                         type="checkbox"
-                                        checked={selectedEmployeeIds.has(emp.id)}
+                                        checked={selectedEmployeeIds.has(
+                                            emp.id,
+                                        )}
                                         onChange={(e) => {
-                                            const next = new Set(selectedEmployeeIds);
-                                            if (e.target.checked) next.add(emp.id);
+                                            const next = new Set(
+                                                selectedEmployeeIds,
+                                            );
+                                            if (e.target.checked)
+                                                next.add(emp.id);
                                             else next.delete(emp.id);
                                             setSelectedEmployeeIds(next);
                                         }}
                                         className="rounded border-neutral-300"
                                     />
                                     <span className="text-sm">{emp.name}</span>
-                                    <span className="text-xs text-neutral-400">{emp.employeeNo}</span>
+                                    <span className="text-xs text-neutral-400">
+                                        {emp.employeeNo}
+                                    </span>
                                 </label>
                             ))}
                         </div>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="secondary" text="Batal" onClick={() => setShowBulkModal(false)} />
                         <Button
-                            text={createAttendance.isPending ? 'Menyimpan...' : 'Simpan Kehadiran'}
+                            variant="secondary"
+                            text="Batal"
+                            onClick={() => setShowBulkModal(false)}
+                        />
+                        <Button
+                            text={
+                                createAttendance.isPending
+                                    ? 'Menyimpan...'
+                                    : 'Simpan Kehadiran'
+                            }
                             icon={<Check size={16} />}
                             onClick={handleBulkCreate}
                             disabled={createAttendance.isPending}

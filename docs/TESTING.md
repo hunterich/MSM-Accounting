@@ -1,5 +1,161 @@
 # Testing transactions and accounting
 
+## ACC-02 two-user settlement and close acceptance (2026-10-21)
+
+See [ACC-02-SETTLEMENT-ACCEPTANCE.md](ACC-02-SETTLEMENT-ACCEPTANCE.md). Four AR/AP
+journeys use actual payment forms, distinct preparer/reviewer sessions, Approval
+Inbox and Company Setup close/reopen. They check discount/fee arithmetic, the last
+cent, pending holds, self-approval refusal, failed approval rollback and rejection,
+and later-dated reversal against fixed aging/control/GL values. No production
+posting change or policy change is introduced; finance/release acceptance remains.
+The final fresh-fixture run passes all 15 selected Chromium cases and all 60
+related PostgreSQL cases; both TypeScript projects pass. The acceptance record
+also documents an earlier interrupted browser run and the added bounded waits.
+
+## INV-02 valuation acceptance and read-only carrying audit (2026-10-21)
+
+See [INV-02-ACCEPTANCE.md](INV-02-ACCEPTANCE.md) for the eight new real-lock PO
+receipt cases, two carrying-audit regressions, two real Receive Goods/browser/API
+journeys, reproduction commands and remaining gates. Stored carrying values are
+compared per warehouse even when company ledger/GL totals agree; no repair or
+initialization is performed.
+
+
+## INV-02 receipt acceptance (2026-10-19)
+
+Run `npm run test:int -- weighted-average-negative-stock zero-value-goods-receipt receipt-exact-value inventory-carrying-void-guard warehouse-carrying-values`.
+The shortage suite includes repeated-item bill voids and PO un-receipts, both
+with and without excess stock; fixed quantity, carrying value, stock ledger,
+Inventory GL, COGS, AP and GRIR assertions; both sale/receipt void orders with
+verified PostgreSQL lock waits; and a later-sale refusal with complete unchanged
+lot/draw/ledger/document/journal/settlement snapshots. Four new
+reproduction failures were demonstrated on the previous implementation: one
+duplicate-item reversal and three zero-value receipt cases. The final cases
+retain the original negative-stock compatibility test without an expected-failure marker.
+
+Run `npm run test:e2e -- e2e/purchase-receipt.spec.ts e2e/inventory-invoice-corrections.spec.ts`.
+Two new journeys receive free stock or two same-item lines through the actual
+Receive Goods dialog, then call the un-receive API. They check restored estimates,
+exact stock/GL/COGS/GRIR, settlement links, PO reopening and unchanged original
+sale costs. The existing correction and partial-receipt journeys remain included.
+
+Local verification on isolated PostgreSQL 16: 1,353 unit tests, both TypeScript
+projects, the frontend build and all 12 receipt/correction browser cases pass.
+The complete integration run passes 599 of 603 cases. Two failures require
+unavailable `pg_dump`/`pg_restore` tools; the other two reproduce unchanged on
+the base `7f0f33e`: `control-close-policy`'s other-period/company checklist case
+and the Jakarta boundary case in `dashboard-sales-returns`. No full-green
+integration claim is made. All ten new PostgreSQL receipt/reversal cases pass.
+
+All 20 migrations apply to fresh isolated PostgreSQL 16 databases. This increment
+adds no migration or historical rewrite. Current negative-stock implementation
+and remaining release gates are described in `INV-02-NEGATIVE-STOCK.md`; earlier
+work-in-progress counts below are historical evidence, not current failure status.
+
+## Invoices without a sales posting (ACC-02)
+
+Run `npm run test:int -- invoice-missing-posting` against the disposable
+PostgreSQL database. Four cases drive the real void and edit routes. A migrated
+opening invoice (real `commitBatch`, opening journal only) and a tracked invoice
+with no AR journal are refused with 422. Snapshots of the invoice, every journal
+and the AR control are unchanged, and March aging still shows the opening 1,000
+with no warnings. Editing the migrated invoice is refused instead of posting
+1,000 a second time. A normally posted invoice still voids with one dated
+reversal, and a zero-value invoice that posted nothing still voids. The three
+refusal cases return 200 on main `4ac9f85`.
+
+Local verification: 1,352 unit tests and 585 of 587 PostgreSQL cases pass with
+TypeScript; the two failures are the backup suites (no `pg_dump` on this Windows
+host). No browser journey or production audit was run, and no existing voided
+opening invoice is detected or repaired by this change.
+
+## Independent AR/AP control reconciliation (ACC-02)
+
+Run `npm run test:int -- control-reconciliation report-reconciliation control-close-policy`
+against isolated PostgreSQL. The six new cases call the real report route and
+compare it with per-account journal sums and the existing aging report:
+
+- AR and AP across two control accounts (an earlier default and a new default
+  for AR; document overrides for AP): cash 500 + discount 50 - penalty 10
+  clears 540, an unallocated advance, a standalone note and a document voided
+  after the cutoff. A manual reclass of 75 between the controls leaves the
+  company total at zero, while each account shows +75/-75 as a named manual
+  journal. Subledger totals equal aging net outstanding before and after the
+  void; the close checklist lists both accounts without blocking.
+- Legacy defects are named, not absorbed: a refund note whose journal reduced
+  the control, a void never reversed and an invoice charge/bill line coded to
+  the control (#169). Posting now refuses control-coded offsets (#194), so that
+  case rewrites a normal posting to look like data saved before the guard.
+- The real migration commit seeds an opening invoice and bill with one opening
+  journal, later documents and receipts/payments settle them, and the controls
+  reconcile with a separate opening line. A second customer/vendor opening seed
+  for the same debt appears as a named opening difference; GL is unchanged.
+
+Mutating the memo-based journal links or ignoring opening seeds makes three of
+the cases fail. These are API/service tests, not browser or finance acceptance,
+and no production database has been audited with the report yet.
+
+Local verification (2026-10-19): 1,271 unit tests and 474 PostgreSQL cases
+pass; TypeScript passes. Three integration failures are unrelated and already
+known: both backup suites (no `pg_dump` on this Windows host) and the
+documented INV-02 negative-stock compatibility regression. After merging #177,
+that negative-stock suite passes alongside these cases.
+
+## Refund settlement accounts (ACC-02, #169 first increment)
+
+Conflict-resolution verification against main `2529dd9` (2026-10-19): 1,337 unit tests, 581 PostgreSQL tests, both refund Chromium cases, both TypeScript projects and the frontend build pass. PostgreSQL backup suites were excluded because this QA host lacks their required client tools. Tests used a disposable database. The browser cases exposed supplier draft hydration depending on account/note response order; the form now observes the loaded notes, returns and bills with stable empty lists.
+
+Run `npm run test:int -- refund-control-account` against the disposable database.
+Twenty-five PostgreSQL cases cover customer/supplier default and alternate controls,
+configured controls, foreign/inactive/nonpostable/non-asset accounts, create/edit
+refusal, real approval rollback, cash/holding refunds, exact source-control balances,
+legitimate voids and reversal of historical incorrect refunds. The two core refusal
+cases fail on the original posting helpers. The account-list metadata is tenant
+scoped, including bad foreign historical references. The read-only CLI is exercised
+against the same isolated fixtures and preserves their stock and posting snapshots.
+Account metadata is opt-in (`withControlFlags=1`): the database case also verifies
+ordinary requests omit control flags, and both refund forms explicitly request
+them. Return-created credit notes default to the bank account; blank selections
+do not display an unavailable historical account option.
+
+Run `npm run test:e2e -- e2e/refund-account-role.spec.ts --project=chromium` for the
+two browser cases: disabled historical selection, exclusion of additional controls,
+available bank/holding choices, API refusal/recoding and actual Bahasa guidance.
+This proves picker selection and API repair, not a complete standalone-note form
+creation journey.
+
+Before an authorized release, provide the reviewed DATABASE_URL explicitly and run
+`node node_modules/tsx/dist/cli.mjs scripts/audit-note-refund-accounts.ts --company COMPANY_ID`.
+It uses a repeatable-read, database-enforced READ ONLY transaction and reports invalid
+Draft/Pending/Applied/Void refund accounts without repairing them. Review Drafts with
+finance; reject invalid pending requests before editing their Draft. Posted differences
+belong in reconciliation (#167) and require a reviewed correction/reversal. This audit
+does not calculate or certify a per-control GL reconciliation. Bill/invoice charges and
+stock-adjustment offsets are covered by merged PR #194. No production audit/deployment is implied.
+
+## Weighted Average negative stock settlement (INV-02, approved 2026-10-15)
+
+Unit coverage runs without a database:
+`npx vitest run lib/__tests__/inventory-shortfall-settlement.test.ts lib/__tests__/weighted-average-shortfall-costing.test.ts lib/__tests__/inventory-carrying-preview.test.ts lib/__tests__/inventory-shortfall-allocation.test.ts`.
+Thirty-one new cases pass with TypeScript and all 1,301 unit tests: the approved
+40 receipt-date COGS difference, cheaper and excess receipts, oldest-first partial
+settlement with cumulative rounding, closed-period and missing-account refusal
+before stock changes, receipt-void and sale-void unwinds with linked reversal
+movements/journals, later-receipt and dependent-sale refusals, shortage sale cost
+split, refused non-sale shortages, edit refusal and negative-pool proposal rules.
+
+Run `npm run test:int -- weighted-average-negative-stock` only against the
+disposable PostgreSQL database after applying
+`20261018130000_inventory_shortfall_settlements`. It keeps the original hard
+regression unchanged and adds 14 cases: receipt into an already-negative pool,
+excess/cheaper/partial receipts, warehouse isolation, closed-period rollback
+snapshot, receipt-void and sale-void unwinds, dependent-sale and later-receipt
+refusals with rollback snapshots, void-and-replace for edits, legacy review
+refusal and overlapping sale/receipt and receipt-void/sale-void. **These have not
+been run**: the authoring machine had no test database or `.env`. The migration
+and the updated `scripts/audit-weighted-average-pools.sql` are likewise unexecuted.
+See `docs/INV-02-NEGATIVE-STOCK.md` for the policy and records.
+
 ## Migration staging, cutover and rollback coordination
 
 Run `npm run test:int -- migration-overlap migration-rollback migration-commit`
@@ -117,9 +273,9 @@ Stored carrying values and monetary sale draws are now implemented on the
 unfinished branch with the additive `20261014060000_inventory_carrying_values`
 migration (isolated `_test` database only). The method-switch regression passes;
 warehouse/method/POS/correction tests prove actual carrying/ledger/GL amounts.
-`weighted-average-negative-stock.int.test.ts` is a new hard, currently failing
-compatibility regression. The branch is not merge-ready and its complete suite
-is not claimed green. See `docs/INV-02-CARRYING-VALUES.md` for precise evidence,
+`weighted-average-negative-stock.int.test.ts` is a hard compatibility regression;
+it failed on main after #174 and its approved settlement implementation (above)
+has not yet been run against PostgreSQL. The complete suite is not claimed green. See `docs/INV-02-CARRYING-VALUES.md` for precise evidence,
 CLI scope, pending negative-stock treatment and remaining acceptance gates.
 
 Run `npm run test:int -- weighted-average-pool` only against the disposable
@@ -602,6 +758,26 @@ legacy payment/refund postings. Review the original documents and backup/audit
 evidence before correcting them through approved reversal/reissue procedures.
 This change does not automatically amend existing posted journals.
 
+ACC-02 cutoff/reversal history (#167): `subledger-cutoff-history.test.ts`
+pins all six exact void memo formats, checks cancellation at Jakarta midnight,
+and keeps aging and statement balances consistent before and after cancellation.
+Multiple invoice recognition/COGS reversals may share one memo and date. Missing
+reversal records, unrecognised memo formats, or conflicting reversal dates now
+produce a warning naming the affected invoice, bill, receipt, payment or note.
+Unverifiable items are omitted from reconstructed movements rather than given
+an invented cancellation date; the warning means the report is incomplete and
+its past balances cannot be confirmed. Deleted legacy payment allocations keep
+their existing warning. Structured reversal links remain a separate schema task.
+The database reconciliation regression also pins the actual void writers' memos
+and checks these warnings through aging, party-balance and statement endpoints.
+
+Verification on 2026-10-19: all five `report-reconciliation.int.test.ts` cases
+passed against the existing Docker QA PostgreSQL `_test` database, including
+AR/AP later voids, exact writer memo contracts and missing-history warnings.
+The unit suite passed all 1,357 tests; the four void-writer test files passed
+again after strengthening their exact memo assertions (28 tests). TypeScript
+checking passed. No deployment or production database changes were performed.
+
 Manual control-account journals without a customer/vendor link, imported
 opening balances without matching GL entries, and custom control-account
 configuration still require reconciliation review. These checks are regression
@@ -808,3 +984,122 @@ repair historical postings or silently redate pending documents.
 node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts control-close-policy period-close approval-engine bank-transaction linked-return-note
 node node_modules/@playwright/test/cli.js test e2e/control-close-policy.spec.ts e2e/period-close.spec.ts --project=chromium
 ```
+
+## ACC-02 settlement acceptance — 2026-10-19
+
+`settlement-acceptance.int.test.ts` runs eight isolated PostgreSQL cases: four
+scenarios, each on the customer (AR receipt) and supplier (AP payment) side.
+Payments go through the actual create and void routes. Held payments go through
+the actual approve and reject routes, which call the real approval engine.
+Invoices and bills are posted with the same helpers as
+`report-reconciliation.int.test.ts`. Every step asserts fixed values for
+document status, its settlement route, aging (`type=aging`) at dated snapshots,
+the discount and penalty GL accounts, cash and the control account GL.
+
+- **Cash + discount − penalty, partial then full, dated void.** A 1,000,000
+  document is settled by an approved 400,000 partial receipt, then an approved
+  590,500 receipt (588,000 principal + 2,500 penalty, with a 12,000 discount).
+  Nothing posts or settles while a payment awaits approval. The void route runs
+  with its clock at 5 October. September aging and GL stay settled (control 0,
+  discount 12,000, penalty 2,500). From 5 October the 600,000 is owed again and
+  discount/penalty net to zero.
+- **Rejection and failed approval.** Rejecting a held payment returns it to Draft
+  with no journal, so aging, GL and settlement are unchanged. A stale held payment
+  whose document has since been settled fails approval with 422. The request stays
+  Pending and the journal count, GL, aging and status are unchanged; it can then be
+  rejected.
+- **Multi-document allocation.** One payment of 450.41 settles 100.10 and 200.20
+  in full and 150.15 of 300.30, with 0.11 discount and 0.07 penalty. It checks
+  each document, aging per document and every journal line to the cent.
+- **Cent rounding.** An unrounded 150.105 against a 150.10 balance is refused
+  when submitted. One cent short stays Sent/Open with 0.01 in aging and control
+  GL, and the last cent settles the document.
+
+The last case found two defects, fixed here. Documents were marked Paid with
+0.01 still owed: `isSettled` now compares whole cents. The over-allocation guard
+rounded 150.105 down in floating point while PostgreSQL stores 150.11: it now
+rounds half-up in decimal. Both regressions fail against pre-fix `main`. The
+existing payment, settlement, reconciliation and concurrency cases still pass.
+Statuses already saved are not rewritten.
+
+Helper-level arithmetic (notes, refunds, helper-dated voids, opening balances,
+unapplied credits) remains covered by `report-reconciliation.int.test.ts` and
+`payment-settlement-status.int.test.ts`; these cases do not repeat it.
+
+```powershell
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts settlement-acceptance payment-settlement-status report-reconciliation oversell-overpay-concurrency
+```
+
+## ACC-02 migration opening acceptance — 2026-10-19
+
+`migration-opening-acceptance.int.test.ts` runs three isolated PostgreSQL cases
+through the actual migration routes (create batch, stage, reconcile, commit,
+rollback). Receipts and payments use the actual payment routes.
+
+- **Cutover then live activity.** Cutover is 2026-01-01. The opening trial balance
+  is cash 300,000, AR 1,500,000, AP 800,000 and opening equity 1,000,000. It also
+  stages two customers, one vendor, two open invoices and one open bill. The
+  reconcile preview ties AR and AP. After commit, the opening journal is the only
+  journal entry. On the cutover day the trial balance equals the import, and aging,
+  party balances and the customer statement show each debt once. In February a new
+  invoice and bill are posted, plus a receipt clearing a migrated invoice with a
+  discount and part-paying the new one. There is also a partial receipt and a
+  supplier payment with a late fee. January still shows only the openings. At
+  28 February, AR 450,000 and AP 300,000 agree with aging and party balances.
+  Rollback is then refused and changes nothing.
+- **Second opening refused.** Re-staging the same unnumbered file returns 409 and
+  writes nothing; a batch with opening stock is refused too. A vendor/account-only
+  batch still commits. After rolling back the first batch, the re-import commits
+  and the opening enters exactly once.
+- **Concurrent commits.** Two different opening batches committed together: one
+  enters, the other gets the same 409. Pre-existing customers and distinct
+  invoice numbers ensure no unique key does the guard's job.
+
+Without the guard, the second and third cases fail: a re-import commits and
+doubles GL and aging. Before the cutover, migrated documents appear in aging
+under their source dates while the GL is empty. Compare reports from the cutover
+date onward. The older CSV import route (`/api/v1/import/...`) writes
+customer/vendor `openingBalance` seeds and an opening journal dated on import,
+with no once-only guard. It is not covered here and remains a follow-up. The
+per-control opening reconciliation line comes from the merged PR #191.
+
+```powershell
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts migration-opening-acceptance migration opening
+```
+
+
+## Payroll correctness and dated eligibility (2026-10-27)
+
+See [Payroll correctness](PAYROLL-CORRECTNESS.md) for company setup, independent
+expected ledger values, legal references and finance/release limits. The four
+original defects have unit regressions in payroll-immediate.test.ts. Dated rules
+have pure calculation tests, 23 isolated PostgreSQL acceptance cases, the six
+existing approval cases and three actual employee/settings/attendance/payroll screen
+journeys. Review regressions cover both FINAL/REGULAR orders, all-paid refusal, paid maternity without attendance, explicit OTHER classification and company-scoped pre-check lists. Refused posting retains complete financial/approval snapshots.
+
+Local acceptance uses a task-owned PostgreSQL 16 container, fresh _test/_e2e
+databases and test companies only. All three migrations apply from scratch. The two
+backup/restore integration files need pg_dump/pg_restore and remain in Linux CI.
+The Windows unit suite has two existing pagination locale assertions (350,000
+expected versus the host's 350.000); do not weaken them. Stacked PRs now run the
+same CI checks against their selected base branch.
+
+
+## Per-control report screens and PDF export (ACC-02, 2026-10-29)
+
+[Control report acceptance](ACC-02-CONTROL-REPORTS.md) records the fixed AR/AP
+775/700/+75 and 375/450/−75 examples whose company totals agree. Seven new units,
+11 existing PostgreSQL reconciliation/cutoff cases and five Chromium report cases
+pass. The browser cases use real document/payment/note APIs and deliberate legacy
+QA journal fixtures, verify actual CSV/PDF downloads, later cutoff inclusion,
+failed-refresh/export refusal and recovery, and compare unchanged accounting
+snapshots. The PDF regression fails on the old utility with doc.autoTable missing;
+explicit plugin registration fixes the browser ESM path. Both downloaded report
+PDFs were rendered and visually checked. Finance/pilot/release and migration-screen
+acceptance remain open under #167. No production data or posting-policy changes.
+
+CI pins Ubuntu 24.04 for the installed Playwright browser support. Integration
+backup tests accept PG_TEST_TOOLS_PATH to select a matching PostgreSQL tool
+directory; CI points it at /usr/lib/postgresql/16/bin. A newer default client on
+the runner must not generate PostgreSQL 17+ restore settings for the version 16
+service. No restore assertions or test suites are disabled.

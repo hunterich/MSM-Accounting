@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { postBillToLedger } from '../bill-posting';
 
+// Posting arithmetic isolation; real account authorization/rollback is covered
+// without mocks in document-offset-accounts.int.test.ts.
+vi.mock('../document-offset-accounts', () => ({ assertDocumentOffsetAccounts: vi.fn(async () => undefined) }));
+
 vi.mock('../inventory-costing', () => ({ addCostLayer: vi.fn(async () => undefined), lockInventoryItems: vi.fn(async () => undefined) }));
 vi.mock('../journal-posting', () => ({ postJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('../grir', () => ({ ensureGrIrAccount: vi.fn(async () => 'acc-grir') }));
