@@ -148,9 +148,25 @@ After the stock audit, an outstanding quantity is settled in one of two ways:
 | Outcome | How |
 |---|---|
 | Goods found or arrive later | Another Transfer In on the same transfer (6.2). |
-| Lost, damaged in transit, or charged to the driver | A **Stock Adjustment** using **Get From → Stock Transfer** (as in Accurate). It fills in the transfer's outstanding lines as reductions from Transit, at those lots' recorded values. The user picks the adjustment account (*Akun Penyesuaian*), for example a transit-loss expense or a receivable from the driver (decision D4). Posting the adjustment updates `qtyWrittenOff` on the transfer. |
+| Lost, damaged in transit, or charged to the driver | A **Stock Adjustment** using **Get From → Stock Transfer** (as in Accurate). It fills in the transfer's outstanding lines as reductions from Transit, at those lots' recorded values. Each line's adjustment account (*Akun Penyesuaian*) is pre-filled from the company defaults below and can be changed (decision D4). Posting the adjustment updates `qtyWrittenOff` on the transfer. |
 
 The transfer becomes **Closed with difference** once nothing is outstanding. The adjustment keeps its usual approval, audit and void rules; voiding it returns the units to this transfer's Transit stock and reopens the line.
+
+#### Adjustment accounts (D4)
+Recommended accounts. These are pending confirmation by the head accountant. There is no seeded chart of accounts, so each company maps them to its own accounts:
+
+| Situation | Account (type) | Notes |
+|---|---|---|
+| Lost or damaged in transit, company bears it | *Beban Barang Rusak / Hilang* (Expense) | The same account as the defect-warehouse write-off (section 7), so total damage and loss shows on one line. |
+| Charged to the company's own driver | *Piutang Karyawan* (current Asset) | Settled later by salary deduction or cash. |
+| Charged to an outside courier or expedition | *Piutang Lain-lain* (current Asset) | Settled when the courier pays or the amount is deducted from its invoice. Not the trade receivable control account; the adjustment screen already refuses control accounts. |
+| Count difference with no known cause (stock counts, ordinary adjustments) | Existing *Inventory Adjustment / Variance* default (*Selisih Persediaan*) | Unchanged. |
+
+How the choice works:
+- **Company defaults:** two new account defaults, *Transit loss expense* and *Transit charge receivable*, in the account defaults settings. Only users who can edit company settings (the head accountant or administrator) change them. Changing a default affects new documents only.
+- **Per document:** Get From → Stock Transfer pre-fills each line with *Transit loss expense*. The user can switch a line to the receivable, or to any other permitted account, as with Accurate's *Akun Penyesuaian*.
+- **Review:** the adjustment approval rules (D6) let the approver (for example, the head accountant) see and reject the chosen accounts before anything posts. After posting, a wrong account is corrected by voiding and re-entering the adjustment.
+- **Prerequisite (existing limitation):** today an adjustment line's account is saved but not used for posting. The net difference always goes to the variance default (see `docs/DOCUMENT-OFFSET-ACCOUNTS.md`). Phase 2 must change stock-adjustment posting to credit or debit each line's own account, falling back to the default when a line has none. This also affects ordinary adjustments, so finance must accept it.
 
 ### 6.5 Edits and voids
 - A shipped transfer is not edited; it is voided and re-created.
@@ -179,8 +195,8 @@ Assume one company Inventory account, Weighted Average, Bogor average Rp 10,000/
 |---|---|---|
 | Ship 100 pcs Bogor → Jakarta | Bogor −100 / −1,000,000; Transit +100 / +1,000,000 | **None**: both sides use the same Inventory account. (D5 decided: transit stays inside Inventory. A separate in-transit account would instead post Dr In-transit 1,000,000 / Cr Inventory 1,000,000.) |
 | Jakarta receives 98 | Transit −98 / −980,000; Jakarta +98 / +980,000 | None. |
-| Write off 2 lost pcs (adjustment from transfer) | Transit −2 / −20,000 | Dr Beban selisih persediaan 20,000 / Cr Inventory 20,000 |
-| Charge 2 pcs to driver (adjustment from transfer) | Transit −2 / −20,000 | Dr Piutang karyawan/ekspedisi 20,000 / Cr Inventory 20,000 |
+| Write off 2 lost pcs (adjustment from transfer) | Transit −2 / −20,000 | Dr Beban Barang Rusak / Hilang 20,000 / Cr Inventory 20,000 |
+| Charge 2 pcs to driver (adjustment from transfer) | Transit −2 / −20,000 | Dr Piutang Karyawan (own driver) or Piutang Lain-lain (outside courier) 20,000 / Cr Inventory 20,000 |
 | Move 5 damaged pcs Jakarta → Defect | Same pattern as the first two rows | None |
 | Write off damaged stock (adjustment in defect warehouse) | Defect −5 at defect pool cost | Dr Beban Barang Rusak / Cr Inventory |
 | Return damaged stock to supplier | Defect −5 at defect pool cost | Existing purchase-return posting with warehouse = Defect: Dr AP-return clearing / Cr Inventory at cost. The debit note then posts Dr AP / Cr AP-return clearing at the agreed return price, which settles any price-cost difference. |
@@ -191,9 +207,9 @@ If an item's lots carry different historical inventory accounts, the transfer mo
 
 | Phase | Scope | Done when |
 |---|---|---|
-| 0 | Business owner decisions recorded (D1–D3, D5–D10, 13 Nov). D4 accounts open with finance; finance review of section 8 | Finance sign-off |
+| 0 | Business owner decisions recorded (D1–D3, D5–D10, 13 Nov). D4 recommended accounts awaiting the head accountant; finance review of section 8 | Finance sign-off |
 | 1 | Default warehouse and migration (4.3); Multiple Warehouses switch; Warehouses screen; warehouse on PO, receipt, bill, SO, delivery note, invoice; remove the "any warehouse" fallback; per-warehouse stock on item entry; Item per Warehouse | PostgreSQL tests: migration keeps every pool's quantity and value; with the switch off everything posts to the default warehouse; a Jakarta invoice cannot draw Bogor stock; a WA shortage is settled only by a receipt into the same warehouse; turning the switch off is refused while other warehouses hold stock; per-warehouse totals equal Inventory GL |
-| 2 | Transfers: ship, receive (partial/multiple), Transit costing, differences report, adjustment Get From transfer, voids | Pilot example: 100 pcs Bogor → Jakarta, receive 98, 2 visible in Transit, then written off by an adjustment; FIFO and WA exact to the cent; voids refused after a later issue; browser journey |
+| 2 | Transfers: ship, receive (partial/multiple), Transit costing, differences report, adjustment Get From transfer, voids; per-line adjustment account posting and the two transit account defaults (6.4, D4) | Pilot example: 100 pcs Bogor → Jakarta, receive 98, 2 visible in Transit, then written off by an adjustment; FIFO and WA exact to the cent; voids refused after a later issue; browser journey |
 | 3 | Defect warehouse flows; warehouse-scoped access if D1 = yes | Defect stock never offered for sale; write-off and supplier return match section 8; finance review |
 
 ## 10. Decisions needed
@@ -204,7 +220,7 @@ If an item's lots carry different historical inventory accounts, the transfer mo
 | D1a | Can the same user ship and receive one transfer? | **Decided (business owner, 13 Nov): no**, unless an administrator allows it for that user. The Transfer In must be recorded by a different user from the Transfer Out. |
 | D2 | Is it acceptable that stock leaves at invoice posting (not at delivery), given the pilot invoices right after delivery? | **Decided (business owner, 13 Nov): yes**, at invoice posting for the pilot. |
 | D3 | Can a PO be received directly into the defect warehouse (damaged on arrival)? | **Decided (business owner, 13 Nov): no.** Receive into a standard warehouse, then transfer the damaged units, so the receipt matches the supplier invoice. |
-| D4 | Accounts for transit losses and for amounts charged to drivers or carriers. | **Open, with finance.** Finance names the expense and receivable accounts; they become the suggested adjustment accounts for Get From → Stock Transfer. |
+| D4 | Accounts for transit losses and for amounts charged to drivers or carriers. | **Recommended, awaiting the head accountant:** *Beban Barang Rusak / Hilang* for company-borne losses; *Piutang Karyawan* (own driver) or *Piutang Lain-lain* (outside courier) for charged amounts. These are company defaults the head accountant can change, and users can override them per line, subject to approval (6.4). |
 | D5 | Separate "inventory in transit" GL account, or keep transit inside Inventory? | **Decided (business owner, 13 Nov): keep inside Inventory.** Transfers post no journal entry; Transit is visible in stock reports. Finance may still review. |
 | D6 | Who may write off a transfer difference? | **Decided (business owner, 13 Nov):** staff with Stock Adjustment rights, after the stock audit, following the adjustment approval rules. |
 | D7 | Which warehouse do marketplace orders ship from? | **Decided (business owner, 13 Nov): one warehouse per shop**, chosen in the e-commerce (shop connection) settings. |
