@@ -72,7 +72,6 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
 
   const result = await prisma.$transaction(async (tx) => {
     await assertDocumentOffsetAccounts(tx, orgId, lines.map(line => line.accountId));
-    await assertStockAdjustmentOffsetsNotInventory(tx, orgId, lines.map(line => line.accountId));
     if (warehouseId) {
       await validateForeignKey(tx.warehouse, { id: warehouseId, organizationId: orgId }, 'Warehouse not found in organization');
     }
@@ -80,6 +79,7 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
       // Inactive items remain adjustable so residual stock can be written down.
       await validateForeignKey(tx.item, { id: line.itemId, organizationId: orgId }, 'Item not found in organization');
     }
+    await assertStockAdjustmentOffsetsNotInventory(tx, orgId, lines.map(line => line.accountId));
 
     // Stock-count posting also holds item locks while allocating ADJ numbers.
     // Use that order here so direct posting cannot take the opposite order.
