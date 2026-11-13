@@ -10,6 +10,7 @@ import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { itemPostingAccount, lotsWithBookValue } from './item-posting-accounts';
 import { ApiError } from './errors';
 import { allocateAdjustmentOffsets, type AdjustmentMovement } from './stock-adjustment-allocation';
+import { assertStockAdjustmentOffsetsNotInventory } from './stock-adjustment-offset-guard';
 
 type Tx = Prisma.TransactionClient;
 
@@ -114,6 +115,7 @@ export async function postStockAdjustmentToLedger(
   }
 
   const inventoryLines = [...valuesByAccount].filter(([, value]) => value !== 0);
+  if (args.postsLineAccounts) await assertStockAdjustmentOffsetsNotInventory(tx, orgId, lines.map(line => line.accountId), { adjustmentId: args.id, movementAccountIds: movements.map(movement => movement.inventoryAccountId) });
   const offsets = allocateAdjustmentOffsets(movements, args.postsLineAccounts === true, varianceAccountId);
   if (inventoryLines.length === 0 && offsets.length === 0) return;
   await assertDocumentOffsetAccounts(tx, orgId, [...inventoryLines.map(([id]) => id), ...offsets.map(offset => offset.accountId)]);

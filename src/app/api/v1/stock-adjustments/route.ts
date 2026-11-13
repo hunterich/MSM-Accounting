@@ -8,6 +8,7 @@ import { lockInventoryItems } from '@/lib/inventory-costing';
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { assertDocumentOffsetAccounts } from '@/lib/document-offset-accounts';
+import { assertStockAdjustmentOffsetsNotInventory } from '@/lib/stock-adjustment-offset-guard';
 
 export const runtime = 'nodejs';
 
@@ -71,6 +72,7 @@ export const POST = withPermission({ module: 'INV_ADJ', action: 'create' }, asyn
 
   const result = await prisma.$transaction(async (tx) => {
     await assertDocumentOffsetAccounts(tx, orgId, lines.map(line => line.accountId));
+    await assertStockAdjustmentOffsetsNotInventory(tx, orgId, lines.map(line => line.accountId));
     if (warehouseId) {
       await validateForeignKey(tx.warehouse, { id: warehouseId, organizationId: orgId }, 'Warehouse not found in organization');
     }
