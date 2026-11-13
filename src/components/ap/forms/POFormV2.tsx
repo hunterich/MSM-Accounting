@@ -28,7 +28,7 @@ import { useAccountsByType, useChartOfAccounts } from '../../../hooks/useGL';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useOrganizationSettings } from '../../../hooks/useOrganizationSettings';
 import { DEFAULT_PURCHASE_POLICY } from '../../../../lib/organization/settings-config';
-import { autoCloseDate } from '../../../../lib/purchase-order-auto-close-config';
+import { autoCloseDeadline } from '../../../../lib/purchase-order-auto-close-config';
 import { resolveAccountDefaults } from '../../../../lib/account-defaults';
 
 /**
@@ -403,6 +403,9 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
         </div>
     );
 
+    const reopenedAt = typeof editingPO?.reopenedAt === 'string' ? editingPO.reopenedAt : null;
+    const companyTimezone = orgSettings?.timezone || 'Asia/Jakarta';
+    const scheduledClose = autoCloseDeadline({ date: orderDate, reopenedAt, autoCloseEnabled, autoCloseDays }, companyTimezone);
     const autoClosePanel = (<div className="bg-neutral-0 border border-neutral-200 rounded-lg p-4 mt-3">
                     <div className="text-[11px] uppercase tracking-wide text-neutral-500 font-semibold mb-2">Purchase order auto-close</div>
                     <label className="flex items-center gap-2 text-sm">
@@ -411,15 +414,15 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
                             onChange={(e) => setAutoCloseEnabled(e.target.checked)} />
                         Auto-close this order
                     </label>
-                    <label className="block mt-3 mb-1 text-xs">Days after expected delivery date</label>
+                    <label className="block mt-3 mb-1 text-xs">{reopenedAt ? 'Days after reopen date' : 'Days after order date'}</label>
                     <input type="number" min={0} max={3650} step={1} aria-label="Auto-close days"
                         className={`${ctl} max-w-[160px]`} value={autoCloseDays}
                         disabled={!orgSettings || !purchasePolicy.allowAutoCloseOverride}
                         onChange={(e) => setAutoCloseDays(Number(e.target.value))} />
                     <div className="text-xs text-neutral-500 mt-2">
-                        {autoCloseEnabled ? expectedDate
-                            ? `Scheduled close date: ${autoCloseDate(expectedDate, autoCloseDays)}. Checked every 15 minutes in the company timezone.`
-                            : 'Set an expected delivery date to schedule auto-close.'
+                        {autoCloseEnabled ? scheduledClose
+                            ? `Scheduled close date: ${scheduledClose}${reopenedAt ? ' (counted from the reopen date)' : ''}. Checked every 15 minutes in the company timezone.`
+                            : 'Set an order date to schedule auto-close.'
                             : 'This order will stay open until it is received or manually closed.'}
                         {!purchasePolicy.allowAutoCloseOverride && ' Individual changes are disabled in Purchase settings.'}
                     </div>

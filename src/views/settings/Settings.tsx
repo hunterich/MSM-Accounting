@@ -650,7 +650,7 @@ const Settings = () => {
                             checked={purchasePolicy.autoCloseEnabled}
                             onChange={(autoCloseEnabled) => setPurchasePolicy({ ...purchasePolicy, autoCloseEnabled })}
                             hint="Default for new orders. Only approved or partially received orders close; received goods can still be billed." />
-                        <label className="form-label">Days after expected delivery date</label>
+                        <label className="form-label">Days after PO date</label>
                         <input type="number" min={0} max={3650} step={1}
                             className="h-9 px-3 border border-neutral-300 rounded-md mb-3"
                             value={purchasePolicy.autoCloseDays}
@@ -658,7 +658,7 @@ const Settings = () => {
                         <FeatureRow label="Allow auto-close to be modified on individual orders"
                             checked={purchasePolicy.allowAutoCloseOverride}
                             onChange={(allowAutoCloseOverride) => setPurchasePolicy({ ...purchasePolicy, allowAutoCloseOverride })} />
-                        <p className="settings-help-text">Orders without an expected delivery date stay open. Deadlines use the company timezone and are checked every 15 minutes. Existing orders keep their saved settings.</p>
+                        <p className="settings-help-text">The undelivered balance closes this many days after the PO date. Staff who can approve purchase orders can reopen a closed order; auto-close then restarts from the reopen date. Deadlines use the company timezone and are checked every 15 minutes. Existing orders keep their saved on/off and day settings.</p>
                         <Button onClick={() => void saveSection('purchase')} disabled={updateOrgSettings.isPending} className="mt-4">Save Purchase Settings</Button>
                     </Card>
                 )}

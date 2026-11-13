@@ -462,6 +462,7 @@ Payroll accounting/dated eligibility fixes are implemented for review on `codex/
 - [ ] Sales channel dimension in reports
 
 ### 3.6 Procurement Improvements
+- [~] **PO auto-close from PO date and approver reopen (DIST-01 #178)** — deadline counts from the PO date (or reopen date); staff with Purchase Orders approve can reopen a closed PO with an undelivered balance. Unit/route tests pass; PostgreSQL integration, browser check, pre-deploy `scripts/audit-po-auto-close-basis.sql` and pilot acceptance are pending.
 - [ ] Request for Quotation (RFQ) to multiple suppliers
 - [ ] Supplier quotation comparison (side-by-side)
 - [ ] Material Request (auto from low stock)

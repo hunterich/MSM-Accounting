@@ -956,6 +956,9 @@ model PurchaseOrder {
   autoCloseEnabled Boolean           @default(false)
   autoCloseDays    Int               @default(30)
   autoClosedAt     DateTime?
+  // Set when authorized staff reopen a closed PO; auto-close then counts from
+  // this date (company calendar day) instead of the PO date.
+  reopenedAt       DateTime?
   status         PurchaseOrderStatus @default(DRAFT)
   taxRate        Decimal             @default(0) @db.Decimal(5, 2)
   taxable        Boolean             @default(false)
