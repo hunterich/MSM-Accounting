@@ -39,7 +39,7 @@ interface PurchaseOrdersProps {
 const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
-    const { canCreate, canEdit } = useModulePermissions('ap_pos');
+    const { canCreate, canEdit, canApprove } = useModulePermissions('ap_pos');
     const { data: posResult, isLoading } = usePurchaseOrders();
     const purchaseOrders = posResult?.data ?? [];
     const company = useSettingsStore((s) => s.companyInfo);
@@ -158,13 +158,25 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
 
     // Close PO
     const handleClosePO = useCallback(async (row: Record<string, unknown>) => {
-        if (!window.confirm(`Close PO ${row['id'] as string}? This action cannot be undone.`)) return;
+        if (!window.confirm(`Close PO ${row['id'] as string}? Its undelivered balance can no longer be received unless staff with approval rights reopen it.`)) return;
         try {
             await api.post(`/api/v1/purchase-orders/${row['_id'] as string}/close`);
             setToast('PO closed');
             queryClient.invalidateQueries({ queryKey: AP_KEYS.pos });
         } catch (err) {
             setToast('Failed to close PO');
+        }
+    }, [queryClient]);
+
+    // Reopen a closed PO (approvers only; the API enforces AP_POS:approve)
+    const handleReopenPO = useCallback(async (row: Record<string, unknown>) => {
+        if (!window.confirm(`Reopen PO ${row['id'] as string}? Its undelivered balance can be received again, and auto-close (if on) restarts from today.`)) return;
+        try {
+            await api.post(`/api/v1/purchase-orders/${row['_id'] as string}/reopen`);
+            setToast('PO reopened');
+            queryClient.invalidateQueries({ queryKey: AP_KEYS.pos });
+        } catch (err) {
+            setToast(err instanceof Error ? err.message : 'Failed to reopen PO');
         }
     }, [queryClient]);
 
@@ -226,6 +238,14 @@ const PurchaseOrders = ({ receivingMode = false }: PurchaseOrdersProps) => {
                                 size="small"
                                 variant="danger"
                                 onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleClosePO(row); }}
+                            />
+                        )}
+                        {status === 'Closed' && canApprove && (
+                            <Button
+                                text="Reopen"
+                                size="small"
+                                variant="secondary"
+                                onClick={(event: React.MouseEvent) => { event.stopPropagation(); handleReopenPO(row); }}
                             />
                         )}
                     </div>

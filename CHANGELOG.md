@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — purchase order auto-close counts from the PO date; approvers can reopen (DIST-01 #178)
+- Auto-close now counts the configured days from the PO date instead of the expected delivery date, so orders without an expected date also close. The company default stays a Purchase setting (off, 30 days unless changed); the distributor pilot sets on, 7 days for its company.
+- New `POST /api/v1/purchase-orders/[id]/reopen` and a Reopen button on closed POs, limited to staff with the Purchase Orders approve right. A reopened PO returns to Approved or Partially received, clears its auto-close mark, records `reopenedAt` and an audit entry, and its auto-close (if on) restarts from the reopen date in the company timezone. Fully received, cancelled or open orders are refused.
+- Requires migration `20261113120000_purchase_order_reopen` (nullable column). Open orders with auto-close on get a new deadline: run the read-only `scripts/audit-po-auto-close-basis.sql` on each database before deploying, because orders whose PO-date deadline has passed close on the first 15-minute check. Not yet verified against PostgreSQL or in a browser.
+
 ### Fixed — reversed stock issues no longer block WA inbound voids (INV-02 WIP)
 - A sale, supplier return or stock decrease that has since been voided, and the removal row of another receipt's void, no longer block a Weighted Average receipt void. Such rows are now marked `reversedAt`; each pair nets to zero, so the pool stays exact. Voiding a later bill and then an earlier one, or a receipt after its sale was cancelled, now succeeds. Active later issues still refuse. This replaces the `reversesLedgerEntryId` link merged in #174: `20261018120000_inventory_reversal_marking` copies existing links into `reversedAt`, then drops the column. Legacy unmarked rows still block, and the refusal names their date instead of an internal ID.
 
