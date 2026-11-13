@@ -113,6 +113,19 @@ export const PUT = withPermission({ module: 'INTEGRATIONS', action: 'edit' }, as
       (updateData.salesTypeId as string | null | undefined) ?? existing.salesTypeId
     );
 
+    // Reject foreign, inactive or non-postable GL mappings on the server.
+    if (parsed.data.mappings) {
+      const mapping = parsed.data.mappings;
+      const ids = [...new Set([mapping.fees, mapping.shipping, mapping.others]
+        .flatMap(group => Object.entries(group ?? {})
+          .filter(([key, value]) => key.endsWith('AccountId') && typeof value === 'string' && value.length > 0)
+          .map(([, value]) => value as string)))];
+      if (ids.length) {
+        const accounts = await prisma.account.findMany({ where: { id: { in: ids }, organizationId: orgId, isActive: true, isPostable: true }, select: { id: true } });
+        if (accounts.length !== ids.length) throw new ApiError('A mapped account is unavailable or does not belong to this company.', 400);
+      }
+    }
+
     const shopName = String(updateData.shopName ?? existing.shopName).trim();
     const platform = String(updateData.platform ?? existing.platform).trim().toUpperCase();
     const connection = await prisma.$transaction(async (tx) => {
@@ -194,3 +207,4 @@ export const DELETE = withPermission({ module: 'INTEGRATIONS', action: 'delete' 
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
 });
+
