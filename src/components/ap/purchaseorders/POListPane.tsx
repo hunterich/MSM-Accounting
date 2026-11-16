@@ -26,7 +26,7 @@ interface ReceiveLine { purchaseOrderLineId: string; qtyReceived: number }
 
 const POListPane = (): React.ReactElement => {
     const queryClient = useQueryClient();
-    const { canCreate, canEdit } = useModulePermissions('ap_pos');
+    const { canCreate, canEdit, canApprove } = useModulePermissions('ap_pos');
     const { open } = useWorkspaceNav();
     const company = useSettingsStore((s) => s.companyInfo);
     const printSettings = useSettingsStore((s) => s.printSettings);
@@ -86,9 +86,14 @@ const POListPane = (): React.ReactElement => {
         } catch (error) { setToast(error instanceof Error ? error.message : 'Failed to receive goods'); } finally { setReceiveLoading(false); }
     }, [receivePoData, receiveLines, queryClient, canCreate, receiptValid, receiveLoading]);
     const handleClosePO = useCallback(async (row: Record<string, unknown>) => {
-        if (!window.confirm(`Close PO ${row['id'] as string}? This action cannot be undone.`)) return;
+        if (!window.confirm(`Close PO ${row['id'] as string}? Its undelivered balance can no longer be received unless staff with approval rights reopen it.`)) return;
         try { await api.post(`/api/v1/purchase-orders/${row['_id'] as string}/close`); setToast('PO closed'); queryClient.invalidateQueries({ queryKey: AP_KEYS.pos }); }
         catch { setToast('Failed to close PO'); }
+    }, [queryClient]);
+    const handleReopenPO = useCallback(async (row: Record<string, unknown>) => {
+        if (!window.confirm(`Reopen PO ${row['id'] as string}? Its undelivered balance can be received again, and auto-close (if on) restarts from today.`)) return;
+        try { await api.post(`/api/v1/purchase-orders/${row['_id'] as string}/reopen`); setToast('PO reopened'); queryClient.invalidateQueries({ queryKey: AP_KEYS.pos }); }
+        catch (error) { setToast(error instanceof Error ? error.message : 'Failed to reopen PO'); }
     }, [queryClient]);
 
     const columns = [
@@ -111,6 +116,7 @@ const POListPane = (): React.ReactElement => {
                     {isDraft && <Button text="Submit" size="small" variant="secondary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleSubmitApproval(row); }} />}
                     {canReceive && <Button text="Receive" size="small" variant="primary" disabled={!canCreate} onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleOpenReceive(row); }} />}
                     {!isClosed && <Button text="Close" size="small" variant="danger" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleClosePO(row); }} />}
+                    {s === 'Closed' && canApprove && <Button text="Reopen" size="small" variant="secondary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleReopenPO(row); }} />}
                 </div>
             );
         } },

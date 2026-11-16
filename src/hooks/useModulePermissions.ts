@@ -6,6 +6,7 @@ export interface ModulePermissions {
   canCreate: boolean;
   canEdit:   boolean;
   canDelete: boolean;
+  canApprove: boolean;
 }
 
 export const useModulePermissions = (moduleKey: string): ModulePermissions => {
@@ -17,6 +18,7 @@ export const useModulePermissions = (moduleKey: string): ModulePermissions => {
     canCreate: hasPermission(moduleKey, 'create'),
     canEdit:   hasPermission(moduleKey, 'edit'),
     canDelete: hasPermission(moduleKey, 'delete'),
+    canApprove: hasPermission(moduleKey, 'approve'),
   };
 };
 

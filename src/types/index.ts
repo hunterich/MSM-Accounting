@@ -260,6 +260,7 @@ export interface RawPurchaseOrder {
   autoCloseEnabled?: boolean;
   autoCloseDays?: number;
   autoClosedAt?: string | null;
+  reopenedAt?: string | null;
   status?: string | null;
   totalAmount?: number | string | null;
   notes?: string | null;
@@ -842,6 +843,7 @@ export interface PurchaseOrder {
   autoCloseEnabled?: boolean;
   autoCloseDays?: number;
   autoClosedAt?: string | null;
+  reopenedAt?: string | null;
   status: POStatus;
   amount: number;
   totalAmount: number;
