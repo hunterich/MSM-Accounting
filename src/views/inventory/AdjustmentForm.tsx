@@ -9,6 +9,10 @@ import { useStockAdjustments, useAllItems, useCreateStockAdjustment, useUpdateSt
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import OffsetAccountSelect from '../../components/UI/OffsetAccountSelect';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../../api/apiClient';
+import { useLanguageStore } from '../../stores/useLanguageStore';
+import { translate } from '../../i18n/language';
 
 interface AdjustmentLineDraft {
     id?: string;
@@ -27,6 +31,7 @@ interface AdjustmentDraft {
     reason?: string;
     notes?: string;
     status?: string;
+    postsLineAccounts?: boolean;
     items?: AdjustmentLineDraft[];
     lines?: AdjustmentLineDraft[];
 }
@@ -73,8 +78,7 @@ const buildFormData = (adj: AdjustmentDraft | null) => {
     };
 };
 
-const buildItems = (adj: AdjustmentDraft | null, expenseAccounts: Array<{ id?: string }>): AdjustmentItemForm[] => {
-    const defaultAccountId = expenseAccounts[0]?.id || '';
+const buildItems = (adj: AdjustmentDraft | null, defaultAccountId: string): AdjustmentItemForm[] => {
 
     const savedLines = adj?.lines ?? adj?.items;
     if (savedLines && savedLines.length > 0) {
@@ -117,9 +121,12 @@ const AdjustmentForm = () => {
     const { data: itemsData, isLoading: itemsLoading } = useAllItems({ isActive: 'all' });
     const products = itemsData?.data ?? [];
     const { data: allAccounts = [], isLoading: accountsLoading } = useChartOfAccounts({ withControlFlags: 1 });
+    const language = useLanguageStore(s => s.language) ?? 'en';
+    const defaultAccount = useQuery({ queryKey: ['stockAdjustmentDefaultAccount'], queryFn: () => api.get<{ accountId: string }>('/api/v1/stock-adjustments/default-account'), refetchOnWindowFocus: false });
+    const defaultAccountId = defaultAccount.data?.accountId ?? '';
 
     const isSaving = createAdjustment.isPending || updateAdjustmentMutation.isPending;
-    const isPageLoading = adjustmentsLoading || itemsLoading || accountsLoading;
+    const isPageLoading = adjustmentsLoading || itemsLoading || accountsLoading || defaultAccount.isLoading;
 
     const selectedAdj = useMemo(() => adjustments.find((a) => a.id === adjId || a._id === adjId) || null, [adjId, adjustments]);
 
@@ -134,14 +141,14 @@ const AdjustmentForm = () => {
     }, [allAccounts]);
 
     const [formData, setFormData] = useState<AdjustmentFormData>(() => buildFormData(selectedAdj));
-    const [items, setItems] = useState<AdjustmentItemForm[]>(() => buildItems(selectedAdj, expenseTargetAccounts));
+    const [items, setItems] = useState<AdjustmentItemForm[]>(() => buildItems(selectedAdj, defaultAccountId));
     const [errors, setErrors] = useState<AdjustmentErrors>({});
 
     useEffect(() => {
         setFormData(buildFormData(selectedAdj));
-        setItems(buildItems(selectedAdj, expenseTargetAccounts));
+        setItems(buildItems(selectedAdj, defaultAccountId));
         setErrors({});
-    }, [selectedAdj, adjId, expenseTargetAccounts]);
+    }, [selectedAdj, adjId, defaultAccountId]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -191,7 +198,7 @@ const AdjustmentForm = () => {
             {
                 id: `line-${prev.length}-${Date.now()}`,
                 itemId: '',
-                accountId: expenseTargetAccounts[0]?.id || '',
+                accountId: defaultAccountId,
                 oldQty: 0,
                 newQty: 0,
                 qtyDiff: 0,
@@ -210,6 +217,10 @@ const AdjustmentForm = () => {
         e.preventDefault();
         if (isViewMode) {
             navigate('/inventory/adjustments');
+            return;
+        }
+        if (defaultAccount.isError) {
+            alert('Could not load the stock adjustment default account. Please try again.');
             return;
         }
 
@@ -396,6 +407,7 @@ const AdjustmentForm = () => {
                                                     disabled={isViewMode}
                                                     options={allAccounts.map(account => ({ value: account.id, label: `${account.code} - ${account.name}`, disabled: !expenseTargetAccounts.some(valid => valid.id === account.id) }))}
                                                 />
+                                                <p className="mt-1 text-xs text-neutral-600">{translate(language, selectedAdj && !selectedAdj.postsLineAccounts ? 'This older adjustment posts its net difference to the default variance account instead of the selected accounts.' : 'This line’s difference posts to this account.')}</p>
                                             </td>
                                             <td className="p-2 text-center text-neutral-600 bg-neutral-50 rounded">
                                                 {line.oldQty}

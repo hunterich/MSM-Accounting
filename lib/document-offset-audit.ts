@@ -36,5 +36,5 @@ export async function auditDocumentOffsets(tx: Prisma.TransactionClient, organiz
   const variance = resolveAccountDefaultId(accounts, settings, 'inventoryAdjustment') || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
   return { organizationId, documentsReviewed: bills.length + invoices.length + adjustments.length, findings, recordedControlLines,
     defaultVarianceIsPartyControl: !!variance && controls.has(variance),
-    limitations: ['Selections identify review candidates, not a quantified reconciliation difference.', 'Stock adjustment line selections are currently stored; posting uses the configured variance default.', 'Legacy invoice journals without recorded posting IDs require separate historical review.', 'Independent per-control reconciliation remains issue #167.'] };
+    limitations: ['Selections identify review candidates, not a quantified reconciliation difference.', 'Legacy stock adjustments post to the variance default regardless of stored line selections; new adjustments use line selections with a default fallback.', 'Legacy invoice journals without recorded posting IDs require separate historical review.', 'Independent per-control reconciliation remains issue #167.'] };
 }

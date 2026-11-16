@@ -83,6 +83,7 @@ function normalizeItemCategory(raw: RawItemCategory): ItemCategory {
 function normalizeAdjustment(raw: RawStockAdjustment): StockAdjustment {
     return {
         id:     raw.number || raw.id,
+        postsLineAccounts: raw.postsLineAccounts === true,
         _id:    raw.id,
         number: raw.number || '',
         date:   raw.date ? String(raw.date).slice(0, 10) : '',

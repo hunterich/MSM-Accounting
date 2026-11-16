@@ -5,6 +5,7 @@ import { ApiError, ok, err, logAudit, validateForeignKey } from '@/lib/api-utils
 import { withPermission } from '@/lib/authz';
 import { updateStockAdjustmentInputSchema } from '@/types/api';
 import { assertDocumentOffsetAccounts } from '@/lib/document-offset-accounts';
+import { assertStockAdjustmentOffsetsNotInventory } from '@/lib/stock-adjustment-offset-guard';
 
 export const runtime = 'nodejs';
 
@@ -42,6 +43,7 @@ export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (
         throw new ApiError('Only DRAFT adjustments can be edited', 400);
       }
       await assertDocumentOffsetAccounts(tx, orgId, (lines ?? existing.lines).map(line => line.accountId));
+      if (existing.postsLineAccounts) await assertStockAdjustmentOffsetsNotInventory(tx, orgId, (lines ?? existing.lines).map(line => line.accountId), { adjustmentId: id });
       if (header.warehouseId) {
         await validateForeignKey(tx.warehouse, { id: header.warehouseId, organizationId: orgId }, 'Warehouse not found in organization');
       }

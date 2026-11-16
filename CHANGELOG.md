@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — stock adjustment offset accounts
+- New stock adjustments post lot-derived differences to the chosen line accounts; older adjustments and stock counts retain variance-default posting. Existing journals and costing are unchanged.
+
 ### Changed — purchase order auto-close counts from the PO date; approvers can reopen (DIST-01 #178)
 - Auto-close now counts the configured days from the PO date instead of the expected delivery date, so orders without an expected date also close. The company default stays a Purchase setting (off, 30 days unless changed); the distributor pilot sets on, 7 days for its company.
 - New `POST /api/v1/purchase-orders/[id]/reopen` and a Reopen button on closed POs, limited to staff with the Purchase Orders approve right. A reopened PO returns to Approved or Partially received, clears its auto-close mark, records `reopenedAt` and an audit entry, and its auto-close (if on) restarts from the reopen date in the company timezone. Fully received, cancelled or open orders are refused.

@@ -18,8 +18,8 @@ type Tx = Prisma.TransactionClient;
  * reversal rows colliding.
  *
  * The variance JE is resolved by its deterministic memo (`Stock adjustment:
- * <number>` — no journalEntryId column); a net-zero adjustment posted no JE, so
- * that step is skipped. Reversing the JE restores the inventory asset in the GL;
+ * <number>` — no journalEntryId column); adjustments with no journal skip that
+ * step. Reversing the JE restores the inventory asset in the GL;
  * the inventory primitives restore the perpetual subledger by the same amount.
  */
 export async function voidStockAdjustment(

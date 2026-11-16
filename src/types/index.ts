@@ -1155,6 +1155,7 @@ export interface RawAdjLine {
 
 export interface RawStockAdjustment {
   id: string;
+  postsLineAccounts?: boolean;
   number?: string | null;
   date?: string | null;
   type?: string | null;
@@ -1175,6 +1176,7 @@ export interface AdjLine {
 
 export interface StockAdjustment {
   id: string;
+  postsLineAccounts: boolean;
   _id: string;
   number: string;
   date: string;
