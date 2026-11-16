@@ -246,6 +246,7 @@ function normalizePO(raw: RawPurchaseOrder): PurchaseOrder {
         autoCloseEnabled: raw.autoCloseEnabled ?? false,
         autoCloseDays: raw.autoCloseDays ?? 30,
         autoClosedAt: raw.autoClosedAt ?? null,
+        reopenedAt:   raw.reopenedAt ?? null,
         status:       PO_STATUS_DOWN[raw.status ?? ''] ?? (raw.status as POStatus),
         amount:       Number(raw.totalAmount ?? 0),
         totalAmount:  Number(raw.totalAmount ?? 0),
@@ -611,6 +612,14 @@ export function useClosePO() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: (poId: string) => api.post(`/api/v1/purchase-orders/${poId}/close`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.pos }),
+    });
+}
+
+export function useReopenPO() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (poId: string) => api.post(`/api/v1/purchase-orders/${poId}/reopen`),
         onSuccess: () => qc.invalidateQueries({ queryKey: AP_KEYS.pos }),
     });
 }

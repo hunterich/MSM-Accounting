@@ -22,9 +22,10 @@ export function resolveAutoCloseOptions(
   return next;
 }
 
-export function autoCloseDate(expectedDate: Date | string | null | undefined, days: number): string | null {
-  if (!expectedDate) return null;
-  const date = new Date(expectedDate);
+/** Calendar date (YYYY-MM-DD) `days` after `startDate`, or null without a valid start. */
+export function autoCloseDate(startDate: Date | string | null | undefined, days: number): string | null {
+  if (!startDate) return null;
+  const date = new Date(startDate);
   if (Number.isNaN(date.getTime())) return null;
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
@@ -36,7 +37,32 @@ export function dateInTimezone(now: Date, timezone: string): string {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
-export function purchaseOrderIsDue(po: AutoCloseOptions & { status: string; expectedDate?: Date | string | null }, today: string): boolean {
-  const deadline = autoCloseDate(po.expectedDate, po.autoCloseDays);
+export interface AutoCloseSchedule extends AutoCloseOptions {
+  /** PO date: a calendar date stored at UTC midnight. */
+  date: Date | string | null | undefined;
+  /** Moment of the latest reopen; converted to the company calendar day. */
+  reopenedAt?: Date | string | null;
+}
+
+/**
+ * Day the auto-close period starts: the reopen day when the PO was reopened,
+ * otherwise the PO date. The expected delivery date plays no part.
+ */
+export function autoCloseStartDate(po: Pick<AutoCloseSchedule, 'date' | 'reopenedAt'>, timezone: string): string | null {
+  if (po.reopenedAt) {
+    const reopened = new Date(po.reopenedAt);
+    if (!Number.isNaN(reopened.getTime())) return dateInTimezone(reopened, timezone);
+  }
+  if (!po.date) return null;
+  const date = new Date(po.date);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+}
+
+export function autoCloseDeadline(po: AutoCloseSchedule, timezone: string): string | null {
+  return autoCloseDate(autoCloseStartDate(po, timezone), po.autoCloseDays);
+}
+
+export function purchaseOrderIsDue(po: AutoCloseSchedule & { status: string }, today: string, timezone: string): boolean {
+  const deadline = autoCloseDeadline(po, timezone);
   return po.autoCloseEnabled && ['APPROVED', 'PARTIAL_RECEIVED'].includes(po.status) && !!deadline && today >= deadline;
 }
