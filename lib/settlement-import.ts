@@ -97,7 +97,13 @@ export async function importSettlement(
             where: { invoiceId: invoice.id, payment: { organizationId: orgId, ecommerceConnectionId: connectionId, source: 'MARKETPLACE_IMPORT', status: 'COMPLETED' } },
             select: { paymentId: true },
           });
-          if (!alloc) return 'skipped';
+          if (!alloc) {
+            const unverified = await tx.aRPaymentAllocation.findFirst({
+              where: { invoiceId: invoice.id }, select: { paymentId: true },
+            });
+            if (unverified) throw new Error('The allocated receipt cannot be verified as a completed import for this shop. It may be a legacy receipt; review its provenance before settlement.');
+            return 'skipped';
+          }
           const receipt = await tx.aRPayment.findFirst({
             where: { id: alloc.paymentId, organizationId: orgId, ecommerceConnectionId: connectionId, source: 'MARKETPLACE_IMPORT', status: 'COMPLETED' },
             select: { id: true, settledAt: true, depositAccountId: true, journalEntryId: true },

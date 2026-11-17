@@ -49,6 +49,13 @@ describe('marketplace settlement original account', () => {
     expect(state.post).not.toHaveBeenCalled();
     expect(state.tx.aRPayment.update).not.toHaveBeenCalled();
   });
+  it('keeps legacy receipts in the review bucket when no verified import allocation exists', async () => {
+    state.tx.aRPaymentAllocation.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ paymentId: 'legacy' });
+    const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'order', netReleased: 90, charges: {} }] });
+    expect(result.skipped).toEqual([]);
+    expect(result.failed[0].reason).toContain('review its provenance');
+    expect(state.post).not.toHaveBeenCalled();
+  });
 
   const refundNote = { id: 'cn', amount: 30, marketplaceRefundReceiptId: null };
   it('reconciles a first-settlement refund without booking it as an expense twice', async () => {
