@@ -30,6 +30,7 @@ import { prisma } from '@/lib/prisma';
 import { postJournalEntry, JournalLineInput, BALANCE_TOLERANCE } from '@/lib/journal-posting';
 import { KEY_TO_SLOT, SettlementFeeKey } from '@/src/utils/settlementMapping';
 import { assertPeriodOpen } from './period-guard';
+import { matchMarketplaceRefund } from './marketplace-refund';
 
 /**
  * Charge keys whose magnitude flows INTO the wallet (revenue / subsidy), so they
@@ -43,6 +44,9 @@ export interface SettlementOrderInput {
   netReleased: number;
   /** Canonical fee key → magnitude (always positive). */
   charges: Record<string, number>;
+  /** A later refund debit only; it must not contain the original payout again. */
+  refundOnly?: boolean;
+  refundCreditNoteNumbers?: string[];
 }
 
 export interface SettlementResult {
@@ -80,6 +84,7 @@ export async function importSettlement(
     try {
       const outcome = await prisma.$transaction(
         async (tx): Promise<'posted' | 'skipped' | 'already'> => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([orgId, order.orderId])}, 0))`;
           // 1. Find ②'s invoice (gross X) for this marketplace order.
           const invoice = await tx.salesInvoice.findFirst({
             where: { organizationId: orgId, poNumber: order.orderId, status: { not: 'VOID' } },
@@ -89,7 +94,7 @@ export async function importSettlement(
 
           // 2. Find ②'s settlement receipt via its allocation.
           const alloc = await tx.aRPaymentAllocation.findFirst({
-            where: { invoiceId: invoice.id },
+            where: { invoiceId: invoice.id, payment: { organizationId: orgId, ecommerceConnectionId: connectionId, source: 'MARKETPLACE_IMPORT', status: 'COMPLETED' } },
             select: { paymentId: true },
           });
           if (!alloc) return 'skipped';
@@ -98,8 +103,33 @@ export async function importSettlement(
             select: { id: true, settledAt: true, depositAccountId: true, journalEntryId: true },
           });
           if (!receipt) throw new Error('The allocated receipt cannot be verified as a completed import for this shop. It may be a legacy receipt; review its provenance before settlement.');
-          if (receipt.settledAt) return 'already';
           if (!receipt.depositAccountId || !receipt.journalEntryId) throw new Error('The original settlement account is missing from this receipt; review it before settlement.');
+
+          const refund = order.charges.refund ?? 0;
+          if (refund < 0) throw new Error('Refund must be a positive magnitude.');
+          if ((order.refundOnly || order.refundCreditNoteNumbers?.length) && refund <= 0) throw new Error('Enter a positive refund amount.');
+          const matched = refund > 0 ? await matchMarketplaceRefund(tx, {
+            orgId, invoiceId: invoice.id, receiptId: receipt.id, walletAccountId: receipt.depositAccountId,
+            amount: refund, noteNumbers: order.refundCreditNoteNumbers ?? [],
+          }) : null;
+          if (order.refundOnly) {
+            if (!receipt.settledAt) throw new Error('Reconcile the original payout before importing a later refund.');
+            if (Math.abs(order.netReleased + refund) > BALANCE_TOLERANCE ||
+                Object.entries(order.charges).some(([key, amount]) => key !== 'refund' && amount !== 0)) {
+              throw new Error('A later refund row must contain only the refund debit (net released = minus refund). Review fees and other adjustments separately.');
+            }
+            if (matched!.alreadyReconciled) return 'already';
+            await tx.creditNote.updateMany({ where: { id: { in: matched!.noteIds } }, data: {
+              marketplaceRefundReceiptId: receipt.id, marketplaceRefundReconciledAt: new Date(),
+            } });
+            // The refund note already credited the wallet. No second expense or JE.
+            return 'posted';
+          }
+          if (receipt.settledAt) {
+            if (matched && !matched.alreadyReconciled) throw new Error('This order is already settled. Import the later refund using refund-only mode.');
+            return 'already';
+          }
+          if (matched?.alreadyReconciled) throw new Error('This refund was already reconciled; review the original settlement.');
 
           const X = Number(invoice.totalAmount);
           const N = order.netReleased;
@@ -108,6 +138,7 @@ export async function importSettlement(
           const lines: JournalLineInput[] = [];
           for (const [k, mag] of Object.entries(order.charges)) {
             const key = k as SettlementFeeKey;
+            if (key === 'refund') continue; // already posted by the linked credit note
             if (!KEY_TO_SLOT[key] || !mag) continue;
             const acct = accountFor(key);
             if (!acct) continue;
@@ -124,8 +155,8 @@ export async function importSettlement(
           lines.push({
             accountId: receipt.depositAccountId,
             description: `Wallet settlement - ${invoice.number}`,
-            debit: 0,
-            credit: X - N,
+            debit: X - N - refund < 0 ? N + refund - X : 0,
+            credit: X - N - refund > 0 ? X - N - refund : 0,
           });
 
           // 5. Plug any residue (statement vs. our derived fees) into adjustment.
@@ -160,6 +191,9 @@ export async function importSettlement(
             where: { id: receipt.id },
             data: { settledAt: new Date(), settlementJournalId: je.id },
           });
+          if (matched) await tx.creditNote.updateMany({ where: { id: { in: matched.noteIds } }, data: {
+            marketplaceRefundReceiptId: receipt.id, marketplaceRefundReconciledAt: settledOn,
+          } });
           return 'posted';
         },
       );

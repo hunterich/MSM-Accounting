@@ -17,6 +17,9 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { importMarketplaceOrders, type ImportOrder } from '../../marketplace-import';
 import { importSettlement } from '../../settlement-import';
 import { postOpeningStockIfNeeded } from '../../inventory-opening';
+import { postSalesReturnOnApproval } from '../../sales-return-posting';
+import { postCreditNoteOnApply } from '../../credit-note-posting';
+import { voidCreditNote } from '../../note-void';
 import {
   prisma,
   createTestOrg,
@@ -188,6 +191,45 @@ async function seedImportedOrder(): Promise<ImportedOrder> {
 }
 
 describe('settlement reconciliation service', () => {
+  it.each([true, false])('links a received return after settlement without a second refund posting (goods received: %s)', async goodsReceived => {
+    const s = await seedImportedOrder();
+    try {
+      const payout = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross, charges: {} }] });
+      expect(payout.failed).toEqual([]);
+      const invoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.orgId, poNumber: 'ORD1' }, include: { lines: true } });
+      const source = invoice.lines[0];
+      const returnId = await prisma.$transaction(async tx => {
+        const sr = await tx.salesReturn.create({ data: {
+          organizationId: s.orgId, number: 'SR-MARKETPLACE', customerId: invoice.customerId, invoiceId: invoice.id,
+          returnDate: new Date('2026-06-10'), status: 'APPROVED', subtotal: invoice.subtotal, taxAmount: invoice.taxAmount, totalAmount: invoice.totalAmount,
+          lines: { create: [{ lineNo: 1, sourceInvoiceLineId: source.id, itemId: source.itemId, qtySold: source.quantity, qtyReturn: source.quantity, price: source.price, goodsReceived }] },
+        } });
+        await postSalesReturnOnApproval(tx, sr.id);
+        return sr.id;
+      });
+      const note = await prisma.$transaction(async tx => {
+        const cn = await tx.creditNote.create({ data: {
+          organizationId: s.orgId, number: 'CN-MARKETPLACE', customerId: invoice.customerId, sourceInvoiceId: invoice.id, salesReturnId: returnId,
+          date: new Date('2026-06-10'), settlementType: 'REFUND', settlementAccountId: s.walletAccountId,
+          status: 'APPLIED', amount: invoice.totalAmount, taxAmount: invoice.taxAmount, applyTax: invoice.taxEnabled,
+        } });
+        await postCreditNoteOnApply(tx, cn.id);
+        return cn;
+      });
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(0, 2);
+      const returnStock = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: s.orgId, documentId: returnId } });
+      expect(returnStock.reduce((sum, l) => sum + Number(l.qtyIn), 0)).toBe(goodsReceived ? 5 : 0);
+      const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+      const input = { orders: [{ orderId: 'ORD1', netReleased: -s.gross, charges: { refund: s.gross }, refundOnly: true, refundCreditNoteNumbers: [note.number] }] };
+      expect((await importSettlement(s.orgId, s.userId, s.connectionId, input)).failed).toEqual([]);
+      expect((await importSettlement(s.orgId, s.userId, s.connectionId, input)).alreadySettled).toBe(1);
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+      const linked = await prisma.creditNote.findUniqueOrThrow({ where: { id: note.id } });
+      expect(linked.marketplaceRefundReceiptId).toBeTruthy();
+      await expect(prisma.$transaction(tx => voidCreditNote(tx, s.orgId, note.id, { date: new Date('2026-06-11') }))).rejects.toThrow('reconciled');
+      await assertTrialBalanced(s.orgId, 'refund after settlement');
+    } finally { await cleanupOrg(s.orgId); }
+  });
   it('happy path: settles ORD1, posts a balanced entry, stamps the receipt', async () => {
     const s = await seedImportedOrder();
 

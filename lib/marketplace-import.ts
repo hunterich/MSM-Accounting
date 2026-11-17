@@ -24,6 +24,7 @@ import { nextNumber } from './api-utils';
 import { loadBankPostingContext } from './bank-transaction-posting';
 import { resolveBankLinkedAssetAccountId } from './account-defaults';
 import { toNumber } from './money';
+import { isMarketplaceReversalStatus, isMarketplaceShippedStatus } from '@/src/utils/marketplaceLifecycle';
 
 export interface ImportOrderLine {
   itemId: string;
@@ -36,6 +37,9 @@ export interface ImportOrderLine {
 export interface ImportOrder {
   orderNo: string;
   issueDate: string;
+  /** Actual dispatch date. When supplied, it controls every posting date. */
+  shipmentDate?: string;
+  orderStatus?: string;
   shippingAddress?: string;
   shippingCarrier?: string;
   trackingNumber?: string;
@@ -157,6 +161,9 @@ export async function importMarketplaceOrders(
           select: { id: true, shippingAddress: true, shippingCarrier: true, trackingNumber: true },
         });
         if (existing) {
+          if (order.orderStatus && isMarketplaceReversalStatus(order.orderStatus)) {
+            throw new Error('This imported order needs a linked sales return and credit note. Confirm goods received before restocking; reconcile the credit note with the settlement refund.');
+          }
           // A repeat export can enrich a previously imported invoice without
           // touching its amounts, status, inventory, payment, or journal.
           const logistics = {
@@ -169,6 +176,12 @@ export async function importMarketplaceOrders(
             return 'logistics_updated';
           }
           return 'skipped';
+        }
+
+        // Never turn a cancellation/return export into a new positive sale.
+        if (order.orderStatus && isMarketplaceReversalStatus(order.orderStatus)) return 'skipped';
+        if (order.orderStatus && !isMarketplaceShippedStatus(order.orderStatus) && !order.shipmentDate) {
+          throw new Error('This order has no confirmed shipment. Supply the verified dispatch date before importing it.');
         }
 
         // 2. Inactive guard — reject the WHOLE order if any line maps to an
@@ -194,7 +207,7 @@ export async function importMarketplaceOrders(
         // 3. Totals via the shared calculator (same shape the UI route builds).
         const totals = calculateMarketplaceOrderTotals(order, org, taxInclusive);
 
-        const issueDate = new Date(order.issueDate);
+        const issueDate = new Date(order.shipmentDate || order.issueDate);
         if (Number.isNaN(issueDate.getTime())) {
           throw new Error(`Invalid order date: ${order.issueDate}`);
         }
@@ -212,6 +225,7 @@ export async function importMarketplaceOrders(
             shippingCarrier: order.shippingCarrier || null,
             trackingNumber: order.trackingNumber || null,
             issueDate,
+            shippingDate: issueDate,
             // Marketplace orders are paid same-day; due date equals the issue date.
             dueDate: issueDate,
             currency: 'IDR',

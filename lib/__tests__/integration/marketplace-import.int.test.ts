@@ -177,6 +177,47 @@ async function seedScenario(): Promise<Scenario> {
 
 describe('marketplace import orchestrator', () => {
 
+  it('posts stock and revenue in the shipment month and does not repost on completion', async () => {
+    const s = await seedScenario();
+    try {
+      const itemId = await createStockedItem(s.org.orgId, 50_000, 10);
+      const order: ImportOrder = { orderNo: 'MONTH-END', issueDate: '2026-02-04', shipmentDate: '2026-01-31', orderStatus: 'Shipped',
+        lines: [{ itemId, description: 'Product', sku: 'STK', quantity: 1, unitPrice: 100_000 }] };
+      expect((await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], { recordPayment: true })).failed).toEqual([]);
+      const invoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.org.orgId, poNumber: order.orderNo } });
+      expect(invoice.issueDate.toISOString().slice(0, 10)).toBe('2026-01-31');
+      const ledger = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: s.org.orgId, documentId: invoice.id } });
+      expect(ledger).toHaveLength(1);
+      expect(Number(ledger[0].qtyOut)).toBe(1);
+      expect(ledger[0].date.toISOString().slice(0, 10)).toBe('2026-01-31');
+      const journals = await prisma.journalEntry.findMany({ where: { id: { in: invoice.postingJournalIds } } });
+      expect(journals.length).toBeGreaterThanOrEqual(2);
+      expect(journals.every(j => j.date.toISOString().slice(0, 10) === '2026-01-31')).toBe(true);
+      const before = await prisma.journalEntry.count({ where: { organizationId: s.org.orgId } });
+      const repeat = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [{ ...order, orderStatus: 'Completed' }], { recordPayment: true });
+      expect(repeat.skipped).toBe(1);
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.org.orgId } })).toBe(before);
+      await assertTrialBalanced(s.org.orgId, 'shipment-month recognition');
+    } finally { await cleanupOrg(s.org.orgId); }
+  });
+
+  it('does not book an unshipped cancellation and flags a shipped cancellation for a linked return', async () => {
+    const s = await seedScenario();
+    try {
+      const itemId = await createStockedItem(s.org.orgId, 50_000, 10);
+      const order: ImportOrder = { orderNo: 'CANCELLED', issueDate: '2026-06-01', orderStatus: 'Cancelled',
+        lines: [{ itemId, description: 'Product', sku: 'STK', quantity: 1, unitPrice: 100_000 }] };
+      const cancelled = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], { recordPayment: true });
+      expect(cancelled.skipped).toBe(1);
+      expect(await prisma.salesInvoice.count({ where: { organizationId: s.org.orgId } })).toBe(0);
+      await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [{ ...order, orderStatus: 'Shipped' }], { recordPayment: true });
+      const before = await prisma.journalEntry.count({ where: { organizationId: s.org.orgId } });
+      const afterShipment = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], { recordPayment: true });
+      expect(afterShipment.failed[0].reason).toContain('linked sales return');
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.org.orgId } })).toBe(before);
+    } finally { await cleanupOrg(s.org.orgId); }
+  });
+
   it.each(['Saldo Shopee', 'Shopee Wallet'])('settles into the mapped non-default holding asset %s', async name => {
     const s = await seedScenario();
     try {

@@ -482,7 +482,7 @@ export type SOStatus       = 'draft' | 'confirmed' | 'closed' | 'cancelled';
 export type InventoryCostingMethod = 'FIFO' | 'WEIGHTED_AVERAGE';
 export type EcommercePlatform = 'Shopee' | 'TikTok' | 'Tokopedia' | 'Lazada' | 'Other';
 export type ConnectionStatus = 'Active' | 'Syncing' | 'Inactive';
-export type ImportStatusFilter = 'Selesai' | 'All';
+export type ImportStatusFilter = 'Shipped' | 'Selesai' | 'All';
 
 export interface OrganizationSettings {
   id: string;

@@ -27,6 +27,9 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
     const [parsing, setParsing] = useState<boolean>(false);
     const [error, setError] = useState<string>('');
     const [result, setResult] = useState<SettlementImportResult | null>(null);
+    const [refundOnly, setRefundOnly] = useState(false);
+    const [refundNotes, setRefundNotes] = useState<Record<string, string>>({});
+    const [manualRefund, setManualRefund] = useState({ orderId: '', amount: '', notes: '' });
 
     const resetAll = useCallback(() => {
         setStep('upload');
@@ -35,6 +38,9 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
         setParsing(false);
         setError('');
         setResult(null);
+        setRefundOnly(false);
+        setRefundNotes({});
+        setManualRefund({ orderId: '', amount: '', notes: '' });
     }, []);
 
     const handleClose = (): void => {
@@ -47,6 +53,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
         const f = e.target.files?.[0];
         if (!f) return;
         setFileName(f.name);
+        setRefundNotes({});
         setError('');
         setParsing(true);
         try {
@@ -86,6 +93,8 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 orderId: o.orderId,
                 netReleased: o.netReleased,
                 charges: o.charges as Record<string, number>,
+                refundOnly,
+                refundCreditNoteNumbers: (refundNotes[o.orderId] || '').split(',').map(n => n.trim()).filter(Boolean),
             }));
             const res = await importMutation.mutateAsync({ connectionId, orders });
             setResult(res);
@@ -93,6 +102,24 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
         } catch (err) {
             setError((err as Error).message || 'Settlement import failed.');
             setStep('preview');
+        }
+    };
+
+    const handleManualRefund = async (): Promise<void> => {
+        const amount = Number(manualRefund.amount);
+        if (!manualRefund.orderId.trim() || !Number.isFinite(amount) || amount <= 0 || !manualRefund.notes.trim()) return;
+        setError('');
+        setStep('importing');
+        try {
+            const res = await importMutation.mutateAsync({ connectionId, orders: [{
+                orderId: manualRefund.orderId.trim(), netReleased: -amount, charges: { refund: amount }, refundOnly: true,
+                refundCreditNoteNumbers: manualRefund.notes.split(',').map(n => n.trim()).filter(Boolean),
+            }] });
+            setResult(res);
+            setStep('done');
+        } catch (err) {
+            setError((err as Error).message || 'Refund reconciliation failed.');
+            setStep('upload');
         }
     };
 
@@ -128,6 +155,20 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                     </div>
                 )}
             </div>
+            <div className="border-t border-neutral-200 pt-4 space-y-2">
+                <h4 className="text-sm font-semibold">Reconcile a later refund by order</h4>
+                <p className="text-xs text-neutral-500">For a refund after the original payout, enter the refund debit shown on the platform statement. First create the linked sales return and apply its refund credit note to the original marketplace clearing account. This links the refund without another journal. Stock is restored only for goods received.</p>
+                <label className="block text-sm">Marketplace order number
+                    <input className="w-full h-10 px-3 rounded-md border border-neutral-300" value={manualRefund.orderId} onChange={e => setManualRefund(p => ({ ...p, orderId: e.target.value }))} />
+                </label>
+                <label className="block text-sm">Statement refund amount (positive IDR)
+                    <input type="number" min="0.01" step="0.01" className="w-full h-10 px-3 rounded-md border border-neutral-300" value={manualRefund.amount} onChange={e => setManualRefund(p => ({ ...p, amount: e.target.value }))} />
+                </label>
+                <label className="block text-sm">Applied refund credit note number(s), separated by commas
+                    <input className="w-full h-10 px-3 rounded-md border border-neutral-300" value={manualRefund.notes} onChange={e => setManualRefund(p => ({ ...p, notes: e.target.value }))} />
+                </label>
+                <Button onClick={handleManualRefund} disabled={!manualRefund.orderId.trim() || !(Number(manualRefund.amount) > 0) || !manualRefund.notes.trim()}>Reconcile refund</Button>
+            </div>
         </div>
     );
 
@@ -145,8 +186,21 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
             </div>
 
             <div className="text-xs text-neutral-500">
-                Each order is reconciled against its outstanding receivable. Already-settled orders are skipped.
+                Each order is reconciled against its marketplace wallet receipt. For a return or a shipped order cancelled before completion, create a linked sales return and apply a refund credit note to the original marketplace clearing account first. Receive stock only when goods actually arrive, using the defect warehouse if needed.
             </div>
+            <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={refundOnly} onChange={e => setRefundOnly(e.target.checked)} />
+                Later refunds after the original settlement (refund debits only)
+            </label>
+            {refundOnly && <p className="text-xs text-neutral-500">Use a statement containing only the later refund debit for each order. Net released must equal minus the refund; fees and other adjustments require separate review.</p>}
+            {parsed?.orders.filter(o => (o.charges.refund ?? 0) > 0).map(o => (
+                <label key={o.orderId} className="text-sm">
+                    Refund credit note number(s) for {o.orderId} ({formatIDR(o.charges.refund ?? 0)})
+                    <input className="w-full h-10 px-3 rounded-md border border-neutral-300" value={refundNotes[o.orderId] || ''}
+                        onChange={e => setRefundNotes(prior => ({ ...prior, [o.orderId]: e.target.value }))}
+                        placeholder="Credit note numbers, separated by commas" />
+                </label>
+            ))}
 
             {(parsed?.nonOrderRows?.length ?? 0) > 0 && (
                 <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800">
@@ -184,7 +238,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 <>
                     <div className="grid grid-cols-4 gap-3 w-full">
                         <div className="bg-green-50 border border-green-200 rounded-md p-3 text-center">
-                            <div className="text-xs text-green-700">Posted</div>
+                            <div className="text-xs text-green-700">Reconciled</div>
                             <div className="text-lg font-semibold text-green-800">{result.posted.toLocaleString()}</div>
                         </div>
                         <div className="bg-neutral-50 border border-neutral-200 rounded-md p-3 text-center">

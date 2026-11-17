@@ -643,6 +643,8 @@ export const marketplaceImportLineSchema = z.object({
 export const marketplaceImportOrderSchema = z.object({
   orderNo: z.string().trim().min(1),
   issueDate: isoDateString,
+  shipmentDate: isoDateString.optional(),
+  orderStatus: z.string().trim().max(200).optional(),
   shippingAddress: z.string().trim().max(1000).optional(),
   shippingCarrier: z.string().trim().max(200).optional(),
   trackingNumber: z.string().trim().max(200).optional(),
@@ -873,7 +875,7 @@ export const integrationInputSchema = z.object({
   customerId: z.string().trim().nullable().optional(),
   holdingAccountId: z.string().trim().nullable().optional(),
   status: z.enum(['ACTIVE', 'SYNCING', 'INACTIVE']).default('ACTIVE'),
-  importStatusFilter: z.enum(['Selesai', 'All']).default('Selesai'),
+  importStatusFilter: z.enum(['Shipped', 'Selesai', 'All']).default('Shipped'),
   itemMappings: z.record(z.string().trim(), z.string().trim()).default({}),
   mappings: shopMappingsSchema.optional(),
   salesTypeId: z.string().nullish(),
@@ -1254,6 +1256,8 @@ export const settlementImportInputSchema = z.object({
     orderId: z.string().trim().min(1),
     netReleased: z.number().finite(),
     charges: z.record(z.string(), z.number().finite()).default({}),
+    refundOnly: z.boolean().optional(),
+    refundCreditNoteNumbers: z.array(z.string().trim().min(1)).optional(),
   })).min(1),
 });
 export type SettlementImportInput = z.infer<typeof settlementImportInputSchema>;

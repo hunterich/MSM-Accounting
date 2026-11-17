@@ -141,6 +141,8 @@ export interface MarketplaceImportPayload {
   orders: Array<{
     orderNo: string;
     issueDate: string;
+    shipmentDate?: string;
+    orderStatus?: string;
     shippingAddress?: string;
     shippingCarrier?: string;
     trackingNumber?: string;
@@ -211,7 +213,7 @@ export function useImportMarketplaceOrders() {
 }
 
 export interface SettlementImportPayload {
-  orders: Array<{ orderId: string; netReleased: number; charges: Record<string, number> }>;
+  orders: Array<{ orderId: string; netReleased: number; charges: Record<string, number>; refundOnly?: boolean; refundCreditNoteNumbers?: string[] }>;
 }
 export interface SettlementImportResult {
   posted: number;

@@ -50,7 +50,7 @@ interface ImportCheckpoint {
     parseResult: ShopeeParseResult | null;
     localMappings: Record<string, string>;
     recordPayment: boolean;
-    dateField: 'completionDate' | 'paymentDate' | 'orderDate';
+    dateField: 'shipmentDate';
     fallbackDate: string;
     importResult: MarketplaceImportResult | null;
 }
@@ -122,7 +122,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     // Configure state
     const [recordPayment, setRecordPayment] = useState<boolean>(recovered?.recordPayment ?? true);
-    const [dateField, setDateField] = useState<'completionDate' | 'paymentDate' | 'orderDate'>(recovered?.dateField || 'completionDate');
+    const [dateField, setDateField] = useState<'shipmentDate'>('shipmentDate');
     const [fallbackDate, setFallbackDate] = useState<string>(recovered?.fallbackDate || '');
     const [reviewState, setReviewState] = useState<{ key: string; result: MarketplaceImportPreviewResult } | null>(null);
     const [reviewLoading, setReviewLoading] = useState<boolean>(false);
@@ -187,7 +187,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setCreatingItems(false);
         setCreateError('');
         setRecordPayment(true);
-        setDateField('completionDate');
+        setDateField('shipmentDate');
         setFallbackDate('');
         setReviewState(null);
         setReviewLoading(false);
@@ -377,7 +377,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 return;
             }
 
-            const result = await parseShopeeExcel(f, shop?.importStatusFilter || 'Selesai', shop?.platform);
+            const result = await parseShopeeExcel(f, 'Shipped', shop?.platform);
 
             if (result.parsedOrders.length === 0) {
                 setParseError(result.warnings[0] || 'No orders could be parsed from this file.');
@@ -419,7 +419,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             buyer: o.buyerUsername || o.recipientName,
             itemCount: o.items.length,
             totalProductAmount: o.totalProductAmount,
-            date: o.completionDate || o.paymentDate || o.orderDate,
+            date: o.shipmentDate,
             paymentMethod: o.paymentMethod,
         }));
     }, [parseResult]);
@@ -443,7 +443,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     };
 
     const ordersMissingAllDates = useMemo(
-        () => parseResult?.parsedOrders.filter((order) => !order.completionDate && !order.paymentDate && !order.orderDate).length ?? 0,
+        () => parseResult?.parsedOrders.filter((order) => !order.shipmentDate).length ?? 0,
         [parseResult],
     );
 
@@ -453,10 +453,12 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             connectionId: selectedShop.id,
             options: { customerId: selectedShop.customer, recordPayment },
             orders: parseResult.parsedOrders.map((order) => {
-                const sourceDate = order[dateField] || order.completionDate || order.paymentDate || order.orderDate;
+                const sourceDate = order.shipmentDate;
                 return {
                     orderNo: order.orderNumber,
                     issueDate: sourceDate || fallbackDate || new Date().toISOString().slice(0, 10),
+                    shipmentDate: sourceDate || fallbackDate || undefined,
+                    orderStatus: order.orderStatus,
                     shippingAddress: [order.shippingAddress, order.city, order.province].filter(Boolean).join(', '),
                     shippingCarrier: order.shippingCarrier || '',
                     trackingNumber: order.trackingNumber || '',
@@ -680,7 +682,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 {selectedShop && (
                     <div className="mt-2 text-xs text-neutral-500">
                         Customer: <strong>{selectedShop.customerName || selectedShop.customer}</strong>
-                        {' | '}Filter: <strong>{selectedShop.importStatusFilter === 'All' ? 'All Statuses' : 'Completed Only'}</strong>
+                        {' | '}Filter: <strong>Shipped orders and cancellations/returns for review</strong>
                     </div>
                 )}
             </div>
@@ -970,27 +972,19 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     ))}
                 </div>
                 <div className="mt-1 text-xs text-neutral-500">
-                    When &ldquo;Paid&rdquo;, a receipt is recorded against each invoice.
+                    When &ldquo;Paid&rdquo;, a receipt is recorded into the marketplace clearing account. This does not mean a bank payout has arrived.
                 </div>
             </div>
 
             <div>
-                <label className="form-label">Invoice Date From</label>
-                <select
-                    className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                    value={dateField}
-                    onChange={(e) => setDateField(e.target.value as 'completionDate' | 'paymentDate' | 'orderDate')}
-                >
-                    <option value="completionDate">Order Completion Date</option>
-                    <option value="paymentDate">Payment Date</option>
-                    <option value="orderDate">Order Creation Date</option>
-                </select>
+                <label className="form-label">Invoice and stock date: shipment date</label>
+                <p className="text-sm text-neutral-600">Revenue, COGS and stock are posted on dispatch. The receipt goes to the marketplace clearing account; payout is reconciled separately. Import the full order export regularly, including orders still in transit.</p>
             </div>
 
             {ordersMissingAllDates > 0 && (
                 <div>
                     <label className="form-label" htmlFor="marketplace-import-fallback-date">
-                        Date for {ordersMissingAllDates} order{ordersMissingAllDates > 1 ? 's' : ''} with no date in the file
+                        Date for {ordersMissingAllDates} order{ordersMissingAllDates > 1 ? 's' : ''} with no shipment date in the file
                     </label>
                     <input
                         id="marketplace-import-fallback-date"
@@ -999,7 +993,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         value={fallbackDate}
                         onChange={(event) => setFallbackDate(event.target.value)}
                     />
-                    <p className="mt-1 text-xs text-neutral-500">These orders will be excluded until you enter a date.</p>
+                    <p className="mt-1 text-xs text-neutral-500">Enter the actual dispatch date. Split orders shipped on different dates into separate imports. Do not use the completion date.</p>
                 </div>
             )}
 

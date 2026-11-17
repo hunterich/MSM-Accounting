@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { normalizeHeader as _normalizeHeader } from './headerUtils';
 import { preferredSheetFor } from './marketplaceFormat';
+import { isMarketplaceReversalStatus, isMarketplaceShippedStatus } from './marketplaceLifecycle';
 
 // ── Raw XLSX row (after sheet_to_json) ────────────────────────────────────────
 
@@ -94,6 +95,8 @@ export interface ParsedShopeeOrder {
     orderDate: string | null;
     paymentDate: string | null;
     completionDate: string | null;
+    shipmentDate?: string | null;
+    orderStatus?: string;
     buyerUsername: string;
     recipientName: string;
     phone: string;
@@ -256,7 +259,7 @@ type InternalKey =
     | 'productTotal' | 'totalDiscount' | 'sellerDiscount' | 'shopeeDiscount'
     | 'buyerShippingCost' | 'buyerUsername' | 'recipientName' | 'phone'
     | 'shippingAddress' | 'city' | 'province' | 'paymentMethod'
-    | 'totalPayment' | 'trackingNumber' | 'shippingCarrier';
+    | 'totalPayment' | 'trackingNumber' | 'shippingCarrier' | 'shipmentTime';
 
 interface ColumnSpec {
     internalKey: InternalKey;
@@ -288,6 +291,7 @@ const COLUMN_SPECS: ColumnSpec[] = [
     { internalKey: 'orderCreatedTime',   required: false, aliases: ['Waktu Pesanan Dibuat', 'Order Created Time', 'Created Time'] },
     { internalKey: 'paymentTime',        required: false, aliases: ['Waktu Pembayaran Dilakukan', 'Payment Time', 'Paid Time'] },
     { internalKey: 'orderCompletedTime', required: false, aliases: ['Waktu Pesanan Selesai', 'Order Completed Time', 'Delivered Time'] },
+    { internalKey: 'shipmentTime', required: false, aliases: ['Waktu Pengiriman', 'Tanggal Pengiriman', 'Waktu Pesanan Dikirim', 'Shipped Time', 'Dispatch Time'] },
     { internalKey: 'parentSKU',          required: false, aliases: ['SKU Induk', 'Parent SKU', 'Seller SKU'] },
     { internalKey: 'skuReference',       required: false, aliases: ['Nomor Referensi SKU', 'SKU Reference No', 'SKU Reference', 'SKU ID'] },
     { internalKey: 'variationName',      required: false, aliases: ['Nama Variasi', 'Variation Name', 'Variation'] },
@@ -526,6 +530,13 @@ export async function parseShopeeExcel(
     // says nothing about whether the order is settled — keep every row.
     const isReconciled = sheetName === 'Matched Orders';
     const filteredRows = mappedRows.filter((row) => {
+        if (importStatusFilter === 'Shipped') {
+            const status = String(row.orderStatus ?? '').trim();
+            // Keep reversals for review; never silently recreate them as sales.
+            if (isMarketplaceReversalStatus(status) || isMarketplaceShippedStatus(status) || parseDateCell(row.shipmentTime)) return true;
+            skippedRows++;
+            return false;
+        }
         if (importStatusFilter === 'All' || isReconciled) return true;
         const status = String(row.orderStatus).trim();
         if (status === importStatusFilter || status === 'Selesai') return true;
@@ -593,6 +604,8 @@ export async function parseShopeeExcel(
             orderDate: parseDateCell(first.orderCreatedTime),
             paymentDate: parseDateCell(first.paymentTime),
             completionDate: parseDateCell(first.orderCompletedTime),
+            shipmentDate: parseDateCell(first.shipmentTime),
+            orderStatus: String(first.orderStatus ?? '').trim(),
             buyerUsername: String(first.buyerUsername ?? '').trim(),
             recipientName: String(first.recipientName ?? '').trim(),
             phone: String(first.phone ?? '').trim(),
