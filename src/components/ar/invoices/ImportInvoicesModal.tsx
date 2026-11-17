@@ -50,7 +50,6 @@ interface ImportCheckpoint {
     parseResult: ShopeeParseResult | null;
     localMappings: Record<string, string>;
     recordPayment: boolean;
-    dateField: 'shipmentDate';
     fallbackDate: string;
     importResult: MarketplaceImportResult | null;
 }
@@ -122,13 +121,11 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     // Configure state
     const [recordPayment, setRecordPayment] = useState<boolean>(recovered?.recordPayment ?? true);
-    const [dateField, setDateField] = useState<'shipmentDate'>('shipmentDate');
     const [fallbackDate, setFallbackDate] = useState<string>(recovered?.fallbackDate || '');
     const [reviewState, setReviewState] = useState<{ key: string; result: MarketplaceImportPreviewResult } | null>(null);
     const [reviewLoading, setReviewLoading] = useState<boolean>(false);
     const [reviewError, setReviewError] = useState<string>('');
     const [amountsReviewed, setAmountsReviewed] = useState<boolean>(false);
-    const [statusesReviewed, setStatusesReviewed] = useState<boolean>(false);
     const [alreadyImportedOrderNos, setAlreadyImportedOrderNos] = useState<Set<string>>(new Set());
 
     // Import state
@@ -138,7 +135,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     useEffect(() => {
         if (!parseResult) return;
         const preserve = () => {
-            if (!writeImportRecovery(recoveryKey, { step, shopId, parseResult, localMappings, recordPayment, dateField, fallbackDate, importResult } satisfies ImportCheckpoint)) setRecoveryFailed(true);
+            if (!writeImportRecovery(recoveryKey, { step, shopId, parseResult, localMappings, recordPayment, fallbackDate, importResult } satisfies ImportCheckpoint)) setRecoveryFailed(true);
         };
         preserve();
         window.addEventListener(DRAFT_FLUSH_EVENT, preserve);
@@ -147,7 +144,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             window.removeEventListener(DRAFT_FLUSH_EVENT, preserve);
             window.removeEventListener('pagehide', preserve);
         };
-    }, [recoveryKey, step, shopId, parseResult, localMappings, recordPayment, dateField, fallbackDate, importResult]);
+    }, [recoveryKey, step, shopId, parseResult, localMappings, recordPayment, fallbackDate, importResult]);
 
     const selectedShop = useMemo<EcommerceConnection | undefined>(
         () => shops.find((s) => s.id === shopId),
@@ -187,13 +184,11 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setCreatingItems(false);
         setCreateError('');
         setRecordPayment(true);
-        setDateField('shipmentDate');
         setFallbackDate('');
         setReviewState(null);
         setReviewLoading(false);
         setReviewError('');
         setAmountsReviewed(false);
-        setStatusesReviewed(false);
         setAlreadyImportedOrderNos(new Set());
         setImportResult(null);
         setImportError('');
@@ -476,7 +471,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 };
             }),
         };
-    }, [parseResult, shopId, selectedShop?.customer, recordPayment, dateField, fallbackDate, resolvedMappings]);
+    }, [parseResult, shopId, selectedShop?.customer, recordPayment, fallbackDate, resolvedMappings]);
 
     const reviewKey = useMemo(() => previewRequest ? JSON.stringify(previewRequest) : '', [previewRequest]);
     const currentReview = reviewState?.key === reviewKey ? reviewState.result : null;
@@ -489,7 +484,6 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setReviewLoading(true);
         setReviewError('');
         setAmountsReviewed(false);
-        setStatusesReviewed(false);
         void previewOrders(previewRequest)
             .then((result) => {
                 if (!active) return;
@@ -619,8 +613,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const handleImport = async (): Promise<void> => {
         if (!previewRequest || !currentReview || currentReview.create + currentReview.logisticsUpdates === 0 ||
             currentReview.setupErrors.length > 0 ||
-            (currentReview.amountDifferences > 0 && !amountsReviewed) ||
-            (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)) return;
+            (currentReview.amountDifferences > 0 && !amountsReviewed)) return;
 
         setImportError('');
         setStep('importing');
@@ -632,7 +625,6 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             if (JSON.stringify(freshReview) !== JSON.stringify(currentReview)) {
                 setReviewState({ key: reviewKey, result: freshReview });
                 setAmountsReviewed(false);
-                setStatusesReviewed(false);
                 setReviewError('The review changed while it was open. Check the updated counts and amounts before importing.');
                 setStep('configure');
                 return;
@@ -1064,15 +1056,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 </div>
             )}
 
-            {selectedShop?.importStatusFilter === 'All' && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
-                    <p>All Statuses is selected for this shop. The file may contain canceled or refunded orders.</p>
-                    <label className="flex items-center gap-2 mt-2 text-xs cursor-pointer">
-                        <input type="checkbox" checked={statusesReviewed} onChange={(event) => setStatusesReviewed(event.target.checked)} />
-                        I reviewed the order statuses in the export.
-                    </label>
-                </div>
-            )}
+
 
             {(reviewError || importError) && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
@@ -1227,8 +1211,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                                 onClick={() => void handleImport()}
                                 disabled={reviewLoading || !currentReview || currentReview.create + currentReview.logisticsUpdates === 0 ||
                                     currentReview.setupErrors.length > 0 ||
-                                    (currentReview.amountDifferences > 0 && !amountsReviewed) ||
-                                    (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)}
+                                    (currentReview.amountDifferences > 0 && !amountsReviewed)}
                             />
                         ) : step === 'mapping' ? (
                             <Button
