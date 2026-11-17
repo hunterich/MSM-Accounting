@@ -191,11 +191,17 @@ async function seedImportedOrder(): Promise<ImportedOrder> {
 }
 
 describe('settlement reconciliation service', () => {
-  it.each([true, false])('links a received return after settlement without a second refund posting (goods received: %s)', async goodsReceived => {
+  it.each([
+    { goodsReceived: true, settled: true },
+    { goodsReceived: false, settled: true },
+    { goodsReceived: true, settled: false },
+  ])('reconciles a return/cancellation (goods received: $goodsReceived, payout already settled: $settled)', async ({ goodsReceived, settled }) => {
     const s = await seedImportedOrder();
     try {
-      const payout = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross, charges: {} }] });
-      expect(payout.failed).toEqual([]);
+      if (settled) {
+        const payout = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross, charges: {} }] });
+        expect(payout.failed).toEqual([]);
+      }
       const invoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.orgId, poNumber: 'ORD1' }, include: { lines: true } });
       const source = invoice.lines[0];
       const returnId = await prisma.$transaction(async tx => {
@@ -220,10 +226,12 @@ describe('settlement reconciliation service', () => {
       const returnStock = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: s.orgId, documentId: returnId } });
       expect(returnStock.reduce((sum, l) => sum + Number(l.qtyIn), 0)).toBe(goodsReceived ? 5 : 0);
       const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
-      const input = { orders: [{ orderId: 'ORD1', netReleased: -s.gross, charges: { refund: s.gross }, refundOnly: true, refundCreditNoteNumbers: [note.number] }] };
-      expect((await importSettlement(s.orgId, s.userId, s.connectionId, input)).failed).toEqual([]);
+      const input = { orders: [{ orderId: 'ORD1', netReleased: settled ? -s.gross : 0, charges: { refund: s.gross }, refundOnly: settled, refundCreditNoteNumbers: [note.number] }] };
+      const reconciled = await importSettlement(s.orgId, s.userId, s.connectionId, input);
+      expect(reconciled.failed).toEqual([]);
+      expect(reconciled.posted).toBe(1);
       expect((await importSettlement(s.orgId, s.userId, s.connectionId, input)).alreadySettled).toBe(1);
-      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before + (settled ? 0 : 1));
       const linked = await prisma.creditNote.findUniqueOrThrow({ where: { id: note.id } });
       expect(linked.marketplaceRefundReceiptId).toBeTruthy();
       await expect(prisma.$transaction(tx => voidCreditNote(tx, s.orgId, note.id, { date: new Date('2026-06-11') }))).rejects.toThrow('reconciled');

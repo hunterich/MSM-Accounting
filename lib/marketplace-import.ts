@@ -226,7 +226,7 @@ export async function importMarketplaceOrders(
             trackingNumber: order.trackingNumber || null,
             issueDate,
             shippingDate: issueDate,
-            // Marketplace orders are paid same-day; due date equals the issue date.
+            // The optional same-date receipt clears AR into the marketplace asset.
             dueDate: issueDate,
             currency: 'IDR',
             status: 'DRAFT',

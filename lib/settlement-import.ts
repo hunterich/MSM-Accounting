@@ -17,7 +17,7 @@
  *   3. Build fee lines from the connection's form-configured `ShopMappings`
  *      (one line per non-zero charge), routing each canonical fee key to its
  *      GL account; income-type keys credit, fee/cost keys debit.
- *   4. Credit the wallet by (X − N) so its balance drops to the net released.
+ *   4. Credit the wallet by (X − N − linked refunds), avoiding a second refund.
  *   5. If the entry does not balance, plug the residue into the configured
  *      adjustment account; if none is configured, throw.
  *   6. Post the balanced entry and stamp `settledAt` + `settlementJournalId` on
@@ -151,7 +151,7 @@ export async function importSettlement(
             });
           }
 
-          // 4. Credit the wallet by (X − N): the gross drops to the net released.
+          // 4. Credit the difference still unbooked after linked refund notes.
           lines.push({
             accountId: receipt.depositAccountId,
             description: `Wallet settlement - ${invoice.number}`,
