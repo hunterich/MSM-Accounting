@@ -190,7 +190,105 @@ async function seedImportedOrder(): Promise<ImportedOrder> {
   };
 }
 
+async function makeRefund(s: ImportedOrder, amounts: number[]) {
+  const invoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.orgId, poNumber: 'ORD1' }, include: { lines: true } });
+  const line = invoice.lines[0];
+  const salesReturn = await prisma.$transaction(async tx => {
+    const row = await tx.salesReturn.create({ data: {
+      organizationId: s.orgId, number: `SR-${tag()}`, customerId: invoice.customerId, invoiceId: invoice.id,
+      returnDate: new Date('2026-07-02'), status: 'APPROVED', subtotal: invoice.subtotal, taxAmount: invoice.taxAmount, totalAmount: invoice.totalAmount,
+      lines: { create: [{ lineNo: 1, sourceInvoiceLineId: line.id, itemId: line.itemId, qtySold: line.quantity, qtyReturn: line.quantity, price: line.price, goodsReceived: false }] },
+    } });
+    await postSalesReturnOnApproval(tx, row.id);
+    return row;
+  });
+  const notes = [];
+  for (const amount of amounts) {
+    notes.push(await prisma.$transaction(async tx => {
+      const note = await tx.creditNote.create({ data: {
+        organizationId: s.orgId, number: `CN-${tag()}`, customerId: invoice.customerId, sourceInvoiceId: invoice.id, salesReturnId: salesReturn.id,
+        date: new Date('2026-07-03'), settlementType: 'REFUND', settlementAccountId: s.walletAccountId,
+        status: 'APPLIED', amount, taxAmount: 0, applyTax: false,
+      } });
+      await postCreditNoteOnApply(tx, note.id);
+      return note;
+    }));
+  }
+  return { invoice, notes };
+}
+
+async function settleGross(s: ImportedOrder) {
+  const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', settlementDate: '2026-07-01', netReleased: s.gross, charges: {} }] });
+  expect(result.failed).toEqual([]);
+  expect(result.posted).toBe(1);
+}
+
+function laterRefund(noteNumber: string, amount: number) {
+  return { orders: [{ orderId: 'ORD1', netReleased: -amount, charges: { refund: amount }, refundOnly: true, refundCreditNoteNumbers: [noteNumber] }] };
+}
+
 describe('settlement reconciliation service', () => {
+  it('serializes concurrent matching, handles separate partial refunds and replay', async () => {
+    const s = await seedImportedOrder();
+    try {
+      await settleGross(s);
+      const { notes } = await makeRefund(s, [s.gross / 2, s.gross / 2]);
+      const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+      const input = laterRefund(notes[0].number, s.gross / 2);
+      const [a, b] = await Promise.all([importSettlement(s.orgId, s.userId, s.connectionId, input), importSettlement(s.orgId, s.userId, s.connectionId, input)]);
+      expect(a.failed).toEqual([]); expect(b.failed).toEqual([]);
+      expect(a.posted + b.posted).toBe(1); expect(a.alreadySettled + b.alreadySettled).toBe(1);
+      expect((await importSettlement(s.orgId, s.userId, s.connectionId, laterRefund(notes[1].number, s.gross / 2))).posted).toBe(1);
+      expect((await importSettlement(s.orgId, s.userId, s.connectionId, input)).alreadySettled).toBe(1);
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+      const linked = await prisma.creditNote.findMany({ where: { id: { in: notes.map(n => n.id) } } });
+      expect(linked.every(n => !!n.marketplaceRefundReceiptId)).toBe(true);
+      await assertTrialBalanced(s.orgId, 'partial refunds');
+    } finally { await cleanupOrg(s.orgId); }
+  });
+  it('never both voids and reconciles the same refund during a race', async () => {
+    const s = await seedImportedOrder();
+    try {
+      await settleGross(s);
+      const { notes: [note] } = await makeRefund(s, [s.gross]);
+      const [reconcile, voided] = await Promise.allSettled([
+        importSettlement(s.orgId, s.userId, s.connectionId, laterRefund(note.number, s.gross)),
+        prisma.$transaction(tx => voidCreditNote(tx, s.orgId, note.id, { date: new Date('2026-07-04') })),
+      ]);
+      const current = await prisma.creditNote.findUniqueOrThrow({ where: { id: note.id } });
+      expect(current.status === 'VOID' && !!current.marketplaceRefundReceiptId).toBe(false);
+      expect((current.status === 'VOID') !== !!current.marketplaceRefundReceiptId).toBe(true);
+      if (current.status === 'VOID') {
+        expect(voided.status).toBe('fulfilled');
+        expect(reconcile.status === 'fulfilled' && reconcile.value.failed.length).toBeTruthy();
+      } else {
+        expect(voided.status).toBe('rejected');
+        expect(reconcile.status === 'fulfilled' && reconcile.value.posted).toBe(1);
+      }
+      await assertTrialBalanced(s.orgId, 'refund versus void');
+    } finally { await cleanupOrg(s.orgId); }
+  });
+  it('rejects refund notes from another company, invoice or wallet', async () => {
+    const s = await seedImportedOrder();
+    const other = await seedImportedOrder();
+    try {
+      await settleGross(s);
+      const { notes: [foreign] } = await makeRefund(other, [other.gross]);
+      const { notes: [note] } = await makeRefund(s, [s.gross]);
+      const otherInvoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: other.orgId, poNumber: 'ORD1' } });
+      const rejected = async (number: string) => {
+        const result = await importSettlement(s.orgId, s.userId, s.connectionId, laterRefund(number, s.gross));
+        expect(result.failed).toHaveLength(1); expect(result.posted).toBe(0);
+      };
+      await rejected(foreign.number);
+      await prisma.creditNote.update({ where: { id: note.id }, data: { sourceInvoiceId: otherInvoice.id } });
+      await rejected(note.number);
+      const original = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.orgId, poNumber: 'ORD1' } });
+      await prisma.creditNote.update({ where: { id: note.id }, data: { sourceInvoiceId: original.id, settlementAccountId: other.walletAccountId } });
+      await rejected(note.number);
+      expect((await prisma.creditNote.findUniqueOrThrow({ where: { id: note.id } })).marketplaceRefundReceiptId).toBeNull();
+    } finally { await cleanupOrg(s.orgId); await cleanupOrg(other.orgId); }
+  });
   it('rejects a statement date in a closed period without stamping or posting the receipt', async () => {
     const s = await seedImportedOrder();
     try {
