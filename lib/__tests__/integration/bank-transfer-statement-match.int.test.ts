@@ -29,6 +29,9 @@ describe('transfer bank statement matching', () => {
       expect(await (await match(org.orgId, debit.id)).json()).toMatchObject({ matched: 1 });
       const duplicate = await statement(destination.id, 100);
       expect(await (await match(org.orgId, duplicate.id)).json()).toMatchObject({ matched: 0 });
+      const unrelatedAccount = await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'Other bank' } });
+      const unrelated = await statement(unrelatedAccount.id, 100);
+      expect((await manual(org.orgId, unrelated.lines[0].id, { action: 'match', matchedTxId: transfer.id })).status).toBe(422);
       expect((await manual(org.orgId, debit.lines[0].id, { action: 'unmatch' })).status).toBe(200);
       expect((await prisma.bankTransaction.findUniqueOrThrow({ where: { id: transfer.id } })).status).toBe('MATCHED');
       expect((await prisma.bankStatementLine.findUniqueOrThrow({ where: { id: credit.lines[0].id } })).matchedTxId).toBe(transfer.id);
@@ -38,6 +41,17 @@ describe('transfer bank statement matching', () => {
       const [a, b] = await Promise.all([match(org.orgId, credit.id), match(org.orgId, duplicate.id)]);
       const results = await Promise.all([a.json(), b.json()]);
       expect(results.reduce((sum, r) => sum + r.matched, 0)).toBe(1);
+    } finally { await cleanupOrg(org.orgId); }
+  });
+  it('does not guess when two transfers could match the same statement line', async () => {
+    const org = await createTestOrg();
+    try {
+      const source = await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'Wallet' } });
+      const destination = await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'Bank' } });
+      for (let i = 0; i < 2; i++) await prisma.bankTransaction.create({ data: { organizationId: org.orgId, bankAccountId: source.id, toBankAccountId: destination.id, type: 'TRANSFER', amount: 100, date, description: `Payout ${i}` } });
+      const statement = await prisma.bankStatement.create({ data: { organizationId: org.orgId, bankAccountId: destination.id, filename: 'ambiguous.csv', lines: { create: [{ date, description: 'Payout', amount: 100 }] } }, include: { lines: true } });
+      expect(await (await match(org.orgId, statement.id)).json()).toMatchObject({ matched: 0, unmatched: 1 });
+      expect((await prisma.bankStatementLine.findUniqueOrThrow({ where: { id: statement.lines[0].id } })).matchedTxId).toBeNull();
     } finally { await cleanupOrg(org.orgId); }
   });
 });

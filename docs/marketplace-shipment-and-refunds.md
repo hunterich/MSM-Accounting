@@ -63,12 +63,14 @@ fee and refund statements and clearing balances; physical receipt and valuation;
 bank withdrawal reconciliation; and treatment of historical exceptions before
 accepting a pilot. No finance approval is implied by this example.
 
-**Bank reconciliation blocker:** the automatic statement matcher searches only
-`BankTransaction.bankAccountId`. A transfer from the marketplace wallet to a
-bank stores the bank as `toBankAccountId`, so that incoming bank statement line
-is not found by this automatic matcher. Its amount-sign behavior for transfers
-also needs an end-to-end test. Do not assume a transfer journal is a matched
-bank statement; the payout matching workflow requires correction and validation.
+For a withdrawal, record a transfer from the marketplace wallet to the bank.
+Match the positive bank statement line to the destination leg; if the wallet
+also supplies a statement, match its negative line independently. A transfer's
+overall status is `MATCHED` when at least one statement leg is matched; inspect
+each statement for its own status. Unmatching one leg preserves the other, and
+matched transfers cannot be edited until their statement lines are unmatched.
+Ambiguous or legacy matches need review. A posted transfer alone does not prove
+that either statement has been reconciled.
 
 Apply the additive `20261117120000_marketplace_refund_reconciliation` migration before starting this version. It adds a receipt link and reconciliation time to credit notes, plus the shipment filter default for new connections. Existing financial postings and shop settings are retained. The order wizard uses shipment selection for both existing and new shops.
 
