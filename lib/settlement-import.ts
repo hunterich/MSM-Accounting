@@ -41,6 +41,8 @@ const INCOME_KEYS: SettlementFeeKey[] = ['buyerShipping', 'shippingRebate', 'pla
 
 export interface SettlementOrderInput {
   orderId: string;
+  /** Calendar date on which this order's settlement was released, YYYY-MM-DD. */
+  settlementDate?: string;
   netReleased: number;
   /** Canonical fee key → magnitude (always positive). */
   charges: Record<string, number>;
@@ -184,7 +186,13 @@ export async function importSettlement(
           }
 
           // 6. Post and stamp the receipt as settled.
-          const settledOn = new Date();
+          // Treat the statement's local calendar date as a date-only value, not
+          // a server-local timestamp (which can shift the accounting period).
+          const dateText = order.settlementDate ?? '';
+          const settledOn = new Date(`${dateText}T00:00:00.000Z`);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(settledOn.valueOf()) || settledOn.toISOString().slice(0, 10) !== dateText) {
+            throw new Error('Enter the actual settlement date in YYYY-MM-DD format.');
+          }
           await assertPeriodOpen(tx, orgId, settledOn);
           const je = await postJournalEntry(tx, {
             organizationId: orgId,
@@ -198,7 +206,7 @@ export async function importSettlement(
             data: { settledAt: new Date(), settlementJournalId: je.id },
           });
           if (matched) await tx.creditNote.updateMany({ where: { id: { in: matched.noteIds } }, data: {
-            marketplaceRefundReceiptId: receipt.id, marketplaceRefundReconciledAt: settledOn,
+            marketplaceRefundReceiptId: receipt.id, marketplaceRefundReconciledAt: new Date(),
           } });
           return 'posted';
         },

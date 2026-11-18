@@ -1254,11 +1254,15 @@ export const createPosRegisterSchema = z.object({
 export const settlementImportInputSchema = z.object({
   orders: z.array(z.object({
     orderId: z.string().trim().min(1),
+    settlementDate: isoDateString.refine(value => {
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+    }, 'Expected a valid calendar date').optional(),
     netReleased: z.number().finite(),
     charges: z.record(z.string(), z.number().finite()).default({}),
     refundOnly: z.boolean().optional(),
     refundCreditNoteNumbers: z.array(z.string().trim().min(1)).optional(),
-  })).min(1),
+  }).refine(order => order.refundOnly || !!order.settlementDate, { message: 'Actual settlement date is required', path: ['settlementDate'] })).min(1),
 });
 export type SettlementImportInput = z.infer<typeof settlementImportInputSchema>;
 

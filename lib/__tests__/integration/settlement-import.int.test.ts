@@ -191,6 +191,23 @@ async function seedImportedOrder(): Promise<ImportedOrder> {
 }
 
 describe('settlement reconciliation service', () => {
+  it('rejects a statement date in a closed period without stamping or posting the receipt', async () => {
+    const s = await seedImportedOrder();
+    try {
+      await prisma.accountingPeriod.create({ data: {
+        organizationId: s.orgId, name: 'Closed July 2026', startDate: new Date('2026-07-01T00:00:00Z'),
+        endDate: new Date('2026-07-31T00:00:00Z'), status: 'CLOSED',
+      } });
+      const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+      const result = await importSettlement(s.orgId, s.userId, s.connectionId, {
+        orders: [{ orderId: 'ORD1', settlementDate: '2026-07-01', netReleased: s.gross, charges: {} }],
+      });
+      expect(result.failed[0].reason).toContain('closed/locked');
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+      const receipt = await prisma.aRPayment.findFirstOrThrow({ where: { organizationId: s.orgId, ecommerceConnectionId: s.connectionId } });
+      expect(receipt.settledAt).toBeNull();
+    } finally { await cleanupOrg(s.orgId); }
+  });
   it.each([
     { goodsReceived: true, settled: true },
     { goodsReceived: false, settled: true },
@@ -199,7 +216,7 @@ describe('settlement reconciliation service', () => {
     const s = await seedImportedOrder();
     try {
       if (settled) {
-        const payout = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross, charges: {} }] });
+        const payout = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', settlementDate: '2026-06-15', netReleased: s.gross, charges: {} }] });
         expect(payout.failed).toEqual([]);
       }
       const invoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.orgId, poNumber: 'ORD1' }, include: { lines: true } });
@@ -226,7 +243,7 @@ describe('settlement reconciliation service', () => {
       const returnStock = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: s.orgId, documentId: returnId } });
       expect(returnStock.reduce((sum, l) => sum + Number(l.qtyIn), 0)).toBe(goodsReceived ? 5 : 0);
       const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
-      const input = { orders: [{ orderId: 'ORD1', netReleased: settled ? -s.gross : 0, charges: { refund: s.gross }, refundOnly: settled, refundCreditNoteNumbers: [note.number] }] };
+      const input = { orders: [{ orderId: 'ORD1', settlementDate: '2026-06-15', netReleased: settled ? -s.gross : 0, charges: { refund: s.gross }, refundOnly: settled, refundCreditNoteNumbers: [note.number] }] };
       const reconciled = await importSettlement(s.orgId, s.userId, s.connectionId, input);
       expect(reconciled.failed).toEqual([]);
       expect(reconciled.posted).toBe(1);
@@ -249,7 +266,7 @@ describe('settlement reconciliation service', () => {
     const netReleased = s.gross - commissionFee - serviceFee; // 450_000
 
     const result = await importSettlement(s.orgId, s.userId, s.connectionId, {
-      orders: [{ orderId: 'ORD1', netReleased, charges: { commissionFee, serviceFee } }],
+      orders: [{ orderId: 'ORD1', settlementDate: '2026-07-01', netReleased, charges: { commissionFee, serviceFee } }],
     });
 
     expect(result.posted).toBe(1);
@@ -265,6 +282,8 @@ describe('settlement reconciliation service', () => {
     });
     expect(receipt?.settledAt).toBeTruthy();
     expect(receipt?.settlementJournalId).toBeTruthy();
+    const settlementJournal = await prisma.journalEntry.findUniqueOrThrow({ where: { id: receipt!.settlementJournalId! } });
+    expect(settlementJournal.date.toISOString()).toBe('2026-07-01T00:00:00.000Z');
 
     // After settlement the wallet's net balance equals the net released.
     expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(netReleased, 2);
@@ -276,7 +295,7 @@ describe('settlement reconciliation service', () => {
     const s = await seedImportedOrder();
     const newWallet = await prisma.bankAccount.create({ data: { organizationId: s.orgId, name: 'New marketplace wallet', bankName: 'New marketplace wallet' } });
     await prisma.ecommerceConnection.update({ where: { id: s.connectionId }, data: { holdingAccountId: newWallet.id } });
-    const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross - 10_000, charges: { serviceFee: 10_000 } }] });
+    const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', settlementDate: '2026-06-15', netReleased: s.gross - 10_000, charges: { serviceFee: 10_000 } }] });
     expect(result.posted).toBe(1);
     expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(s.gross - 10_000, 2);
     await assertTrialBalanced(s.orgId, 'settlement after account change');
@@ -289,7 +308,7 @@ describe('settlement reconciliation service', () => {
     await prisma.aRPayment.update({ where: { id: receipt.id }, data: { source: 'MANUAL', ecommerceConnectionId: null, marketplaceOrderNo: null } });
     const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
 
-    const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', netReleased: s.gross - 10_000, charges: { serviceFee: 10_000 } }] });
+    const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', settlementDate: '2026-06-15', netReleased: s.gross - 10_000, charges: { serviceFee: 10_000 } }] });
 
     expect(result.posted).toBe(0);
     expect(result.skipped).toEqual([]);
@@ -305,7 +324,7 @@ describe('settlement reconciliation service', () => {
     const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
 
     const result = await importSettlement(s.orgId, s.userId, s.connectionId, {
-      orders: [{ orderId: 'NOPE', netReleased: 123_456, charges: { commissionFee: 1000 } }],
+      orders: [{ orderId: 'NOPE', settlementDate: '2026-06-15', netReleased: 123_456, charges: { commissionFee: 1000 } }],
     });
 
     expect(result.posted).toBe(0);
@@ -412,14 +431,14 @@ describe('settlement reconciliation service', () => {
     const badResult = await importSettlement(badOrg.orgId, badUserId, badConn.id, {
       orders: [
         // bad: plug = 15_000 but no adjustment account → throws → lands in failed[]
-        { orderId: 'BAD-ORD', netReleased: 80_000, charges: { commissionFee: 5_000 } },
+        { orderId: 'BAD-ORD', settlementDate: '2026-06-15', netReleased: 80_000, charges: { commissionFee: 5_000 } },
       ],
     });
 
     const goodResult = await importSettlement(goodOrg.orgId, goodUserId, goodConn.id, {
       orders: [
         // good: fee = 20_000, net = 80_000, X − N = 20_000 → perfectly balanced
-        { orderId: 'GOOD-ORD', netReleased: 80_000, charges: { commissionFee: 20_000 } },
+        { orderId: 'GOOD-ORD', settlementDate: '2026-06-15', netReleased: 80_000, charges: { commissionFee: 20_000 } },
       ],
     });
 
@@ -466,7 +485,7 @@ describe('settlement reconciliation service', () => {
     const serviceFee = 10_000;
     const netReleased = s.gross - commissionFee - serviceFee;
     const payload = {
-      orders: [{ orderId: 'ORD1', netReleased, charges: { commissionFee, serviceFee } }],
+      orders: [{ orderId: 'ORD1', settlementDate: '2026-06-15', netReleased, charges: { commissionFee, serviceFee } }],
     };
 
     const first = await importSettlement(s.orgId, s.userId, s.connectionId, payload);

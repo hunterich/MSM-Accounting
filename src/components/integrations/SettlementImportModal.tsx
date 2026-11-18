@@ -28,6 +28,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
     const [error, setError] = useState<string>('');
     const [result, setResult] = useState<SettlementImportResult | null>(null);
     const [refundOnly, setRefundOnly] = useState(false);
+    const [settlementDate, setSettlementDate] = useState('');
     const [refundNotes, setRefundNotes] = useState<Record<string, string>>({});
     const [manualRefund, setManualRefund] = useState({ orderId: '', amount: '', notes: '' });
 
@@ -39,6 +40,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
         setError('');
         setResult(null);
         setRefundOnly(false);
+        setSettlementDate('');
         setRefundNotes({});
         setManualRefund({ orderId: '', amount: '', notes: '' });
     }, []);
@@ -85,12 +87,13 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
 
     // ── Step 2 → 3: Confirm & post ─────────────────────────────────────────────
     const handleImport = async (): Promise<void> => {
-        if (!parsed) return;
+        if (!parsed || (!refundOnly && !settlementDate)) return;
         setError('');
         setStep('importing');
         try {
             const orders = parsed.orders.map((o) => ({
                 orderId: o.orderId,
+                settlementDate: refundOnly ? undefined : settlementDate,
                 netReleased: o.netReleased,
                 charges: o.charges as Record<string, number>,
                 refundOnly,
@@ -188,6 +191,10 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
             <div className="text-xs text-neutral-500">
                 Each order is reconciled against its marketplace wallet receipt. For a return or a shipped order cancelled before completion, create a linked sales return and apply a refund credit note to the original marketplace clearing account first. Receive stock only when goods actually arrive, using the defect warehouse if needed.
             </div>
+            {!refundOnly && <label className="block text-sm">Actual settlement date for every order in this file
+                <input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300" value={settlementDate} onChange={e => setSettlementDate(e.target.value)} />
+                <span className="text-xs text-neutral-500">Check the statement. If orders settled on different dates, split them into separate files by date.</span>
+            </label>}
             <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={refundOnly} onChange={e => setRefundOnly(e.target.checked)} />
                 Later refunds after the original settlement (refund debits only)
@@ -346,6 +353,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                             text={`Confirm & Post ${(parsed?.orders.length ?? 0).toLocaleString()} Orders`}
                             variant="primary"
                             onClick={() => void handleImport()}
+                            disabled={!refundOnly && !settlementDate}
                         />
                     )}
                     {step === 'done' && (

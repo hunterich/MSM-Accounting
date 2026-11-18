@@ -24,6 +24,45 @@ Legacy settlements that already posted a refund to the old refund account requir
 
 ## Release checks
 
+Settlement statements may cover multiple release dates. For initial payout,
+enter the actual statement settlement date; the date applies to every order in
+the uploaded file. Split a file by release date before importing it. The API
+accepts a separate `settlementDate` (YYYY-MM-DD) per order. The journal uses
+that calendar date at UTC midnight, consistent with date-only ledger fields;
+the closed-period and transaction-date guards apply to that date. `settledAt`
+is the import timestamp, not the financial date. Later-refund reconciliation
+links an existing journal and does not post a new journal. The current parsers
+do not verify statement dates; actual Shopee and TikTok exports and date-column
+semantics remain to be validated before operational use.
+
+`scripts/audit-marketplace-release-candidates.sql` prepares read-only candidate
+lists for finance. The first lists imported invoices for comparison with actual
+dispatch evidence; it cannot identify completion dates by itself and excludes
+unverified legacy receipts. The second identifies explicitly labelled legacy
+refund journal lines and applied credit notes on the same invoice; adjustment
+lines, manually created transactions and missing provenance require separate
+review. Neither query establishes an error or changes transactions.
+
+### Finance acceptance example (illustrative, not approval)
+
+Assume shipment on 31 January: goods Rp100,000 before PPN of Rp11,000,
+cost Rp60,000. Post debit receivable Rp111,000; credit sales Rp100,000 and
+output PPN Rp11,000; debit HPP Rp60,000 and credit inventory Rp60,000. The
+marketplace receipt debits clearing and credits receivable Rp111,000. A
+February settlement with Rp10,000 fees debits fee expense and credits clearing
+Rp10,000; Rp101,000 remains in clearing. A withdrawal debits bank and credits
+clearing Rp101,000, and must match the bank statement. A later full refund
+credit note reverses sales Rp100,000 and PPN Rp11,000 and credits clearing
+Rp111,000; only physical receipt of the goods restores inventory and reverses
+HPP at the applicable original cost. The example assumes a full refund and
+that fees are not reversed. Actual tax rate, tax treatment, return valuation,
+and settlement terms must be checked against the source documents.
+
+Finance should confirm shipment evidence and periods; PPN and HPP treatment;
+fee and refund statements and clearing balances; physical receipt and valuation;
+bank withdrawal reconciliation; and treatment of historical exceptions before
+accepting a pilot. No finance approval is implied by this example.
+
 Apply the additive `20261117120000_marketplace_refund_reconciliation` migration before starting this version. It adds a receipt link and reconciliation time to credit notes, plus the shipment filter default for new connections. Existing financial postings and shop settings are retained. The order wizard uses shipment selection for both existing and new shops.
 
 Validate month-end shipment/completion, an unshipped cancellation, cancellation after dispatch, returns with and without received goods, refund-before-payout and refund-after-payout, replay, wrong-company/order/wallet notes, and concurrent reconciliation. Keep deployment and finance acceptance separate from code validation.
