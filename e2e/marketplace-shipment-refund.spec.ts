@@ -40,8 +40,11 @@ for (const platform of ['Shopee', 'TikTok'] as const) {
     await expect(page.getByText('SHIP1001', { exact: true }).first()).toBeVisible()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
+    const imported = page.waitForResponse(r => r.url().endsWith(`/integrations/${conn.id}/import`) && r.request().method() === 'POST', { timeout: 60_000 })
     await page.getByRole('button', { name: /Import 1 New/ }).click()
-    await expect(page.getByText('Import Complete', { exact: true })).toBeVisible()
+    const response = await imported
+    expect(response.ok(), await response.text()).toBeTruthy()
+    await expect(page.getByText('Import Complete', { exact: true })).toBeVisible({ timeout: 30_000 })
     const invoice = await db.salesInvoice.findFirstOrThrow({ where: { organizationId: orgId, poNumber: 'SHIP1001' }, include: { lines: true } })
     expect(invoice.issueDate.toISOString().slice(0, 10)).toBe('2026-09-30')
     expect(await db.inventoryLedgerEntry.count({ where: { organizationId: orgId, documentId: invoice.id, qtyOut: { gt: 0 } } })).toBe(1)
