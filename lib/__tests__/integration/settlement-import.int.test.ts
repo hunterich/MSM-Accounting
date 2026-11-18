@@ -29,6 +29,9 @@ import {
   disconnect,
 } from './harness';
 import type { Prisma } from '@prisma/client';
+import { NextRequest } from 'next/server';
+import { POST as createBankTransaction } from '@/src/app/api/v1/bank-transactions/route';
+import { POST as autoMatchStatement } from '@/src/app/api/v1/bank-statements/match/route';
 
 const SEED_DATE = new Date('2026-01-01T00:00:00.000Z');
 
@@ -258,6 +261,22 @@ describe('settlement reconciliation service', () => {
       const settlement = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', settlementDate: '2026-02-10', netReleased: 545_000, charges: { serviceFee: 10_000 } }] });
       expect(settlement.posted).toBe(1);
       expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(545_000, 2);
+      const connection = await prisma.ecommerceConnection.findUniqueOrThrow({ where: { id: s.connectionId } });
+      const bankGl = await prisma.account.create({ data: { organizationId: s.orgId, code: `1120-${tag()}`, name: 'Settlement Bank', type: 'ASSET', normalSide: 'DEBIT', isActive: true, isPostable: true } });
+      const bank = await prisma.bankAccount.create({ data: { organizationId: s.orgId, name: 'Settlement Bank', code: bankGl.code } });
+      const headers = { 'x-org-id': s.orgId, 'x-user-id': s.userId, 'x-role-type': 'ADMIN', 'content-type': 'application/json' };
+      const transferResponse = await createBankTransaction(new NextRequest('http://localhost/api/v1/bank-transactions', { method: 'POST', headers, body: JSON.stringify({
+        bankAccountId: connection.holdingAccountId, toBankAccountId: bank.id, type: 'TRANSFER', amount: 545_000, date: '2026-02-12', description: 'Marketplace withdrawal',
+      }) }));
+      expect(transferResponse.status).toBe(201);
+      const transfer = await transferResponse.json();
+      const statement = await prisma.bankStatement.create({ data: { organizationId: s.orgId, bankAccountId: bank.id, filename: 'synthetic.csv', lines: { create: [{ date: new Date('2026-02-12'), description: 'Marketplace payout', amount: 545_000 }] } }, include: { lines: true } });
+      const matchResponse = await autoMatchStatement(new NextRequest(`http://localhost/api/v1/bank-statements/match?statementId=${statement.id}`, { method: 'POST', headers }));
+      expect(matchResponse.status).toBe(200);
+      expect(await matchResponse.json()).toMatchObject({ matched: 1, unmatched: 0 });
+      expect((await prisma.bankStatementLine.findUniqueOrThrow({ where: { id: statement.lines[0].id } })).matchedTxId).toBe(transfer.id);
+      expect(await accountBalance(s.orgId, bankGl.id)).toBeCloseTo(545_000, 2);
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(0, 2);
       const source = invoice.lines[0];
       const returned = await prisma.$transaction(async tx => {
         const sr = await tx.salesReturn.create({ data: { organizationId: s.orgId, number: 'SR-CROSS-MONTH', customerId: invoice.customerId, invoiceId: invoice.id,
@@ -282,7 +301,7 @@ describe('settlement reconciliation service', () => {
       expect(Number(noteJournal.lines.find(l => l.description?.startsWith('Sales return'))?.debit)).toBe(500_000);
       expect(Number(noteJournal.lines.find(l => l.description?.startsWith('Output tax reversal'))?.debit)).toBe(55_000);
       expect((await importSettlement(s.orgId, s.userId, s.connectionId, laterRefund(cn.number, 555_000))).posted).toBe(1);
-      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(-10_000, 2);
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(-555_000, 2);
       await assertTrialBalanced(s.orgId, 'cross-month taxable return');
     } finally { await cleanupOrg(s.orgId); }
   });
