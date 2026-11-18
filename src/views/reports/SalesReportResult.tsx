@@ -21,6 +21,11 @@ const ShareBreakdown: React.FC<{
   rows: { label: string; total: number; isOthers?: boolean }[];
   grandTotal: number;
 }> = ({ rows: inputRows, grandTotal }) => {
+  if (inputRows.some(row => row.total < 0)) {
+    return <div className="space-y-2 text-sm"><p>Nilai negatif ditampilkan dalam tabel karena tidak dapat digambarkan sebagai bagian diagram lingkaran.</p>
+      {inputRows.map((row, index) => <div key={index} className="flex justify-between gap-4 border-b py-1"><span>{row.label}</span><span>{formatIDR(row.total)}</span></div>)}
+      <div className="flex justify-between font-semibold"><span>Total neto</span><span>{formatIDR(grandTotal)}</span></div></div>;
+  }
   const rows = inputRows.filter((r) => r.total > 0);
   if (rows.length === 0 || grandTotal <= 0) {
     return <div className="py-10 text-center text-sm text-neutral-500">Tidak ada penjualan pada periode ini.</div>;
@@ -125,7 +130,9 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
             <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
             <th className="p-3 text-right font-semibold border border-neutral-300 w-[110px]">Jml Invoice</th>
             <th className="p-3 text-right font-semibold border border-neutral-300 w-[170px]">Rata-rata / Invoice</th>
-            <th className="p-3 text-right font-semibold border border-neutral-300 w-[170px]">Penjualan</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Bruto tanpa PPN</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Nota kredit tanpa PPN</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300 w-[170px]">Neto tanpa PPN</th>
             <th className="p-3 text-left font-semibold border border-neutral-300 w-[190px]">Kontribusi</th>
           </tr>
         </thead>
@@ -143,6 +150,8 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
                   <td className="p-3 border border-neutral-200 text-right text-neutral-600">
                     {formatIDR(row.invoiceCount > 0 ? row.total / row.invoiceCount : 0)}
                   </td>
+                  <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.gross)}</td>
+                  <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.returns)}</td>
                   <td className="p-3 border border-neutral-200 text-right font-medium">
                     {row.customerId ? (
                       <button
@@ -168,7 +177,7 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
                 {detail?.open && (
                   <tr>
                     <td className="border border-neutral-200 bg-neutral-50" />
-                    <td colSpan={5} className="px-3 py-2 border border-neutral-200 bg-neutral-50">
+                    <td colSpan={7} className="px-3 py-2 border border-neutral-200 bg-neutral-50">
                       {detail.loading ? (
                         <span className="text-xs text-neutral-500">Memuat rincian...</span>
                       ) : detail.error ? (
@@ -205,6 +214,8 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
             <td className="p-3 border border-neutral-300 text-right">
               {formatIDR(totalInvoices > 0 ? rows.grandTotal / totalInvoices : 0)}
             </td>
+            <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.rows.reduce((sum, row) => sum + row.gross, 0))}</td>
+            <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.rows.reduce((sum, row) => sum + row.returns, 0))}</td>
             <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.grandTotal)}</td>
             <td className="p-3 border border-neutral-300 text-right text-xs">100%</td>
           </tr>
@@ -220,15 +231,23 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
         <thead>
           <tr className="bg-blue-50">
             <th className="p-3 text-left font-semibold border border-neutral-300">Barang</th>
-            <th className="p-3 text-right font-semibold border border-neutral-300 w-[100px]">Qty</th>
-            <th className="p-3 text-right font-semibold border border-neutral-300 w-[180px]">Penjualan</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Qty jual</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Qty retur</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Qty neto</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Penjualan bruto</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Nota kredit</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Penjualan neto</th>
           </tr>
         </thead>
         <tbody>
           {rows.rows.map((row, i) => (
             <tr key={i} className="hover:bg-neutral-50">
-              <td className="p-3 border border-neutral-200">{row.description}</td>
-              <td className="p-3 border border-neutral-200 text-right">{Number(row.qty).toFixed(0)}</td>
+              <td className="p-3 border border-neutral-200">{row.code ? `${row.code} — ` : ''}{row.description}</td>
+              <td className="p-3 border border-neutral-200 text-right">{row.grossQty.toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+              <td className="p-3 border border-neutral-200 text-right">{row.returnedQty.toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+              <td className="p-3 border border-neutral-200 text-right">{row.qty.toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+              <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.gross)}</td>
+              <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.returns)}</td>
               <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
             </tr>
           ))}
@@ -236,9 +255,11 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
         <tfoot>
           <tr className="bg-blue-50 font-bold">
             <td className="p-3 border border-neutral-300">Total</td>
-            <td className="p-3 border border-neutral-300 text-right">
-              {rows.rows.reduce((sum, row) => sum + Number(row.qty), 0).toFixed(0)}
-            </td>
+            <td className="p-3 border border-neutral-300 text-right">{rows.rows.reduce((sum, row) => sum + row.grossQty, 0).toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+            <td className="p-3 border border-neutral-300 text-right">{rows.rows.reduce((sum, row) => sum + row.returnedQty, 0).toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+            <td className="p-3 border border-neutral-300 text-right">{rows.rows.reduce((sum, row) => sum + row.qty, 0).toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+            <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.rows.reduce((sum, row) => sum + row.gross, 0))}</td>
+            <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.rows.reduce((sum, row) => sum + row.returns, 0))}</td>
             <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.grandTotal)}</td>
           </tr>
         </tfoot>
@@ -254,23 +275,31 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
           <tr className="bg-blue-50">
             <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
             <th className="p-3 text-left font-semibold border border-neutral-300">Barang</th>
-            <th className="p-3 text-right font-semibold border border-neutral-300 w-[100px]">Qty</th>
-            <th className="p-3 text-right font-semibold border border-neutral-300 w-[180px]">Total</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Qty jual</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Qty retur</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Qty neto</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Bruto</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Nota kredit</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Neto</th>
           </tr>
         </thead>
         <tbody>
           {rows.rows.map((row, i) => (
             <tr key={i} className="hover:bg-neutral-50">
               <td className="p-3 border border-neutral-200">{row.customerName}</td>
-              <td className="p-3 border border-neutral-200">{row.description}</td>
-              <td className="p-3 border border-neutral-200 text-right">{Number(row.qty).toFixed(0)}</td>
+              <td className="p-3 border border-neutral-200">{row.code ? `${row.code} — ` : ''}{row.description}</td>
+              <td className="p-3 border border-neutral-200 text-right">{row.grossQty.toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+              <td className="p-3 border border-neutral-200 text-right">{row.returnedQty.toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+              <td className="p-3 border border-neutral-200 text-right">{row.qty.toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+              <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.gross)}</td>
+              <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.returns)}</td>
               <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.total)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr className="bg-blue-50 font-bold">
-            <td colSpan={3} className="p-3 border border-neutral-300">Total</td>
+            <td colSpan={7} className="p-3 border border-neutral-300">Total</td>
             <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.grandTotal)}</td>
           </tr>
         </tfoot>
@@ -284,17 +313,19 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="bg-blue-50">
-            <th className="p-3 text-left font-semibold border border-neutral-300">No Faktur</th>
+            <th className="p-3 text-left font-semibold border border-neutral-300">No Dokumen</th>
             <th className="p-3 text-left font-semibold border border-neutral-300 w-[120px]">Tanggal</th>
             <th className="p-3 text-left font-semibold border border-neutral-300">Pelanggan</th>
             <th className="p-3 text-left font-semibold border border-neutral-300 w-[100px]">Status</th>
-            <th className="p-3 text-right font-semibold border border-neutral-300 w-[160px]">Total</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Bruto tanpa PPN</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300">Nota kredit tanpa PPN</th>
+            <th className="p-3 text-right font-semibold border border-neutral-300 w-[160px]">Neto tanpa PPN</th>
           </tr>
         </thead>
         <tbody>
           {rows.rows.map((row, i) => (
             <tr key={i} className="hover:bg-neutral-50">
-              <td className="p-3 border border-neutral-200 font-mono text-xs">{row.number}</td>
+              <td className="p-3 border border-neutral-200 font-mono text-xs">{row.number} ({row.kind === 'credit' ? 'Nota kredit' : 'Faktur'})</td>
               <td className="p-3 border border-neutral-200">{formatDateID(row.issueDate)}</td>
               <td className="p-3 border border-neutral-200">{row.customerName}</td>
               <td className="p-3 border border-neutral-200">
@@ -302,13 +333,17 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
                   {row.status}
                 </span>
               </td>
+              <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.kind === 'invoice' ? row.totalAmount : 0)}</td>
+              <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.kind === 'credit' ? -row.totalAmount : 0)}</td>
               <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.totalAmount)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr className="bg-blue-50 font-bold">
-            <td colSpan={4} className="p-3 border border-neutral-300">Total ({rows.rows.length} faktur)</td>
+            <td colSpan={4} className="p-3 border border-neutral-300">Total ({rows.rows.length} transaksi)</td>
+            <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.rows.reduce((s, r) => s + (r.kind === 'invoice' ? r.totalAmount : 0), 0))}</td>
+            <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.rows.reduce((s, r) => s + (r.kind === 'credit' ? -r.totalAmount : 0), 0))}</td>
             <td className="p-3 border border-neutral-300 text-right">{formatIDR(rows.grandTotal)}</td>
           </tr>
         </tfoot>
@@ -361,6 +396,11 @@ export default function SalesReportResult({ activeReport }: ReportResultProps): 
 
   if (report.id === 'monthly-chart') {
     const chartData = data as { rows: SalesMonthlyRow[]; grandTotal: number };
+    if (chartData.rows.some(row => row.total < 0)) {
+      return <div className="space-y-2 text-sm"><p>Periode dengan penjualan neto negatif ditampilkan dalam tabel.</p>
+        {chartData.rows.map(row => <div key={row.month} className="flex justify-between gap-4 border-b py-1"><span>{row.month}</span><span>{formatIDR(row.total)}</span></div>)}
+        <div className="flex justify-between font-semibold"><span>Total neto</span><span>{formatIDR(chartData.grandTotal)}</span></div></div>;
+    }
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
     // Fill months with no sales so gaps show as empty slots instead of being skipped.

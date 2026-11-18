@@ -109,10 +109,17 @@ export interface SalesByCustomerRow {
   customerName: string;
   invoiceCount: number;
   total: number;
+  gross: number;
+  returns: number;
 }
 
 export interface SalesByItemRow {
   description: string;
+  code: string | null;
+  grossQty: number;
+  returnedQty: number;
+  gross: number;
+  returns: number;
   qty: number;
   total: number;
 }
@@ -120,12 +127,18 @@ export interface SalesByItemRow {
 export interface SalesByItemCustomerRow {
   customerName: string;
   description: string;
+  code: string | null;
+  grossQty: number;
+  returnedQty: number;
+  gross: number;
+  returns: number;
   qty: number;
   total: number;
 }
 
 export interface SalesHistoryRow {
   number: string;
+  kind: string;
   issueDate: string;
   customerName: string;
   status: string;
