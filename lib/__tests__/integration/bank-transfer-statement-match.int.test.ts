@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST as autoMatch } from '@/src/app/api/v1/bank-statements/match/route';
 import { PUT as updateLine } from '@/src/app/api/v1/bank-statements/[lineId]/route';
+import { PUT as editTransaction } from '@/src/app/api/v1/bank-transactions/[id]/route';
 import { prisma, createTestOrg, cleanupOrg, disconnect } from './harness';
 
 afterAll(disconnect);
@@ -23,6 +24,8 @@ describe('transfer bank statement matching', () => {
       const wrong = await statement(destination.id, -100);
       expect(await (await match(org.orgId, wrong.id)).json()).toMatchObject({ matched: 0 });
       expect(await (await match(org.orgId, credit.id)).json()).toMatchObject({ matched: 1 });
+      const edit = await editTransaction(new NextRequest(`http://localhost/api/v1/bank-transactions/${transfer.id}`, { method: 'PUT', headers: headers(org.orgId), body: JSON.stringify({ amount: 90 }) }), { params: Promise.resolve({ id: transfer.id }) });
+      expect(edit.status).toBe(409);
       expect(await (await match(org.orgId, debit.id)).json()).toMatchObject({ matched: 1 });
       const duplicate = await statement(destination.id, 100);
       expect(await (await match(org.orgId, duplicate.id)).json()).toMatchObject({ matched: 0 });

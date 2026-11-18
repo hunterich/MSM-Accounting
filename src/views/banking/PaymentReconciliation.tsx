@@ -19,6 +19,7 @@ import {
   useImportBankStatement,
   useAutoMatch,
   useManualMatch,
+  useUnmatchStatementLine,
   type UnmatchedPayment,
   type UnmatchedBankTx,
   type ReconciliationMatch,
@@ -50,29 +51,31 @@ const PaymentReconciliation: React.FC = () => {
   const importStatement = useImportBankStatement();
   const autoMatch = useAutoMatch(activeStatementId);
   const manualMatch = useManualMatch();
+  const unmatch = useUnmatchStatementLine();
 
   // Unmatched bank transactions for the active statement's account — manual match candidates
   const txnFilters = useMemo(() => (
-    activeStatement ? { bankAccountId: activeStatement.bankAccountId } : {}
+    activeStatement ? { bankAccountId: activeStatement.bankAccountId, includeTransfersToAccount: true } : {}
   ), [activeStatement]);
   const { data: txnResult } = useBankTransactions(txnFilters);
   const unmatchedTxns = useMemo(
-    () => ((txnResult?.data ?? []) as BankTransaction[]).filter((t) => t.status === 'Unmatched'),
+    () => ((txnResult?.data ?? []) as BankTransaction[]).filter((t) => t.status === 'Unmatched' || t.type === 'transfer'),
     [txnResult]
   );
 
   const matchOptionsForLine = (line: BankStatementLine) => {
+    const amountFor = (t: BankTransaction) => t.type === 'transfer' && t.accountId === activeStatement?.bankAccountId ? -Math.abs(t.amount) : t.amount;
     // Same-amount transactions first — they're the likely matches
-    const sorted = [...unmatchedTxns].sort((a, b) => {
-      const aExact = Math.abs(a.amount - line.amount) < 0.01 ? 0 : 1;
-      const bExact = Math.abs(b.amount - line.amount) < 0.01 ? 0 : 1;
+    const sorted = [...unmatchedTxns].filter(t => t.type !== 'transfer' || Math.abs(amountFor(t) - line.amount) < 0.01).sort((a, b) => {
+      const aExact = Math.abs(amountFor(a) - line.amount) < 0.01 ? 0 : 1;
+      const bExact = Math.abs(amountFor(b) - line.amount) < 0.01 ? 0 : 1;
       if (aExact !== bExact) return aExact - bExact;
       return a.date < b.date ? 1 : -1;
     });
     return sorted.map((t) => ({
       value: t.id,
       label: t.description || t.id,
-      subLabel: `${formatDateID(t.date)} • ${formatIDR(t.amount)}`,
+      subLabel: `${formatDateID(t.date)} • ${formatIDR(amountFor(t))}`,
     }));
   };
 
@@ -126,7 +129,8 @@ const PaymentReconciliation: React.FC = () => {
       render: (_, row) => {
         const line = row as unknown as BankStatementLine;
         if (line.status === 'Matched') {
-          return <span className="text-xs text-neutral-400">Matched{line.matchedTxnId ? ` — ${line.matchedTxnId}` : ''}</span>;
+          return <div className="flex items-center gap-2"><span className="text-xs text-neutral-400">Matched{line.matchedTxnId ? ` — ${line.matchedTxnId}` : ''}</span>
+            <Button text="Unmatch" size="small" variant="secondary" disabled={!canCreate || unmatch.isPending} onClick={() => unmatch.mutate(line.id, { onError: error => window.alert(error.message) })} /></div>;
         }
         return (
           <SearchableSelect
@@ -136,7 +140,7 @@ const PaymentReconciliation: React.FC = () => {
             placeholder="Match to transaction..."
             disabled={!canCreate || manualMatch.isPending}
             onChange={(txnId) => {
-              if (txnId) manualMatch.mutate({ statementLineId: line.id, txnId });
+              if (txnId) manualMatch.mutate({ statementLineId: line.id, txnId }, { onError: error => window.alert(error.message) });
             }}
           />
         );

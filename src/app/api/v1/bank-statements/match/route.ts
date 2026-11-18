@@ -71,8 +71,9 @@ export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async 
     const candidates = transfers.filter(t => !usedTxIds.has(t.id) &&
       Math.abs((t.bankAccountId === statement.bankAccountId ? -1 : 1) * Number(t.amount) - lineAmount) < 0.01 &&
       Math.abs(t.date.getTime() - lineTime) <= THREE_DAYS_MS);
+    const otherCandidates = bankTxns.filter(t => !usedTxIds.has(t.id) && Math.abs(Number(t.amount) - lineAmount) < 0.01 && Math.abs(t.date.getTime() - lineTime) <= THREE_DAYS_MS);
     // Ambiguous transfers need staff review rather than an arbitrary match.
-    if (candidates.length === 1) {
+    if (candidates.length === 1 && otherCandidates.length === 0) {
       try {
         await prisma.$transaction(tx => matchTransferStatementLine(tx, orgId, line.id, candidates[0].id));
         usedTxIds.add(candidates[0].id);
@@ -84,7 +85,7 @@ export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async 
         continue;
       }
     }
-    if (candidates.length > 1) continue;
+    if (candidates.length > 0) continue;
 
     const matchedTx = bankTxns.find((tx) => {
       if (usedTxIds.has(tx.id)) return false;

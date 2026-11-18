@@ -31,8 +31,12 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid bank transaction payload', 400);
   try {
     const txn = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "BankTransaction" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const existing = await tx.bankTransaction.findFirst({ where: { id, organizationId: orgId } });
       if (!existing) return null;
+      if (existing.type === 'TRANSFER' && (existing.status === 'MATCHED' || await tx.bankStatementLine.count({ where: { matchedTxId: id, matchStatus: 'MATCHED', statement: { organizationId: orgId } } }))) {
+        throw new ApiError('Unmatch both transfer statement lines before editing this transaction.', 409);
+      }
       if (parsed.data.bankAccountId) {
         await validateForeignKey(tx.bankAccount, { id: parsed.data.bankAccountId, organizationId: orgId, isActive: true }, 'Bank account not found in organization');
       }
@@ -97,11 +101,15 @@ export const DELETE = withPermission({ module: 'BANKING', action: 'delete' }, as
   const orgId = req.headers.get('x-org-id')!;
   try {
   const deleted = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "BankTransaction" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
     const existing = await tx.bankTransaction.findFirst({
       where: { id, organizationId: orgId },
-      select: { id: true, bankAccountId: true, type: true, amount: true, journalEntryId: true },
+      select: { id: true, bankAccountId: true, type: true, amount: true, journalEntryId: true, status: true },
     });
     if (!existing) return null;
+    if (existing.type === 'TRANSFER' && (existing.status === 'MATCHED' || await tx.bankStatementLine.count({ where: { matchedTxId: id, matchStatus: 'MATCHED', statement: { organizationId: orgId } } }))) {
+      throw new ApiError('Unmatch both transfer statement lines before deleting this transaction.', 409);
+    }
     if (existing.journalEntryId) {
       throw new ApiError('This expense has already been posted to the ledger and cannot be deleted — void it instead.', 409);
     }

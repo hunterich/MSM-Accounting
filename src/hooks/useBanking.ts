@@ -62,7 +62,7 @@ function normalizeTxn(raw: RawBankTransaction): BankTransaction {
     taxType:     (raw.taxType || 'none').toLowerCase(),
     taxRate:     Number(raw.taxRate ?? 0),
     bankAccount: raw.bankAccount || null,
-    toAccountId:      raw.toAccountId || '',
+    toAccountId:      raw.toBankAccountId || raw.toAccountId || '',
     payee:            raw.payee || '',
     expenseAccountId: raw.expenseAccountId || '',
     receivedFrom:     raw.receivedFrom || '',
@@ -304,6 +304,17 @@ export function useManualMatch() {
   return useMutation({
     mutationFn: ({ statementLineId, txnId }: { statementLineId: string; txnId: string }) =>
       api.put(`/api/v1/bank-statements/${statementLineId}`, { action: 'match', matchedTxId: txnId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bankStatements'] });
+      qc.invalidateQueries({ queryKey: ['bankTransactions'] });
+    },
+  });
+}
+
+export function useUnmatchStatementLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (statementLineId: string) => api.put(`/api/v1/bank-statements/${statementLineId}`, { action: 'unmatch' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bankStatements'] });
       qc.invalidateQueries({ queryKey: ['bankTransactions'] });

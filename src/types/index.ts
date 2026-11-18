@@ -1004,6 +1004,7 @@ export interface RawBankTransaction {
   taxRate?: number | string | null;
   bankAccount?: unknown;
   toAccountId?: string | null;
+  toBankAccountId?: string | null;
   payee?: string | null;
   expenseAccountId?: string | null;
   receivedFrom?: string | null;

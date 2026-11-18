@@ -17,6 +17,13 @@ applied or rerun them. Restoring a database discards writes after the backup.
 
 ## Preflight and rehearsal
 
+The CI security audit currently reports high-severity
+[`picomatch` GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
+As of 18 November 2026 the advisory lists no patched version. The audit also
+reports other transitive issues, including minimatch. Investigate exposure and
+compatible fixes and rerun the audit; do not bypass the required security check
+or treat development-dependency classification as proof of no runtime risk.
+
 1. Have finance accept the examples and review historical candidates. Verify real
    Shopee/TikTok exports, full workflow, settlement dates and bank reconciliation.
    Freeze staff writes and background jobs during the maintenance window.
