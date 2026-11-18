@@ -26,7 +26,7 @@ it('keeps closing journals on the balance sheet and out of operating results acr
     const handler = endpoint === 'gl' ? glReport : dashboardReport;
     const response = await handler(new NextRequest(`http://localhost/api/v1/reports/${endpoint}?${query}`, { headers }));
     expect(response.status, await response.clone().text()).toBe(200);
-    return (await response.json()).data;
+    return response.json();
   };
   const results = () => Promise.all([
     report(`type=profit-loss&${year}`),
@@ -80,7 +80,7 @@ it('keeps closing journals on the balance sheet and out of operating results acr
       method: 'POST', headers, body: '{}',
     }));
     expect(closed.status, await closed.clone().text()).toBe(201);
-    const { closingEntryId, netIncome } = (await closed.json()).data;
+    const { closingEntryId, netIncome } = await closed.json();
     expect(netIncome).toBe(600);
     const entry = await prisma.journalEntry.findUniqueOrThrow({ where: { id: closingEntryId } });
     expect(entry.date.toISOString()).toBe('2025-12-31T16:59:59.999Z');
