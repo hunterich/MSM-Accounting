@@ -1,9 +1,8 @@
 import { test, expect } from '@playwright/test'
 import * as XLSX from 'xlsx'
 import { accountingCompany, cleanupAccountingCompany, api, choose, db } from './accounting-helpers'
-import { postOpeningStockIfNeeded } from '../lib/inventory-opening'
-import { postSalesReturnOnApproval } from '../lib/sales-return-posting'
-import { postCreditNoteOnApply } from '../lib/credit-note-posting'
+import { addCostLayer } from '../lib/inventory-costing'
+import { loadOrgAccountDefaults, resolveAccountDefaultId } from '../lib/account-defaults'
 
 test.setTimeout(120_000)
 test.afterEach(cleanupAccountingCompany)
@@ -24,8 +23,11 @@ for (const platform of ['Shopee', 'TikTok'] as const) {
   test(`${platform} shipment import and later refund reconciliation`, async ({ page }) => {
     const { orgId, customer, item } = await accountingCompany(page)
     await db.organization.update({ where: { id: orgId }, data: { taxEnabled: false } })
-    await db.item.update({ where: { id: item.id }, data: { openingStock: 5 } })
-    await db.$transaction(tx => postOpeningStockIfNeeded(tx, orgId, item.id, new Date('2026-01-01')))
+    await db.$transaction(async tx => {
+      const accounts = await tx.account.findMany({ where: { organizationId: orgId, isActive: true } })
+      const inventory = resolveAccountDefaultId(accounts, await loadOrgAccountDefaults(tx, orgId), 'inventoryAsset')
+      await addCostLayer(tx, orgId, item.id, null, 5, 1000, 'PURCHASE', 'marketplace-e2e', new Date('2026-01-01'), undefined, inventory)
+    })
     const wallet = await db.bankAccount.create({ data: { organizationId: orgId, name: 'Cash and Bank', bankName: 'Cash and Bank' } })
     const conn = await db.ecommerceConnection.create({ data: {
       organizationId: orgId, platform: platform === 'Shopee' ? 'SHOPEE' : 'TIKTOK', shopName: `${platform} test shop`,
@@ -46,17 +48,12 @@ for (const platform of ['Shopee', 'TikTok'] as const) {
     const payout = await api(page, `/integrations/${conn.id}/settlement-import`, { orders: [{ orderId: 'SHIP1001', settlementDate: '2026-10-02', netReleased: Number(invoice.totalAmount), charges: {} }] }, 'POST')
     expect(payout.posted).toBe(1)
     const receipt = await db.aRPayment.findFirstOrThrow({ where: { organizationId: orgId, ecommerceConnectionId: conn.id } })
-    const note = await db.$transaction(async tx => {
-      const source = invoice.lines[0]
-      const sr = await tx.salesReturn.create({ data: { organizationId: orgId, number: 'SR-E2E', customerId: customer.id, invoiceId: invoice.id,
-        returnDate: new Date('2026-10-03'), status: 'APPROVED', subtotal: invoice.subtotal, taxAmount: invoice.taxAmount, totalAmount: invoice.totalAmount,
-        lines: { create: [{ lineNo: 1, sourceInvoiceLineId: source.id, itemId: source.itemId, qtySold: source.quantity, qtyReturn: source.quantity, price: source.price, goodsReceived: false }] } } })
-      await postSalesReturnOnApproval(tx, sr.id)
-      const cn = await tx.creditNote.create({ data: { organizationId: orgId, number: 'CN-E2E', customerId: customer.id, sourceInvoiceId: invoice.id, salesReturnId: sr.id,
-        date: new Date('2026-10-03'), status: 'APPLIED', amount: invoice.totalAmount, taxAmount: 0, applyTax: false, settlementType: 'REFUND', settlementAccountId: receipt.depositAccountId } })
-      await postCreditNoteOnApply(tx, cn.id)
-      return cn
-    })
+    const source = invoice.lines[0]
+    const sr = await api(page, '/sales-returns', { customerId: customer.id, invoiceId: invoice.id, returnDate: '2026-10-03', status: 'APPROVED',
+      lines: [{ sourceInvoiceLineId: source.id, itemId: source.itemId, qtyReturn: Number(source.quantity), price: Number(source.price), goodsReceived: false }] }, 'POST')
+    const note = await api(page, '/credit-notes', { customerId: customer.id, sourceInvoiceId: invoice.id, salesReturnId: sr.id,
+      date: '2026-10-03', amount: Number(invoice.totalAmount), taxAmount: 0, applyTax: false, settlementType: 'REFUND', settlementAccountId: receipt.depositAccountId }, 'POST')
+    await api(page, `/credit-notes/${note.id}`, { status: 'APPLIED' }, 'PUT')
     const before = await db.journalEntry.count({ where: { organizationId: orgId } })
     await page.goto('/integrations')
     await page.getByRole('row').filter({ hasText: `${platform} test shop` }).getByTitle('Import settlement statement').click()
