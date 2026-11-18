@@ -124,8 +124,12 @@ interface ImportedOrder {
  * Seed an org with a wallet bank, fee-account mappings, and a stocked item,
  * then run ②'s import to create order 'ORD1' (invoice + wallet receipt).
  */
-async function seedImportedOrder(): Promise<ImportedOrder> {
+async function seedImportedOrder(options: { tax?: boolean; shipmentDate?: string } = {}): Promise<ImportedOrder> {
   const org = await createTestOrg();
+  if (options.tax) {
+    const outputTax = await prisma.account.create({ data: { organizationId: org.orgId, code: `2200-${tag()}`, name: 'Output Tax', type: 'LIABILITY', normalSide: 'CREDIT', isActive: true, isPostable: true } });
+    await prisma.organization.update({ where: { id: org.orgId }, data: { taxEnabled: true, taxDefaultRate: 11, accountDefaults: { ...org.accounts, arTax: outputTax.id } } });
+  }
   const userId = await createUser();
   const customerId = await createCustomer(org.orgId);
   const bankId = await createWalletBank(org.orgId);
@@ -158,7 +162,7 @@ async function seedImportedOrder(): Promise<ImportedOrder> {
   // Gross X = 5 × 100_000 = 500_000 (tax disabled path: totals = subtotal).
   const order: ImportOrder = {
     orderNo: 'ORD1',
-    issueDate: '2026-06-01',
+    issueDate: options.shipmentDate ?? '2026-06-01',
     lines: [
       { itemId, description: 'Stocked Product', sku: 'SKU-STK', quantity: 5, unitPrice: 100_000 },
     ],
@@ -228,6 +232,60 @@ function laterRefund(noteNumber: string, amount: number) {
 }
 
 describe('settlement reconciliation service', () => {
+  it('posts a taxable shipment, later settlement and received return in their respective months', async () => {
+    const s = await seedImportedOrder({ tax: true, shipmentDate: '2026-01-31' });
+    try {
+      const invoice = await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.orgId, poNumber: 'ORD1' }, include: { lines: true } });
+      expect(Number(invoice.subtotal)).toBe(500_000);
+      expect(Number(invoice.taxAmount)).toBe(55_000);
+      expect(Number(invoice.totalAmount)).toBe(555_000);
+      const entries = await prisma.journalEntry.findMany({ where: { id: { in: invoice.postingJournalIds } }, include: { lines: true } });
+      expect(entries.every(e => e.date.toISOString().startsWith('2026-01-31'))).toBe(true);
+      const lines = entries.flatMap(e => e.lines);
+      const line = (prefix: string) => lines.find(l => l.description?.startsWith(prefix));
+      expect(Number(line('Sales -')?.credit)).toBe(500_000);
+      expect(Number(line('Output tax -')?.credit)).toBe(55_000);
+      expect(Number(line('COGS -')?.debit)).toBe(250_000);
+      expect(Number(line('Inventory reduction -')?.credit)).toBe(250_000);
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(555_000, 2);
+      const count = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+      const completed = await importMarketplaceOrders(s.orgId, s.userId, s.connectionId, [{
+        orderNo: 'ORD1', issueDate: '2026-02-05', shipmentDate: '2026-01-31', orderStatus: 'Completed',
+        lines: [{ itemId: invoice.lines[0].itemId!, description: 'Stocked Product', sku: 'SKU-STK', quantity: 5, unitPrice: 100_000 }],
+      }], { recordPayment: true });
+      expect(completed.skipped).toBe(1);
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(count);
+      const settlement = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ orderId: 'ORD1', settlementDate: '2026-02-10', netReleased: 545_000, charges: { serviceFee: 10_000 } }] });
+      expect(settlement.posted).toBe(1);
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(545_000, 2);
+      const source = invoice.lines[0];
+      const returned = await prisma.$transaction(async tx => {
+        const sr = await tx.salesReturn.create({ data: { organizationId: s.orgId, number: 'SR-CROSS-MONTH', customerId: invoice.customerId, invoiceId: invoice.id,
+          returnDate: new Date('2026-03-02'), status: 'APPROVED', subtotal: invoice.subtotal, taxAmount: invoice.taxAmount, totalAmount: invoice.totalAmount,
+          lines: { create: [{ lineNo: 1, sourceInvoiceLineId: source.id, itemId: source.itemId, qtySold: source.quantity, qtyReturn: source.quantity, price: source.price, goodsReceived: true }] } } });
+        await postSalesReturnOnApproval(tx, sr.id);
+        const cn = await tx.creditNote.create({ data: { organizationId: s.orgId, number: 'CN-CROSS-MONTH', customerId: invoice.customerId,
+          sourceInvoiceId: invoice.id, salesReturnId: sr.id, date: new Date('2026-03-03'), settlementType: 'REFUND', settlementAccountId: s.walletAccountId,
+          status: 'APPLIED', amount: invoice.totalAmount, taxAmount: invoice.taxAmount, applyTax: true } });
+        await postCreditNoteOnApply(tx, cn.id);
+        return { sr, cn };
+      });
+      const stock = await prisma.inventoryLedgerEntry.findMany({ where: { organizationId: s.orgId, documentId: returned.sr.id } });
+      expect(stock.reduce((n, row) => n + Number(row.qtyIn), 0)).toBe(5);
+      const returnJournal = await prisma.journalEntry.findUniqueOrThrow({ where: { id: (await prisma.salesReturn.findUniqueOrThrow({ where: { id: returned.sr.id } })).journalEntryId! }, include: { lines: true } });
+      expect(returnJournal.date.toISOString().slice(0, 10)).toBe('2026-03-02');
+      expect(Number(returnJournal.lines.find(l => l.description?.startsWith('Inventory restock'))?.debit)).toBe(250_000);
+      expect(Number(returnJournal.lines.find(l => l.description?.startsWith('COGS reversal'))?.credit)).toBe(250_000);
+      const cn = await prisma.creditNote.findUniqueOrThrow({ where: { id: returned.cn.id } });
+      const noteJournal = await prisma.journalEntry.findUniqueOrThrow({ where: { id: cn.journalEntryId! }, include: { lines: true } });
+      expect(noteJournal.date.toISOString().slice(0, 10)).toBe('2026-03-03');
+      expect(Number(noteJournal.lines.find(l => l.description?.startsWith('Sales return'))?.debit)).toBe(500_000);
+      expect(Number(noteJournal.lines.find(l => l.description?.startsWith('Output tax reversal'))?.debit)).toBe(55_000);
+      expect((await importSettlement(s.orgId, s.userId, s.connectionId, laterRefund(cn.number, 555_000))).posted).toBe(1);
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(-10_000, 2);
+      await assertTrialBalanced(s.orgId, 'cross-month taxable return');
+    } finally { await cleanupOrg(s.orgId); }
+  });
   it('serializes concurrent matching, handles separate partial refunds and replay', async () => {
     const s = await seedImportedOrder();
     try {
