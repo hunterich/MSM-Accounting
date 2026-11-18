@@ -63,6 +63,13 @@ fee and refund statements and clearing balances; physical receipt and valuation;
 bank withdrawal reconciliation; and treatment of historical exceptions before
 accepting a pilot. No finance approval is implied by this example.
 
+**Bank reconciliation blocker:** the automatic statement matcher searches only
+`BankTransaction.bankAccountId`. A transfer from the marketplace wallet to a
+bank stores the bank as `toBankAccountId`, so that incoming bank statement line
+is not found by this automatic matcher. Its amount-sign behavior for transfers
+also needs an end-to-end test. Do not assume a transfer journal is a matched
+bank statement; the payout matching workflow requires correction and validation.
+
 Apply the additive `20261117120000_marketplace_refund_reconciliation` migration before starting this version. It adds a receipt link and reconciliation time to credit notes, plus the shipment filter default for new connections. Existing financial postings and shop settings are retained. The order wizard uses shipment selection for both existing and new shops.
 
 Validate month-end shipment/completion, an unshipped cancellation, cancellation after dispatch, returns with and without received goods, refund-before-payout and refund-after-payout, replay, wrong-company/order/wallet notes, and concurrent reconciliation. Keep deployment and finance acceptance separate from code validation.
