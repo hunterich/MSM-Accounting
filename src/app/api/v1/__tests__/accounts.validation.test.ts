@@ -82,6 +82,27 @@ beforeEach(() => {
 });
 
 describe('accounts route validation', () => {
+  it('rejects cash classifications on non-asset accounts', async () => {
+    vi.mocked(prisma.account.findMany).mockResolvedValue(baseAccounts as never);
+    const res = await createAccount(makeReq('org-a', 'POST', {
+      code: '2100', name: 'Loan', type: 'Liability', isPostable: true,
+      isActive: true, reportGroup: 'Liabilities', cashFlowClass: 'CASH',
+    }));
+    expect(res.status).toBe(400);
+    expect(prisma.account.create).not.toHaveBeenCalled();
+  });
+
+  it('saves an explicit cash classification', async () => {
+    vi.mocked(prisma.account.findMany).mockResolvedValue(baseAccounts as never);
+    vi.mocked(prisma.account.create).mockResolvedValue({ id: 'bank' } as never);
+    const res = await createAccount(makeReq('org-a', 'POST', {
+      code: '100002', name: 'Rekening', type: 'Asset', parentId: 'root-asset',
+      isPostable: true, isActive: true, reportGroup: 'Aset Lancar', cashFlowClass: 'CASH',
+    }));
+    expect(res.status).toBe(201);
+    expect(prisma.account.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ cashFlowClass: 'CASH' }) }));
+  });
+
   it('rejects creating a child under a postable parent', async () => {
     vi.mocked(prisma.account.findMany).mockResolvedValue(baseAccounts as never);
 

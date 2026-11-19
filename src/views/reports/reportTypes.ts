@@ -546,8 +546,8 @@ export interface AccountLedgerRow {
 // ── Cash Flow Statement ──────────────────────────────────────────────────────
 
 export interface CashFlowStatementRow {
-  code: string;
-  name: string;
+  accountCode: string;
+  accountName: string;
   amount: number;
 }
 

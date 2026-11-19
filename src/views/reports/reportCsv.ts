@@ -364,8 +364,8 @@ export const buildGlCsv = (report: ReportDefinition, data: Record<string, unknow
     csv += sections.flatMap((section) => [
       ...section.rows.map((row) => [
         escapeCsvCell(section.label),
-        escapeCsvCell(row.code),
-        escapeCsvCell(row.name),
+        escapeCsvCell(row.accountCode),
+        escapeCsvCell(row.accountName),
         row.amount,
       ].join(',')),
       `Subtotal ${section.label},,,${section.subtotal}`,
@@ -376,6 +376,11 @@ export const buildGlCsv = (report: ReportDefinition, data: Record<string, unknow
       csv += `\nUnexplained Reconciling Difference,,,${summary.reconciliationDifference || 0}`;
     }
     csv += `\nEnding Cash,,,${summary.endingCash || 0}`;
+    const unreviewed = (data.unreviewedAccounts || []) as Array<{ code: string; name: string }>;
+    if (data.cashClassificationWarning) csv += '\nWarning,,No cash account identified,';
+    if (unreviewed.length) csv += `\nUnreviewed cash flow classifications,,${escapeCsvCell(unreviewed.map(a => `${a.code} ${a.name}`).join('; '))},`;
+    if (data.accumulatedDepreciationActivity) csv += '\nWarning,,Review accumulated depreciation movements and non-cash transactions,';
+    if (Math.abs(Number(data.balanceSheetDifference || 0)) > 0.005) csv += `\nDifference from balance sheet cash,,,${data.balanceSheetDifference}`;
     return csv;
   }
 

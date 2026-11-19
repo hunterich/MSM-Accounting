@@ -5,6 +5,7 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { reportDate } from '@/lib/subledger-history';
+import { loadOrgAccountDefaults, selectCashFlowAccountIds } from '@/lib/account-defaults';
 import {
   buildBalanceSheetReport,
   buildBalanceSheetMultiPeriodReport,
@@ -37,6 +38,7 @@ const baseAccountSelect = {
   normalSide: true,
   reportGroup: true,
   reportSubGroup: true,
+  cashFlowClass: true,
   isPostable: true,
   isActive: true,
 };
@@ -263,7 +265,10 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         return err('dateFrom must be before or equal to dateTo', 400);
       }
 
-      const [beginningLines, periodLines] = await Promise.all([
+      const [allAccounts, banks, defaults, beginningLines, periodLines, endingLines] = await Promise.all([
+        prisma.account.findMany({ where: { organizationId: orgId }, select: { ...baseAccountSelect, parentId: true } }),
+        prisma.bankAccount.findMany({ where: { organizationId: orgId }, select: { id: true, name: true, code: true, bankName: true } }),
+        loadOrgAccountDefaults(prisma, orgId),
         readJournalTotals(prisma, {
           entry: {
             organizationId: orgId,
@@ -280,13 +285,28 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
             date: { gte: dateFrom, lte: dateTo },
           },
         }),
+        readJournalTotals(prisma, { entry: { organizationId: orgId, status: 'POSTED', date: { lte: dateTo } } }),
       ]);
 
+      const bankInputs = banks.map(bank => ({ ...bank, code: bank.code ?? undefined, bankName: bank.bankName ?? undefined }));
+      const cashIds = selectCashFlowAccountIds(allAccounts, bankInputs, defaults);
+      const report = buildCashFlowStatement(accounts, beginningLines, periodLines, cashIds);
+      const selected = new Set(cashIds);
+      const balanceSheet = buildBalanceSheetReport(accounts, endingLines);
+      const balanceSheetCash = balanceSheet.sections.find(section => section.id === 'ASSET')!.rows
+        .filter(row => selected.has(row.accountId)).reduce((sum, row) => sum + row.amount, 0);
+      const balanceSheetDifference = Math.round((report.summary.endingCash - balanceSheetCash) * 100) / 100;
+      const periodActivityIds = new Set(periodLines.map(line => line.accountId));
+      const balanceActivityIds = new Set([...beginningLines, ...endingLines].map(line => line.accountId));
+      const unreviewedAccounts = accounts.filter(account => !account.cashFlowClass &&
+        (periodActivityIds.has(account.id) || ((account.type === 'ASSET' || account.type === 'LIABILITY') && balanceActivityIds.has(account.id))))
+        .map(account => ({ id: account.id, code: account.code, name: account.name }));
       return ok({
-        type,
-        dateFrom,
-        dateTo,
-        ...buildCashFlowStatement(accounts, beginningLines, periodLines),
+        type, dateFrom, dateTo, ...report,
+        balanceSheetCash, balanceSheetDifference,
+        unreviewedAccounts,
+        accumulatedDepreciationActivity: accounts.some(account => account.cashFlowClass === 'ACCUMULATED_DEPRECIATION' && periodLines.some(line => line.accountId === account.id)),
+        cashClassificationWarning: cashIds.length === 0,
       });
     }
 

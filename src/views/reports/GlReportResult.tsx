@@ -366,13 +366,18 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
   }
 
   if (report.id === 'cash-flow-statement') {
-    const cfsData = data as { sections: CashFlowStatementSection[]; summary: CashFlowStatementSummary };
+    const cfsData = data as { sections: CashFlowStatementSection[]; summary: CashFlowStatementSummary; cashClassificationWarning?: boolean; balanceSheetCash?: number; balanceSheetDifference?: number; unreviewedAccounts?: { id: string; code: string; name: string }[]; accumulatedDepreciationActivity?: boolean };
     const sections = cfsData.sections || [];
     const hasRows = sections.some((s) => s.rows.length > 0);
     if (!hasRows) return renderEmptyReport('Tidak ada data arus kas untuk periode yang dipilih.');
 
     return (
       <div className="space-y-6">
+        <p className="text-sm text-neutral-600">Tinjau transaksi nonkas, pelepasan aset, dan reklasifikasi sebelum menggunakan rincian aktivitas investasi dan pendanaan.</p>
+        {cfsData.cashClassificationWarning && <div role="alert" className="rounded-md bg-danger-50 p-3 text-danger-700">Tidak ada akun kas atau bank yang teridentifikasi. Periksa pengaturan akun dan klasifikasi sebelum menggunakan laporan ini.</div>}
+        {!!cfsData.unreviewedAccounts?.length && <div role="alert" className="rounded-md bg-warning-50 p-3 text-warning-700">Klasifikasi arus kas belum ditinjau untuk akun berikut: {cfsData.unreviewedAccounts.map(account => `${account.code} ${account.name}`).join(', ')}. Tinjau di Daftar Akun; angka dapat berubah.</div>}
+        {cfsData.accumulatedDepreciationActivity && <div className="rounded-md bg-warning-50 p-3 text-warning-700">Tinjau mutasi akumulasi penyusutan, termasuk pelepasan aset dan transaksi nonkas. Laporan ini tidak dapat memisahkan semua transaksi tersebut secara otomatis.</div>}
+        {Math.abs(cfsData.balanceSheetDifference || 0) > 0.005 && <div role="alert" className="rounded-md bg-danger-50 p-3 text-danger-700">Kas akhir berbeda dari Neraca sebesar {formatIDR(cfsData.balanceSheetDifference || 0)}. Tinjau jurnal dan klasifikasi akun.</div>}
         {sections.map((section) => (
           <div key={section.id}>
             <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{section.label}</div>
@@ -387,8 +392,8 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
               <tbody>
                 {section.rows.map((row, i) => (
                   <tr key={i} className="hover:bg-neutral-50">
-                    <td className="p-3 border border-neutral-200 font-mono text-xs">{row.code}</td>
-                    <td className="p-3 border border-neutral-200">{row.name}</td>
+                    <td className="p-3 border border-neutral-200 font-mono text-xs">{row.accountCode}</td>
+                    <td className="p-3 border border-neutral-200">{row.accountName}</td>
                     <td className={`p-3 border border-neutral-200 text-right font-medium ${row.amount >= 0 ? 'text-success-700' : 'text-danger-600'}`}>
                       {formatIDR(row.amount)}
                     </td>

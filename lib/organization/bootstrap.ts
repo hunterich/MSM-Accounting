@@ -293,6 +293,8 @@ export async function bootstrapOrganization(
         organizationId: org.id,
         code: a.code,
         name: a.name,
+        cashFlowClass: a.code === '1-1000' ? 'CASH' : 'OPERATING',
+        reportGroup: a.code === '1-1000' ? 'Cash and Bank' : a.parentCode === '1-0000' ? 'Current Assets' : a.type === 'LIABILITY' ? 'Current Liabilities' : a.type,
         type: a.type,
         normalSide: a.normalSide,
         parentId,
