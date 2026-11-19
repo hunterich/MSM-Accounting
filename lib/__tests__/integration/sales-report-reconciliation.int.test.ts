@@ -50,12 +50,21 @@ it('reconciles tax-exclusive invoice and linked return to the P&L', async () => 
     const totals = await readJournalTotals(prisma, { entry: { organizationId: org.orgId, status: 'POSTED', date: { gte: filter.dateFrom, lte: filter.dateTo } } });
     const pl = buildProfitLossReport(accounts, totals);
     const returnExpense = pl.sections.find(section => section.id === 'EXPENSE')?.rows.find(row => row.accountId === returns.id)?.amount ?? 0;
+    // Today returns post to an EXPENSE-type account (#220), so the P&L shows
+    // revenue 600,000 and 150,000 of returns under expenses.
+    expect(pl.summary.totalRevenue).toBe(600000);
+    expect(returnExpense).toBe(150000);
     const netSales = pl.summary.totalRevenue - returnExpense;
     expect(netSales).toBe(450000);
+    expect(await readCustomerSales(prisma, filter)).toEqual([
+      expect.objectContaining({ gross: 600000, returns: 150000, total: 450000 }),
+    ]);
     expect((await readCustomerSales(prisma, filter)).reduce((sum, row) => sum + row.total, 0)).toBe(netSales);
     const items = await readItemSales(prisma, filter);
     expect(items.reduce((sum, row) => sum + row.total, 0)).toBe(netSales);
-    expect(items).toContainEqual(expect.objectContaining({ code: 'SERVICE-1', qty: 3, returnedQty: 1, total: 450000 }));
+    expect(items).toEqual([expect.objectContaining({
+      code: 'SERVICE-1', grossQty: 4, returnedQty: 1, qty: 3, gross: 600000, returns: 150000, total: 450000,
+    })]);
     expect((await readItemCustomerSales(prisma, filter)).reduce((sum, row) => sum + row.total, 0)).toBe(netSales);
     expect((await readSalesCalendar(prisma, filter, 'month')).reduce((sum, row) => sum + row.total, 0)).toBe(netSales);
     expect((await readSalesHistory(prisma, filter, 100)).reduce((sum, row) => sum + row.totalAmount, 0)).toBe(netSales);

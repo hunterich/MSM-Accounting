@@ -21,6 +21,11 @@ const ALL_CATEGORIES: CategoryMeta[] = [
   { id: 'hr', label: 'HR & Payroll', icon: Users },
 ];
 
+/** One basis for every sales report (#240). Matches the P&L as
+ * sales revenue less the sales returns account for the same period. */
+export const SALES_NET_BASIS =
+  'Basis: excluding PPN. Gross = invoices after invoice discounts; returns = applied credit notes and sales returns; net = gross − returns, each on its own date.';
+
 const SALES_REPORTS: ReportDefinition[] = [
   {
     id: 'by-customer',
@@ -30,6 +35,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     description: 'Net sales excluding PPN, after applied credit notes in their own period, including refunds and price adjustments',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'by-item',
@@ -39,6 +45,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     description: 'Sales excluding PPN; credit notes and returns are recorded on their own dates. Unallocated adjustments are shown separately.',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'by-item-customer',
@@ -48,6 +55,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     description: 'Sales excluding PPN, with credit notes and returned quantities in their own periods.',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'history',
@@ -57,6 +65,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     description: 'Invoices and credit notes, excluding PPN, on their posting and reversal dates.',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'sales-return-list',
@@ -75,6 +84,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     description: 'Monthly net sales excluding PPN, after applied credit notes in the credit note month',
     type: 'chart',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'share-by-customer',
@@ -84,6 +94,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     description: 'Customer share of net sales excluding PPN and after applied credit notes; the rest grouped as Others',
     type: 'chart',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'share-by-item',
@@ -93,6 +104,7 @@ const SALES_REPORTS: ReportDefinition[] = [
     description: 'Item share of net sales excluding PPN, including unallocated adjustments.',
     type: 'chart',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
 ];
 

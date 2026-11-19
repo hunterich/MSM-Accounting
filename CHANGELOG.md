@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — sales reports share one basis and reconcile to the P&L (#240)
+- All sales reports (Sales by Customer, Monthly chart, Share by customer, Sales by Item, Item × Customer, Share by item, Sales History) now use amounts excluding PPN. Gross is invoices after invoice discounts; returns are applied credit notes; net is gross less returns, each on its own date, with known voids reversed on their void date. The report header and CSV export state this basis.
+- Item reports group by master item (SKU), not the free-text line description, and show sold, returned and net quantity. Lines with no item are combined into one "No item" row. Invoice charges and credit notes that cannot be tied to return lines appear as separate unallocated rows, so every report totals to the same net sales.
+- PostgreSQL test: selling 4 units for 600,000 + PPN and returning 1 shows 4 sold, 1 returned, 3 net and net sales of 450,000, equal to P&L revenue less the sales returns account. Returns still post to an Expense-type account (#220); the reports do not change P&L posting.
+
 ### Fixed — stock adjustment offset accounts
 - New stock adjustments post lot-derived differences to the chosen line accounts; older adjustments and stock counts retain variance-default posting. Existing journals and costing are unchanged.
 

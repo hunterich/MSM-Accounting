@@ -58,6 +58,8 @@ export interface ReportDefinition {
   description: string;
   type: ReportCardType;
   filterMode: FilterMode;
+  /** Amount basis stated in the report header and CSV export (sales reports, #240). */
+  basis?: string;
   /** bank-period reports: require a specific bank (Received/Payment) vs allow "All banks" (History). */
   bankRequired?: boolean;
 }

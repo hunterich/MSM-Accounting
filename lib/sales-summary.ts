@@ -131,18 +131,25 @@ export async function readSalesWarnings(db: Reader, organizationId: string) {
   return warnings;
 }
 
+export const NO_ITEM_LABEL = 'No item';
+
 export async function readItemSales(db: Reader, filter: SalesSummaryFilter) {
   return readItemMovements(db, filter, false);
 }
 
-/** Allocate each financial document in cents. Standalone credits and invoice
- * charges remain visible in an unallocated row rather than being attributed
- * to arbitrary products. Quantities come from physical return documents, not
+/** Allocate each financial document in cents. Rows group by master item;
+ * invoice lines without an item are combined into one "No item" row.
+ * Standalone credits and invoice charges remain visible in an unallocated row
+ * rather than being attributed to arbitrary products. Quantities come from physical return documents, not
  * credit notes: one return may be settled by several partial notes. */
 async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCustomer: boolean) {
   const date = (column: Prisma.Sql) => Prisma.sql`
     ${filter.dateFrom ? Prisma.sql`AND ${column} >= ${filter.dateFrom}` : Prisma.empty}
     ${filter.dateTo ? Prisma.sql`AND ${column} <= ${filter.dateTo}` : Prisma.empty}`;
+  // Lines without a master item are one "No item" row, not one row per
+  // free-text description (#240).
+  const lineLabel = Prisma.sql`CASE WHEN l."itemId" IS NULL THEN ${NO_ITEM_LABEL}::text ELSE l.description END AS description,
+    CASE WHEN l."itemId" IS NULL THEN NULL ELSE l.code END AS code`;
   const rows = await db.$queryRaw<Array<{
     itemId: string | null; customerId: string | null; customerName: string | null;
     description: string; code: string | null; grossQty: Prisma.Decimal; returnedQty: Prisma.Decimal;
@@ -157,7 +164,7 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
       ${invoiceEvents()}
       WHERE ${salesWhere({ ...filter, excludeTax: true })}
     ), invoice_lines AS (
-      SELECT i.*, l.id AS "lineId", l."itemId", l.description, l.code, l.quantity,
+      SELECT i.*, l.id AS "lineId", l."itemId", ${lineLabel}, l.quantity,
         CASE WHEN MIN(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) < 0 THEN 0
           ELSE SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) END AS weight,
         SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor ORDER BY l."lineNo", l.id) AS cumulative,
@@ -173,7 +180,7 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
           WHERE s.id = n."sourceInvoiceId" AND s."organizationId" = n."organizationId"
             AND s."customerId" = n."customerId" AND s.status IN ('SENT', 'OVERDUE', 'PAID', 'VOID')))
     ), note_lines AS (
-      SELECT n.id AS "noteId", n.factor, n."customerId", n."customerName", n.net, l."itemId", l.description, l.code,
+      SELECT n.id AS "noteId", n.factor, n."customerId", n."customerName", n.net, l."itemId", ${lineLabel},
         r."lineTotal" AS part,
         SUM(r."lineTotal") OVER (PARTITION BY n.id, n.factor) AS weight,
         SUM(r."lineTotal") OVER (PARTITION BY n.id, n.factor ORDER BY r."lineNo", r.id) AS cumulative
@@ -201,7 +208,7 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
       SELECT n."customerId", n."customerName", NULL, 'Unallocated credit notes', NULL, 0, 0, 0, n.net
       FROM notes n WHERE NOT EXISTS (SELECT 1 FROM note_lines l WHERE l."noteId" = n.id AND l.factor = n.factor)
       UNION ALL
-      SELECT sr."customerId", c.name, l."itemId", l.description, l.code, 0, r."qtyReturn", 0, 0
+      SELECT sr."customerId", c.name, l."itemId", ${lineLabel}, 0, r."qtyReturn", 0, 0
       FROM "SalesReturn" sr JOIN "Customer" c ON c.id = sr."customerId" AND c."organizationId" = sr."organizationId"
       JOIN "SalesReturnLine" r ON r."salesReturnId" = sr.id
       JOIN "SalesInvoiceLine" l ON l.id = r."sourceInvoiceLineId" AND l."invoiceId" = sr."invoiceId"

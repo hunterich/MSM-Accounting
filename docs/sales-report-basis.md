@@ -8,7 +8,7 @@ its own date; a known void is reflected on the dated reversal. This differs
 from the dashboard's tax-inclusive settlement figures.
 
 Items are grouped by master item ID and shown with the current SKU and name.
-Manual invoice lines use their recorded description and code. Invoice-level
+Invoice lines without a master item are combined into one "No item" row. Invoice-level
 discounts and tax-inclusive amounts are allocated to lines by their subtotals,
 rounded cumulatively so the document amount is retained. Invoice charges and
 amounts without a usable item allocation appear separately as unallocated.
@@ -28,3 +28,10 @@ Unknown or ambiguous historical void dates, voided physical returns, missing
 return source lines and applied notes without a posting journal produce report
 warnings. Voided returns without a reliable dated reversal cannot be reconstructed
 as historical quantities; review the original documents before relying on them.
+
+Sales returns currently post to an Expense-type account (`arReturn`, by default
+`5-2000 Sales Returns`), so the P&L shows revenue before returns and the returns
+under expenses. Net sales in these reports therefore equal P&L sales revenue
+less the sales returns account, not the P&L revenue line alone. Reclassifying
+returns as contra-revenue is tracked in #220 and is not required for this
+reconciliation.
