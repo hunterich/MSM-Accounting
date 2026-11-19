@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "type-check": "tsc --noEmit",
     "preview": "vite preview",
-    "postinstall": "node scripts/patch-picomatch.cjs && npm run prisma:generate",
+    "postinstall": "npm run prisma:generate",
     "prebackend:dev": "npm run prisma:generate",
     "backend:dev": "next dev",
     "prebackend:build": "npm run prisma:generate",
