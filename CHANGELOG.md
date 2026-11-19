@@ -10,7 +10,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed — Stock Movement opening balance and Sales by Type dates (#239)
 - Stock Movement now shows one row per item: opening quantity and value before the start date, quantity in and out, and closing quantity and value. Before this, the running balance started from zero, and the API returned ledger lines that the Reports screen could not display. Totals are summed in the database, so the report no longer loads the whole stock ledger into memory. A new warehouse filter also applies to the opening balance. The closing quantity and value equal Stock Valuation as of the end date, and the company-wide closing value equals the GL inventory account.
 - Sales by Type now uses Jakarta business-day boundaries like every other report, instead of server-local midnight. It returns 400 for an invalid date or a start date after the end date. Its permission and screen location are unchanged.
+- Sales History's silent 500-invoice cut (part 1 of #239) is fixed by the #240 entry below, which stops with a "narrow the date range" message instead of truncating.
 - No posting, migration or stored-data change.
+
+### Fixed — sales reports share one basis and reconcile to the P&L (#240)
+- All sales reports (Sales by Customer, Monthly chart, Share by customer, Sales by Item, Item × Customer, Share by item, Sales History) now use amounts excluding PPN. Gross is invoices after invoice discounts; returns are applied credit notes; net is gross less returns, each on its own date, with known voids reversed on their void date. The report header and CSV export state this basis.
+- Item reports group by master item (SKU), not the free-text line description, and show sold, returned and net quantity. Lines with no item are combined into one "No item" row. Invoice charges and credit notes that cannot be tied to return lines appear as separate unallocated rows, so every report totals to the same net sales.
+- PostgreSQL test: selling 4 units for 600,000 + PPN and returning 1 shows 4 sold, 1 returned, 3 net and net sales of 450,000, equal to P&L revenue less the sales returns account. Returns still post to an Expense-type account (#220); the reports do not change P&L posting.
 
 ### Fixed — stock adjustment offset accounts
 - New stock adjustments post lot-derived differences to the chosen line accounts; older adjustments and stock counts retain variance-default posting. Existing journals and costing are unchanged.

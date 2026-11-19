@@ -42,9 +42,9 @@ describe('sales summaries above the former transaction cap', () => {
   });
 
   it('ranks top products by quantity and retains the response fields', async () => {
-    vi.mocked(prisma.$queryRaw).mockResolvedValue([
-      { itemId: 'a', sku: 'A', name: 'A', qty: new Prisma.Decimal(700000), total: new Prisma.Decimal(700000000) },
-      { itemId: 'b', sku: 'B', name: 'B', qty: new Prisma.Decimal(900000), total: new Prisma.Decimal(450000000) },
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([]).mockResolvedValue([
+      { itemId: 'a', code: 'A', description: 'A', grossQty: 700000, returnedQty: 0, gross: 700000000, returns: 0, qty: new Prisma.Decimal(700000), total: new Prisma.Decimal(700000000) },
+      { itemId: 'b', code: 'B', description: 'B', grossQty: 900000, returnedQty: 0, gross: 450000000, returns: 0, qty: new Prisma.Decimal(900000), total: new Prisma.Decimal(450000000) },
     ]);
     const body = await (await GET(req('top-products', '&sortBy=qty&topN=1'))).json();
     expect(body.rows).toEqual([{ itemId: 'b', sku: 'B', name: 'B', qty: 900000, total: 450000000 }]);

@@ -506,6 +506,7 @@ const Reports: React.FC<ReportsProps> = ({
     let csv = buildActiveReportCsv(report, data as Record<string, unknown>);
     const credit = data?.summary?.unappliedCredits ?? data?.summary?.unallocatedCredit ?? 0;
     if (credit > 0) csv += `\nUnapplied credits / credit balances,${credit}\nNet balance,${data.summary.netOutstanding}`;
+    if (report.basis) csv += `\nBasis,"${report.basis.replaceAll('"', '""')}"`;
     if (Array.isArray(data?.warnings)) for (const warning of data.warnings) csv += `\nWarning,"${String(warning).replaceAll('"', '""')}"`;
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -761,6 +762,9 @@ const Reports: React.FC<ReportsProps> = ({
                     <div className="text-xs text-neutral-500 mt-1">{periodLabel}</div>
                     {activeReport.report.category === 'sales' && (
                       <div className="text-xs text-neutral-500 mt-1">{activeReport.report.description}</div>
+                    )}
+                    {activeReport.report.basis && (
+                      <div className="text-xs font-semibold text-neutral-700 mt-1" data-testid="report-basis">{activeReport.report.basis}</div>
                     )}
                   </div>
 
