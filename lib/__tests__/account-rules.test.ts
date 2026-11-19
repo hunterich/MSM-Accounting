@@ -5,11 +5,14 @@ import {
   flattenTree,
   getDescendantAccountIds,
   getNormalSideByType,
+  fromPrismaAccountType,
+  fromPrismaNormalSide,
   rollupBalances,
   validateAccountCreate,
   validateAccountUpdate,
   type AccountRuleShape,
 } from '../account-rules';
+import { STANDARD_CHILD_ACCOUNTS, STANDARD_ROOT_ACCOUNTS } from '../organization/bootstrap';
 
 const baseAccounts: AccountRuleShape[] = [
   {
@@ -57,6 +60,24 @@ const baseAccounts: AccountRuleShape[] = [
 ];
 
 describe('account-rules shared COA helpers', () => {
+  it('accepts every standard account unchanged, including missing report groups', () => {
+    const accounts: AccountRuleShape[] = [
+      ...STANDARD_ROOT_ACCOUNTS.map((account) => ({
+        ...account, id: account.code, parentId: null, level: 0, isPostable: false,
+        isActive: true, reportGroup: null, reportSubGroup: null, hasPostings: false,
+        type: fromPrismaAccountType(account.type), normalSide: fromPrismaNormalSide(account.normalSide),
+      })),
+      ...STANDARD_CHILD_ACCOUNTS.map((account) => ({
+        ...account, id: account.code, parentId: account.parentCode, level: 1, isPostable: true,
+        isActive: true, reportGroup: null, reportSubGroup: null, hasPostings: false,
+        type: fromPrismaAccountType(account.type), normalSide: fromPrismaNormalSide(account.normalSide),
+      })),
+    ];
+    for (const account of accounts) {
+      expect(validateAccountUpdate(account, account, accounts), account.code).toEqual({ isValid: true, errors: {} });
+    }
+  });
+
   it('builds and flattens account trees in code order', () => {
     const tree = buildAccountTree([
       baseAccounts[2],

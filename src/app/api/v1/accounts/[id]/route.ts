@@ -121,7 +121,7 @@ export const PUT = withPermission({ module: 'GL_COA', action: 'edit' }, async (r
       parentId: nextParentId,
       isPostable: payload.isPostable ?? current.isPostable,
       isActive: payload.isActive ?? current.isActive,
-      reportGroup: payload.reportGroup ?? current.reportGroup,
+      reportGroup: payload.reportGroup === undefined ? current.reportGroup : (payload.reportGroup || null),
       reportSubGroup: payload.reportSubGroup === undefined ? current.reportSubGroup : (payload.reportSubGroup || null),
       normalSide,
     };
