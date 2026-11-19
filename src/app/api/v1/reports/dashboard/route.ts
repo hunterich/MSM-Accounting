@@ -38,7 +38,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async (
     prisma.account.findMany({ where: { organizationId: orgId, isPostable: true } }),
     loadOrgAccountDefaults(prisma, orgId),
     prisma.item.findMany({ where: { organizationId: orgId, cogsAccountId: { not: null } }, select: { cogsAccountId: true }, distinct: ['cogsAccountId'] }),
-    readJournalTotals(prisma, { entry: { organizationId: orgId, status: 'POSTED', date: { gte: from, lte: to } } }),
+    readJournalTotals(prisma, { entry: { organizationId: orgId, status: 'POSTED', source: { not: 'CLOSING' }, date: { gte: from, lte: to } } }),
   ]);
   const cogsIds = new Set(items.map(i => i.cogsAccountId));
   cogsIds.add(defaults.cogsExpense ?? '');

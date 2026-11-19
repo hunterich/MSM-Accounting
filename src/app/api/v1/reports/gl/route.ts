@@ -120,6 +120,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         entry: {
           organizationId: orgId,
           status: 'POSTED',
+          source: { not: 'CLOSING' },
           date: {
             gte: dateFrom,
             lte: dateTo,
@@ -153,6 +154,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           entry: {
             organizationId: orgId,
             status: 'POSTED',
+            source: { not: 'CLOSING' },
             date: { gte: dateFrom, lte: dateTo },
           },
         }),
@@ -160,6 +162,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           entry: {
             organizationId: orgId,
             status: 'POSTED',
+            source: { not: 'CLOSING' },
             date: { gte: compareDateFrom, lte: compareDateTo },
           },
         }),
@@ -272,6 +275,8 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           entry: {
             organizationId: orgId,
             status: 'POSTED',
+            // The non-cash transfer would also inflate financing activity.
+            source: { not: 'CLOSING' },
             date: { gte: dateFrom, lte: dateTo },
           },
         }),

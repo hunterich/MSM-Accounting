@@ -24,6 +24,7 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { asMoney } from './money';
 import { postJournalEntry } from './journal-posting';
+import { reportDate } from './subledger-history';
 import {
   loadOrgAccountDefaults,
   resolveAccountDefaultId,
@@ -249,9 +250,9 @@ export async function closeFiscalYear(
 
   const entry = await postJournalEntry(tx, {
     organizationId: orgId,
-    // Last day of the fiscal year — the income belongs to the year it was
-    // earned in, not to the day someone happened to run the close.
-    date: preview.range.endDate,
+    // The fiscal range follows the accounting-period locks. Stamp the journal
+    // at the end of its last calendar day in Jakarta, as GL reports see it.
+    date: reportDate(preview.range.endDate.toISOString().slice(0, 10), true),
     memo: `Closing entry — fiscal year ${preview.range.label}`,
     source: 'CLOSING',
     lines: lines.filter((l) => l.debit > 0 || l.credit > 0),
