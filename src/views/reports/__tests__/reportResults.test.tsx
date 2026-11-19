@@ -45,6 +45,23 @@ describe('report output after splitting renderers', () => {
     expect(csv).toContain('125000');
   });
 
+  it('warns when the trial balance or balance sheet is out of balance (#228)', () => {
+    const tbRow = { accountId: 'a', accountCode: '1', accountName: 'Cash', accountType: 'ASSET', totalDebit: 10, totalCredit: 0, endingDebit: 10, endingCredit: 0 };
+    const tb = (totalCredit: number) => render(entry('trial-balance', {
+      rows: [tbRow], summary: { totalDebit: 4342000, totalCredit, endingDebit: 10, endingCredit: 10 },
+    }));
+    expect(tb(4352000)).toContain('Trial Balance is out of balance');
+    expect(tb(4342000)).not.toContain('out of balance');
+
+    const bsRow = { accountId: 'a', accountCode: '1', accountName: 'Cash', amount: 1876000 };
+    const bs = (totalLiabilitiesAndEquity: number) => render(entry('balance-sheet', {
+      sections: [{ id: 'ASSET', label: 'Assets', rows: [bsRow], total: 1876000 }],
+      summary: { totalAssets: 1876000, totalLiabilities: 0, totalEquity: totalLiabilitiesAndEquity, totalLiabilitiesAndEquity },
+    }));
+    expect(bs(1886000)).toContain('Balance Sheet does not balance');
+    expect(bs(1876000)).not.toContain('does not balance');
+  });
+
   it('resolves inventory category names in both output formats', () => {
     const data = {
       items: [{ itemId: 'i1', sku: 'SKU001', name: 'Bandage', categoryId: 'category-1', unit: 'PCS', totalQty: 4, avgCost: 2500, totalValue: 10000 }],

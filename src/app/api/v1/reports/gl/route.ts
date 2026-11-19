@@ -51,10 +51,11 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const { searchParams } = new URL(req.url);
     const type = searchParams.get('type') || 'trial-balance';
 
+    // All accounts, not only postable ones: a header that still carries journal
+    // lines must keep its balance in the statements (#228).
     const accounts = await prisma.account.findMany({
       where: {
         organizationId: orgId,
-        isPostable: true,
       },
       orderBy: { code: 'asc' },
       select: baseAccountSelect,

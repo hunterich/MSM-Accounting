@@ -211,6 +211,12 @@ export function validateAccountState(
       if (current.parentId !== next.parentId) {
         errors.parentId = 'Parent is locked because this account already has postings.';
       }
+      // A header's own journal lines would drop out of every statement, so an
+      // account that already carries postings cannot become a header. Turning
+      // a (legacy) header with postings back into a postable account is allowed.
+      if (current.isPostable && !next.isPostable) {
+        errors.isPostable = 'Posting mode is locked because this account already has postings.';
+      }
     }
 
     if (next.isPostable && accounts.some((account) => account.parentId === current.id)) {

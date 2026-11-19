@@ -17,14 +17,41 @@ import type {
   TrialBalanceSummary,
 } from './reportTypes';
 
+// Half a cent, the same tolerance the cash flow reconciliation uses.
+const BALANCE_TOLERANCE = 0.005;
+const isOutOfBalance = (left: number | undefined, right: number | undefined) =>
+  Math.abs((left || 0) - (right || 0)) > BALANCE_TOLERANCE;
+
+function OutOfBalanceWarning({ title, left, right, leftLabel, rightLabel }: {
+  title: string; left: number; right: number; leftLabel: string; rightLabel: string;
+}) {
+  return (
+    <div role="alert" className="mb-4 rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+      <div className="font-semibold">{title}</div>
+      <div className="mt-1">
+        {leftLabel} {formatIDR(left || 0)} vs {rightLabel} {formatIDR(right || 0)} — difference {formatIDR((left || 0) - (right || 0))}.
+        {' '}Some journal lines may not be reaching this report; check the chart of accounts and recent journals.
+      </div>
+    </div>
+  );
+}
+
 export default function GlReportResult({ activeReport }: ReportResultProps): React.ReactNode {
   const { report, data } = activeReport;
   if (report.id === 'trial-balance') {
     const tbData = data as { rows: TrialBalanceRow[]; summary: TrialBalanceSummary };
     if (!tbData.rows.length) return renderEmptyReport('No general ledger balances found for the selected date.');
 
+    const { summary } = tbData;
     return (
       <div>
+        {isOutOfBalance(summary.totalDebit, summary.totalCredit) ? (
+          <OutOfBalanceWarning title="Trial Balance is out of balance"
+            leftLabel="Total debit" left={summary.totalDebit} rightLabel="total credit" right={summary.totalCredit} />
+        ) : isOutOfBalance(summary.endingDebit, summary.endingCredit) ? (
+          <OutOfBalanceWarning title="Trial Balance is out of balance"
+            leftLabel="Ending debit" left={summary.endingDebit} rightLabel="ending credit" right={summary.endingCredit} />
+        ) : null}
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-blue-50">
@@ -126,6 +153,11 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
 
     return (
       <div className="space-y-6">
+        {isOutOfBalance(bsData.summary.totalAssets, bsData.summary.totalLiabilitiesAndEquity) ? (
+          <OutOfBalanceWarning title="Balance Sheet does not balance"
+            leftLabel="Total assets" left={bsData.summary.totalAssets}
+            rightLabel="liabilities + equity" right={bsData.summary.totalLiabilitiesAndEquity} />
+        ) : null}
         {sections.map((section) => (
           <div key={section.id}>
             <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{section.label}</div>
@@ -183,9 +215,21 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
     const sections = bsmData.sections || [];
     const hasRows = sections.some((section) => section.rows.length > 0);
     if (!hasRows) return renderEmptyReport('No balance sheet balances found for the selected comparison dates.');
+    const periodTotals = (totals: BalanceSheetMultiSummary['current'] | undefined) => ({
+      assets: totals?.totalAssets || 0,
+      liabilitiesAndEquity: (totals?.totalLiabilities || 0) + (totals?.totalEquity || 0),
+    });
+    const unbalancedPeriods = ([['Current period', bsmData.summary?.current], ['Compare period', bsmData.summary?.compare]] as const)
+      .map(([label, totals]) => ({ label, ...periodTotals(totals) }))
+      .filter((period) => isOutOfBalance(period.assets, period.liabilitiesAndEquity));
 
     return (
       <div className="space-y-6">
+        {unbalancedPeriods.map((period) => (
+          <OutOfBalanceWarning key={period.label} title={`Balance Sheet does not balance (${period.label.toLowerCase()})`}
+            leftLabel="Total assets" left={period.assets}
+            rightLabel="liabilities + equity" right={period.liabilitiesAndEquity} />
+        ))}
         {sections.map((section) => (
           <div key={section.id}>
             <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{section.label}</div>

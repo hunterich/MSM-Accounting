@@ -47,6 +47,38 @@ describe('buildTrialBalanceReport', () => {
   });
 });
 
+describe('accounts flagged non-postable that still carry journal lines (#228)', () => {
+  // Every account that should be postable is flipped to a header; reports
+  // must still read their lines.
+  const headerAccounts = accounts.map((account) => ({ ...account, isPostable: false }));
+  const sum = (field: 'debit' | 'credit') => postedLines.reduce((total, line) => total + Number(line[field] || 0), 0);
+
+  it('keeps the trial balance equal to the sum of all posted lines, whatever the flags', () => {
+    for (const chart of [accounts, headerAccounts]) {
+      const report = buildTrialBalanceReport(chart, postedLines);
+      expect(report.summary.totalDebit).toBe(sum('debit'));
+      expect(report.summary.totalCredit).toBe(sum('credit'));
+    }
+  });
+
+  it('keeps the balance sheet, P&L and cash flow unchanged', () => {
+    expect(buildBalanceSheetReport(headerAccounts, postedLines).summary)
+      .toEqual(buildBalanceSheetReport(accounts, postedLines).summary);
+    expect(buildProfitLossReport(headerAccounts, postedLines).summary)
+      .toEqual(buildProfitLossReport(accounts, postedLines).summary);
+    const cashFlowChart = (chart: GlAccount[]) => chart.map((account) => (
+      account.id === 'cash' ? { ...account, reportGroup: 'Cash and Bank' } : account
+    ));
+    expect(buildCashFlowStatement(cashFlowChart(headerAccounts), [], postedLines).summary)
+      .toEqual(buildCashFlowStatement(cashFlowChart(accounts), [], postedLines).summary);
+  });
+
+  it('omits header accounts that have no lines', () => {
+    const chart = [...accounts, { id: 'assets-header', code: '1-0000', name: 'Assets', type: 'ASSET', normalSide: 'DEBIT', isPostable: false }];
+    expect(buildTrialBalanceReport(chart, postedLines).rows.map((row) => row.accountId)).not.toContain('assets-header');
+  });
+});
+
 describe('buildProfitLossReport', () => {
   it('summarizes revenue, expense, and net income', () => {
     const report: ProfitLossReport = buildProfitLossReport(accounts, postedLines);
