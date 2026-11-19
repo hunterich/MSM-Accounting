@@ -44,6 +44,7 @@ const STATUS_UP: Record<string, string> = {
 };
 
 const FILTER_DOWN: Record<string, ImportStatusFilter> = {
+  Shipped: 'Shipped',
   Selesai: 'Selesai',
   All: 'All',
 };
