@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: vi.fn(), auditLog: { create: vi.fn(async () => ({})) } } }));
 vi.mock('@/lib/period-guard', () => ({ assertPeriodOpen: vi.fn(async () => {}) }));
-vi.mock('@/lib/api-utils', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/api-utils')>(), nextNumber: vi.fn(async () => 'JE-1') }));
+vi.mock('@/lib/journal-posting', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/journal-posting')>(), allocateJournalEntryNumber: vi.fn(async () => 'JE-000001') }));
 import { prisma } from '@/lib/prisma';
 import { POST } from '../assets/depreciation/run/route';
 
@@ -30,6 +30,8 @@ it('starts depreciation in the ready-for-use month without a journal predating t
   const tx = fixture(new Date('2026-10-31'));
   expect((await POST(req(10))).status).toBe(200);
   expect(tx.assetDepreciation.create.mock.calls[0][0]).toMatchObject({ data: { amount: 100, date: new Date(2026, 9, 31) } });
+  // The journal carries the business day (00:00 UTC), whatever the server's time zone.
+  expect(tx.journalEntry.create.mock.calls[0][0]).toMatchObject({ data: { entryNo: 'JE-000001', date: new Date('2026-10-31T00:00:00.000Z') } });
   expect(tx.journalEntry.create).toHaveBeenCalledTimes(1);
 });
 it('preserves acquisition-date timing for legacy assets', async () => {

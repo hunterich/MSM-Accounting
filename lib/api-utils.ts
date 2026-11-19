@@ -177,7 +177,8 @@ const NUMBER_QUERIES: Record<string, (prisma: any) => Promise<Array<{ max: numbe
   StockAdjustment:(p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "StockAdjustment"`,
   StockCount:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "StockCount"`,
   PayrollRun:     (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("number" FROM '[0-9]+') AS INTEGER)) AS max FROM "PayrollRun"`,
-  JournalEntry:   (p) => p.$queryRaw`SELECT MAX(CAST(SUBSTRING("entryNo" FROM '[0-9]+') AS INTEGER)) AS max FROM "JournalEntry"`,
+  // No JournalEntry: journal numbers come only from allocateJournalEntryNumber
+  // (lib/journal-posting.ts), which is per-org and never reuses a number.
 };
 
 /**

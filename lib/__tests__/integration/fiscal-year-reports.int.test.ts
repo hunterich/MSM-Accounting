@@ -83,7 +83,8 @@ it('keeps closing journals on the balance sheet and out of operating results acr
     const { closingEntryId, netIncome } = await closed.json();
     expect(netIncome).toBe(600);
     const entry = await prisma.journalEntry.findUniqueOrThrow({ where: { id: closingEntryId } });
-    expect(entry.date.toISOString()).toBe('2025-12-31T16:59:59.999Z');
+    // The accounting-date convention: the last business day, at 00:00 UTC.
+    expect(entry.date.toISOString()).toBe('2025-12-31T00:00:00.000Z');
     expect(await results()).toEqual(before);
 
     for (const [day, assets] of [['2025-12-31', 600], ['2026-01-01', 850]] as const) {

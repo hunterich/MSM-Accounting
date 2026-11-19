@@ -30,6 +30,7 @@ import { prisma } from '@/lib/prisma';
 import { postJournalEntry, JournalLineInput, BALANCE_TOLERANCE } from '@/lib/journal-posting';
 import { KEY_TO_SLOT, SettlementFeeKey } from '@/src/utils/settlementMapping';
 import { assertPeriodOpen } from './period-guard';
+import { toAccountingDate } from './accounting-date';
 
 /**
  * Charge keys whose magnitude flows INTO the wallet (revenue / subsidy), so they
@@ -147,7 +148,9 @@ export async function importSettlement(
           }
 
           // 6. Post and stamp the receipt as settled.
-          const settledOn = new Date();
+          // Dated on today's business day; settledAt keeps the clock time.
+          const settledAt = new Date();
+          const settledOn = toAccountingDate(settledAt);
           await assertPeriodOpen(tx, orgId, settledOn);
           const je = await postJournalEntry(tx, {
             organizationId: orgId,
@@ -158,7 +161,7 @@ export async function importSettlement(
           });
           await tx.aRPayment.update({
             where: { id: receipt.id },
-            data: { settledAt: new Date(), settlementJournalId: je.id },
+            data: { settledAt, settlementJournalId: je.id },
           });
           return 'posted';
         },

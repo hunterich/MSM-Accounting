@@ -16,6 +16,7 @@
  */
 import { ApiError } from './errors';
 import { pendingFinancialInPeriod } from './approval/financial-period';
+import { accountingRangeBounds } from './accounting-date';
 import type { Prisma } from '@prisma/client';
 
 type Tx = Prisma.TransactionClient;
@@ -31,7 +32,8 @@ export async function countUnpostedInPeriod(
     where: {
       organizationId,
       status: 'DRAFT',
-      date: { gte: startDate, lte: endDate },
+      // By business day, the same rule assertPeriodOpen matches on.
+      date: accountingRangeBounds(startDate, endDate),
     },
   });
 }
