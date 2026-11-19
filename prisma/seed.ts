@@ -364,6 +364,8 @@ async function main() {
       create: {
         organizationId: org.id,
         code: a.code, name: a.name,
+        cashFlowClass: a.code === '1-1000' ? 'CASH' : 'OPERATING',
+        reportGroup: a.code === '1-1000' ? 'Cash and Bank' : a.parentCode === '1-0000' ? 'Current Assets' : a.type === 'LIABILITY' ? 'Current Liabilities' : a.type,
         type: a.type as any,
         normalSide: a.normalSide as any,
         parentId: accountMap[a.parentCode],
@@ -381,6 +383,8 @@ async function main() {
     create: {
       organizationId: org.id,
       code: '1-1100', name: 'Bank BCA IDR',
+      reportGroup: 'Cash and Bank',
+      cashFlowClass: 'CASH',
       type: 'ASSET' as any,
       normalSide: 'DEBIT' as any,
       parentId: accountMap['1-1000'],

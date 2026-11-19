@@ -140,6 +140,7 @@ const accountBaseFields = {
   isActive: z.boolean().default(true),
   reportGroup: z.string().trim().nullable().optional(),
   reportSubGroup: z.string().trim().optional(),
+  cashFlowClass: z.enum(['CASH', 'OPERATING', 'FIXED_ASSET', 'ACCUMULATED_DEPRECIATION', 'LONG_TERM_LIABILITY', 'DEPRECIATION_EXPENSE']).nullable().optional(),
   normalSide: normalSideSchema.optional(),
 };
 
@@ -158,6 +159,7 @@ export const updateAccountInputSchema = z.object({
   isActive: optionalInput(accountBaseFields.isActive),
   reportGroup: accountBaseFields.reportGroup.optional(),
   reportSubGroup: accountBaseFields.reportSubGroup.optional(),
+  cashFlowClass: accountBaseFields.cashFlowClass,
   normalSide: accountBaseFields.normalSide,
 });
 

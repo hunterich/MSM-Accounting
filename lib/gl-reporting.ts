@@ -31,6 +31,7 @@ export interface GlAccount {
   isPostable?: boolean;
   reportGroup?: string | null;
   reportSubGroup?: string | null;
+  cashFlowClass?: string | null;
 }
 
 export interface JournalLineRecord {
@@ -669,8 +670,10 @@ const isCashAccount = (account: GlAccount): boolean => {
 
 const isFixedAsset = (account: GlAccount): boolean => {
   if (account.type !== 'ASSET') return false;
+  if (account.cashFlowClass) return account.cashFlowClass === 'FIXED_ASSET';
   const rg = (account.reportGroup || '').toLowerCase();
   return (
+    rg.includes('aset tetap') || rg.includes('aktiva tetap') ||
     rg.includes('fixed') ||
     rg.includes('property') ||
     rg.includes('equipment') ||
@@ -680,9 +683,12 @@ const isFixedAsset = (account: GlAccount): boolean => {
 
 const isDepreciationExpense = (account: GlAccount): boolean => {
   if (account.type !== 'EXPENSE') return false;
+  if (account.cashFlowClass) return account.cashFlowClass === 'DEPRECIATION_EXPENSE';
   const name = account.name.toLowerCase();
   const rg = (account.reportGroup || '').toLowerCase();
   return (
+    name.includes('penyusutan') || name.includes('amortisasi') ||
+    rg.includes('penyusutan') || rg.includes('amortisasi') ||
     name.includes('depreciation') ||
     name.includes('amortization') ||
     rg.includes('depreciation') ||
@@ -692,15 +698,19 @@ const isDepreciationExpense = (account: GlAccount): boolean => {
 
 const isLongTermLiability = (account: GlAccount): boolean => {
   if (account.type !== 'LIABILITY') return false;
+  if (account.cashFlowClass) return account.cashFlowClass === 'LONG_TERM_LIABILITY';
   const rg = (account.reportGroup || '').toLowerCase();
-  return rg.includes('long') || rg.includes('non-current') || rg.includes('noncurrent');
+  return rg.includes('jangka panjang') || rg.includes('long') || rg.includes('non-current') || rg.includes('noncurrent');
 };
 
 export const buildCashFlowStatement = (
   accounts: GlAccount[],
   beginningLines: JournalLineRecord[],
   periodLines: JournalLineRecord[],
+  cashAccountIds?: readonly string[],
 ): CashFlowStatementReport => {
+  const selectedCashIds = cashAccountIds ? new Set(cashAccountIds) : null;
+  const cashAccount = (account: GlAccount) => selectedCashIds ? selectedCashIds.has(account.id) && account.type === 'ASSET' : isCashAccount(account);
   const accountMap = new Map(accounts.map((a) => [a.id, a]));
 
   // Build totals for period and beginning
@@ -745,7 +755,10 @@ export const buildCashFlowStatement = (
   for (const account of accounts) {
     if (!account.isPostable) continue;
     if (account.type === 'REVENUE' || account.type === 'EXPENSE') continue;
-    if (isCashAccount(account)) continue; // Cash accounts are the result, not a source
+    if (cashAccount(account)) continue; // Cash accounts are the result, not a source
+    // The matching expense add-back offsets depreciation within net income.
+    // Disposals and other non-cash movements require separate review.
+    if (account.cashFlowClass === 'ACCUMULATED_DEPRECIATION') continue;
 
     const change = netChange(account);
     if (!hasAmount(change)) continue;
@@ -803,7 +816,7 @@ export const buildCashFlowStatement = (
   const financingSubtotal = asMoney(financingRows.reduce((s, r) => s + r.amount, 0));
 
   // Compute beginning and ending cash balances
-  const cashAccounts = accounts.filter((a) => a.isPostable && isCashAccount(a));
+  const cashAccounts = accounts.filter((a) => a.isPostable && cashAccount(a));
   let beginningCash = 0;
   for (const account of cashAccounts) {
     const totals = beginningTotals.get(account.id);

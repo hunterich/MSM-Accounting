@@ -40,6 +40,7 @@ interface AccountForm {
     isActive: boolean;
     reportGroup: string;
     reportSubGroup: string;
+    cashFlowClass: string;
 }
 
 interface FormErrors {
@@ -61,7 +62,8 @@ const EMPTY_FORM: AccountForm = {
     isPostable: true,
     isActive: true,
     reportGroup: '',
-    reportSubGroup: ''
+    reportSubGroup: '',
+    cashFlowClass: ''
 };
 
 const DEPTH_PADDING: Record<number, string> = {
@@ -199,7 +201,8 @@ const ChartOfAccounts = () => {
             isPostable: account.isPostable,
             isActive: account.isActive,
             reportGroup: account.reportGroup,
-            reportSubGroup: account.reportSubGroup || ''
+            reportSubGroup: account.reportSubGroup || '',
+            cashFlowClass: account.cashFlowClass || ''
         });
         setErrors({});
         setIsModalOpen(true);
@@ -244,6 +247,7 @@ const ChartOfAccounts = () => {
             isActive:       form.isActive,
             reportGroup:    form.reportGroup.trim(),
             reportSubGroup: form.reportSubGroup.trim(),
+            cashFlowClass: form.cashFlowClass || null,
             normalSide,
         };
 
@@ -570,6 +574,19 @@ const ChartOfAccounts = () => {
                             onChange={(event) => updateForm('reportSubGroup', event.target.value)}
                             wrapperClassName=""
                         />
+                    </div>
+                    <div className="col-span-12">
+                        <label className="form-label">Klasifikasi arus kas</label>
+                        <select className="block w-full px-3 border border-neutral-300 rounded-md min-h-10" value={form.cashFlowClass} onChange={event => updateForm('cashFlowClass', event.target.value)}>
+                            <option value="">Belum ditinjau (perkiraan)</option>
+                            <option value="CASH">Kas dan bank (aset)</option>
+                            <option value="OPERATING">Operasional / lainnya</option>
+                            <option value="FIXED_ASSET">Aset tetap — nilai perolehan</option>
+                            <option value="ACCUMULATED_DEPRECIATION">Akumulasi penyusutan / amortisasi</option>
+                            <option value="LONG_TERM_LIABILITY">Liabilitas jangka panjang</option>
+                            <option value="DEPRECIATION_EXPENSE">Beban penyusutan / amortisasi</option>
+                        </select>
+                        <p className="text-xs text-neutral-600 mt-1">Tinjau klasifikasi dengan akuntan; perubahan memengaruhi laporan untuk seluruh periode.</p>
                     </div>
                     <div className="col-span-6">
                         <label className="form-label">Posting Mode</label>
