@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — local picomatch extglob safeguard (optional)
+- `npm ci` replaces picomatch 4.0.7's `lib/parse.js` with a vendored copy carrying the unmerged upstream proposal (micromatch/picomatch#235). Repeated extglobs containing `*`, and repeated multi-character alternatives such as `+(ab|abab)`, are matched literally instead of backtracking. Matching changes for those patterns only; ordinary globs are unchanged.
+- The install step checks the lockfile and the checksums of the original and replacement files, and fails if picomatch changes, so the patch must be reviewed or removed on every picomatch upgrade. The related advisory (GHSA-fc5q-39xc-vjpf) was withdrawn on 18 November 2026; this is defence in depth, not an audit exception.
+
 ### Fixed — sales reports share one basis and reconcile to the P&L (#240)
 - All sales reports (Sales by Customer, Monthly chart, Share by customer, Sales by Item, Item × Customer, Share by item, Sales History) now use amounts excluding PPN. Gross is invoices after invoice discounts; returns are applied credit notes; net is gross less returns, each on its own date, with known voids reversed on their void date. The report header and CSV export state this basis.
 - Item reports group by master item (SKU), not the free-text line description, and show sold, returned and net quantity. Lines with no item are combined into one "No item" row. Invoice charges and credit notes that cannot be tied to return lines appear as separate unallocated rows, so every report totals to the same net sales.
