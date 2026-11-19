@@ -674,7 +674,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 {selectedShop && (
                     <div className="mt-2 text-xs text-neutral-500">
                         Customer: <strong>{selectedShop.customerName || selectedShop.customer}</strong>
-                        {' | '}Filter: <strong>Shipped orders and cancellations/returns for review</strong>
+                        {' | '}Filter: <strong>Shipped orders; cancelled orders skipped and returns held for review</strong>
                     </div>
                 )}
             </div>
@@ -970,7 +970,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
             <div>
                 <label className="form-label">Invoice and stock date: shipment date</label>
-                <p className="text-sm text-neutral-600">Revenue, COGS and stock are posted on dispatch. The receipt goes to the marketplace clearing account; payout is reconciled separately. Import the full order export regularly, including orders still in transit.</p>
+                <p className="text-sm text-neutral-600">Revenue, COGS and stock use the shipment date. For shipped or completed Shopee orders, the shipping-arranged date is used when no dispatch date is available. The receipt goes to the marketplace clearing account; payout is reconciled separately. Import the full order export regularly, including orders still in transit.</p>
             </div>
 
             {ordersMissingAllDates > 0 && (

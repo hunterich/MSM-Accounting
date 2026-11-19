@@ -13,14 +13,26 @@ describe('shipment-date marketplace imports', () => {
         ]), 'Orders');
         const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         const parsed = await parseShopeeExcel({ arrayBuffer: async () => buffer } as File, 'Shipped', 'TikTok');
-        expect(parsed.parsedOrders.map(o => o.orderNumber)).toEqual(['1001', '1003']);
+        expect(parsed.parsedOrders.map(o => o.orderNumber)).toEqual(['1001']);
         expect(parsed.parsedOrders[0].shipmentDate).toBe('2026-01-31');
         expect(parsed.parsedOrders[0].completionDate).toBe('2026-02-03');
-        expect(parsed.parsedOrders[1].orderStatus).toBe('Canceled');
     });
     it('does not mistake a delivered-order return window for an actual return', () => {
         expect(isMarketplaceReversalStatus('Pesanan diterima, namun Pembeli masih dapat mengajukan pengembalian')).toBe(false);
         expect(isMarketplaceReversalStatus('Dibatalkan')).toBe(true);
         expect(isMarketplaceReversalStatus('Returned')).toBe(true);
+    });
+    it('uses Shopee shipping-arranged date only for shipped orders and skips cancelled rows', async () => {
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+            { 'No. Pesanan': '1001', 'Status Pesanan': 'Selesai', 'Waktu Pengiriman Diatur': '2026-06-01', 'Nama Produk': 'Product', 'Subtotal Pesanan': 100 },
+            { 'No. Pesanan': '1002', 'Status Pesanan': 'Batal', 'Waktu Pengiriman Diatur': '2026-06-01', 'Nama Produk': 'Product', 'Subtotal Pesanan': 100 },
+            { 'No. Pesanan': '1003', 'Status Pesanan': 'Perlu Dikirim', 'Waktu Pengiriman Diatur': '2026-06-01', 'Nama Produk': 'Product', 'Subtotal Pesanan': 100 },
+        ]), 'Matched Orders');
+        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        const parsed = await parseShopeeExcel({ arrayBuffer: async () => buffer } as File, 'Shipped', 'Shopee');
+        expect(parsed.parsedOrders.map(o => o.orderNumber)).toEqual(['1001']);
+        expect(parsed.parsedOrders[0].shipmentDate).toBe('2026-06-01');
+        expect(parsed.stats.skippedRows).toBe(2);
     });
 });

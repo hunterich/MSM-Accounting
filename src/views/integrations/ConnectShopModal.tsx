@@ -429,7 +429,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
 
                     {!editShop && <div>
                         <label className="form-label">Import shipped orders</label>
-                        <p className="text-sm text-neutral-600">Revenue and stock use the actual shipment date. Unshipped orders are excluded; cancellations and returns are held for review.</p>
+                        <p className="text-sm text-neutral-600">Revenue and stock use the shipment date. For shipped or completed Shopee orders, the shipping-arranged date is used if no dispatch date is available. Unshipped and cancelled orders are excluded; returns are held for review.</p>
                     </div>
 
                     }
