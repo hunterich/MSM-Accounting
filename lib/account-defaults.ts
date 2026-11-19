@@ -10,6 +10,7 @@ type AccountLike = {
   isPostable: boolean;
   parentId?: string | null;
   reportGroup?: string | null;
+  cashFlowClass?: string | null;
 };
 
 type BankAccountLike = {
@@ -367,4 +368,47 @@ export function selectPaymentCashAccounts<T extends CashAccountLike & { isActive
     resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, bank.id),
   );
   return selectReceiptDepositAccounts(accounts, defaultId, linkedIds);
+}
+
+/** Cash-flow reporting includes inactive accounts with historical balances.
+ * Banking mappings use the same resolver as posting; identifiers may be ambiguous.
+ */
+export function selectCashFlowAccountIds(
+  accounts: AccountLike[],
+  bankAccounts: BankAccountLike[],
+  settings: Partial<AccountDefaultsConfig>,
+): string[] {
+  const historicalAccounts = accounts.map(account => ({ ...account, isActive: true }));
+  const banks = bankAccounts.map(bank => ({ ...bank, isActive: true }));
+  const ids = new Set(selectCashAccounts(historicalAccounts.map(account => ({ ...account, parentId: account.parentId ?? null }))).map(account => account.id));
+  const defaultId = resolveAccountDefaultId(historicalAccounts, settings, 'bankAsset');
+  if (defaultId) ids.add(defaultId);
+  for (const bank of banks) {
+    const id = resolveBankLinkedAssetAccountId(banks, historicalAccounts, settings, bank.id);
+    if (id) ids.add(id);
+  }
+  // A reviewed cash header applies to unclassified postable descendants.
+  const byId = new Map(accounts.map(account => [account.id, account]));
+  for (const account of accounts) {
+    if (account.cashFlowClass || !account.isPostable || account.type !== 'ASSET') continue;
+    const seen = new Set<string>([account.id]);
+    let parentId = account.parentId;
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byId.get(parentId);
+      if (!parent || parent.type !== 'ASSET') break;
+      if (parent.cashFlowClass) {
+        if (parent.cashFlowClass === 'CASH') ids.add(account.id);
+        break;
+      }
+      parentId = parent.parentId;
+    }
+  }
+  // A reviewed classification always overrides legacy names and inferred mappings.
+  for (const account of accounts) {
+    if (!account.isPostable || account.type !== 'ASSET') { ids.delete(account.id); continue; }
+    if (account.cashFlowClass === 'CASH') ids.add(account.id);
+    else if (account.cashFlowClass) ids.delete(account.id);
+  }
+  return [...ids];
 }

@@ -872,6 +872,7 @@ export interface RawAccount {
   hasPostings?: boolean | null;
   reportGroup?: string | null;
   reportSubGroup?: string | null;
+  cashFlowClass?: string | null;
   normalSide?: string | null;
   _count?: RawAccountCount | null;
   journalLines?: Array<{ id: string }> | null;
@@ -890,6 +891,7 @@ export interface Account {
   isPartyControlAccount?: boolean;
   reportGroup: string;
   reportSubGroup: string;
+  cashFlowClass?: string | null;
   normalSide: string;
   hasChildren: boolean;
   hasPostings: boolean;
