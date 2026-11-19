@@ -316,3 +316,118 @@ describe('fiscal-year close', () => {
     }
   });
 });
+
+describe('fiscal-year order and journal numbering', () => {
+  const YEAR_TWO = '2027-01-01T00:00:00.000Z';
+  const yearRequest = (orgId: string, userId: string, path: string, fiscalYearStart: string) =>
+    new NextRequest(new URL(path, 'http://localhost'), {
+      method: 'POST',
+      headers: new Headers({
+        'x-org-id': orgId, 'x-user-id': userId,
+        'x-role-type': 'ADMIN', 'content-type': 'application/json',
+      }),
+      body: JSON.stringify({ fiscalYearStart }),
+    });
+
+  /** Closed periods and some revenue in year two (2027). */
+  async function yearTwo(org: TestOrg): Promise<void> {
+    const tag = randomUUID().slice(0, 6);
+    for (let i = 0; i < 12; i += 1) {
+      await prisma.accountingPeriod.create({
+        data: {
+          organizationId: org.orgId,
+          name: `2027-${String(i + 1).padStart(2, '0')}-${tag}`,
+          startDate: new Date(Date.UTC(2027, i, 1)),
+          endDate: new Date(Date.UTC(2027, i + 1, 1) - 1),
+          status: 'CLOSED',
+          isLocked: true,
+        },
+      });
+    }
+    await prisma.journalEntry.create({
+      data: {
+        organizationId: org.orgId,
+        entryNo: `JE-Y2-${randomUUID().slice(0, 8)}`,
+        date: new Date('2027-06-15T00:00:00.000Z'),
+        memo: 'year two activity',
+        status: 'POSTED',
+        postedAt: new Date(),
+        totalDebit: 500,
+        totalCredit: 500,
+        lines: {
+          create: [
+            { lineNo: 1, accountId: org.accounts.bankAsset, debit: 500, credit: 0 },
+            { lineNo: 2, accountId: org.accounts.salesRevenue, debit: 0, credit: 500 },
+          ],
+        },
+      },
+    });
+  }
+
+  it('refuses to close a year while the year before it still has balances to close', async () => {
+    const org = await createTestOrg({ fiscalYearStart: FY_START });
+    const userId = await makeUser();
+    try {
+      await closedYearPeriods(org.orgId);
+      await postActivity(org, { revenue: 1000, expense: 400 }); // 2026, not closed
+      await yearTwo(org);
+
+      const res = await closeYear(yearRequest(org.orgId, userId, '/api/v1/fiscal-year/close', YEAR_TWO));
+      expect(res.status).toBe(422);
+      expect((await res.json()).error).toMatch(/close fiscal year 2026 first/i);
+      expect(await prisma.fiscalYearClose.count({ where: { organizationId: org.orgId } })).toBe(0);
+
+      // In order, both close.
+      expect((await callClose(org.orgId, userId)).status).toBe(201);
+      expect((await closeYear(yearRequest(org.orgId, userId, '/api/v1/fiscal-year/close', YEAR_TWO))).status)
+        .toBe(201);
+    } finally {
+      await cleanupOrg(org.orgId);
+    }
+  });
+
+  it('refuses to reopen a year while a later year is still closed', async () => {
+    const org = await createTestOrg({ fiscalYearStart: FY_START });
+    const userId = await makeUser();
+    try {
+      await closedYearPeriods(org.orgId);
+      await postActivity(org, { revenue: 1000, expense: 400 });
+      await yearTwo(org);
+      expect((await callClose(org.orgId, userId)).status).toBe(201);
+      expect((await closeYear(yearRequest(org.orgId, userId, '/api/v1/fiscal-year/close', YEAR_TWO))).status)
+        .toBe(201);
+
+      const early = await callReopen(org.orgId, userId);
+      expect(early.status).toBe(422);
+      expect((await early.json()).error).toMatch(/reopen fiscal year 2027 first/i);
+      expect(await prisma.fiscalYearClose.count({ where: { organizationId: org.orgId } })).toBe(2);
+
+      // Latest first works.
+      expect((await reopenYear(yearRequest(org.orgId, userId, '/api/v1/fiscal-year/reopen', YEAR_TWO))).status)
+        .toBe(200);
+      expect((await callReopen(org.orgId, userId)).status).toBe(200);
+    } finally {
+      await cleanupOrg(org.orgId);
+    }
+  });
+
+  it('never issues a deleted closing entry\'s number again', async () => {
+    const org = await createTestOrg({ fiscalYearStart: FY_START });
+    const userId = await makeUser();
+    try {
+      await closedYearPeriods(org.orgId);
+      await postActivity(org, { revenue: 1000, expense: 400 });
+
+      const first = await (await callClose(org.orgId, userId)).json();
+      const reopened = await (await callReopen(org.orgId, userId)).json();
+      expect(reopened.deletedEntryNo).toBe(first.entryNo);
+
+      const second = await (await callClose(org.orgId, userId)).json();
+      expect(second.entryNo).not.toBe(first.entryNo);
+      const seq = (no: string) => Number(no.replace('JE-', ''));
+      expect(seq(second.entryNo)).toBe(seq(first.entryNo) + 1);
+    } finally {
+      await cleanupOrg(org.orgId);
+    }
+  });
+});

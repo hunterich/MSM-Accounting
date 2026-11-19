@@ -86,10 +86,20 @@ describe('evaluateTransactionDate', () => {
     expect(after.message).toContain('8 days in the future');
   });
 
-  it('compares whole days, so the time of day never decides it', () => {
-    const lateInTheDay = new Date('2026-06-15T23:59:59.000Z');
-    const earlyLimit = new Date('2026-05-16T00:00:01.000Z');
+  it('compares whole business days, so the time of day never decides it', () => {
+    // 23:59:59 WIB on 15 June vs 00:00:01 WIB on 16 May: exactly 30 days.
+    const lateInTheDay = new Date('2026-06-15T16:59:59.000Z');
+    const earlyLimit = new Date('2026-05-15T17:00:01.000Z');
     expect(evaluateTransactionDate(policy(), earlyLimit, lateInTheDay).status).toBe('ok');
+  });
+
+  it('counts "today" on the Jakarta business day, not the UTC day', () => {
+    // 02:00 WIB on 16 June is still 15 June in UTC. The business day is the 16th,
+    // so a document dated 16 June is today, not tomorrow.
+    const earlyMorningWib = new Date('2026-06-15T19:00:00.000Z');
+    const sameDayOnly = policy({ daysBefore: 0, daysAfter: 0 });
+    expect(evaluateTransactionDate(sameDayOnly, day('2026-06-16'), earlyMorningWib).status).toBe('ok');
+    expect(evaluateTransactionDate(sameDayOnly, day('2026-06-15'), earlyMorningWib).status).toBe('outside');
   });
 
   it('leaves the other side open when only one bound is set', () => {

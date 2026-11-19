@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, logAudit, ok, requireAuth } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
-import { fiscalYearRange } from '@/lib/fiscal-year-close';
+import { fiscalYearRange, lockFiscalYearChanges } from '@/lib/fiscal-year-close';
 import { resolveFiscalYearStart } from '@/lib/fiscal-year-start';
 
 export const runtime = 'nodejs';
@@ -14,6 +14,9 @@ export async function OPTIONS() {
 
 /**
  * Reopen a closed fiscal year by deleting its closing journal entry.
+ *
+ * Only the latest closed year can be reopened. The deleted entry's number is
+ * retired, never issued again (see allocateJournalEntryNumber).
  *
  * Deleting rather than reversing is deliberate: a reversal would leave two
  * entries that net to zero in every subsequent P&L, and re-closing would add a
@@ -37,6 +40,9 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async
   const range = fiscalYearRange(fiscalYearStart);
 
   const removed = await prisma.$transaction(async (tx) => {
+    // Same per-org lock as closeFiscalYear, so a reopen cannot race a close of
+    // the following year past the ordering checks on either side.
+    await lockFiscalYearChanges(tx, orgId);
     const existing = await tx.fiscalYearClose.findUnique({
       where: { organizationId_startDate: { organizationId: orgId, startDate: range.startDate } },
       select: { id: true, closingEntryId: true, closedById: true, closedAt: true,
@@ -44,6 +50,22 @@ export const POST = withPermission({ module: 'SETTINGS', action: 'edit' }, async
     });
     if (!existing) {
       throw new ApiError(`Fiscal year ${range.label} is not closed`, 422);
+    }
+
+    // Years reopen in reverse order. A later year's closing entry was computed
+    // on top of this one; reopening this year underneath it would let this
+    // year's profit change while the later close still stands.
+    const later = await tx.fiscalYearClose.findFirst({
+      where: { organizationId: orgId, startDate: { gt: range.startDate } },
+      orderBy: { startDate: 'desc' },
+      select: { startDate: true },
+    });
+    if (later) {
+      const laterLabel = fiscalYearRange(later.startDate).label;
+      throw new ApiError(
+        `Reopen fiscal year ${laterLabel} first — later years must be reopened before earlier ones.`,
+        422,
+      );
     }
 
     // Deleting the entry cascades to its lines AND to the FiscalYearClose row

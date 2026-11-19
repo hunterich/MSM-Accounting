@@ -5,6 +5,8 @@ import { requireOrg, ok, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { assertPeriodOpen } from '@/lib/period-guard';
+import { allocateJournalEntryNumber } from '@/lib/journal-posting';
+import { toAccountingDate } from '@/lib/accounting-date';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -288,27 +290,24 @@ export const POST = withPermission(
 
       if (journalLines.length > 0) {
         const postedOn = new Date();
+        // The entry is dated on today's business day (Jakarta); the clock time
+        // of the import stays on postedAt for audit.
+        const accountingDate = toAccountingDate(postedOn);
         // In a transaction so the period guard's row lock means something: a
         // concurrent period close waits for this write, and a closed period
         // refuses it. This is a POSTED entry like any other.
         await prisma.$transaction(async (tx) => {
-          await assertPeriodOpen(tx, orgId, postedOn);
+          await assertPeriodOpen(tx, orgId, accountingDate);
 
-          // Generate next journal number
-          const maxResult = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-            SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-(\\d+)$') AS INTEGER)) AS max_seq
-            FROM "JournalEntry"
-            WHERE "organizationId" = ${orgId}
-              AND "entryNo" LIKE 'JE-%'
-          `;
-          const nextSeq = Number(maxResult[0]?.max_seq ?? 0) + 1;
-          const entryNo = `JE-${String(nextSeq).padStart(6, '0')}`;
+          // The shared, advisory-locked JE sequence: no collision with a
+          // concurrent posting, and no reuse of a deleted entry's number.
+          const entryNo = await allocateJournalEntryNumber(tx, orgId);
 
           await tx.journalEntry.create({
             data: {
               organizationId: orgId,
               entryNo,
-              date: postedOn,
+              date: accountingDate,
               memo: 'Opening Balance Journal (imported)',
               source: 'OPENING',
               status: 'POSTED',

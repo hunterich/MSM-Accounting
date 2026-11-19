@@ -28,6 +28,7 @@ import { reconcileMigration, type ReconcileResult, type ReconcileInput } from '.
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { ApiError } from '@/lib/errors';
 import { allocateJournalEntryNumber } from '@/lib/journal-posting';
+import { toAccountingDate } from '@/lib/accounting-date';
 import { advisoryLockKey } from '@/lib/advisory-lock';
 import {
   AccountRow,
@@ -421,7 +422,7 @@ export async function commitBatch(
           data: {
             organizationId: orgId,
             entryNo,
-            date: cutoverDate,
+            date: toAccountingDate(cutoverDate),
             memo: 'Opening Balance Journal (migration)',
             source: 'OPENING',
             status: 'POSTED',

@@ -14,6 +14,7 @@
  */
 import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
+import { accountingDay, toAccountingDate } from './accounting-date';
 import {
   assertTransactionDateAllowed,
   type TransactionDateGuardOptions,
@@ -26,6 +27,12 @@ export async function lockOpenAccountingPeriod(
   organizationId: string,
   date: Date,
 ): Promise<void> {
+  // Periods are matched on the accounting date (the Jakarta business day, see
+  // lib/accounting-date.ts), not the raw instant. A clock-time posting at 02:00
+  // WIB on the 1st is 19:00 UTC on the last day of the previous month; matched
+  // raw, it would land in (and be blocked by) the previous month while every
+  // report puts it in the new one.
+  const accountingDate = toAccountingDate(date);
   // Lock the matching period row FOR SHARE (if one exists). Concurrent posts
   // share the lock and don't block each other, but a concurrent period-close
   // (FOR UPDATE on the same row) waits for in-flight posts to commit and blocks
@@ -38,15 +45,15 @@ export async function lockOpenAccountingPeriod(
     SELECT "name", "status", "isLocked"
     FROM "AccountingPeriod"
     WHERE "organizationId" = ${organizationId}
-      AND "startDate" <= ${date}
-      AND "endDate" >= ${date}
+      AND "startDate" <= ${accountingDate}
+      AND "endDate" >= ${accountingDate}
     LIMIT 1
     FOR SHARE
   `;
   const period = rows[0];
 
   if (period && (period.status === 'CLOSED' || period.isLocked)) {
-    const on = date.toISOString().slice(0, 10);
+    const on = accountingDay(date);
     throw new ApiError(
       `Accounting period "${period.name}" is closed/locked — cannot post on ${on}`,
       422,

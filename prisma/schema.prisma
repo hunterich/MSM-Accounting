@@ -61,6 +61,7 @@ model Organization {
   periods                AccountingPeriod[]
   fiscalYearCloses       FiscalYearClose[]
   journalEntries         JournalEntry[]
+  journalEntrySequence   JournalEntrySequence?
   customerCategories     CustomerCategory[]
   vendorCategories       VendorCategory[]
   itemCategories         ItemCategory[]
@@ -307,6 +308,18 @@ model FiscalYearClose {
 
   @@unique([organizationId, startDate])
   @@index([organizationId, endDate])
+}
+
+/// The highest journal number ever issued per organization. Journal numbers are
+/// never reused: a deleted entry (e.g. the closing entry removed when a fiscal
+/// year is reopened) keeps its number retired. Written only by
+/// `allocateJournalEntryNumber` in lib/journal-posting.ts.
+model JournalEntrySequence {
+  organizationId String       @id
+  lastSeq        Int          @default(0)
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 model JournalEntry {
