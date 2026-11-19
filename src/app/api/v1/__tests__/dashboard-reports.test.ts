@@ -56,7 +56,7 @@ describe('dashboard financial reports', () => {
     ] as never);
     const response = await GET(request('type=profit-loss&dateFrom=2026-01-01&dateTo=2026-10-08'));
     expect(await response.json()).toEqual({ income: 1000, cogs: 350, expenditure: 200, profit: 450 });
-    expect(prisma.journalLine.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { entry: { organizationId: 'org-test', status: 'POSTED', date: { gte: new Date('2025-12-31T17:00:00Z'), lte: new Date('2026-10-08T16:59:59.999Z') } } } }));
+    expect(prisma.journalLine.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { entry: { organizationId: 'org-test', status: 'POSTED', source: { not: 'CLOSING' }, date: { gte: new Date('2025-12-31T17:00:00Z'), lte: new Date('2026-10-08T16:59:59.999Z') } } } }));
   });
   it('calculates customer shares from all customers before limiting the displayed ranking', async () => {
     vi.mocked(prisma.$queryRaw).mockResolvedValue(Array.from({ length: 12 }, (_, i) => ({ customerId: `c${i}`, customerName: `Customer ${i}`, total: 100 })));
