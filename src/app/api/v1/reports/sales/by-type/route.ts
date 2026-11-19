@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireOrg, ok } from '@/lib/api-utils';
+import { requireOrg, ok, err } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { corsPreflightResponse } from '@/lib/cors';
+import { reportDate } from '@/lib/subledger-history';
 
 export const runtime = 'nodejs';
 export async function OPTIONS() { return corsPreflightResponse(); }
@@ -22,18 +23,24 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
   const orgId = requireOrg(req);
   const { searchParams } = new URL(req.url);
 
-  // `from`/`to` are YYYY-MM-DD (or any Date-parseable string). `to` is inclusive
-  // to end-of-day, mirroring reports/sales' dateTo handling.
-  const from = new Date(searchParams.get('from') || '1970-01-01');
-  const to = new Date(searchParams.get('to') || '2999-12-31');
-  to.setHours(23, 59, 59, 999);
+  // `from`/`to` are YYYY-MM-DD Jakarta business days (reportDate), like every
+  // other report; `to` is inclusive to the end of that day. Omitted = open.
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
+  let from: Date | undefined, to: Date | undefined;
+  try {
+    from = fromParam ? reportDate(fromParam, false) : undefined;
+    to = toParam ? reportDate(toParam, true) : undefined;
+  } catch { return err('Invalid report date', 400); }
+  if (from && to && from > to) return err('from must be before or equal to to', 400);
+  const issueDate = from || to ? { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } : undefined;
 
   const rows = await prisma.salesInvoice.groupBy({
     by: ['salesTypeId'],
     where: {
       organizationId: orgId,
       status: { in: [...POSTED_STATUSES] },
-      issueDate: { gte: from, lte: to },
+      ...(issueDate ? { issueDate } : {}),
     },
     _sum: { totalAmount: true, taxAmount: true },
     _count: { _all: true },
@@ -59,5 +66,5 @@ export const GET = withPermission({ module: 'POS_RETAIL', action: 'view' }, asyn
     };
   });
 
-  return ok({ data, from, to });
+  return ok({ data, from: from ?? null, to: to ?? null });
 });

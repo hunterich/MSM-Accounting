@@ -144,7 +144,8 @@ const Reports: React.FC<ReportsProps> = ({
   const valuationVisible = paramModal?.id === 'stock-valuation' || activeReport?.report.id === 'stock-valuation';
   const bankVisible = paramModal?.filterMode === 'bank-period' || activeReport?.report.filterMode === 'bank-period';
   const { data: accountsData } = useChartOfAccounts(undefined, { enabled: paramModal?.id === 'account-ledger' });
-  const { data: warehousesData } = useWarehouses({ enabled: valuationVisible });
+  const warehouseVisible = valuationVisible || paramModal?.id === 'stock-movement' || activeReport?.report.id === 'stock-movement';
+  const { data: warehousesData } = useWarehouses({ enabled: warehouseVisible });
   const { data: categoriesData } = useItemCategories({ enabled: valuationVisible });
   const { data: bankAccountsData } = useBankAccounts({ enabled: bankVisible });
   const warehouses = warehousesData ?? [];
@@ -331,6 +332,12 @@ const Reports: React.FC<ReportsProps> = ({
     if (report.id === 'stock-valuation') {
       const params: ReportParams = { type: report.id, asOfDate };
       if (valuationCategoryId) params.categoryId = valuationCategoryId;
+      if (valuationWarehouseId) params.warehouseId = valuationWarehouseId;
+      return params;
+    }
+
+    if (report.id === 'stock-movement') {
+      const params: ReportParams = { type: report.id, dateFrom, dateTo };
       if (valuationWarehouseId) params.warehouseId = valuationWarehouseId;
       return params;
     }
@@ -540,14 +547,16 @@ const Reports: React.FC<ReportsProps> = ({
       : null,
   ].filter((x): x is string => x !== null) : [];
 
+  const warehouseFilterLabel = activeReport?.params.warehouseId
+    ? (warehouses.find((w) => w.id === activeReport.params.warehouseId)?.name ?? 'Gudang')
+    : 'Semua gudang';
+
   const valuationFilterLabel = activeReport
     ? [
       activeReport.params.categoryId
         ? (categoryNameById.get(activeReport.params.categoryId) ?? 'Kategori')
         : 'Semua kategori',
-      activeReport.params.warehouseId
-        ? (warehouses.find((w) => w.id === activeReport.params.warehouseId)?.name ?? 'Gudang')
-        : 'Semua gudang',
+      warehouseFilterLabel,
     ].join(' · ')
     : '';
 
@@ -556,6 +565,8 @@ const Reports: React.FC<ReportsProps> = ({
       ? `${(activeReport.data as StatementData)?.party?.name ?? ''} · ${formatDateID(activeReport.dateFrom ?? '')} s/d ${formatDateID(activeReport.dateTo ?? '')}`
       : activeReport.report.id === 'stock-valuation'
         ? `Per ${formatDateID(activeReport.params.asOfDate ?? '')} · ${valuationFilterLabel}`
+        : activeReport.report.id === 'stock-movement'
+          ? `${formatDateID(activeReport.dateFrom ?? activeReport.params.dateFrom ?? '')} to ${formatDateID(activeReport.dateTo ?? activeReport.params.dateTo ?? '')} · ${warehouseFilterLabel}`
         : activeReport.report.id === 'balance-sheet-multi-period'
           ? `${formatDateID(activeReport.asOfDate ?? '')} vs ${formatDateID(activeReport.params.compareAsOfDate ?? '')}`
           : activeReport.report.filterMode === 'as-of'
@@ -949,6 +960,21 @@ const Reports: React.FC<ReportsProps> = ({
                     />
                   </div>
                 </div>
+                {paramModal.id === 'stock-movement' && (
+                  <div className="mt-3">
+                    <label className="block text-sm text-neutral-600 mb-1">Gudang</label>
+                    <select
+                      value={valuationWarehouseId}
+                      onChange={(e) => setValuationWarehouseId(e.target.value)}
+                      className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
+                    >
+                      <option value="">Semua gudang</option>
+                      {warehouses.map((wh) => (
+                        <option key={wh.id} value={wh.id}>{wh.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {paramModal.category === 'sales' && (
                   <div className="flex flex-wrap gap-1.5 mt-3">
                     {PERIOD_PRESETS.map((preset) => {

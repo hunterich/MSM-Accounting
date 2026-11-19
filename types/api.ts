@@ -138,7 +138,7 @@ const accountBaseFields = {
   parentId: z.string().trim().min(1).nullable().optional(),
   isPostable: z.boolean().default(true),
   isActive: z.boolean().default(true),
-  reportGroup: z.string().trim().min(1, 'Report group is required'),
+  reportGroup: z.string().trim().nullable().optional(),
   reportSubGroup: z.string().trim().optional(),
   normalSide: normalSideSchema.optional(),
 };

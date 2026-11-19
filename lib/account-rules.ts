@@ -178,7 +178,6 @@ export function validateAccountState(
   if (!next.code?.trim()) errors.code = 'Account code is required.';
   if (!next.name?.trim()) errors.name = 'Account name is required.';
   if (!next.type) errors.type = 'Account type is required.';
-  if (!next.reportGroup?.trim()) errors.reportGroup = 'Report group is required.';
 
   const duplicateCode = accounts.find(
     (account) => account.code === next.code && account.id !== current?.id,
@@ -186,6 +185,8 @@ export function validateAccountState(
   if (duplicateCode) errors.code = 'Account code must be unique.';
 
   if (next.parentId) {
+    // The explicit parent link defines the hierarchy; imported and standard
+    // charts do not necessarily encode it as a literal code prefix.
     const parent = accounts.find((account) => account.id === next.parentId);
     if (!parent) {
       errors.parentId = 'Parent account not found.';
@@ -195,9 +196,6 @@ export function validateAccountState(
       }
       if (parent.type !== next.type) {
         errors.parentId = 'Child account type must match parent type.';
-      }
-      if (next.code && !next.code.startsWith(parent.code)) {
-        errors.code = `Child code must start with parent code (${parent.code}).`;
       }
     }
   }

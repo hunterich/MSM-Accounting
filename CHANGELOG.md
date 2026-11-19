@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Stock Movement opening balance and Sales by Type dates (#239)
+- Stock Movement now shows one row per item: opening quantity and value before the start date, quantity in and out, and closing quantity and value. Before this, the running balance started from zero, and the API returned ledger lines that the Reports screen could not display. Totals are summed in the database, so the report no longer loads the whole stock ledger into memory. A new warehouse filter also applies to the opening balance. The closing quantity and value equal Stock Valuation as of the end date, and the company-wide closing value equals the GL inventory account.
+- Sales by Type now uses Jakarta business-day boundaries like every other report, instead of server-local midnight. It returns 400 for an invalid date or a start date after the end date. Its permission and screen location are unchanged.
+- Sales History's silent 500-invoice cut (part 1 of #239) is fixed by the #240 entry below, which stops with a "narrow the date range" message instead of truncating.
+- No posting, migration or stored-data change.
+
 ### Security — local picomatch extglob safeguard (optional)
 - `npm ci` replaces picomatch 4.0.7's `lib/parse.js` with a vendored copy carrying the unmerged upstream proposal (micromatch/picomatch#235). Repeated extglobs containing `*`, and repeated multi-character alternatives such as `+(ab|abab)`, are matched literally instead of backtracking. Matching changes for those patterns only; ordinary globs are unchanged.
 - The install step checks the lockfile and the checksums of the original and replacement files, and fails if picomatch changes, so the patch must be reviewed or removed on every picomatch upgrade. The related advisory (GHSA-fc5q-39xc-vjpf) was withdrawn on 18 November 2026; this is defence in depth, not an audit exception.
