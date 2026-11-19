@@ -31,6 +31,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
     const [settlementDate, setSettlementDate] = useState('');
     const [refundNotes, setRefundNotes] = useState<Record<string, string>>({});
     const [manualRefund, setManualRefund] = useState({ orderId: '', amount: '', notes: '' });
+    const needsSettlementDate = parsed?.orders.some(o => !o.settlementDate) ?? true;
 
     const resetAll = useCallback(() => {
         setStep('upload');
@@ -87,17 +88,18 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
 
     // ── Step 2 → 3: Confirm & post ─────────────────────────────────────────────
     const handleImport = async (): Promise<void> => {
-        if (!parsed || (!refundOnly && !settlementDate)) return;
+        if (!parsed || (!refundOnly && needsSettlementDate && !settlementDate)) return;
         setError('');
         setStep('importing');
         try {
             const orders = parsed.orders.map((o) => ({
                 orderId: o.orderId,
-                settlementDate: refundOnly ? undefined : settlementDate,
+                settlementDate: refundOnly ? undefined : (o.settlementDate || settlementDate),
                 netReleased: o.netReleased,
                 charges: o.charges as Record<string, number>,
                 refundOnly,
                 refundCreditNoteNumbers: (refundNotes[o.orderId] || '').split(',').map(n => n.trim()).filter(Boolean),
+                requireMappedCharges: o.requireMappedCharges,
             }));
             const res = await importMutation.mutateAsync({ connectionId, orders });
             setResult(res);
@@ -134,7 +136,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 <div className="border-2 border-dashed border-neutral-300 rounded-lg p-6 text-center">
                     <Upload size={32} className="mx-auto mb-2 text-neutral-400" />
                     <p className="text-sm text-neutral-500 mb-3">
-                        {fileName || 'Select a TikTok Income.released settlement file'}
+                        {fileName || 'Select a Shopee or TikTok settlement file'}
                     </p>
                     <label className="inline-block">
                         <input
@@ -191,7 +193,8 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
             <div className="text-xs text-neutral-500">
                 Each order is reconciled against its marketplace wallet receipt. For a return or a shipped order cancelled before completion, create a linked sales return and apply a refund credit note to the original marketplace clearing account first. Receive stock only when goods actually arrive, using the defect warehouse if needed.
             </div>
-            {!refundOnly && <label className="block text-sm">Actual settlement date for every order in this file
+            {!refundOnly && !needsSettlementDate && <p className="text-xs text-neutral-500">Each order uses its payout completed date from the Shopee report. Orders with missing fee accounts or an unexplained difference are held for review.</p>}
+            {!refundOnly && needsSettlementDate && <label className="block text-sm">Actual settlement date for orders without a date in the file
                 <input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300" value={settlementDate} onChange={e => setSettlementDate(e.target.value)} />
                 <span className="text-xs text-neutral-500">Check the statement. If orders settled on different dates, split them into separate files by date.</span>
             </label>}
@@ -312,7 +315,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                                 <ul className="space-y-1 text-xs">
                                     {parsed!.nonOrderRows.map((row, idx) => (
                                         <li key={`${row.orderId}-${idx}`} className="grid grid-cols-2 gap-2 py-1 border-b border-amber-100 last:border-0">
-                                            <span className="text-amber-900">{row.type}</span>
+                                            <span className="text-amber-900">{row.type}{row.orderId ? ` — ${row.orderId}` : ''}</span>
                                             <span className="text-amber-700 text-right">{formatIDR(row.amount)}</span>
                                         </li>
                                     ))}
@@ -353,7 +356,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                             text={`Confirm & Post ${(parsed?.orders.length ?? 0).toLocaleString()} Orders`}
                             variant="primary"
                             onClick={() => void handleImport()}
-                            disabled={!refundOnly && !settlementDate}
+                            disabled={!refundOnly && needsSettlementDate && !settlementDate}
                         />
                     )}
                     {step === 'done' && (

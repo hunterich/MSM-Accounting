@@ -823,6 +823,8 @@ const feesSchema = z.object({
   adjustmentAccountId: accountIdField,
   affiliateFeeAccountId: accountIdField,
   growthXtraAccountId: accountIdField,
+  freeShippingXtraAccountId: accountIdField,
+  otherPlatformFeeAccountId: accountIdField,
 }).partial().passthrough();
 
 const shippingSchema = z.object({
@@ -1263,6 +1265,7 @@ export const settlementImportInputSchema = z.object({
     charges: z.record(z.string(), z.number().finite()).default({}),
     refundOnly: z.boolean().optional(),
     refundCreditNoteNumbers: z.array(z.string().trim().min(1)).optional(),
+    requireMappedCharges: z.boolean().optional(),
   }).refine(order => order.refundOnly || !!order.settlementDate, { message: 'Actual settlement date is required', path: ['settlementDate'] })).min(1),
 });
 export type SettlementImportInput = z.infer<typeof settlementImportInputSchema>;

@@ -25,7 +25,7 @@ export function preferredSheetFor(platform: string): string | undefined {
 
 export function isShopeeSettlement(sheetNames: string[]): boolean {
   const s = new Set(sheetNames);
-  return s.has('Summary') && s.has('Income') && s.has('Adjustment');
+  return s.has('Summary') && s.has('Adjustment') && sheetNames.some(n => /^Income(?: - \d+)?$/.test(n));
 }
 
 export function isTikTokSettlement(sheetNames: string[]): boolean {

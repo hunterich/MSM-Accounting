@@ -69,3 +69,31 @@ for (const platform of ['Shopee', 'TikTok'] as const) {
     expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(before)
   })
 }
+
+test('Shopee split income sheets use order rows and their payout date', async ({ page }) => {
+  const { orgId, customer, item } = await accountingCompany(page)
+  await db.organization.update({ where: { id: orgId }, data: { taxEnabled: false } })
+  await db.$transaction(async tx => {
+    const accounts = await tx.account.findMany({ where: { organizationId: orgId, isActive: true } })
+    const inventory = resolveAccountDefaultId(accounts, await loadOrgAccountDefaults(tx, orgId), 'inventoryAsset')
+    await addCostLayer(tx, orgId, item.id, null, 5, 1000, 'PURCHASE', 'shopee-income-e2e', new Date('2026-01-01'), undefined, inventory)
+  })
+  const wallet = await db.bankAccount.create({ data: { organizationId: orgId, name: 'Cash and Bank', bankName: 'Cash and Bank' } })
+  const conn = await db.ecommerceConnection.create({ data: { organizationId: orgId, platform: 'SHOPEE', shopName: 'Shopee income test', customerId: customer.id, holdingAccountId: wallet.id, mappings: { fees: {}, shipping: {}, others: {} } } })
+  const imported = await api(page, `/integrations/${conn.id}/import`, { options: { recordPayment: true }, orders: [{ orderNo: 'SHIP1001', issueDate: '2026-09-30', shipmentDate: '2026-09-30', orderStatus: 'Shipped', lines: [{ itemId: item.id, description: 'Journey Widget', quantity: 1, unitPrice: 2000 }] }] }, 'POST')
+  expect(imported.created).toBe(1)
+  const wb = XLSX.utils.book_new()
+  const h = ['View By', 'Order ID', 'Payout Completed Date', 'Total Released Amount (Rp)', 'Product Price', 'WHT 22']
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([h, ['Order', 'SHIP1001', '2026-10-02', 2000, 2000, 0], ['Sku', 'SHIP1001', '2026-10-02', 2000, 2000, 0]]), 'Income - 1')
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Summary']]), 'Summary')
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Adjustment']]), 'Adjustment')
+  await page.goto('/integrations')
+  await page.getByRole('row').filter({ hasText: 'Shopee income test' }).getByTitle('Import settlement statement').click()
+  await page.locator('input[type=file]').setInputFiles({ name: 'income.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer })
+  await expect(page.getByText('Each order uses its payout completed date', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Confirm & Post 1 Orders' }).click()
+  await expect(page.getByText('Settlement Import Complete')).toBeVisible()
+  const receipt = await db.aRPayment.findFirstOrThrow({ where: { organizationId: orgId, ecommerceConnectionId: conn.id } })
+  const journal = await db.journalEntry.findUniqueOrThrow({ where: { id: receipt.settlementJournalId! } })
+  expect(journal.date.toISOString().slice(0, 10)).toBe('2026-10-02')
+})

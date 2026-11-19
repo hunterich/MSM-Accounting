@@ -69,6 +69,19 @@ describe('marketplace settlement original account', () => {
     expect((await importSettlement('org', 'user', 'connection', input)).posted).toBe(1);
     expect(state.post.mock.calls[0][1].lines).toContainEqual(expect.objectContaining({ accountId: 'growth-expense', debit: 10 }));
   });
+  it('requires explicit fee accounts and rejects an unexplained difference for strict imports', async () => {
+    const order = { orderId: 'order', settlementDate: '2026-06-15', netReleased: 90, charges: { freeShippingXtraFee: 10 }, requireMappedCharges: true };
+    const missing = await importSettlement('org', 'user', 'connection', { orders: [order] });
+    expect(missing.failed[0].reason).toContain('freeShippingXtraFee');
+    expect(state.post).not.toHaveBeenCalled();
+    state.prisma.ecommerceConnection.findFirst.mockResolvedValue({ holdingAccountId: 'wallet', mappings: { fees: { adjustmentAccountId: 'adjustment', freeShippingXtraAccountId: 'shipping-fee' } } });
+    const different = await importSettlement('org', 'user', 'connection', { orders: [{ ...order, netReleased: 89 }] });
+    expect(different.failed[0].reason).toContain('review the source documents');
+    expect(state.post).not.toHaveBeenCalled();
+    const valid = await importSettlement('org', 'user', 'connection', { orders: [order] });
+    expect(valid.posted).toBe(1);
+    expect(state.post.mock.calls[0][1].lines).toContainEqual(expect.objectContaining({ accountId: 'shipping-fee', debit: 10 }));
+  });
   it('reports an allocated receipt with unverifiable provenance for review', async () => {
     state.tx.aRPayment.findFirst.mockResolvedValue(null);
     const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'legacy-order', settlementDate: '2026-06-15', netReleased: 90, charges: {} }] });

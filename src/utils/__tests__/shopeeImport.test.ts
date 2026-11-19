@@ -320,6 +320,12 @@ const descriptionRow = (): unknown[] =>
     });
 
 describe('TikTok Shop export parsing', () => {
+    it('uses seller-side sales before the platform-funded discount', async () => {
+        const file = buildTikTokFile([tiktokRow({ 'Quantity': '2', 'SKU Subtotal After Discount': '30504', 'SKU Platform Discount': '2296', 'SKU Seller Discount': '200' })]);
+        const result = await parseShopeeExcel(file, 'Selesai', 'TikTok');
+        expect(result.parsedOrders[0].totalProductAmount).toBe(32800);
+        expect(result.parsedOrders[0].items[0].priceAfterDiscount).toBe(16400);
+    });
     it('resolves TikTok English headers onto the same internal keys', () => {
         const result = resolveHeaders(TIKTOK_HEADERS);
         expect(result.missingRequired).toHaveLength(0);

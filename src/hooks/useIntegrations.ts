@@ -213,7 +213,7 @@ export function useImportMarketplaceOrders() {
 }
 
 export interface SettlementImportPayload {
-  orders: Array<{ orderId: string; settlementDate?: string; netReleased: number; charges: Record<string, number>; refundOnly?: boolean; refundCreditNoteNumbers?: string[] }>;
+  orders: Array<{ orderId: string; settlementDate?: string; netReleased: number; charges: Record<string, number>; refundOnly?: boolean; refundCreditNoteNumbers?: string[]; requireMappedCharges?: boolean }>;
 }
 export interface SettlementImportResult {
   posted: number;

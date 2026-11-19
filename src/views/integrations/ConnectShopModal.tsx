@@ -72,6 +72,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
     const { data: bankAccounts = [] } = useBankAccounts();
     const { data: revenueAccounts = [] } = useAccountsByType('Revenue', { enabled: isOpen });
     const { data: expenseAccounts = [] } = useAccountsByType('Expense', { enabled: isOpen });
+    const { data: assetAccounts = [] } = useAccountsByType('Asset', { enabled: isOpen });
     const { data: liabilityAccounts = [] } = useAccountsByType('Liability', { enabled: isOpen });
 
     // Mutations
@@ -106,8 +107,8 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
         [expenseAccounts]
     );
     const taxOptions: SelectOption[] = useMemo(
-        () => [...liabilityAccounts, ...expenseAccounts].map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
-        [liabilityAccounts, expenseAccounts]
+        () => [...assetAccounts, ...liabilityAccounts, ...expenseAccounts].map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+        [assetAccounts, liabilityAccounts, expenseAccounts]
     );
     const roundingOptions: SelectOption[] = useMemo(
         () => [...expenseAccounts, ...revenueAccounts].map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
@@ -384,6 +385,14 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
                                     />
                                     <span className="integrations-field-hint">Required when a settlement includes this fee.</span>
                                     {fieldErr('fees.growthXtraAccountId')}
+                                </div>
+                                <div>
+                                    <label className="form-label">Shopee Free Shipping XTRA Fee</label>
+                                    <SearchableSelect options={expenseOptions} value={mappings.fees?.freeShippingXtraAccountId ?? ''} onChange={(v) => setFee('freeShippingXtraAccountId', v)} placeholder="Select expense account..." />
+                                </div>
+                                <div>
+                                    <label className="form-label">Shopee Other Fee</label>
+                                    <SearchableSelect options={expenseOptions} value={mappings.fees?.otherPlatformFeeAccountId ?? ''} onChange={(v) => setFee('otherPlatformFeeAccountId', v)} placeholder="Select expense account..." />
                                 </div>
                             </div>
                         </div>

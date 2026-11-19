@@ -235,6 +235,27 @@ function laterRefund(noteNumber: string, amount: number) {
 }
 
 describe('settlement reconciliation service', () => {
+  it('requires mapped Shopee fees and an exact settlement balance before posting', async () => {
+    const s = await seedImportedOrder();
+    try {
+      const fee = await createExpenseAccount(s.orgId, `6199-${tag()}`, 'Free Shipping XTRA');
+      const order = { orderId: 'ORD1', settlementDate: '2026-06-15', netReleased: s.gross - 10_000, charges: { freeShippingXtraFee: 10_000 }, requireMappedCharges: true };
+      const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+      const missing = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [order] });
+      expect(missing.failed[0].reason).toContain('freeShippingXtraFee');
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+      const conn = await prisma.ecommerceConnection.findUniqueOrThrow({ where: { id: s.connectionId } });
+      const mapping = conn.mappings as Record<string, Record<string, string>>;
+      await prisma.ecommerceConnection.update({ where: { id: s.connectionId }, data: { mappings: { ...mapping, fees: { ...mapping.fees, freeShippingXtraAccountId: fee } } } });
+      const difference = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [{ ...order, netReleased: order.netReleased - 1 }] });
+      expect(difference.failed[0].reason).toContain('review the source documents');
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+      const result = await importSettlement(s.orgId, s.userId, s.connectionId, { orders: [order] });
+      expect(result.posted).toBe(1);
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBeCloseTo(s.gross - 10_000, 2);
+      await assertTrialBalanced(s.orgId, 'strict Shopee settlement');
+    } finally { await cleanupOrg(s.orgId); }
+  });
   it('posts a taxable shipment, later settlement and received return in their respective months', async () => {
     const s = await seedImportedOrder({ tax: true, shipmentDate: '2026-01-31' });
     try {

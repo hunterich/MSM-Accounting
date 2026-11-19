@@ -568,10 +568,11 @@ export async function parseShopeeExcel(
         const first = rows[0];
         const items: ShopeeLineItem[] = rows.map((row) => {
             const quantity = parseNum(row.quantity) || 1;
-            const productTotal = parseNum(row.productTotal);
-            // TikTok has no unit-price-after-discount column — derive it from
-            // the SKU subtotal so invoice line prices stay correct.
-            const priceAfterDiscount = parseNum(row.priceAfterDiscount) || (productTotal / quantity);
+            // TikTok's after-discount subtotal includes the platform-funded
+            // discount. Add it back to obtain the seller-side sale amount.
+            const isTikTok = platform?.toLowerCase() === 'tiktok';
+            const productTotal = parseNum(row.productTotal) + (isTikTok ? parseNum(row.shopeeDiscount) : 0);
+            const priceAfterDiscount = isTikTok ? productTotal / quantity : (parseNum(row.priceAfterDiscount) || productTotal / quantity);
             const item: ShopeeLineItem = {
                 productName: String(row.productName).trim(),
                 variationName: String(row.variationName ?? '').trim(),

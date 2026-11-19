@@ -49,6 +49,7 @@ export interface SettlementOrderInput {
   /** A later refund debit only; it must not contain the original payout again. */
   refundOnly?: boolean;
   refundCreditNoteNumbers?: string[];
+  requireMappedCharges?: boolean;
 }
 
 export interface SettlementResult {
@@ -147,7 +148,16 @@ export async function importSettlement(
           for (const [k, mag] of Object.entries(order.charges)) {
             const key = k as SettlementFeeKey;
             if (key === 'refund') continue; // already posted by the linked credit note
-            if (!KEY_TO_SLOT[key] || !mag) continue;
+            if (!mag) continue;
+            if (order.requireMappedCharges && mag < 0) throw new Error(`Invalid negative magnitude for ${key}; review before posting.`);
+            if (!KEY_TO_SLOT[key]) {
+              if (order.requireMappedCharges) throw new Error(`Unrecognised settlement charge ${key}; review before posting.`);
+              continue;
+            }
+            if (order.requireMappedCharges) {
+              const [group, field] = KEY_TO_SLOT[key];
+              if (!m[group]?.[field]) throw new Error(`Configure the account for ${key} in the shop connection before importing this settlement.`);
+            }
             if (key === 'growthXtraFee' && !m.fees?.growthXtraAccountId) {
               throw new Error('Select a Growth Xtra fee account in the shop connection before importing this settlement.');
             }
@@ -175,6 +185,7 @@ export async function importSettlement(
           const totCredit = lines.reduce((s, l) => s + l.credit, 0);
           const plug = totCredit - totDebit;
           if (Math.abs(plug) > BALANCE_TOLERANCE) {
+            if (order.requireMappedCharges) throw new Error(`Settlement for ${order.orderId} differs from the invoice and mapped charges by ${plug.toFixed(2)}; review the source documents before posting.`);
             if (!adjustmentAccountId) {
               throw new Error(
                 `Settlement for ${order.orderId} does not balance and no adjustment account is configured`,

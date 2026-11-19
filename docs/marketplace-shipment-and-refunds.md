@@ -7,6 +7,7 @@ Issue #242 policy, agreed 17 November 2026: recognise revenue and COGS and reduc
 - Import the full order export regularly, including orders still in transit. A completion-only or matched-payout export cannot reveal shipments absent from that file.
 - The import wizard selects shipped/completed orders, skips cancelled rows and holds return statuses for review. It reads the dispatch date. For a shipped or completed Shopee order without one, it uses `Waktu Pengiriman Diatur` (shipping arranged) as the accounting-date proxy, as directed by the owner; this is not independently verified as the courier handover date. An order without either date is blocked until staff enter a verified date; split different dates into separate batches. Order creation, payment, ready-to-ship and completion dates are not substitutes.
 - A repeated completed-order export does not post another sale or stock issue. Existing invoices retain their original financial dates. Historical completion-dated invoices need finance review; this change does not silently redate them.
+- For TikTok, the imported sale uses the SKU subtotal after discount plus the platform-funded SKU discount, giving the seller-side subtotal before PPN treatment. Use the original order export: a prepared file may have already reduced quantities or amounts for a return. Record the original sale and its linked refund credit note separately, and have finance verify PPN and platform-discount treatment.
 - A cancelled row is skipped and creates no sale. If an already imported shipment is later cancelled, handle its return and credit note separately against the original invoice. If its shipment was never imported, review the dispatch evidence and record the original shipment and return separately; do not import the cancelled row as a new positive sale.
 - API compatibility: callers without `shipmentDate` must supply the actual dispatch date in `issueDate`. When `shipmentDate` is supplied it overrides `issueDate` for the invoice, stock, revenue, COGS and clearing receipt.
 
@@ -24,16 +25,30 @@ Legacy settlements that already posted a refund to the old refund account requir
 
 ## Release checks
 
-Settlement statements may cover multiple release dates. For initial payout,
-enter the actual statement settlement date; the date applies to every order in
-the uploaded file. Split a file by release date before importing it. The API
-accepts a separate `settlementDate` (YYYY-MM-DD) per order. The journal uses
+Settlement statements may cover multiple release dates. The Shopee income
+report's order-level `Payout Completed Date` is used for each order when its
+`View By` column is present; SKU detail rows are excluded to avoid counting
+orders twice. For statements without per-order dates, enter the actual
+settlement date and split a file with multiple release dates before importing.
+The API accepts a separate `settlementDate` (YYYY-MM-DD) per order. The journal uses
 that calendar date at UTC midnight, consistent with date-only ledger fields;
 the closed-period and transaction-date guards apply to that date. `settledAt`
 is the import timestamp, not the financial date. Later-refund reconciliation
-links an existing journal and does not post a new journal. The current parsers
-do not verify statement dates; actual Shopee and TikTok exports and date-column
-semantics remain to be validated before operational use.
+links an existing journal and does not post a new journal. Confirm the source
+statement and its dates before use; TikTok dates still require manual entry.
+
+Shopee's split `Income - 1`, `Income - 2`, etc. sheets are read together.
+Configure each fee, shipping, subsidy and withholding account used by the
+file; Free Shipping XTRA and Other Fee have separate account selectors. The
+withholding selector permits an asset account, but finance must decide the
+correct tax treatment. A missing account, unrecognised nonzero financial
+column, unexpected sign, duplicate order, or unexplained imbalance stops the
+affected import for review instead of silently posting to an adjustment account.
+The report's separate adjustment transactions are listed for manual review and
+are not posted automatically. Match payout amounts and dates to the Shopee
+balance report; zero-release orders may have no balance transaction. A refunded
+order still requires its linked applied credit note. A refund with later fees
+or adjustments may require separate review; do not infer stock receipt.
 
 `scripts/audit-marketplace-release-candidates.sql` prepares read-only candidate
 lists for finance. The first lists imported invoices for comparison with actual
