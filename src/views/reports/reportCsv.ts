@@ -38,7 +38,7 @@ import type {
   SalesShareItemRow,
   SalesShareRow,
   StatementData,
-  StockMovementRow,
+  StockMovementData,
   StockValuationData,
   TrialBalanceRow,
   TrialBalanceSummary,
@@ -507,13 +507,16 @@ export const buildBankingCsv = (report: ReportDefinition, data: Record<string, u
 
 export const buildInventoryCsv = (report: ReportDefinition, data: Record<string, unknown>, categoryNameById: ReadonlyMap<string, string>): string => {
   if (report.id === 'stock-movement') {
-    const rows = (data.rows || []) as StockMovementRow[];
-    let csv = 'SKU,Item Name,Opening Balance,Total In,Total Out,Closing Balance\n';
+    const smData = data as unknown as StockMovementData;
+    const rows = smData.rows || [];
+    let csv = 'SKU,Item Name,Opening Qty,Opening Value,Total In,Total Out,Movement Value,Closing Qty,Closing Value\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.sku),
       escapeCsvCell(row.itemName),
-      row.openingBalance, row.totalIn, row.totalOut, row.closingBalance,
+      row.openingBalance, row.openingValue, row.totalIn, row.totalOut,
+      row.movementValue, row.closingBalance, row.closingValue,
     ].join(',')).join('\n');
+    if (smData.totals) csv += `\nTotal,,,${smData.totals.openingValue},,,${smData.totals.movementValue},,${smData.totals.closingValue}`;
     return csv;
   }
 

@@ -420,9 +420,19 @@ export interface StockMovementRow {
   sku: string;
   itemName: string;
   openingBalance: number;
+  openingValue: number;
   totalIn: number;
   totalOut: number;
+  movementValue: number;
   closingBalance: number;
+  closingValue: number;
+}
+
+// Shape returned by GET /api/v1/reports/gl?type=stock-movement.
+export interface StockMovementData {
+  rows: StockMovementRow[];
+  warehouseId: string | null;
+  totals: { openingValue: number; movementValue: number; closingValue: number };
 }
 
 // ── Customer / Vendor Statement ─────────────────────────────────────────────────

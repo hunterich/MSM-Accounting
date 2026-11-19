@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Stock Movement opening balance and Sales by Type dates (#239)
+- Stock Movement now shows one row per item: opening quantity and value before the start date, quantity in and out, and closing quantity and value. Before this, the running balance started from zero, and the API returned ledger lines that the Reports screen could not display. Totals are summed in the database, so the report no longer loads the whole stock ledger into memory. A new warehouse filter also applies to the opening balance. The closing quantity and value equal Stock Valuation as of the end date, and the company-wide closing value equals the GL inventory account.
+- Sales by Type now uses Jakarta business-day boundaries like every other report, instead of server-local midnight. It returns 400 for an invalid date or a start date after the end date. Its permission and screen location are unchanged.
+- No posting, migration or stored-data change.
+
 ### Fixed — stock adjustment offset accounts
 - New stock adjustments post lot-derived differences to the chosen line accounts; older adjustments and stock counts retain variance-default posting. Existing journals and costing are unchanged.
 
