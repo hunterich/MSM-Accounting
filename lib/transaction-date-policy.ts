@@ -26,6 +26,7 @@
  */
 import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
+import { toAccountingDate } from './accounting-date';
 
 type Db = Prisma.TransactionClient | { organization: { findUnique: (args: unknown) => Promise<unknown> } };
 
@@ -74,9 +75,13 @@ export function parseTransactionDatePolicy(raw: unknown): TransactionDatePolicy 
   return { enabled, mode, daysBefore, daysAfter };
 }
 
-/** Midnight UTC of the day `date` falls on — the grain the window works at. */
-function startOfUtcDay(date: Date): number {
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+/**
+ * The business day `date` falls on — the grain the window works at. Both the
+ * document date and "today" go through the same accounting-date rule as the
+ * period lock, so between 00:00 and 07:00 WIB "today" is already the new day.
+ */
+function startOfBusinessDay(date: Date): number {
+  return toAccountingDate(date).getTime();
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -103,9 +108,9 @@ const INSIDE: TransactionDateVerdict = {
  * Compare a document date against the window.
  *
  * Whole days, both bounds inclusive: with `daysBefore: 30`, a document dated
- * exactly 30 days ago is allowed and 31 days ago is not. Comparison is at UTC
- * day grain, matching how every date field in this app is stored and how
- * `assertPeriodOpen` resolves a period.
+ * exactly 30 days ago is allowed and 31 days ago is not. Comparison is at
+ * business-day grain (lib/accounting-date.ts), matching how `assertPeriodOpen`
+ * resolves a period.
  */
 export function evaluateTransactionDate(
   policy: TransactionDatePolicy,
@@ -115,7 +120,7 @@ export function evaluateTransactionDate(
   if (!policy.enabled) return INSIDE;
   if (Number.isNaN(date.getTime())) return INSIDE;
 
-  const offsetDays = Math.round((startOfUtcDay(date) - startOfUtcDay(now)) / MS_PER_DAY);
+  const offsetDays = Math.round((startOfBusinessDay(date) - startOfBusinessDay(now)) / MS_PER_DAY);
 
   if (policy.daysBefore !== null && offsetDays < -policy.daysBefore) {
     const daysOutside = -offsetDays - policy.daysBefore;

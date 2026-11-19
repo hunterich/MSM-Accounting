@@ -5,6 +5,7 @@ import { withHandler, requireOrg, ok, err, logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { createBankAccountInputSchema } from '@/types/api';
 import { postBankOpeningBalance } from '@/lib/bank-transaction-posting';
+import { toAccountingDate } from '@/lib/accounting-date';
 
 export const runtime = 'nodejs';
 
@@ -42,7 +43,7 @@ export const POST = withPermission({ module: 'BANKING', action: 'create' }, asyn
     // Onboard the opening balance to the GL (Dr Bank / Cr Opening Balance Equity)
     // so the bank GL account reflects it — the cached currentBalance above and
     // the ledger stay in lockstep. No-op for a zero opening balance.
-    await postBankOpeningBalance(tx, orgId, created.id, openingBalance, new Date());
+    await postBankOpeningBalance(tx, orgId, created.id, openingBalance, toAccountingDate());
     return created;
   });
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankAccount', entityId: account.id, action: 'CREATE', payload: { name: account.name } });

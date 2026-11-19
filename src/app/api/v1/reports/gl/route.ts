@@ -5,6 +5,9 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { reportDate } from '@/lib/subledger-history';
+import { loadOrgAccountDefaults, selectCashFlowAccountIds } from '@/lib/account-defaults';
+import { readStockMovement } from '@/lib/stock-movement';
+import { asMoney } from '@/lib/money';
 import {
   buildBalanceSheetReport,
   buildBalanceSheetMultiPeriodReport,
@@ -37,6 +40,7 @@ const baseAccountSelect = {
   normalSide: true,
   reportGroup: true,
   reportSubGroup: true,
+  cashFlowClass: true,
   isPostable: true,
   isActive: true,
 };
@@ -47,10 +51,11 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const { searchParams } = new URL(req.url);
     const type = searchParams.get('type') || 'trial-balance';
 
+    // All accounts, not only postable ones: a header that still carries journal
+    // lines must keep its balance in the statements (#228).
     const accounts = await prisma.account.findMany({
       where: {
         organizationId: orgId,
-        isPostable: true,
       },
       orderBy: { code: 'asc' },
       select: baseAccountSelect,
@@ -120,6 +125,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         entry: {
           organizationId: orgId,
           status: 'POSTED',
+          source: { not: 'CLOSING' },
           date: {
             gte: dateFrom,
             lte: dateTo,
@@ -153,6 +159,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           entry: {
             organizationId: orgId,
             status: 'POSTED',
+            source: { not: 'CLOSING' },
             date: { gte: dateFrom, lte: dateTo },
           },
         }),
@@ -160,6 +167,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           entry: {
             organizationId: orgId,
             status: 'POSTED',
+            source: { not: 'CLOSING' },
             date: { gte: compareDateFrom, lte: compareDateTo },
           },
         }),
@@ -260,7 +268,10 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         return err('dateFrom must be before or equal to dateTo', 400);
       }
 
-      const [beginningLines, periodLines] = await Promise.all([
+      const [allAccounts, banks, defaults, beginningLines, periodLines, endingLines] = await Promise.all([
+        prisma.account.findMany({ where: { organizationId: orgId }, select: { ...baseAccountSelect, parentId: true } }),
+        prisma.bankAccount.findMany({ where: { organizationId: orgId }, select: { id: true, name: true, code: true, bankName: true } }),
+        loadOrgAccountDefaults(prisma, orgId),
         readJournalTotals(prisma, {
           entry: {
             organizationId: orgId,
@@ -272,16 +283,33 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           entry: {
             organizationId: orgId,
             status: 'POSTED',
+            // The non-cash transfer would also inflate financing activity.
+            source: { not: 'CLOSING' },
             date: { gte: dateFrom, lte: dateTo },
           },
         }),
+        readJournalTotals(prisma, { entry: { organizationId: orgId, status: 'POSTED', date: { lte: dateTo } } }),
       ]);
 
+      const bankInputs = banks.map(bank => ({ ...bank, code: bank.code ?? undefined, bankName: bank.bankName ?? undefined }));
+      const cashIds = selectCashFlowAccountIds(allAccounts, bankInputs, defaults);
+      const report = buildCashFlowStatement(accounts, beginningLines, periodLines, cashIds);
+      const selected = new Set(cashIds);
+      const balanceSheet = buildBalanceSheetReport(accounts, endingLines);
+      const balanceSheetCash = balanceSheet.sections.find(section => section.id === 'ASSET')!.rows
+        .filter(row => selected.has(row.accountId)).reduce((sum, row) => sum + row.amount, 0);
+      const balanceSheetDifference = Math.round((report.summary.endingCash - balanceSheetCash) * 100) / 100;
+      const periodActivityIds = new Set(periodLines.map(line => line.accountId));
+      const balanceActivityIds = new Set([...beginningLines, ...endingLines].map(line => line.accountId));
+      const unreviewedAccounts = accounts.filter(account => !account.cashFlowClass &&
+        (periodActivityIds.has(account.id) || ((account.type === 'ASSET' || account.type === 'LIABILITY') && balanceActivityIds.has(account.id))))
+        .map(account => ({ id: account.id, code: account.code, name: account.name }));
       return ok({
-        type,
-        dateFrom,
-        dateTo,
-        ...buildCashFlowStatement(accounts, beginningLines, periodLines),
+        type, dateFrom, dateTo, ...report,
+        balanceSheetCash, balanceSheetDifference,
+        unreviewedAccounts,
+        accumulatedDepreciationActivity: accounts.some(account => account.cashFlowClass === 'ACCUMULATED_DEPRECIATION' && periodLines.some(line => line.accountId === account.id)),
+        cashClassificationWarning: cashIds.length === 0,
       });
     }
 
@@ -368,60 +396,27 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       const dateFrom = startOfDay(searchParams.get('dateFrom'));
       const dateTo = endOfDay(searchParams.get('dateTo'));
       const itemId = searchParams.get('itemId');
+      const warehouseId = searchParams.get('warehouseId');
 
       if (dateFrom > dateTo) {
         return err('dateFrom must be before or equal to dateTo', 400);
       }
 
-      const ledgerWhere: any = {
-        organizationId: orgId,
-        date: { gte: dateFrom, lte: dateTo },
-      };
-      if (itemId) ledgerWhere.itemId = itemId;
-
-      const entries = await prisma.inventoryLedgerEntry.findMany({
-        where: ledgerWhere,
-        orderBy: [{ itemId: 'asc' }, { date: 'asc' }],
-        include: {
-          item: { select: { id: true, name: true, sku: true } },
-          warehouse: { select: { id: true, name: true } },
+      // One row per item: opening before dateFrom + movement in the range =
+      // closing, which equals Stock Valuation as of dateTo for the same scope.
+      const rows = await readStockMovement(prisma, orgId, { dateFrom, dateTo, itemId, warehouseId });
+      return ok({
+        type,
+        dateFrom,
+        dateTo,
+        warehouseId: warehouseId || null,
+        rows,
+        totals: {
+          openingValue: asMoney(rows.reduce((s, r) => s + r.openingValue, 0)),
+          movementValue: asMoney(rows.reduce((s, r) => s + r.movementValue, 0)),
+          closingValue: asMoney(rows.reduce((s, r) => s + r.closingValue, 0)),
         },
       });
-
-      // Calculate running balance per item
-      const runningBalance = new Map<string, number>();
-
-      const rows = entries.map((entry) => {
-        const qtyIn = Number(entry.qtyIn);
-        const qtyOut = Number(entry.qtyOut);
-        const unitCost = Number(entry.unitCost);
-        const value = Number(entry.valueChange);
-
-        const prev = runningBalance.get(entry.itemId) ?? 0;
-        const next = prev + qtyIn - qtyOut;
-        runningBalance.set(entry.itemId, next);
-
-        return {
-          date: entry.date,
-          documentType: entry.documentType,
-          documentId: entry.documentId,
-          item: {
-            id: entry.item.id,
-            name: entry.item.name,
-            sku: entry.item.sku,
-          },
-          warehouse: entry.warehouse
-            ? { id: entry.warehouse.id, name: entry.warehouse.name }
-            : null,
-          qtyIn,
-          qtyOut,
-          unitCost,
-          value,
-          runningBalance: next,
-        };
-      });
-
-      return ok({ type, dateFrom, dateTo, rows });
     }
 
   return err('Unknown report type', 400);

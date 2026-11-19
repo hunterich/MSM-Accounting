@@ -61,8 +61,8 @@ export interface SalesByTypeRow {
 
 export interface SalesByTypeResponse {
     data: SalesByTypeRow[];
-    from: string;
-    to: string;
+    from: string | null;
+    to: string | null;
 }
 
 export const SALES_TYPE_KEYS = {

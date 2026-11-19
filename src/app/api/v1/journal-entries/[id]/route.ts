@@ -9,6 +9,7 @@ import { assertNoDirectControlPosting } from '@/lib/control-account-guard';
 import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
 import { canOverrideTransactionDate } from '@/lib/authz';
+import { toAccountingDate } from '@/lib/accounting-date';
 
 const ZERO = new Prisma.Decimal(0);
 const TOLERANCE = new Prisma.Decimal('0.005');
@@ -103,7 +104,7 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
     ...accountIds,
   ]));
 
-  const newDate = new Date(payload.date);
+  const newDate = toAccountingDate(new Date(payload.date));
 
   const updated = await prisma.$transaction(async (tx) => {
     await assertNoDirectControlPosting(tx, orgId, accountIds);

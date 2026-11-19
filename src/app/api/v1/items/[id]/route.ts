@@ -7,6 +7,7 @@ import { updateItemInputSchema } from '@/types/api';
 import { lockOpeningStock, postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { assertInventoryAccountChangeAllowed } from '@/lib/item-inventory-account-guard';
 import { lockInventoryItems } from '@/lib/inventory-costing';
+import { toAccountingDate } from '@/lib/accounting-date';
 
 export const runtime = 'nodejs';
 
@@ -98,7 +99,7 @@ export const PUT = withPermission({ module: 'INV_ITEMS', action: 'edit' }, async
       // If opening stock was (re)set, post it once as a cost layer + opening JE.
       // Idempotent — a no-op if opening stock was already booked.
       if (parsed.data.openingStock !== undefined) {
-        await postOpeningStockIfNeeded(tx, orgId, id, new Date());
+        await postOpeningStockIfNeeded(tx, orgId, id, toAccountingDate());
       }
       return updated;
     });

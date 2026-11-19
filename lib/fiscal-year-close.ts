@@ -24,6 +24,8 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { asMoney } from './money';
 import { postJournalEntry } from './journal-posting';
+import { accountingRangeBounds } from './accounting-date';
+import { advisoryLockKey } from './advisory-lock';
 import {
   loadOrgAccountDefaults,
   resolveAccountDefaultId,
@@ -98,6 +100,9 @@ async function openMonthsInRange(tx: Tx, orgId: string, range: FiscalYearRange):
  * than debits comes back positive.
  */
 async function nominalBalances(tx: Tx, orgId: string, range: FiscalYearRange): Promise<ClosingLine[]> {
+  // By business day, like the reports: an older clock-time entry at 01:00 WIB
+  // on the first day of the next year belongs to the next year, not this one.
+  const bounds = accountingRangeBounds(range.startDate, range.endDate);
   const rows = await tx.$queryRaw<
     Array<{ accountId: string; code: string; name: string; type: string; debit: string; credit: string }>
   >`
@@ -112,8 +117,8 @@ async function nominalBalances(tx: Tx, orgId: string, range: FiscalYearRange): P
     JOIN "Account" a      ON a."id" = l."accountId"
     WHERE e."organizationId" = ${orgId}
       AND e."status" = 'POSTED'
-      AND e."date" >= ${range.startDate}
-      AND e."date" <= ${range.endDate}
+      AND e."date" >= ${bounds.gte}
+      AND e."date" <= ${bounds.lte}
       AND a."type" IN ('REVENUE', 'EXPENSE')
     GROUP BY a."id", a."code", a."name", a."type"
     ORDER BY a."code"
@@ -148,6 +153,40 @@ async function resolveRetainedEarnings(tx: Tx, orgId: string) {
   return account;
 }
 
+/** Per-org, transaction-scoped lock taken by every fiscal-year close and reopen. */
+export async function lockFiscalYearChanges(tx: Tx, orgId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`fiscal-year:${orgId}`)})`;
+}
+
+/** The fiscal year immediately before `range`. */
+export function previousFiscalYearRange(range: FiscalYearRange): FiscalYearRange {
+  const start = range.startDate;
+  return fiscalYearRange(new Date(Date.UTC(start.getUTCFullYear() - 1, start.getUTCMonth(), 1)));
+}
+
+/**
+ * The previous fiscal year, if it is not closed and still has revenue/expense
+ * balances to close. Years must close in order: closing a year while the one
+ * before it is open would leave that earlier year's profit out of Retained
+ * Earnings. A previous year with nothing to close (e.g. before the company
+ * started) does not block. Checking only the immediate previous year is enough,
+ * since that year could not have been closed while its own predecessor was open.
+ */
+async function unclosedPriorYear(
+  tx: Tx,
+  orgId: string,
+  range: FiscalYearRange,
+): Promise<FiscalYearRange | null> {
+  const prior = previousFiscalYearRange(range);
+  const closed = await tx.fiscalYearClose.findUnique({
+    where: { organizationId_startDate: { organizationId: orgId, startDate: prior.startDate } },
+    select: { id: true },
+  });
+  if (closed) return null;
+  const balances = await nominalBalances(tx, orgId, prior);
+  return balances.length > 0 ? prior : null;
+}
+
 /** Everything the confirm screen needs, and everything `closeFiscalYear` checks. */
 export async function buildClosingPreview(
   tx: Tx,
@@ -156,7 +195,7 @@ export async function buildClosingPreview(
 ): Promise<ClosingPreview> {
   const range = fiscalYearRange(fiscalYearStart);
 
-  const [openMonths, lines, retainedEarnings, existing] = await Promise.all([
+  const [openMonths, lines, retainedEarnings, existing, openPriorYear] = await Promise.all([
     openMonthsInRange(tx, orgId, range),
     nominalBalances(tx, orgId, range),
     resolveRetainedEarnings(tx, orgId),
@@ -164,6 +203,7 @@ export async function buildClosingPreview(
       where: { organizationId_startDate: { organizationId: orgId, startDate: range.startDate } },
       select: { closingEntry: { select: { entryNo: true } } },
     }),
+    unclosedPriorYear(tx, orgId, range),
   ]);
 
   const totalRevenue = asMoney(
@@ -179,6 +219,10 @@ export async function buildClosingPreview(
     blockedReason = `Fiscal year ${range.label} is already closed (${existing.closingEntry.entryNo}).`;
   } else if (openMonths.length > 0) {
     blockedReason = `Close every month of the year first — still open: ${openMonths.join(', ')}.`;
+  } else if (openPriorYear) {
+    blockedReason =
+      `Close fiscal year ${openPriorYear.label} first — it still has revenue and expense balances. ` +
+      'Years close in order, so each one starts from the previous year\'s closing balances.';
   } else if (lines.length === 0) {
     blockedReason = `No revenue or expense activity in ${range.label} — nothing to close.`;
   } else if (!retainedEarnings) {
@@ -218,6 +262,9 @@ export async function closeFiscalYear(
 ): Promise<{ closingEntryId: string; entryNo: string; netIncome: number; range: FiscalYearRange }> {
   // Serialize year close with reopening any overlapping month. Re-read the
   // preview only after these locks: a reopen that won the race must block close.
+  // The fiscal-year lock does the same for closing/reopening a neighbouring year,
+  // so the in-order checks cannot be raced.
+  await lockFiscalYearChanges(tx, orgId);
   const range = fiscalYearRange(fiscalYearStart);
   await tx.$queryRaw`SELECT "id" FROM "AccountingPeriod"
     WHERE "organizationId" = ${orgId} AND "startDate" <= ${range.endDate} AND "endDate" >= ${range.startDate}
@@ -249,9 +296,11 @@ export async function closeFiscalYear(
 
   const entry = await postJournalEntry(tx, {
     organizationId: orgId,
-    // Last day of the fiscal year — the income belongs to the year it was
-    // earned in, not to the day someone happened to run the close.
-    date: preview.range.endDate,
+    // Dated on the last business day of the year, on the same accounting-date
+    // convention as every other journal (00:00 UTC of that day). endDate is the
+    // year's last UTC millisecond — a boundary, not an instant — so take its
+    // calendar day directly rather than converting it to Jakarta time.
+    date: new Date(`${preview.range.endDate.toISOString().slice(0, 10)}T00:00:00.000Z`),
     memo: `Closing entry — fiscal year ${preview.range.label}`,
     source: 'CLOSING',
     lines: lines.filter((l) => l.debit > 0 || l.credit > 0),

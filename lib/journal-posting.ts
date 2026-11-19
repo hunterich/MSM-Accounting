@@ -12,6 +12,7 @@
 import type { Prisma } from '@prisma/client';
 import { asMoney } from './money';
 import { advisoryLockKey } from './advisory-lock';
+import { toAccountingDate } from './accounting-date';
 
 type Tx = Prisma.TransactionClient;
 
@@ -38,6 +39,15 @@ export const BALANCE_TOLERANCE = 0.005; // half a cent — covers Decimal roundi
  * Allocate the next sequential `JE-NNNNNN` entry number for the org. Uses a
  * raw query so it sees uncommitted rows in the same transaction and stays
  * monotonic under sequential POSTs (one transaction at a time per request).
+ *
+ * Every path that writes a JournalEntry must number it here: this is the one
+ * place that holds the per-org lock and records the high-water mark.
+ *
+ * A posted number is never issued twice. The next number is one past the
+ * highest of (a) every number still on the books and (b) the highest number
+ * ever issued, kept in `JournalEntrySequence`. (b) is what stops reuse after an
+ * entry is deleted (reopening a fiscal year deletes its closing entry); (a)
+ * keeps the sequence correct for orgs whose entries predate that table.
  */
 export async function allocateJournalEntryNumber(tx: Tx, organizationId: string): Promise<string> {
   // Serialize entryNo allocation per org (mirrors nextInvoiceNumber). Without
@@ -46,12 +56,26 @@ export async function allocateJournalEntryNumber(tx: Tx, organizationId: string)
   // post rolls back. Transaction-scoped; released at commit/rollback.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`je-seq:${organizationId}`)})`;
   const rows = await tx.$queryRaw<Array<{ max_seq: number | null }>>`
-    SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER)) AS max_seq
-    FROM "JournalEntry"
-    WHERE "organizationId" = ${organizationId}
-      AND "entryNo" LIKE ${'JE-%'}
+    SELECT GREATEST(
+      COALESCE((
+        SELECT MAX(CAST(SUBSTRING("entryNo" FROM '^JE-([0-9]+)$') AS INTEGER))
+        FROM "JournalEntry"
+        WHERE "organizationId" = ${organizationId}
+          AND "entryNo" LIKE ${'JE-%'}
+      ), 0),
+      COALESCE((
+        SELECT "lastSeq" FROM "JournalEntrySequence" WHERE "organizationId" = ${organizationId}
+      ), 0)
+    ) AS max_seq
   `;
   const nextSeq = Number(rows[0]?.max_seq ?? 0) + 1;
+  await tx.$executeRaw`
+    INSERT INTO "JournalEntrySequence" ("organizationId", "lastSeq", "updatedAt")
+    VALUES (${organizationId}, ${nextSeq}, NOW())
+    ON CONFLICT ("organizationId")
+    DO UPDATE SET "lastSeq" = GREATEST("JournalEntrySequence"."lastSeq", EXCLUDED."lastSeq"),
+                  "updatedAt" = NOW()
+  `;
   return `${ENTRY_NO_PREFIX}${String(nextSeq).padStart(ENTRY_NO_PAD, '0')}`;
 }
 
@@ -83,7 +107,10 @@ export async function postJournalEntry(
     data: {
       organizationId: args.organizationId,
       entryNo,
-      date: args.date,
+      // One accounting-date convention for every journal: the business day,
+      // stored at 00:00 UTC. A clock time (POS sale, import) is folded to the
+      // day it happened on; its moment is kept on postedAt.
+      date: toAccountingDate(args.date),
       memo: args.memo,
       source: args.source ?? 'SYSTEM',
       status: 'POSTED',

@@ -11,6 +11,7 @@ import { computeServiceCharge } from './sales-type-charge';
 import { flattenSaleLines, type MaterializedLine } from './modifier-lines';
 import { pickFefo, type BatchAvailability } from './fefo-picker';
 import { assertItemsActive } from '@/lib/item-availability';
+import { toAccountingDate } from '@/lib/accounting-date';
 
 export interface PosTenderInput {
   method: 'CASH';
@@ -28,6 +29,7 @@ export interface PosSaleInput {
   salesTypeId?: string | null;
   lines: SaleLineInput[];
   tenders: PosTenderInput[];
+  /** The moment of sale. The invoice, receipt and journals carry its business day; soldAt keeps the moment. */
   date: Date;
 }
 
@@ -242,7 +244,7 @@ export async function postPosSale(
       organizationId: orgId,
       number: invoiceNumber,
       customerId,
-      issueDate: input.date,
+      issueDate: toAccountingDate(input.date),
       status: 'DRAFT',
       taxEnabled: taxable,
       taxInclusive: true,
@@ -298,7 +300,7 @@ export async function postPosSale(
       organizationId: orgId,
       number: paymentNumber,
       customerId,
-      date: input.date,
+      date: toAccountingDate(input.date),
       method: 'CASH',
       depositAccountId: cashAccountId,
       arAccountId,

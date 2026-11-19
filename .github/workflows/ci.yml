@@ -7,6 +7,28 @@ on:
   pull_request:
 
 jobs:
+  # Its own job, so a known advisory without a fix stays visible as a failed
+  # check without stopping type-check, unit tests and builds from running.
+  audit:
+    name: Dependency security audit
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check dependency security advisories
+        run: npm audit --audit-level=high
+
   ci:
     name: Lint, Type-check & Test
     runs-on: ubuntu-24.04
@@ -44,9 +66,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Check dependency security advisories
-        run: npm audit --audit-level=high
 
       - name: Generate Prisma client
         run: npx prisma generate

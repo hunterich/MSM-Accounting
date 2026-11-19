@@ -29,6 +29,7 @@ const accountRuleSelect = {
   isActive: true,
   reportGroup: true,
   reportSubGroup: true,
+  cashFlowClass: true,
   normalSide: true,
   hasPostings: true,
 };
@@ -113,10 +114,16 @@ export const POST = withPermission({ module: 'GL_COA', action: 'create' }, async
       parentId: payload.parentId ?? null,
       isPostable: payload.isPostable,
       isActive: payload.isActive,
-      reportGroup: payload.reportGroup,
+      reportGroup: payload.reportGroup || null,
       reportSubGroup: payload.reportSubGroup || null,
+      cashFlowClass: payload.cashFlowClass ?? null,
       normalSide,
     };
+
+    const allowedCashFlowTypes: Record<string, string[]> = { CASH: ['Asset'], OPERATING: ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'], FIXED_ASSET: ['Asset'], ACCUMULATED_DEPRECIATION: ['Asset'], LONG_TERM_LIABILITY: ['Liability'], DEPRECIATION_EXPENSE: ['Expense'] };
+    if (nextAccount.cashFlowClass && !allowedCashFlowTypes[nextAccount.cashFlowClass]?.includes(nextAccount.type)) {
+      return err('Cash flow classification is incompatible with account type.', 400);
+    }
 
     const errors = validateAccountState(nextAccount, validationAccounts);
     if (Object.keys(errors).length > 0) {

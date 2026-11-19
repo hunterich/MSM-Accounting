@@ -82,6 +82,55 @@ beforeEach(() => {
 });
 
 describe('accounts route validation', () => {
+  it('rejects cash classifications on non-asset accounts', async () => {
+    vi.mocked(prisma.account.findMany).mockResolvedValue(baseAccounts as never);
+    const res = await createAccount(makeReq('org-a', 'POST', {
+      code: '2100', name: 'Loan', type: 'Liability', isPostable: true,
+      isActive: true, reportGroup: 'Liabilities', cashFlowClass: 'CASH',
+    }));
+    expect(res.status).toBe(400);
+    expect(prisma.account.create).not.toHaveBeenCalled();
+  });
+
+  it('saves an explicit cash classification', async () => {
+    vi.mocked(prisma.account.findMany).mockResolvedValue(baseAccounts as never);
+    vi.mocked(prisma.account.create).mockResolvedValue({ id: 'bank' } as never);
+    const res = await createAccount(makeReq('org-a', 'POST', {
+      code: '100002', name: 'Rekening', type: 'Asset', parentId: 'root-asset',
+      isPostable: true, isActive: true, reportGroup: 'Aset Lancar', cashFlowClass: 'CASH',
+    }));
+    expect(res.status).toBe(201);
+    expect(prisma.account.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ cashFlowClass: 'CASH' }) }));
+  });
+
+  it('creates an account without a report group under a non-prefix parent', async () => {
+    vi.mocked(prisma.account.findMany).mockResolvedValue([{ ...baseAccounts[0], code: '1-0000' }] as never);
+    vi.mocked(prisma.account.create).mockResolvedValue({ id: 'inventory' } as never);
+    const res = await createAccount(makeReq('org-a', 'POST', {
+      code: '1-1300', name: 'Inventory', type: 'Asset', parentId: 'root-asset',
+    }));
+    expect(res.status).toBe(201);
+    expect(prisma.account.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ reportGroup: null, parentId: 'root-asset' }),
+    }));
+  });
+
+  it('edits and classifies an existing standard account with a null report group', async () => {
+    const root = { ...baseAccounts[0], code: '1-0000', type: 'ASSET', normalSide: 'DEBIT', reportGroup: null };
+    const inventory = { ...baseAccounts[1], id: 'inventory', code: '1-1300', name: 'Inventory', type: 'ASSET', normalSide: 'DEBIT', reportGroup: null };
+    vi.mocked(prisma.account.findFirst).mockResolvedValue({ ...inventory, journalLines: [] } as never);
+    vi.mocked(prisma.account.findMany).mockResolvedValue([root, inventory] as never);
+    vi.mocked(prisma.account.update).mockResolvedValue(inventory as never);
+
+    for (const body of [{ name: 'Stock' }, { reportGroup: 'Current Assets' }, { isActive: false }, { reportGroup: '' }]) {
+      const res = await updateAccount(makeReq('org-a', 'PUT', body), params('inventory'));
+      expect(res.status).toBe(200);
+    }
+    expect(vi.mocked(prisma.account.update).mock.calls[0][0].data).toEqual(expect.objectContaining({ name: 'Stock', reportGroup: null }));
+    expect(vi.mocked(prisma.account.update).mock.calls[1][0].data).toEqual(expect.objectContaining({ reportGroup: 'Current Assets' }));
+    expect(vi.mocked(prisma.account.update).mock.calls[3][0].data).toEqual(expect.objectContaining({ reportGroup: null }));
+  });
+
   it('rejects creating a child under a postable parent', async () => {
     vi.mocked(prisma.account.findMany).mockResolvedValue(baseAccounts as never);
 

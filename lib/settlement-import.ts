@@ -207,6 +207,9 @@ export async function importSettlement(
           if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(settledOn.valueOf()) || settledOn.toISOString().slice(0, 10) !== dateText) {
             throw new Error('Enter the actual settlement date in YYYY-MM-DD format.');
           }
+          // The receipt retains the import timestamp; the journal uses the
+          // statement date, already stored as a Jakarta accounting date.
+          const settledAt = new Date();
           await assertPeriodOpen(tx, orgId, settledOn);
           const je = await postJournalEntry(tx, {
             organizationId: orgId,
@@ -217,7 +220,7 @@ export async function importSettlement(
           });
           await tx.aRPayment.update({
             where: { id: receipt.id },
-            data: { settledAt: new Date(), settlementJournalId: je.id },
+            data: { settledAt, settlementJournalId: je.id },
           });
           if (matched) await tx.creditNote.updateMany({ where: { id: { in: matched.noteIds } }, data: {
             marketplaceRefundReceiptId: receipt.id, marketplaceRefundReconciledAt: new Date(),

@@ -7,6 +7,7 @@ import { withPermission } from '@/lib/authz';
 import { createItemInputSchema } from '@/types/api';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { stockStatusOf } from '@/src/utils/inventoryStock';
+import { toAccountingDate } from '@/lib/accounting-date';
 
 export const runtime = 'nodejs';
 
@@ -125,7 +126,7 @@ export const POST = withPermission({ module: 'INV_ITEMS', action: 'create' }, as
       });
       // Post opening stock as a real cost layer + opening journal entry so the
       // inventory asset and on-hand quantity agree from day one.
-      await postOpeningStockIfNeeded(tx, orgId, created.id, new Date());
+      await postOpeningStockIfNeeded(tx, orgId, created.id, toAccountingDate());
       return created;
     });
   } catch (error) {

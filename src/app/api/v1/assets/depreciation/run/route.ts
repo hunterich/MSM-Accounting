@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, nextNumber, ok, requireOrg } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok, requireOrg } from '@/lib/api-utils';
+import { allocateJournalEntryNumber } from '@/lib/journal-posting';
+import { toAccountingDate } from '@/lib/accounting-date';
 import { withPermission } from '@/lib/authz';
 import { assetDepreciationRunInputSchema } from '@/types/api';
 import { calculateMonthlyDepreciation } from '@/lib/depreciation';
@@ -146,15 +148,15 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       }
 
       if (depExpenseAccountId && accumDepAccountId) {
-        // Use the advisory-locked sequence generator (same as every other JE
-        // path) so concurrent JE inserts can't collide on entryNo.
-        const entryNo = await nextNumber(tx, 'JournalEntry', 'entryNo', 'JE');
+        // The shared per-org JE sequence (same lock and high-water mark as every
+        // other JE path), so numbers never collide and are never reused.
+        const entryNo = await allocateJournalEntryNumber(tx, orgId);
 
         const je = await tx.journalEntry.create({
           data: {
             organizationId: orgId,
             entryNo,
-            date: depDate,
+            date: toAccountingDate(depDate),
             memo: `Depreciation ${month}/${year}: ${asset.assetNo} - ${asset.name}`,
             source: 'SYSTEM',
             status: 'POSTED',

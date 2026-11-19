@@ -1,3 +1,4 @@
+import { selectCashFlowAccountIds } from '../account-defaults';
 import { describe, expect, it } from 'vitest';
 import { selectCashAccounts, selectReceiptDepositAccounts } from '@/lib/cash-accounts';
 
@@ -99,5 +100,36 @@ describe('cash keyword boundaries', () => {
       acc('hdr', '1-1800', 'Kasbon Karyawan', { isPostable: false }),
       acc('child', '1-1801', 'Employee A', { parentId: 'hdr' }),
     ])).toEqual([]);
+  });
+});
+
+describe('cash flow account selection', () => {
+  it('includes configured and Banking-matched inactive accounts and children of cash headers', () => {
+    const accounts = [
+      { ...acc('header', '100', 'Kas', { isPostable: false }), isActive: true },
+      { ...acc('child', '101', 'BCA', { parentId: 'header' }), isActive: false },
+      { ...acc('configured', '102', 'Rekening Utama'), isActive: false },
+      { ...acc('linked', '103', 'Rekening Cabang'), isActive: false },
+      { ...acc('ar', '104', 'Piutang'), isActive: true },
+    ];
+    expect(selectCashFlowAccountIds(accounts, [{ id: 'bank', name: 'Rekening Cabang', isActive: false }], { bankAsset: 'configured' }).sort()).toEqual(['child', 'configured', 'linked']);
+  });
+  it('inherits a reviewed cash header, but allows a child to override it', () => {
+    const accounts = [
+      { ...acc('header', '100', 'Aset', { isPostable: false }), isActive: true, cashFlowClass: 'CASH' },
+      { ...acc('cash', '101', 'Rekening', { parentId: 'header' }), isActive: true },
+      { ...acc('other', '102', 'Kasbon', { parentId: 'header' }), isActive: true, cashFlowClass: 'OPERATING' },
+    ];
+    expect(selectCashFlowAccountIds(accounts, [], {})).toEqual(['cash']);
+  });
+  it('gives reviewed classifications precedence over names, defaults, and bank matches', () => {
+    const accounts = [
+      { ...acc('notcash', '111', 'Bank Clearing'), isActive: true, cashFlowClass: 'OPERATING' },
+      { ...acc('cash', '190', 'Rekening Utama'), isActive: true, cashFlowClass: 'CASH' },
+    ];
+    expect(selectCashFlowAccountIds(accounts, [{ id: 'bank', name: 'Bank Clearing' }], { bankAsset: 'notcash' })).toEqual(['cash']);
+  });
+  it('does not pick an arbitrary asset when no cash account is known', () => {
+    expect(selectCashFlowAccountIds([{ ...acc('ar', '120', 'Piutang'), isActive: true }], [], {})).toEqual([]);
   });
 });

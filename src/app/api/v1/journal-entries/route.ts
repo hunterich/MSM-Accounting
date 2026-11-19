@@ -11,6 +11,7 @@ import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { assertNoDirectControlPosting } from '@/lib/control-account-guard';
 import { allocateJournalEntryNumber } from '@/lib/journal-posting';
+import { toAccountingDate } from '@/lib/accounting-date';
 import {
   ok,
   err,
@@ -137,7 +138,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       throw new ApiError('Organization not found', 404);
     }
 
-    const entryDate = parseIsoDate(payload.date);
+    const entryDate = toAccountingDate(parseIsoDate(payload.date));
 
     if (payload.periodId) {
       const period = await tx.accountingPeriod.findFirst({

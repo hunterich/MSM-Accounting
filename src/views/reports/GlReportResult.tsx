@@ -17,14 +17,41 @@ import type {
   TrialBalanceSummary,
 } from './reportTypes';
 
+// Half a cent, the same tolerance the cash flow reconciliation uses.
+const BALANCE_TOLERANCE = 0.005;
+const isOutOfBalance = (left: number | undefined, right: number | undefined) =>
+  Math.abs((left || 0) - (right || 0)) > BALANCE_TOLERANCE;
+
+function OutOfBalanceWarning({ title, left, right, leftLabel, rightLabel }: {
+  title: string; left: number; right: number; leftLabel: string; rightLabel: string;
+}) {
+  return (
+    <div role="alert" className="mb-4 rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+      <div className="font-semibold">{title}</div>
+      <div className="mt-1">
+        {leftLabel} {formatIDR(left || 0)} vs {rightLabel} {formatIDR(right || 0)} — difference {formatIDR((left || 0) - (right || 0))}.
+        {' '}Some journal lines may not be reaching this report; check the chart of accounts and recent journals.
+      </div>
+    </div>
+  );
+}
+
 export default function GlReportResult({ activeReport }: ReportResultProps): React.ReactNode {
   const { report, data } = activeReport;
   if (report.id === 'trial-balance') {
     const tbData = data as { rows: TrialBalanceRow[]; summary: TrialBalanceSummary };
     if (!tbData.rows.length) return renderEmptyReport('No general ledger balances found for the selected date.');
 
+    const { summary } = tbData;
     return (
       <div>
+        {isOutOfBalance(summary.totalDebit, summary.totalCredit) ? (
+          <OutOfBalanceWarning title="Trial Balance is out of balance"
+            leftLabel="Total debit" left={summary.totalDebit} rightLabel="total credit" right={summary.totalCredit} />
+        ) : isOutOfBalance(summary.endingDebit, summary.endingCredit) ? (
+          <OutOfBalanceWarning title="Trial Balance is out of balance"
+            leftLabel="Ending debit" left={summary.endingDebit} rightLabel="ending credit" right={summary.endingCredit} />
+        ) : null}
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-blue-50">
@@ -126,6 +153,11 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
 
     return (
       <div className="space-y-6">
+        {isOutOfBalance(bsData.summary.totalAssets, bsData.summary.totalLiabilitiesAndEquity) ? (
+          <OutOfBalanceWarning title="Balance Sheet does not balance"
+            leftLabel="Total assets" left={bsData.summary.totalAssets}
+            rightLabel="liabilities + equity" right={bsData.summary.totalLiabilitiesAndEquity} />
+        ) : null}
         {sections.map((section) => (
           <div key={section.id}>
             <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{section.label}</div>
@@ -183,9 +215,21 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
     const sections = bsmData.sections || [];
     const hasRows = sections.some((section) => section.rows.length > 0);
     if (!hasRows) return renderEmptyReport('No balance sheet balances found for the selected comparison dates.');
+    const periodTotals = (totals: BalanceSheetMultiSummary['current'] | undefined) => ({
+      assets: totals?.totalAssets || 0,
+      liabilitiesAndEquity: (totals?.totalLiabilities || 0) + (totals?.totalEquity || 0),
+    });
+    const unbalancedPeriods = ([['Current period', bsmData.summary?.current], ['Compare period', bsmData.summary?.compare]] as const)
+      .map(([label, totals]) => ({ label, ...periodTotals(totals) }))
+      .filter((period) => isOutOfBalance(period.assets, period.liabilitiesAndEquity));
 
     return (
       <div className="space-y-6">
+        {unbalancedPeriods.map((period) => (
+          <OutOfBalanceWarning key={period.label} title={`Balance Sheet does not balance (${period.label.toLowerCase()})`}
+            leftLabel="Total assets" left={period.assets}
+            rightLabel="liabilities + equity" right={period.liabilitiesAndEquity} />
+        ))}
         {sections.map((section) => (
           <div key={section.id}>
             <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{section.label}</div>
@@ -366,13 +410,18 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
   }
 
   if (report.id === 'cash-flow-statement') {
-    const cfsData = data as { sections: CashFlowStatementSection[]; summary: CashFlowStatementSummary };
+    const cfsData = data as { sections: CashFlowStatementSection[]; summary: CashFlowStatementSummary; cashClassificationWarning?: boolean; balanceSheetCash?: number; balanceSheetDifference?: number; unreviewedAccounts?: { id: string; code: string; name: string }[]; accumulatedDepreciationActivity?: boolean };
     const sections = cfsData.sections || [];
     const hasRows = sections.some((s) => s.rows.length > 0);
     if (!hasRows) return renderEmptyReport('Tidak ada data arus kas untuk periode yang dipilih.');
 
     return (
       <div className="space-y-6">
+        <p className="text-sm text-neutral-600">Tinjau transaksi nonkas, pelepasan aset, dan reklasifikasi sebelum menggunakan rincian aktivitas investasi dan pendanaan.</p>
+        {cfsData.cashClassificationWarning && <div role="alert" className="rounded-md bg-danger-50 p-3 text-danger-700">Tidak ada akun kas atau bank yang teridentifikasi. Periksa pengaturan akun dan klasifikasi sebelum menggunakan laporan ini.</div>}
+        {!!cfsData.unreviewedAccounts?.length && <div role="alert" className="rounded-md bg-warning-50 p-3 text-warning-700">Klasifikasi arus kas belum ditinjau untuk akun berikut: {cfsData.unreviewedAccounts.map(account => `${account.code} ${account.name}`).join(', ')}. Tinjau di Daftar Akun; angka dapat berubah.</div>}
+        {cfsData.accumulatedDepreciationActivity && <div className="rounded-md bg-warning-50 p-3 text-warning-700">Tinjau mutasi akumulasi penyusutan, termasuk pelepasan aset dan transaksi nonkas. Laporan ini tidak dapat memisahkan semua transaksi tersebut secara otomatis.</div>}
+        {Math.abs(cfsData.balanceSheetDifference || 0) > 0.005 && <div role="alert" className="rounded-md bg-danger-50 p-3 text-danger-700">Kas akhir berbeda dari Neraca sebesar {formatIDR(cfsData.balanceSheetDifference || 0)}. Tinjau jurnal dan klasifikasi akun.</div>}
         {sections.map((section) => (
           <div key={section.id}>
             <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{section.label}</div>
@@ -387,8 +436,8 @@ export default function GlReportResult({ activeReport }: ReportResultProps): Rea
               <tbody>
                 {section.rows.map((row, i) => (
                   <tr key={i} className="hover:bg-neutral-50">
-                    <td className="p-3 border border-neutral-200 font-mono text-xs">{row.code}</td>
-                    <td className="p-3 border border-neutral-200">{row.name}</td>
+                    <td className="p-3 border border-neutral-200 font-mono text-xs">{row.accountCode}</td>
+                    <td className="p-3 border border-neutral-200">{row.accountName}</td>
                     <td className={`p-3 border border-neutral-200 text-right font-medium ${row.amount >= 0 ? 'text-success-700' : 'text-danger-600'}`}>
                       {formatIDR(row.amount)}
                     </td>

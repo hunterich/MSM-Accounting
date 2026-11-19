@@ -5,11 +5,14 @@ import {
   flattenTree,
   getDescendantAccountIds,
   getNormalSideByType,
+  fromPrismaAccountType,
+  fromPrismaNormalSide,
   rollupBalances,
   validateAccountCreate,
   validateAccountUpdate,
   type AccountRuleShape,
 } from '../account-rules';
+import { STANDARD_CHILD_ACCOUNTS, STANDARD_ROOT_ACCOUNTS } from '../organization/bootstrap';
 
 const baseAccounts: AccountRuleShape[] = [
   {
@@ -57,6 +60,24 @@ const baseAccounts: AccountRuleShape[] = [
 ];
 
 describe('account-rules shared COA helpers', () => {
+  it('accepts every standard account unchanged, including missing report groups', () => {
+    const accounts: AccountRuleShape[] = [
+      ...STANDARD_ROOT_ACCOUNTS.map((account) => ({
+        ...account, id: account.code, parentId: null, level: 0, isPostable: false,
+        isActive: true, reportGroup: null, reportSubGroup: null, hasPostings: false,
+        type: fromPrismaAccountType(account.type), normalSide: fromPrismaNormalSide(account.normalSide),
+      })),
+      ...STANDARD_CHILD_ACCOUNTS.map((account) => ({
+        ...account, id: account.code, parentId: account.parentCode, level: 1, isPostable: true,
+        isActive: true, reportGroup: null, reportSubGroup: null, hasPostings: false,
+        type: fromPrismaAccountType(account.type), normalSide: fromPrismaNormalSide(account.normalSide),
+      })),
+    ];
+    for (const account of accounts) {
+      expect(validateAccountUpdate(account, account, accounts), account.code).toEqual({ isValid: true, errors: {} });
+    }
+  });
+
   it('builds and flattens account trees in code order', () => {
     const tree = buildAccountTree([
       baseAccounts[2],
@@ -100,6 +121,22 @@ describe('account-rules shared COA helpers', () => {
     expect(updateResult.isValid).toBe(false);
     expect(updateResult.errors.normalSide).toContain('locked');
     expect(updateResult.errors.parentId).toContain('locked');
+  });
+
+  it('refuses to turn an account with postings into a header (#228)', () => {
+    const toHeader = validateAccountUpdate(baseAccounts[2], { ...baseAccounts[2], isPostable: false }, baseAccounts);
+    expect(toHeader.isValid).toBe(false);
+    expect(toHeader.errors.isPostable).toContain('locked');
+
+    // An unused account may still become a header.
+    expect(validateAccountUpdate(baseAccounts[1], { ...baseAccounts[1], isPostable: false }, baseAccounts).isValid).toBe(true);
+
+    // A legacy header that already carries postings can be fixed by making it
+    // postable again, and unrelated edits to it are not blocked.
+    const legacyHeader = { ...baseAccounts[2], id: 'legacy', code: '1300', isPostable: false };
+    const accounts = [...baseAccounts, legacyHeader];
+    expect(validateAccountUpdate(legacyHeader, { ...legacyHeader, isPostable: true }, accounts).isValid).toBe(true);
+    expect(validateAccountUpdate(legacyHeader, { ...legacyHeader, name: 'Renamed' }, accounts).isValid).toBe(true);
   });
 
   it('calculates descendants, delete rules, and balance rollups', () => {

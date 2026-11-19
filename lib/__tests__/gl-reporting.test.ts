@@ -47,6 +47,38 @@ describe('buildTrialBalanceReport', () => {
   });
 });
 
+describe('accounts flagged non-postable that still carry journal lines (#228)', () => {
+  // Every account that should be postable is flipped to a header; reports
+  // must still read their lines.
+  const headerAccounts = accounts.map((account) => ({ ...account, isPostable: false }));
+  const sum = (field: 'debit' | 'credit') => postedLines.reduce((total, line) => total + Number(line[field] || 0), 0);
+
+  it('keeps the trial balance equal to the sum of all posted lines, whatever the flags', () => {
+    for (const chart of [accounts, headerAccounts]) {
+      const report = buildTrialBalanceReport(chart, postedLines);
+      expect(report.summary.totalDebit).toBe(sum('debit'));
+      expect(report.summary.totalCredit).toBe(sum('credit'));
+    }
+  });
+
+  it('keeps the balance sheet, P&L and cash flow unchanged', () => {
+    expect(buildBalanceSheetReport(headerAccounts, postedLines).summary)
+      .toEqual(buildBalanceSheetReport(accounts, postedLines).summary);
+    expect(buildProfitLossReport(headerAccounts, postedLines).summary)
+      .toEqual(buildProfitLossReport(accounts, postedLines).summary);
+    const cashFlowChart = (chart: GlAccount[]) => chart.map((account) => (
+      account.id === 'cash' ? { ...account, reportGroup: 'Cash and Bank' } : account
+    ));
+    expect(buildCashFlowStatement(cashFlowChart(headerAccounts), [], postedLines).summary)
+      .toEqual(buildCashFlowStatement(cashFlowChart(accounts), [], postedLines).summary);
+  });
+
+  it('omits header accounts that have no lines', () => {
+    const chart = [...accounts, { id: 'assets-header', code: '1-0000', name: 'Assets', type: 'ASSET', normalSide: 'DEBIT', isPostable: false }];
+    expect(buildTrialBalanceReport(chart, postedLines).rows.map((row) => row.accountId)).not.toContain('assets-header');
+  });
+});
+
 describe('buildProfitLossReport', () => {
   it('summarizes revenue, expense, and net income', () => {
     const report: ProfitLossReport = buildProfitLossReport(accounts, postedLines);
@@ -129,6 +161,39 @@ describe('buildCashFlowStatement', () => {
     { accountId: 'fixed', debit: 200, credit: 0 },
     { accountId: 'cash', debit: 0, credit: 200 },
   ];
+
+  it('uses resolved cash accounts even when the report group is empty', () => {
+    const accounts = cfAccounts.map(a => a.id === 'cash' ? { ...a, name: 'Bank BCA IDR', reportGroup: null } : a);
+    const lines: JournalLineRecord[] = [
+      { accountId: 'cash', debit: 666000, credit: 500000 },
+      { accountId: 'revenue', debit: 0, credit: 666000 },
+      { accountId: 'expense', debit: 500000, credit: 0 },
+    ];
+    const report = buildCashFlowStatement(accounts, [], lines, ['cash']);
+    expect(report.summary.endingCash).toBe(166000);
+    expect(report.summary.netCashChange).toBe(166000);
+    expect(report.summary.reconciliationDifference).toBe(0);
+    expect(report.sections.flatMap(section => section.rows).some(row => row.accountId === 'cash')).toBe(false);
+  });
+
+  it('classifies reviewed Indonesian depreciation, fixed assets and long-term loans', () => {
+    const accounts: GlAccount[] = [
+      { id: 'cash', name: 'Rekening', type: 'ASSET', isPostable: true, cashFlowClass: 'CASH' },
+      { id: 'asset', name: 'Mesin', type: 'ASSET', isPostable: true, cashFlowClass: 'FIXED_ASSET' },
+      { id: 'accum', name: 'Akumulasi Penyusutan', type: 'ASSET', normalSide: 'CREDIT', isPostable: true, cashFlowClass: 'ACCUMULATED_DEPRECIATION' },
+      { id: 'dep', name: 'Beban Penyusutan', type: 'EXPENSE', isPostable: true, cashFlowClass: 'DEPRECIATION_EXPENSE' },
+      { id: 'loan', name: 'Utang Bank Jangka Panjang', type: 'LIABILITY', normalSide: 'CREDIT', isPostable: true, cashFlowClass: 'LONG_TERM_LIABILITY' },
+    ];
+    const report = buildCashFlowStatement(accounts, [], [
+      { accountId: 'cash', debit: 1000, credit: 600 },
+      { accountId: 'loan', credit: 1000 },
+      { accountId: 'asset', debit: 600 },
+      { accountId: 'dep', debit: 100 },
+      { accountId: 'accum', credit: 100 },
+    ], ['cash']);
+    expect(report.sections.map(section => section.subtotal)).toEqual([0, -600, 1000]);
+    expect(report.summary).toMatchObject({ endingCash: 400, netCashChange: 400, reconciliationDifference: 0 });
+  });
 
   it('self-reconciles: beginningCash + netCashChange === endingCash', () => {
     const report: CashFlowStatementReport = buildCashFlowStatement(cfAccounts, beginningLines, periodLines);

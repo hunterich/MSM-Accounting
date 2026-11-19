@@ -40,6 +40,7 @@ interface AccountForm {
     isActive: boolean;
     reportGroup: string;
     reportSubGroup: string;
+    cashFlowClass: string;
 }
 
 interface FormErrors {
@@ -61,7 +62,8 @@ const EMPTY_FORM: AccountForm = {
     isPostable: true,
     isActive: true,
     reportGroup: '',
-    reportSubGroup: ''
+    reportSubGroup: '',
+    cashFlowClass: ''
 };
 
 const DEPTH_PADDING: Record<number, string> = {
@@ -199,7 +201,8 @@ const ChartOfAccounts = () => {
             isPostable: account.isPostable,
             isActive: account.isActive,
             reportGroup: account.reportGroup,
-            reportSubGroup: account.reportSubGroup || ''
+            reportSubGroup: account.reportSubGroup || '',
+            cashFlowClass: account.cashFlowClass || ''
         });
         setErrors({});
         setIsModalOpen(true);
@@ -244,6 +247,7 @@ const ChartOfAccounts = () => {
             isActive:       form.isActive,
             reportGroup:    form.reportGroup.trim(),
             reportSubGroup: form.reportSubGroup.trim(),
+            cashFlowClass: form.cashFlowClass || null,
             normalSide,
         };
 
@@ -399,7 +403,7 @@ const ChartOfAccounts = () => {
     ];
 
     const lockReason = editingAccount?.hasPostings
-        ? 'This account already has postings. Type and parent are locked.'
+        ? `This account already has postings. Type and parent are locked${editingAccount.isPostable ? ', and it cannot become a group/header' : ''}.`
         : '';
 
     return (
@@ -571,12 +575,26 @@ const ChartOfAccounts = () => {
                             wrapperClassName=""
                         />
                     </div>
+                    <div className="col-span-12">
+                        <label className="form-label">Klasifikasi arus kas</label>
+                        <select className="block w-full px-3 border border-neutral-300 rounded-md min-h-10" value={form.cashFlowClass} onChange={event => updateForm('cashFlowClass', event.target.value)}>
+                            <option value="">Belum ditinjau (perkiraan)</option>
+                            <option value="CASH">Kas dan bank (aset)</option>
+                            <option value="OPERATING">Operasional / lainnya</option>
+                            <option value="FIXED_ASSET">Aset tetap — nilai perolehan</option>
+                            <option value="ACCUMULATED_DEPRECIATION">Akumulasi penyusutan / amortisasi</option>
+                            <option value="LONG_TERM_LIABILITY">Liabilitas jangka panjang</option>
+                            <option value="DEPRECIATION_EXPENSE">Beban penyusutan / amortisasi</option>
+                        </select>
+                        <p className="text-xs text-neutral-600 mt-1">Tinjau klasifikasi dengan akuntan; perubahan memengaruhi laporan untuk seluruh periode.</p>
+                    </div>
                     <div className="col-span-6">
                         <label className="form-label">Posting Mode</label>
                         <select
-                            className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] ${errors.isPostable ? 'border-danger-500' : 'border-neutral-300'}`}
+                            className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed ${errors.isPostable ? 'border-danger-500' : 'border-neutral-300'}`}
                             value={form.isPostable ? 'Postable' : 'Group'}
                             onChange={(event) => updateForm('isPostable', event.target.value === 'Postable')}
+                            disabled={Boolean(editingAccount?.hasPostings && editingAccount?.isPostable)}
                         >
                             <option value="Postable">Postable — can post journal entries directly</option>
                             <option value="Group">Group / Header — organises sub-accounts</option>
