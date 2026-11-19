@@ -20,6 +20,8 @@ RUN apt-get update \
 # so the schema must be present before `npm ci`.
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
+COPY scripts/patch-picomatch.cjs ./scripts/patch-picomatch.cjs
+COPY vendor/picomatch ./vendor/picomatch
 RUN npm ci
 
 # Application source (host node_modules/.next/dist are excluded via .dockerignore)
