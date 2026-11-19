@@ -25,6 +25,9 @@ export const TIKTOK_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
   biayapembayaran: 'transactionFee',
   biayapemrosesanpesanan: 'orderProcessingFee',
   diskonpenjual: 'sellerPromotion',
+  // Net product refund after the seller discount; the before-discount and
+  // discount-refund columns are components of this value, not extra refunds.
+  totalpengembaliandanasetelahdiskon: 'refund',
   biayalayananlogistik: 'actualShipping',
   ongkir: 'actualShipping',
   pphpasal22dipungut: 'customTax',
