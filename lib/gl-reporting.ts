@@ -195,8 +195,10 @@ export const buildTrialBalanceReport = (
 ): TrialBalanceReport => {
   const totalsByAccount = buildTotalsByAccount(lines);
 
+  // Every account is read regardless of isPostable: journal lines must never
+  // drop out of a statement because of an account flag (#228). Accounts
+  // without lines are removed by the amount filter below.
   const rows: TrialBalanceRow[] = accounts
-    .filter((account) => account.isPostable)
     .map((account) => {
       const totals = totalsByAccount.get(account.id) || { totalDebit: 0, totalCredit: 0 };
       const netLedgerBalance = ledgerBalance(totals);
@@ -241,7 +243,7 @@ const buildSectionRows = (
   eligibleTypes: string[],
 ): SectionRow[] => {
   return accounts
-    .filter((account) => account.isPostable && eligibleTypes.includes(account.type))
+    .filter((account) => eligibleTypes.includes(account.type))
     .map((account) => {
       const totals = totalsByAccount.get(account.id) || { totalDebit: 0, totalCredit: 0 };
       const amount = naturalBalance(account, totals);
@@ -711,7 +713,6 @@ export const buildCashFlowStatement = (
   let totalRevenue = 0;
   let totalExpense = 0;
   for (const account of accounts) {
-    if (!account.isPostable) continue;
     const totals = periodTotals.get(account.id);
     if (!totals) continue;
     if (account.type === 'REVENUE') {
@@ -743,7 +744,6 @@ export const buildCashFlowStatement = (
 
   // Classify balance-sheet account changes
   for (const account of accounts) {
-    if (!account.isPostable) continue;
     if (account.type === 'REVENUE' || account.type === 'EXPENSE') continue;
     if (isCashAccount(account)) continue; // Cash accounts are the result, not a source
 
@@ -782,7 +782,6 @@ export const buildCashFlowStatement = (
 
   // Add back depreciation as non-cash expense (operating adjustment)
   for (const account of accounts) {
-    if (!account.isPostable) continue;
     if (!isDepreciationExpense(account)) continue;
 
     const totals = periodTotals.get(account.id);
@@ -803,7 +802,7 @@ export const buildCashFlowStatement = (
   const financingSubtotal = asMoney(financingRows.reduce((s, r) => s + r.amount, 0));
 
   // Compute beginning and ending cash balances
-  const cashAccounts = accounts.filter((a) => a.isPostable && isCashAccount(a));
+  const cashAccounts = accounts.filter((a) => isCashAccount(a));
   let beginningCash = 0;
   for (const account of cashAccounts) {
     const totals = beginningTotals.get(account.id);

@@ -123,6 +123,22 @@ describe('account-rules shared COA helpers', () => {
     expect(updateResult.errors.parentId).toContain('locked');
   });
 
+  it('refuses to turn an account with postings into a header (#228)', () => {
+    const toHeader = validateAccountUpdate(baseAccounts[2], { ...baseAccounts[2], isPostable: false }, baseAccounts);
+    expect(toHeader.isValid).toBe(false);
+    expect(toHeader.errors.isPostable).toContain('locked');
+
+    // An unused account may still become a header.
+    expect(validateAccountUpdate(baseAccounts[1], { ...baseAccounts[1], isPostable: false }, baseAccounts).isValid).toBe(true);
+
+    // A legacy header that already carries postings can be fixed by making it
+    // postable again, and unrelated edits to it are not blocked.
+    const legacyHeader = { ...baseAccounts[2], id: 'legacy', code: '1300', isPostable: false };
+    const accounts = [...baseAccounts, legacyHeader];
+    expect(validateAccountUpdate(legacyHeader, { ...legacyHeader, isPostable: true }, accounts).isValid).toBe(true);
+    expect(validateAccountUpdate(legacyHeader, { ...legacyHeader, name: 'Renamed' }, accounts).isValid).toBe(true);
+  });
+
   it('calculates descendants, delete rules, and balance rollups', () => {
     expect([...getDescendantAccountIds('asset-root', baseAccounts)].sort()).toEqual(['bank', 'cash']);
 

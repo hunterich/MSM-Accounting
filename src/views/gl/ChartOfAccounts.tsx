@@ -399,7 +399,7 @@ const ChartOfAccounts = () => {
     ];
 
     const lockReason = editingAccount?.hasPostings
-        ? 'This account already has postings. Type and parent are locked.'
+        ? `This account already has postings. Type and parent are locked${editingAccount.isPostable ? ', and it cannot become a group/header' : ''}.`
         : '';
 
     return (
@@ -574,9 +574,10 @@ const ChartOfAccounts = () => {
                     <div className="col-span-6">
                         <label className="form-label">Posting Mode</label>
                         <select
-                            className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] ${errors.isPostable ? 'border-danger-500' : 'border-neutral-300'}`}
+                            className={`block w-full px-3 text-base leading-normal text-neutral-900 bg-neutral-0 border rounded-md min-h-10 transition-[border-color,box-shadow] duration-150 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed ${errors.isPostable ? 'border-danger-500' : 'border-neutral-300'}`}
                             value={form.isPostable ? 'Postable' : 'Group'}
                             onChange={(event) => updateForm('isPostable', event.target.value === 'Postable')}
+                            disabled={Boolean(editingAccount?.hasPostings && editingAccount?.isPostable)}
                         >
                             <option value="Postable">Postable — can post journal entries directly</option>
                             <option value="Group">Group / Header — organises sub-accounts</option>

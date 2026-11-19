@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — an account with postings could become a header and vanish from the statements (#228)
+- An account that already has posted journal lines can no longer be switched to Group / Header; the posting mode is now locked like type, normal side and parent, in the API and in the Chart of Accounts form. A header that already carries postings can still be made postable again.
+- Trial Balance, Balance Sheet, P&L, Cash Flow Statement and the dashboard P&L now read every account that has posted lines, whatever its posting flag, so existing headers with postings get their balances back. Headers without lines still do not appear.
+- Trial Balance and Balance Sheet (including the comparison view) show a red warning with the difference when debits ≠ credits or assets ≠ liabilities + equity.
+- No posting, migration or stored-data change. Not verified in a browser.
+
 ### Fixed — Stock Movement opening balance and Sales by Type dates (#239)
 - Stock Movement now shows one row per item: opening quantity and value before the start date, quantity in and out, and closing quantity and value. Before this, the running balance started from zero, and the API returned ledger lines that the Reports screen could not display. Totals are summed in the database, so the report no longer loads the whole stock ledger into memory. A new warehouse filter also applies to the opening balance. The closing quantity and value equal Stock Valuation as of the end date, and the company-wide closing value equals the GL inventory account.
 - Sales by Type now uses Jakarta business-day boundaries like every other report, instead of server-local midnight. It returns 400 for an invalid date or a start date after the end date. Its permission and screen location are unchanged.
