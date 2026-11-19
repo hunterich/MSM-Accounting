@@ -60,6 +60,14 @@ export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async 
   const transfers = await prisma.bankTransaction.findMany({ where: {
     organizationId: orgId, type: 'TRANSFER', OR: [{ bankAccountId: statement.bankAccountId }, { toBankAccountId: statement.bankAccountId }],
   }, select: { id: true, date: true, amount: true, bankAccountId: true, toBankAccountId: true } });
+  // A match on this account consumes only this leg; a match on the other
+  // account must not prevent reconciliation here. Keep legacy transfers with
+  // no statement evidence for the helper to reject conservatively.
+  const matchedLegs = await prisma.bankStatementLine.findMany({ where: {
+    statement: { organizationId: orgId, bankAccountId: statement.bankAccountId },
+    matchStatus: 'MATCHED', matchedTxId: { in: transfers.map(t => t.id) },
+  }, select: { matchedTxId: true } });
+  const matchedOnAccount = new Set(matchedLegs.map(line => line.matchedTxId));
 
   let matchedCount = 0;
   const usedTxIds = new Set<string>();
@@ -68,7 +76,7 @@ export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async 
     const lineAmount = Number(line.amount);
     const lineTime = new Date(line.date).getTime();
 
-    const candidates = transfers.filter(t => !usedTxIds.has(t.id) &&
+    const candidates = transfers.filter(t => !usedTxIds.has(t.id) && !matchedOnAccount.has(t.id) &&
       Math.abs((t.bankAccountId === statement.bankAccountId ? -1 : 1) * Number(t.amount) - lineAmount) < 0.01 &&
       Math.abs(t.date.getTime() - lineTime) <= THREE_DAYS_MS);
     const otherCandidates = bankTxns.filter(t => !usedTxIds.has(t.id) && Math.abs(Number(t.amount) - lineAmount) < 0.01 && Math.abs(t.date.getTime() - lineTime) <= THREE_DAYS_MS);

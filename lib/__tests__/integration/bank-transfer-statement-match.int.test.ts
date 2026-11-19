@@ -54,4 +54,27 @@ describe('transfer bank statement matching', () => {
       expect((await prisma.bankStatementLine.findUniqueOrThrow({ where: { id: statement.lines[0].id } })).matchedTxId).toBeNull();
     } finally { await cleanupOrg(org.orgId); }
   });
+  it('ignores transfers already matched on this account when selecting a new candidate', async () => {
+    const org = await createTestOrg();
+    try {
+      const source = await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'Wallet' } });
+      const destination = await prisma.bankAccount.create({ data: { organizationId: org.orgId, name: 'Bank' } });
+      const transfer = async (amount: number) => prisma.bankTransaction.create({ data: { organizationId: org.orgId, bankAccountId: source.id, toBankAccountId: destination.id, type: 'TRANSFER', amount, date, description: 'Payout' } });
+      const statement = async (amount: number) => prisma.bankStatement.create({ data: { organizationId: org.orgId, bankAccountId: destination.id, filename: 'test.csv', lines: { create: [{ date, description: 'Receipt', amount }] } }, include: { lines: true } });
+
+      const first = await transfer(100);
+      const firstStatement = await statement(100);
+      expect(await (await match(org.orgId, firstStatement.id)).json()).toMatchObject({ matched: 1 });
+      const second = await transfer(100);
+      const secondStatement = await statement(100);
+      expect(await (await match(org.orgId, secondStatement.id)).json()).toMatchObject({ matched: 1 });
+      expect((await prisma.bankStatementLine.findUniqueOrThrow({ where: { id: secondStatement.lines[0].id } })).matchedTxId).toBe(second.id);
+      expect((await prisma.bankStatementLine.findUniqueOrThrow({ where: { id: firstStatement.lines[0].id } })).matchedTxId).toBe(first.id);
+
+      const ordinary = await prisma.bankTransaction.create({ data: { organizationId: org.orgId, bankAccountId: destination.id, type: 'INCOME', amount: 100, date, description: 'Other receipt' } });
+      const thirdStatement = await statement(100);
+      expect(await (await match(org.orgId, thirdStatement.id)).json()).toMatchObject({ matched: 1 });
+      expect((await prisma.bankStatementLine.findUniqueOrThrow({ where: { id: thirdStatement.lines[0].id } })).matchedTxId).toBe(ordinary.id);
+    } finally { await cleanupOrg(org.orgId); }
+  });
 });
