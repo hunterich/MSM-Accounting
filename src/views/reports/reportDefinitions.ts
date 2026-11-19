@@ -21,42 +21,51 @@ const ALL_CATEGORIES: CategoryMeta[] = [
   { id: 'hr', label: 'HR & Payroll', icon: Users },
 ];
 
+/** One basis for every sales report (#240). Matches the P&L as
+ * sales revenue less the sales returns account for the same period. */
+export const SALES_NET_BASIS =
+  'Basis: excluding PPN. Gross = invoices after invoice discounts; returns = applied credit notes and sales returns; net = gross − returns, each on its own date.';
+
 const SALES_REPORTS: ReportDefinition[] = [
   {
     id: 'by-customer',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Sales by Customer',
-    description: 'Net sales including PPN, after all applied credit notes in their own period, including refunds and price adjustments',
+    description: 'Net sales excluding PPN, after applied credit notes in their own period, including refunds and price adjustments',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'by-item',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
-    name: 'Sales by Item (Gross)',
-    description: 'Gross invoice line subtotals before credit notes and excluding PPN',
+    name: 'Sales by Item',
+    description: 'Sales excluding PPN; credit notes and returns are recorded on their own dates. Unallocated adjustments are shown separately.',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'by-item-customer',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
-    name: 'Item Sales by Customer (Gross)',
-    description: 'Gross invoice line subtotals per customer before credit notes and excluding PPN',
+    name: 'Item Sales by Customer',
+    description: 'Sales excluding PPN, with credit notes and returned quantities in their own periods.',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'history',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Sales History',
-    description: 'Lists sales invoice history with status',
+    description: 'Invoices and credit notes, excluding PPN, on their posting and reversal dates.',
     type: 'table',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'sales-return-list',
@@ -72,27 +81,30 @@ const SALES_REPORTS: ReportDefinition[] = [
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Monthly Sales Chart',
-    description: 'Monthly net sales including PPN, after all applied credit notes in the credit note month',
+    description: 'Monthly net sales excluding PPN, after applied credit notes in the credit note month',
     type: 'chart',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'share-by-customer',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
     name: 'Sales Share by Customer',
-    description: 'Customer share of net sales including PPN and all applied credit notes; the rest grouped as Others',
+    description: 'Customer share of net sales excluding PPN and after applied credit notes; the rest grouped as Others',
     type: 'chart',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
   {
     id: 'share-by-item',
     category: 'sales',
     apiPath: '/api/v1/reports/sales',
-    name: 'Portion of Sales per Item (Gross)',
-    description: 'Item share of gross invoice line subtotals before credit notes and excluding PPN',
+    name: 'Portion of Sales per Item',
+    description: 'Item share of net sales excluding PPN, including unallocated adjustments.',
     type: 'chart',
     filterMode: 'date-range',
+    basis: SALES_NET_BASIS,
   },
 ];
 

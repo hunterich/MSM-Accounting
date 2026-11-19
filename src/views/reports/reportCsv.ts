@@ -38,7 +38,7 @@ import type {
   SalesShareItemRow,
   SalesShareRow,
   StatementData,
-  StockMovementRow,
+  StockMovementData,
   StockValuationData,
   TrialBalanceRow,
   TrialBalanceSummary,
@@ -56,39 +56,44 @@ export const buildSalesCsv = (report: ReportDefinition, data: Record<string, unk
     const rows = data.rows as SalesByCustomerRow[];
     const grand = data.grandTotal as number;
     const totalInvoices = rows.reduce((s, r) => s + r.invoiceCount, 0);
-    let csv = 'No,Pelanggan,Jumlah Invoice,Rata-rata per Invoice,Penjualan Neto (termasuk PPN dan nota kredit),Kontribusi (%)\n';
+    let csv = 'No,Pelanggan,Jumlah Invoice,Rata-rata per Invoice,Bruto Tanpa PPN,Nota Kredit Tanpa PPN,Neto Tanpa PPN,Kontribusi (%)\n';
     csv += rows.map((row, i) => [
       i + 1,
       escapeCsvCell(row.customerName),
       row.invoiceCount,
       row.invoiceCount > 0 ? Math.round(row.total / row.invoiceCount) : 0,
+      row.gross,
+      row.returns,
       row.total,
       grand > 0 ? ((row.total / grand) * 100).toFixed(1) : '0.0',
     ].join(',')).join('\n');
-    csv += `\n,Total,${totalInvoices},${totalInvoices > 0 ? Math.round(grand / totalInvoices) : 0},${grand},100.0`;
+    csv += `\n,Total,${totalInvoices},${totalInvoices > 0 ? Math.round(grand / totalInvoices) : 0},${rows.reduce((s, r) => s + r.gross, 0)},${rows.reduce((s, r) => s + r.returns, 0)},${grand},100.0`;
     return csv;
   }
 
   if (report.id === 'by-item') {
     const rows = data.rows as SalesByItemRow[];
-    let csv = 'Barang,Qty,Penjualan Bruto (tanpa PPN dan nota kredit)\n';
+    let csv = 'SKU,Barang,Qty Jual,Qty Retur,Qty Neto,Bruto Tanpa PPN,Nota Kredit Tanpa PPN,Neto Tanpa PPN\n';
     csv += rows.map((row) => [
+      escapeCsvCell(row.code),
       escapeCsvCell(row.description),
-      row.qty,
-      row.total,
+      row.grossQty, row.returnedQty, row.qty, row.gross, row.returns, row.total,
     ].join(',')).join('\n');
-    csv += `\nTotal,,${data.grandTotal as number}`;
+    csv += `\nTotal,,,,,,,${data.grandTotal as number}`;
     return csv;
   }
 
   if (report.id === 'history') {
     const rows = data.rows as SalesHistoryRow[];
-    let csv = 'No Faktur,Tanggal,Pelanggan,Status,Total\n';
+    let csv = 'No Dokumen,Jenis,Tanggal,Pelanggan,Status,Bruto Tanpa PPN,Nota Kredit Tanpa PPN,Neto Tanpa PPN\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.number),
+      escapeCsvCell(row.kind),
       escapeCsvCell(row.issueDate),
       escapeCsvCell(row.customerName),
       escapeCsvCell(row.status),
+      row.kind === 'invoice' ? row.totalAmount : 0,
+      row.kind === 'credit' ? -row.totalAmount : 0,
       row.totalAmount,
     ].join(',')).join('\n');
     return csv;
@@ -111,19 +116,19 @@ export const buildSalesCsv = (report: ReportDefinition, data: Record<string, unk
 
   if (report.id === 'by-item-customer') {
     const rows = data.rows as SalesByItemCustomerRow[];
-    let csv = 'Pelanggan,Barang,Qty,Penjualan Bruto (tanpa PPN dan nota kredit)\n';
+    let csv = 'Pelanggan,SKU,Barang,Qty Jual,Qty Retur,Qty Neto,Bruto Tanpa PPN,Nota Kredit Tanpa PPN,Neto Tanpa PPN\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.customerName),
+      escapeCsvCell(row.code),
       escapeCsvCell(row.description),
-      row.qty,
-      row.total,
+      row.grossQty, row.returnedQty, row.qty, row.gross, row.returns, row.total,
     ].join(',')).join('\n');
     return csv;
   }
 
   if (report.id === 'monthly-chart') {
     const rows = data.rows as SalesMonthlyRow[];
-    let csv = 'Bulan,Penjualan Neto (termasuk PPN dan nota kredit)\n';
+    let csv = 'Bulan,Penjualan Neto (tanpa PPN setelah nota kredit)\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.month),
       row.total,
@@ -134,7 +139,7 @@ export const buildSalesCsv = (report: ReportDefinition, data: Record<string, unk
   if (report.id === 'share-by-item') {
     const rows = data.rows as SalesShareItemRow[];
     const grandTotal = data.grandTotal as number;
-    let csv = 'Barang,Penjualan Bruto (tanpa PPN dan nota kredit),Porsi (%)\n';
+    let csv = 'Barang,Penjualan Neto Tanpa PPN,Porsi (%)\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.description),
       row.total,
@@ -512,13 +517,16 @@ export const buildBankingCsv = (report: ReportDefinition, data: Record<string, u
 
 export const buildInventoryCsv = (report: ReportDefinition, data: Record<string, unknown>, categoryNameById: ReadonlyMap<string, string>): string => {
   if (report.id === 'stock-movement') {
-    const rows = (data.rows || []) as StockMovementRow[];
-    let csv = 'SKU,Item Name,Opening Balance,Total In,Total Out,Closing Balance\n';
+    const smData = data as unknown as StockMovementData;
+    const rows = smData.rows || [];
+    let csv = 'SKU,Item Name,Opening Qty,Opening Value,Total In,Total Out,Movement Value,Closing Qty,Closing Value\n';
     csv += rows.map((row) => [
       escapeCsvCell(row.sku),
       escapeCsvCell(row.itemName),
-      row.openingBalance, row.totalIn, row.totalOut, row.closingBalance,
+      row.openingBalance, row.openingValue, row.totalIn, row.totalOut,
+      row.movementValue, row.closingBalance, row.closingValue,
     ].join(',')).join('\n');
+    if (smData.totals) csv += `\nTotal,,,${smData.totals.openingValue},,,${smData.totals.movementValue},,${smData.totals.closingValue}`;
     return csv;
   }
 

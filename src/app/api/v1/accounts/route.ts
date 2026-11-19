@@ -114,7 +114,7 @@ export const POST = withPermission({ module: 'GL_COA', action: 'create' }, async
       parentId: payload.parentId ?? null,
       isPostable: payload.isPostable,
       isActive: payload.isActive,
-      reportGroup: payload.reportGroup,
+      reportGroup: payload.reportGroup || null,
       reportSubGroup: payload.reportSubGroup || null,
       cashFlowClass: payload.cashFlowClass ?? null,
       normalSide,

@@ -1,12 +1,12 @@
 import React from 'react';
 import { formatIDR } from '../../utils/formatters';
 import { renderEmptyReport, type ReportResultProps } from './reportResultHelpers';
-import type { StockMovementRow, StockValuationData } from './reportTypes';
+import type { StockMovementData, StockValuationData } from './reportTypes';
 
 export default function InventoryReportResult({ activeReport, categoryNameById }: ReportResultProps): React.ReactNode {
   const { report, data } = activeReport;
   if (report.id === 'stock-movement') {
-    const smData = data as { rows: StockMovementRow[] };
+    const smData = data as StockMovementData;
     const smRows = smData.rows || [];
     if (!smRows.length) return renderEmptyReport('No stock movement data found for the selected period.');
     return (
@@ -16,10 +16,12 @@ export default function InventoryReportResult({ activeReport, categoryNameById }
             <tr className="bg-blue-50">
               <th className="p-3 text-left font-semibold border border-neutral-300 w-[140px]">SKU</th>
               <th className="p-3 text-left font-semibold border border-neutral-300">Item Name</th>
-              <th className="p-3 text-right font-semibold border border-neutral-300">Opening</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300">Opening Qty</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300">Opening Value</th>
               <th className="p-3 text-right font-semibold border border-neutral-300">In</th>
               <th className="p-3 text-right font-semibold border border-neutral-300">Out</th>
-              <th className="p-3 text-right font-semibold border border-neutral-300">Closing</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300">Closing Qty</th>
+              <th className="p-3 text-right font-semibold border border-neutral-300">Closing Value</th>
             </tr>
           </thead>
           <tbody>
@@ -28,12 +30,24 @@ export default function InventoryReportResult({ activeReport, categoryNameById }
                 <td className="p-3 border border-neutral-200 font-mono text-xs">{row.sku}</td>
                 <td className="p-3 border border-neutral-200">{row.itemName}</td>
                 <td className="p-3 border border-neutral-200 text-right">{Number(row.openingBalance).toFixed(2)}</td>
+                <td className="p-3 border border-neutral-200 text-right">{formatIDR(row.openingValue)}</td>
                 <td className="p-3 border border-neutral-200 text-right text-success-700">{Number(row.totalIn).toFixed(2)}</td>
                 <td className="p-3 border border-neutral-200 text-right text-danger-600">{Number(row.totalOut).toFixed(2)}</td>
                 <td className="p-3 border border-neutral-200 text-right font-medium">{Number(row.closingBalance).toFixed(2)}</td>
+                <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.closingValue)}</td>
               </tr>
             ))}
           </tbody>
+          {smData.totals && (
+            <tfoot>
+              <tr className="bg-neutral-50 font-semibold">
+                <td className="p-3 border border-neutral-300 text-right" colSpan={3}>Total Value</td>
+                <td className="p-3 border border-neutral-300 text-right">{formatIDR(smData.totals.openingValue)}</td>
+                <td className="p-3 border border-neutral-300" colSpan={3} />
+                <td className="p-3 border border-neutral-300 text-right text-primary-700">{formatIDR(smData.totals.closingValue)}</td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     );

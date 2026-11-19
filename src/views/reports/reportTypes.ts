@@ -58,6 +58,8 @@ export interface ReportDefinition {
   description: string;
   type: ReportCardType;
   filterMode: FilterMode;
+  /** Amount basis stated in the report header and CSV export (sales reports, #240). */
+  basis?: string;
   /** bank-period reports: require a specific bank (Received/Payment) vs allow "All banks" (History). */
   bankRequired?: boolean;
 }
@@ -109,10 +111,17 @@ export interface SalesByCustomerRow {
   customerName: string;
   invoiceCount: number;
   total: number;
+  gross: number;
+  returns: number;
 }
 
 export interface SalesByItemRow {
   description: string;
+  code: string | null;
+  grossQty: number;
+  returnedQty: number;
+  gross: number;
+  returns: number;
   qty: number;
   total: number;
 }
@@ -120,12 +129,18 @@ export interface SalesByItemRow {
 export interface SalesByItemCustomerRow {
   customerName: string;
   description: string;
+  code: string | null;
+  grossQty: number;
+  returnedQty: number;
+  gross: number;
+  returns: number;
   qty: number;
   total: number;
 }
 
 export interface SalesHistoryRow {
   number: string;
+  kind: string;
   issueDate: string;
   customerName: string;
   status: string;
@@ -420,9 +435,19 @@ export interface StockMovementRow {
   sku: string;
   itemName: string;
   openingBalance: number;
+  openingValue: number;
   totalIn: number;
   totalOut: number;
+  movementValue: number;
   closingBalance: number;
+  closingValue: number;
+}
+
+// Shape returned by GET /api/v1/reports/gl?type=stock-movement.
+export interface StockMovementData {
+  rows: StockMovementRow[];
+  warehouseId: string | null;
+  totals: { openingValue: number; movementValue: number; closingValue: number };
 }
 
 // ── Customer / Vendor Statement ─────────────────────────────────────────────────

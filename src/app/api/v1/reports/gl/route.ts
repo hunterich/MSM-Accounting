@@ -6,6 +6,8 @@ import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { reportDate } from '@/lib/subledger-history';
 import { loadOrgAccountDefaults, selectCashFlowAccountIds } from '@/lib/account-defaults';
+import { readStockMovement } from '@/lib/stock-movement';
+import { asMoney } from '@/lib/money';
 import {
   buildBalanceSheetReport,
   buildBalanceSheetMultiPeriodReport,
@@ -393,60 +395,27 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       const dateFrom = startOfDay(searchParams.get('dateFrom'));
       const dateTo = endOfDay(searchParams.get('dateTo'));
       const itemId = searchParams.get('itemId');
+      const warehouseId = searchParams.get('warehouseId');
 
       if (dateFrom > dateTo) {
         return err('dateFrom must be before or equal to dateTo', 400);
       }
 
-      const ledgerWhere: any = {
-        organizationId: orgId,
-        date: { gte: dateFrom, lte: dateTo },
-      };
-      if (itemId) ledgerWhere.itemId = itemId;
-
-      const entries = await prisma.inventoryLedgerEntry.findMany({
-        where: ledgerWhere,
-        orderBy: [{ itemId: 'asc' }, { date: 'asc' }],
-        include: {
-          item: { select: { id: true, name: true, sku: true } },
-          warehouse: { select: { id: true, name: true } },
+      // One row per item: opening before dateFrom + movement in the range =
+      // closing, which equals Stock Valuation as of dateTo for the same scope.
+      const rows = await readStockMovement(prisma, orgId, { dateFrom, dateTo, itemId, warehouseId });
+      return ok({
+        type,
+        dateFrom,
+        dateTo,
+        warehouseId: warehouseId || null,
+        rows,
+        totals: {
+          openingValue: asMoney(rows.reduce((s, r) => s + r.openingValue, 0)),
+          movementValue: asMoney(rows.reduce((s, r) => s + r.movementValue, 0)),
+          closingValue: asMoney(rows.reduce((s, r) => s + r.closingValue, 0)),
         },
       });
-
-      // Calculate running balance per item
-      const runningBalance = new Map<string, number>();
-
-      const rows = entries.map((entry) => {
-        const qtyIn = Number(entry.qtyIn);
-        const qtyOut = Number(entry.qtyOut);
-        const unitCost = Number(entry.unitCost);
-        const value = Number(entry.valueChange);
-
-        const prev = runningBalance.get(entry.itemId) ?? 0;
-        const next = prev + qtyIn - qtyOut;
-        runningBalance.set(entry.itemId, next);
-
-        return {
-          date: entry.date,
-          documentType: entry.documentType,
-          documentId: entry.documentId,
-          item: {
-            id: entry.item.id,
-            name: entry.item.name,
-            sku: entry.item.sku,
-          },
-          warehouse: entry.warehouse
-            ? { id: entry.warehouse.id, name: entry.warehouse.name }
-            : null,
-          qtyIn,
-          qtyOut,
-          unitCost,
-          value,
-          runningBalance: next,
-        };
-      });
-
-      return ok({ type, dateFrom, dateTo, rows });
     }
 
   return err('Unknown report type', 400);

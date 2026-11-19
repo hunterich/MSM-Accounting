@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { readCustomerSales, readItemSales, readTopProducts, readItemCustomerSales, readSalesCalendar } from '@/lib/sales-summary';
+import { readCustomerSales, readItemSales, readTopProducts, readItemCustomerSales, readSalesCalendar, readSalesHistory, readSalesWarnings } from '@/lib/sales-summary';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
@@ -50,15 +50,17 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
 
   const summaryFilter = {
     organizationId: orgId,
+    excludeTax: true,
     dateFrom: dateFilter.issueDate?.gte,
     dateTo: dateFilter.issueDate?.lte,
   };
+  const warnings = type === 'return-list' ? [] : await readSalesWarnings(prisma, orgId);
 
   /* ── Sales by Customer ── */
   if (type === 'by-customer') {
     let rows = await readCustomerSales(prisma, { ...summaryFilter, customerSearch });
     if (topN && topN > 0) rows = rows.slice(0, topN);
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Drill-down: one customer's sales per day ── */
@@ -67,7 +69,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     if (!customerId) return err('customerId is required', 400);
     const rows = (await readSalesCalendar(prisma, summaryFilter, 'day', customerId))
       .map(({ bucket, ...row }) => ({ date: bucket, ...row }));
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Sales by Item ── */
@@ -76,13 +78,13 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     // Apply item search filter
     if (itemSearch) {
       const q = itemSearch.toLowerCase();
-      rows = rows.filter(r => r.description?.toLowerCase().includes(q));
+      rows = rows.filter(r => r.description?.toLowerCase().includes(q) || r.code?.toLowerCase().includes(q));
     }
     // Sort by qty or total
     rows = rows.sort((a, b) => sortBy === 'qty' ? b.qty - a.qty : b.total - a.total);
     // Apply top N limit
     if (topN && topN > 0) rows = rows.slice(0, topN);
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Top Products (best sellers, grouped by master item) ── */
@@ -94,7 +96,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     // Default ranking is by units sold (qty); `sortBy=total` ranks by revenue.
     rows = rows.sort((a, b) => sortBy === 'total' ? b.total - a.total : b.qty - a.qty);
     if (topN && topN > 0) rows = rows.slice(0, topN);
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Sales Item × Customer ── */
@@ -106,10 +108,10 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     }
     if (itemSearch) {
       const q = itemSearch.toLowerCase();
-      rows = rows.filter((row) => row.description?.toLowerCase().includes(q));
+      rows = rows.filter((row) => row.description?.toLowerCase().includes(q) || row.code?.toLowerCase().includes(q));
     }
     rows = rows.sort((a, b) => b.total - a.total);
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Sales Return List ── */
@@ -143,34 +145,21 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       status:        r.status,
       totalAmount:   Number(r.totalAmount || 0),
     }));
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.totalAmount, 0) });
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.totalAmount, 0) });
   }
 
   /* ── Sales History ── */
   if (type === 'history') {
-    const invoices = await prisma.salesInvoice.findMany({
-      where: dateFilter,
-      include: { customer: { select: { name: true } } },
-      orderBy: { issueDate: 'desc' },
-      take: 500,
-    });
-    const rows = invoices.map(inv => ({
-      id:           inv.id,
-      number:       inv.number,
-      issueDate:    inv.issueDate,
-      dueDate:      inv.dueDate,
-      customerName: inv.customer?.name || 'Unknown',
-      status:       inv.status,
-      totalAmount:  Number(inv.totalAmount || 0),
-    }));
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.totalAmount, 0) });
+    const rows = await readSalesHistory(prisma, { ...summaryFilter, customerSearch }, ROW_CAP + 1);
+    if (rows.length > ROW_CAP) return err(ROW_CAP_MSG, 400);
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.totalAmount, 0) });
   }
 
   /* ── Monthly Sales Chart ── */
   if (type === 'monthly-chart') {
     const rows = (await readSalesCalendar(prisma, summaryFilter, 'month'))
       .map(({ bucket, total }) => ({ month: bucket, total }));
-    return ok({ type, rows, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: rows.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Share by Customer ── */
@@ -181,18 +170,18 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     const rows = sorted.slice(0, keep);
     const othersTotal = sorted.slice(keep).reduce((s, r) => s + r.total, 0);
     if (othersTotal !== 0) rows.push({ customerName: 'Others', total: othersTotal, isOthers: true });
-    return ok({ type, rows, grandTotal: sorted.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: sorted.reduce((s, r) => s + r.total, 0) });
   }
 
   /* ── Portion of Sales per Item (top N + Others) ── */
   if (type === 'share-by-item') {
     const sorted = (await readItemSales(prisma, summaryFilter))
-      .map(({ description, total }) => ({ description, total, isOthers: false }));
+      .map(({ description, code, total }) => ({ description: code ? `${code} — ${description}` : description, total, isOthers: false }));
     const keep = topN && topN > 0 ? topN : 5;
     const rows = sorted.slice(0, keep);
     const othersTotal = sorted.slice(keep).reduce((s, r) => s + r.total, 0);
     if (othersTotal !== 0) rows.push({ description: 'Others', total: othersTotal, isOthers: true });
-    return ok({ type, rows, grandTotal: sorted.reduce((s, r) => s + r.total, 0) });
+    return ok({ type, rows, warnings, grandTotal: sorted.reduce((s, r) => s + r.total, 0) });
   }
 
   return err('Unknown report type', 400);
