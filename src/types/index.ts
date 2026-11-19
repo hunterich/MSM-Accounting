@@ -369,6 +369,7 @@ export interface ShopFeesMapping {
   platformFeeAccountId?: string | null;
   adjustmentAccountId?: string | null;
   affiliateFeeAccountId?: string | null;
+  growthXtraAccountId?: string | null;
 }
 
 export interface ShopShippingMapping {

@@ -822,6 +822,7 @@ const feesSchema = z.object({
   platformFeeAccountId: accountIdField,
   adjustmentAccountId: accountIdField,
   affiliateFeeAccountId: accountIdField,
+  growthXtraAccountId: accountIdField,
 }).partial().passthrough();
 
 const shippingSchema = z.object({

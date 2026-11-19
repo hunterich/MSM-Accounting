@@ -148,6 +148,9 @@ export async function importSettlement(
             const key = k as SettlementFeeKey;
             if (key === 'refund') continue; // already posted by the linked credit note
             if (!KEY_TO_SLOT[key] || !mag) continue;
+            if (key === 'growthXtraFee' && !m.fees?.growthXtraAccountId) {
+              throw new Error('Select a Growth Xtra fee account in the shop connection before importing this settlement.');
+            }
             const acct = accountFor(key);
             if (!acct) continue;
             const income = INCOME_KEYS.includes(key);

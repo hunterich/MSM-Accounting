@@ -60,6 +60,15 @@ describe('marketplace settlement original account', () => {
     expect(state.post).not.toHaveBeenCalled();
     expect(state.tx.aRPayment.update).not.toHaveBeenCalled();
   });
+  it('requires the configured Growth Xtra account and posts the fee to it', async () => {
+    const input = { orders: [{ orderId: 'order', settlementDate: '2026-06-15', netReleased: 90, charges: { growthXtraFee: 10 } }] };
+    const missing = await importSettlement('org', 'user', 'connection', input);
+    expect(missing.failed[0].reason).toContain('Growth Xtra fee account');
+    expect(state.post).not.toHaveBeenCalled();
+    state.prisma.ecommerceConnection.findFirst.mockResolvedValue({ holdingAccountId: 'wallet', mappings: { fees: { adjustmentAccountId: 'adjustment', growthXtraAccountId: 'growth-expense' } } });
+    expect((await importSettlement('org', 'user', 'connection', input)).posted).toBe(1);
+    expect(state.post.mock.calls[0][1].lines).toContainEqual(expect.objectContaining({ accountId: 'growth-expense', debit: 10 }));
+  });
   it('reports an allocated receipt with unverifiable provenance for review', async () => {
     state.tx.aRPayment.findFirst.mockResolvedValue(null);
     const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'legacy-order', settlementDate: '2026-06-15', netReleased: 90, charges: {} }] });

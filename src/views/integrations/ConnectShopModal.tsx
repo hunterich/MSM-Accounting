@@ -374,6 +374,17 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
                                     />
                                     {fieldErr('fees.affiliateFeeAccountId')}
                                 </div>
+                                <div>
+                                    <label className="form-label">TikTok Growth Xtra Fee</label>
+                                    <SearchableSelect
+                                        options={expenseOptions}
+                                        value={mappings.fees?.growthXtraAccountId ?? ''}
+                                        onChange={(v) => setFee('growthXtraAccountId', v)}
+                                        placeholder="Select expense account..."
+                                    />
+                                    <span className="integrations-field-hint">Required when a settlement includes this fee.</span>
+                                    {fieldErr('fees.growthXtraAccountId')}
+                                </div>
                             </div>
                         </div>
                     )}

@@ -1,7 +1,7 @@
 export type SettlementFeeKey =
   | 'commissionFee' | 'serviceFee' | 'orderProcessingFee' | 'transactionFee' | 'campaignFee'
   | 'sellerPromotion' | 'refund' | 'buyerShipping' | 'actualShipping' | 'shippingRebate'
-  | 'sellerVoucher' | 'platformRebate' | 'coinCashback' | 'customTax';
+  | 'sellerVoucher' | 'platformRebate' | 'coinCashback' | 'customTax' | 'growthXtraFee';
 
 // Shopee Income-sheet column header (normalized: lowercased, non-alphanumerics stripped) → canonical key
 export const SHOPEE_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
@@ -28,6 +28,7 @@ export const TIKTOK_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
   // Net product refund after the seller discount; the before-discount and
   // discount-refund columns are components of this value, not extra refunds.
   totalpengembaliandanasetelahdiskon: 'refund',
+  biayalayananprogramgrowthxtra: 'growthXtraFee',
   biayalayananlogistik: 'actualShipping',
   ongkir: 'actualShipping',
   pphpasal22dipungut: 'customTax',
@@ -43,4 +44,5 @@ export const KEY_TO_SLOT: Record<SettlementFeeKey, ['fees' | 'shipping' | 'other
   actualShipping: ['shipping', 'actualShippingCostAccountId'], shippingRebate: ['shipping', 'platformShippingSubsidyAccountId'],
   sellerVoucher: ['others', 'sellerVoucherAccountId'], platformRebate: ['others', 'platformVoucherAccountId'],
   coinCashback: ['others', 'coinCashbackAccountId'], customTax: ['others', 'withholdingTaxAccountId'],
+  growthXtraFee: ['fees', 'growthXtraAccountId'],
 };
