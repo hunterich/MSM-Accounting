@@ -7,9 +7,14 @@ import { assertPeriodOpen } from '../period-guard';
 
 // assertPeriodOpen now resolves + FOR SHARE-locks the period row via a raw
 // query (so a concurrent close serializes), so the tx stub returns rows.
-function makeTx(period: unknown, transactionDatePolicy: unknown = null) {
+function makeTx(period: unknown, transactionDatePolicy: unknown = null, closedYear: unknown = null) {
   return {
-    $queryRaw: vi.fn().mockResolvedValue(period ? [period] : []),
+    // First the shared fiscal-year lock, then the period row, then any closed
+    // fiscal year covering the date.
+    $executeRaw: vi.fn().mockResolvedValue(1),
+    $queryRaw: vi.fn()
+      .mockResolvedValueOnce(period ? [period] : [])
+      .mockResolvedValueOnce(closedYear ? [closedYear] : []),
     // The guard also reads the org's transaction-date window; null is "never
     // configured", which every case below except the last one wants.
     organization: { findUnique: vi.fn().mockResolvedValue({ transactionDatePolicy }) },
@@ -47,6 +52,22 @@ describe('assertPeriodOpen', () => {
     const params = tx.$queryRaw.mock.calls[0].slice(1) as unknown[];
     expect(params).toContainEqual(new Date('2026-04-01T00:00:00.000Z'));
     expect(params).not.toContainEqual(new Date('2026-03-31T19:00:00.000Z'));
+  });
+
+  it('refuses a date inside a closed fiscal year even with no period row (#170)', async () => {
+    const tx = makeTx(null, null, { startDate: new Date('2026-01-01T00:00:00.000Z'), endDate: new Date('2026-12-31T23:59:59.999Z') });
+    await expect(assertPeriodOpen(tx, 'org-1', DATE))
+      .rejects.toThrow('Fiscal year 2026-01-01 to 2026-12-31 is closed — cannot post on 2026-03-15');
+  });
+
+  it('takes the shared fiscal-year lock before reading the period or the year close', async () => {
+    const tx = makeTx({ name: 'Mar 2026', status: 'OPEN', isLocked: false }) as unknown as {
+      $executeRaw: ReturnType<typeof vi.fn>; $queryRaw: ReturnType<typeof vi.fn>;
+    };
+    await assertPeriodOpen(tx as never, 'org-1', DATE);
+    expect(tx.$executeRaw.mock.calls[0][0].join('')).toContain('pg_advisory_xact_lock_shared');
+    expect(tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.$queryRaw.mock.invocationCallOrder[0]);
+    expect(tx.$queryRaw.mock.calls[1][0].join('')).toContain('"FiscalYearClose"');
   });
 
   it('names the business day in the refusal', async () => {

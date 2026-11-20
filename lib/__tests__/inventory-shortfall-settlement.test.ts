@@ -39,6 +39,8 @@ function makeTx(opts: {
   const tx = {
     $executeRaw: vi.fn(async () => 0),
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      // No closed fiscal year covers the posting date.
+      if (strings.join('?').includes('"FiscalYearClose"')) return []
       if (strings.join('?').includes('AccountingPeriod')) {
         state.periodDates.push(values[1] as Date)
         return opts.periodClosed ? [{ name: 'September 2026', status: 'CLOSED', isLocked: false }] : []

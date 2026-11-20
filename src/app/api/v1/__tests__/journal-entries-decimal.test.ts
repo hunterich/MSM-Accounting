@@ -24,7 +24,11 @@ let putExistingEntry: { id: string; status: string; organizationId: string; line
 const putUpdates: Record<string, unknown>[] = [];
 
 const txStub = () => ({
-  $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 99 }]),
+  $executeRaw: vi.fn().mockResolvedValue(0),
+  // assertPeriodOpen's closed-fiscal-year read finds none; other reads get the
+  // numbering row.
+  $queryRaw: vi.fn(async (strings: TemplateStringsArray) =>
+    strings.join('?').includes('"FiscalYearClose"') ? [] : [{ max_seq: 99 }]),
   // assertPeriodOpen also reads the org's transaction-date window; null is
   // "never configured", so it restricts nothing.
   organization: { findUnique: vi.fn().mockResolvedValue({ transactionDatePolicy: null }) },

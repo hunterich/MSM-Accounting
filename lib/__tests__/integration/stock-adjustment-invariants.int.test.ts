@@ -3,9 +3,9 @@
  * (lib/stock-adjustment-posting.ts), run against the real test database.
  *
  * Adjustments now write/relieve InventoryLot cost layers, so lot valuation stays
- * in sync with the ledger and GL (FIFO). Under weighted-average the lot-sum
- * diverges from the ledger by a pre-existing model issue (layers keep original
- * costs; WA values consumption at the blended rate) — pinned with it.fails.
+ * in sync with the ledger and GL. Weighted average consumes stored carrying
+ * values (INV-02, #174), so its lot-sum matches the ledger too; the case that
+ * used to be pinned with it.fails is now an ordinary passing test.
  *
  * Run with:  npm run test:int
  */
