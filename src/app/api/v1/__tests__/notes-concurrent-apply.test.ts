@@ -35,8 +35,10 @@ const txStub = () => ({
   // before its MAX read.
   $executeRaw: vi.fn().mockResolvedValue(0),
   // Serves both nextEntryNo's MAX read and assertPeriodOpen's FOR SHARE lookup
-  // (the latter tolerates the extra field / missing status → treated as open).
-  $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 50 }]),
+  // (the latter tolerates the extra field / missing status → treated as open);
+  // the guard's closed-fiscal-year read finds none.
+  $queryRaw: vi.fn(async (strings: TemplateStringsArray) =>
+    strings.join('?').includes('"FiscalYearClose"') ? [] : [{ max_seq: 50 }]),
   creditNote: {
     update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
       if (creditNoteUpdateThrows && typeof data.journalEntryId === 'string') {
