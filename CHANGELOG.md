@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — depreciation run could lower book value without posting a journal (#232)
+- The depreciation run now posts every asset to its category's depreciation expense and accumulated depreciation accounts, and always writes the journal. Accounts are no longer guessed from account names.
+- If any asset that depreciates in the run has a missing, inactive, non-postable or wrong-type account, the whole run is refused (422) and nothing is recorded; the message names each asset, its category and the account to fix. Assets with nothing to depreciate that month do not block the run.
+- Companies whose asset categories have no depreciation accounts must set them before running depreciation. No migration or stored-data change. Integration tests and browser not run locally.
+
 ### Fixed — postings dated in a closed fiscal year (INV-02 #170)
 - Every posting path now refuses a date inside a closed fiscal year, even where that month has no accounting-period row. Before, a year could be closed while some months had no row (later years only get rows when generated), or a closed month without linked manual journals could be deleted afterwards. Sales, receipts and stock adjustments dated in that month were then posted after the closing entry, leaving it stale and retained earnings wrong. The check shares the fiscal-year lock with year close and reopen, so a posting in flight makes the close wait and is included, and a posting that arrives during the close waits and is refused. Reopening the year lifts the refusal.
 - New PostgreSQL acceptance cases (`inventory-route-year-close-acceptance.int.test.ts`): the real HTTP PO receive route against a held sale, a FIFO-to-WA switch and a month close, plus three concurrent receives of one PO line; and sales and stock adjustments against a fiscal-year close in both orders, including a year with no period rows and a deleted closed month.

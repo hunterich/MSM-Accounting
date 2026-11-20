@@ -59,7 +59,7 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
         status: 'ACTIVE',
         deletedAt: null,
       },
-      include: { category: true, purchaseLine: true },
+      include: { category: true },
     });
 
     if (activeAssets.length === 0) {
@@ -82,33 +82,29 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       throw new ApiError('All active assets have already been depreciated for this period', 422);
     }
 
-    // Resolve accounts for journal entries
+    // Each asset posts to its category's depreciation accounts. There is no
+    // name-matching fallback any more: guessing an account by name could post
+    // to the wrong one, and finding none used to record depreciation (and lower
+    // book value) with no journal at all, splitting the asset register from the
+    // GL (#232). Inactive accounts are excluded, so they read as "unusable".
     const accounts = await tx.account.findMany({
       where: { organizationId: orgId, isActive: true },
       select: { id: true, code: true, name: true, type: true, isActive: true, isPostable: true },
     });
-
-    // Find depreciation accounts by keyword since there are no specific defaults
-    const findAccount = (keywords: string[], type?: string): string | null => {
-      for (const kw of keywords) {
-        const match = accounts.find((a: any) =>
-          a.name?.toLowerCase().includes(kw.toLowerCase()) &&
-          (!type || a.type === type) &&
-          a.isPostable !== false,
-        );
-        if (match) return match.id;
+    const accountById = new Map<string, any>(accounts.map((a: any) => [a.id, a]));
+    const accountProblem = (accountId: string | null | undefined, type: 'EXPENSE' | 'ASSET', label: string): string | null => {
+      if (!accountId) return `no ${label} account is set`;
+      const account = accountById.get(accountId);
+      if (!account || account.type !== type || account.isPostable === false) {
+        return `the ${label} account is inactive, not postable or not ${type === 'EXPENSE' ? 'an Expense' : 'an Asset'} account`;
       }
       return null;
     };
 
-    // `type` must match the uppercase Prisma `AccountType` enum (`EXPENSE` /
-    // `ASSET`); capitalised 'Expense'/'Asset' never matched, leaving the keyword
-    // fallback dead. Category-wired accounts are the primary path; this fixes the
-    // fallback so an org without category defaults still posts a depreciation JE.
-    const defaultDepExpenseId = findAccount(['beban penyusutan', 'depreciation expense', 'penyusutan'], 'EXPENSE');
-    const defaultAccumDepId = findAccount(['akumulasi penyusutan', 'accumulated depreciation', 'akum. penyusutan'], 'ASSET');
-
-    const processedResults: any[] = [];
+    // Work out every asset's depreciation before writing anything, so one asset
+    // without usable accounts refuses the whole run and names every such asset.
+    const planned: any[] = [];
+    const problems: string[] = [];
 
     for (const asset of assetsToProcess) {
       const acquisitionCost = toNumber(asset.acquisitionCost);
@@ -132,59 +128,74 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
 
       if (depAmount <= 0) continue;
 
+      const depExpenseAccountId = asset.category?.depExpenseAccountId || null;
+      const accumDepAccountId = asset.category?.accumDepAccountId || null;
+      const missing = [
+        accountProblem(depExpenseAccountId, 'EXPENSE', 'depreciation expense'),
+        accountProblem(accumDepAccountId, 'ASSET', 'accumulated depreciation'),
+      ].filter(Boolean);
+      if (missing.length > 0) {
+        const category = asset.category?.name ? ` (category "${asset.category.name}")` : '';
+        problems.push(`${asset.assetNo} ${asset.name}${category}: ${missing.join('; ')}`);
+        continue;
+      }
+
+      planned.push({ asset, acquisitionCost, salvageValue, accumulatedDep, acqDate, monthsElapsed, depAmount, depExpenseAccountId, accumDepAccountId });
+    }
+
+    if (problems.length > 0) {
+      throw new ApiError(
+        `Cannot run depreciation: set active, postable depreciation accounts on the asset category for ${problems.join(' | ')}. No depreciation was recorded.`,
+        422,
+      );
+    }
+
+    const processedResults: any[] = [];
+
+    for (const { asset, acquisitionCost, salvageValue, accumulatedDep, acqDate, monthsElapsed, depAmount, depExpenseAccountId, accumDepAccountId } of planned) {
       const newAccumulated = asMoney(accumulatedDep + depAmount);
       const newBookValue = asMoney(acquisitionCost - newAccumulated);
       const depDate = new Date(year, month - 1, monthsElapsed === 0 && asset.readyForUseDate ? Math.max(28, acqDate.getUTCDate()) : 28);
       if (depDate.getDate() !== 28) await assertPeriodOpen(tx, orgId, depDate);
 
-      // Create journal entry
-      let journalEntryId: string | null = null;
-      const depExpenseAccountId = asset.category?.depExpenseAccountId || defaultDepExpenseId;
-      const accumDepAccountId = asset.category?.accumDepAccountId || defaultAccumDepId;
-      if (asset.purchaseLine) {
-        const validExpense = accounts.some((a: any) => a.id === depExpenseAccountId && a.type === 'EXPENSE' && a.isPostable);
-        const validAccum = accounts.some((a: any) => a.id === accumDepAccountId && a.type === 'ASSET' && a.isPostable);
-        if (!validExpense || !validAccum) throw new ApiError('Purchased asset needs active, postable depreciation accounts before running depreciation.', 422);
-      }
+      // Always post the journal: both accounts were checked above, so the
+      // register and the GL move together.
+      // The shared per-org JE sequence (same lock and high-water mark as every
+      // other JE path), so numbers never collide and are never reused.
+      const entryNo = await allocateJournalEntryNumber(tx, orgId);
 
-      if (depExpenseAccountId && accumDepAccountId) {
-        // The shared per-org JE sequence (same lock and high-water mark as every
-        // other JE path), so numbers never collide and are never reused.
-        const entryNo = await allocateJournalEntryNumber(tx, orgId);
-
-        const je = await tx.journalEntry.create({
-          data: {
-            organizationId: orgId,
-            entryNo,
-            date: toAccountingDate(depDate),
-            memo: `Depreciation ${month}/${year}: ${asset.assetNo} - ${asset.name}`,
-            source: 'SYSTEM',
-            status: 'POSTED',
-            postedAt: new Date(),
-            totalDebit: asMoney(depAmount),
-            totalCredit: asMoney(depAmount),
-            lines: {
-              create: [
-                {
-                  lineNo: 1,
-                  accountId: depExpenseAccountId,
-                  description: `Depreciation expense - ${asset.assetNo}`,
-                  debit: asMoney(depAmount),
-                  credit: 0,
-                },
-                {
-                  lineNo: 2,
-                  accountId: accumDepAccountId,
-                  description: `Accum. depreciation - ${asset.assetNo}`,
-                  debit: 0,
-                  credit: asMoney(depAmount),
-                },
-              ],
-            },
+      const je = await tx.journalEntry.create({
+        data: {
+          organizationId: orgId,
+          entryNo,
+          date: toAccountingDate(depDate),
+          memo: `Depreciation ${month}/${year}: ${asset.assetNo} - ${asset.name}`,
+          source: 'SYSTEM',
+          status: 'POSTED',
+          postedAt: new Date(),
+          totalDebit: asMoney(depAmount),
+          totalCredit: asMoney(depAmount),
+          lines: {
+            create: [
+              {
+                lineNo: 1,
+                accountId: depExpenseAccountId,
+                description: `Depreciation expense - ${asset.assetNo}`,
+                debit: asMoney(depAmount),
+                credit: 0,
+              },
+              {
+                lineNo: 2,
+                accountId: accumDepAccountId,
+                description: `Accum. depreciation - ${asset.assetNo}`,
+                debit: 0,
+                credit: asMoney(depAmount),
+              },
+            ],
           },
-        });
-        journalEntryId = je.id;
-      }
+        },
+      });
+      const journalEntryId: string = je.id;
 
       // Create depreciation record
       await tx.assetDepreciation.create({
