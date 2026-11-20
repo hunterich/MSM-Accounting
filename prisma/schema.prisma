@@ -839,6 +839,7 @@ model ARPayment {
   customer            Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
   ecommerceConnection EcommerceConnection?  @relation(fields: [ecommerceConnectionId], references: [id], onDelete: SetNull)
   allocations         ARPaymentAllocation[]
+  reconciledRefunds   CreditNote[] @relation("MarketplaceRefundReceipt")
 
   @@unique([organizationId, number])
   @@index([organizationId, date, status])
@@ -946,6 +947,8 @@ model CreditNote {
   status              CreditNoteStatus     @default(DRAFT)
   journalEntryId      String?              @unique
   postedAt            DateTime?
+  marketplaceRefundReceiptId String?
+  marketplaceRefundReconciledAt DateTime?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -954,10 +957,12 @@ model CreditNote {
   customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   sourceInvoice SalesInvoice? @relation(fields: [sourceInvoiceId], references: [id], onDelete: SetNull)
   journalEntry  JournalEntry? @relation("CreditNoteJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  marketplaceRefundReceipt ARPayment? @relation("MarketplaceRefundReceipt", fields: [marketplaceRefundReceiptId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, number])
   @@index([organizationId, date])
   @@index([customerId])
+  @@index([marketplaceRefundReceiptId])
 }
 
 model PurchaseOrder {
@@ -1804,7 +1809,7 @@ model EcommerceConnection {
   customerId         String?
   holdingAccountId   String?
   status             ConnectionStatus  @default(ACTIVE)
-  importStatusFilter String            @default("Selesai")
+  importStatusFilter String            @default("Shipped")
   itemMappings       Json?
   // Tabbed shop config: paymentMode, vatInclusive, fees{}, shipping{}, others{}, notes
   mappings           Json?

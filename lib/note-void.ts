@@ -11,6 +11,7 @@ interface NoteRow {
   number: string;
   status: string;
   journalEntryId: string | null;
+  marketplaceRefundReceiptId?: string | null;
 }
 
 interface VoidConfig {
@@ -50,6 +51,9 @@ async function voidNote(
   if (!note) {
     throw new ApiError(`${cfg.label} not found`, 404);
   }
+  if (note.marketplaceRefundReceiptId) {
+    throw new ApiError('This refund is reconciled to a marketplace statement. Review and correct the reconciliation before voiding its credit note.', 422);
+  }
   if (note.status === 'VOID') {
     throw new ApiError(`${cfg.label} is already voided`, 422);
   }
@@ -77,9 +81,9 @@ const CN_CONFIG: VoidConfig = {
   label: 'credit note',
   syncSettlement: syncCreditNoteSettlement,
   find: (tx, orgId, id) =>
-    tx.creditNote.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true } }),
+    tx.creditNote.findFirst({ where: { id, organizationId: orgId }, select: { id: true, number: true, status: true, journalEntryId: true, marketplaceRefundReceiptId: true } }),
   claimVoid: (tx, orgId, id) =>
-    tx.creditNote.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' } }, data: { status: 'VOID' } }),
+    tx.creditNote.updateMany({ where: { id, organizationId: orgId, status: { not: 'VOID' }, marketplaceRefundReceiptId: null }, data: { status: 'VOID' } }),
 };
 
 const DN_CONFIG: VoidConfig = {

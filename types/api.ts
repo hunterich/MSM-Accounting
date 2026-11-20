@@ -645,6 +645,8 @@ export const marketplaceImportLineSchema = z.object({
 export const marketplaceImportOrderSchema = z.object({
   orderNo: z.string().trim().min(1),
   issueDate: isoDateString,
+  shipmentDate: isoDateString.optional(),
+  orderStatus: z.string().trim().max(200).optional(),
   shippingAddress: z.string().trim().max(1000).optional(),
   shippingCarrier: z.string().trim().max(200).optional(),
   trackingNumber: z.string().trim().max(200).optional(),
@@ -822,6 +824,9 @@ const feesSchema = z.object({
   platformFeeAccountId: accountIdField,
   adjustmentAccountId: accountIdField,
   affiliateFeeAccountId: accountIdField,
+  growthXtraAccountId: accountIdField,
+  freeShippingXtraAccountId: accountIdField,
+  otherPlatformFeeAccountId: accountIdField,
 }).partial().passthrough();
 
 const shippingSchema = z.object({
@@ -875,7 +880,7 @@ export const integrationInputSchema = z.object({
   customerId: z.string().trim().nullable().optional(),
   holdingAccountId: z.string().trim().nullable().optional(),
   status: z.enum(['ACTIVE', 'SYNCING', 'INACTIVE']).default('ACTIVE'),
-  importStatusFilter: z.enum(['Selesai', 'All']).default('Selesai'),
+  importStatusFilter: z.enum(['Shipped', 'Selesai', 'All']).default('Shipped'),
   itemMappings: z.record(z.string().trim(), z.string().trim()).default({}),
   mappings: shopMappingsSchema.optional(),
   salesTypeId: z.string().nullish(),
@@ -1254,9 +1259,16 @@ export const createPosRegisterSchema = z.object({
 export const settlementImportInputSchema = z.object({
   orders: z.array(z.object({
     orderId: z.string().trim().min(1),
+    settlementDate: isoDateString.refine(value => {
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+    }, 'Expected a valid calendar date').optional(),
     netReleased: z.number().finite(),
     charges: z.record(z.string(), z.number().finite()).default({}),
-  })).min(1),
+    refundOnly: z.boolean().optional(),
+    refundCreditNoteNumbers: z.array(z.string().trim().min(1)).optional(),
+    requireMappedCharges: z.boolean().optional(),
+  }).refine(order => order.refundOnly || !!order.settlementDate, { message: 'Actual settlement date is required', path: ['settlementDate'] })).min(1),
 });
 export type SettlementImportInput = z.infer<typeof settlementImportInputSchema>;
 

@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => {
   const prisma = {
+    $queryRaw: vi.fn(),
     customer: {
       findFirst: vi.fn(),
     },

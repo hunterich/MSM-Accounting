@@ -15,7 +15,7 @@ import ListPage from '../../components/Layout/ListPage';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { useSalesTypes } from '../../hooks/useSalesTypes';
 import Table, { TableColumn } from '../../components/UI/Table';
-import type { EcommerceConnection, ImportStatusFilter } from '../../types/index';
+import type { EcommerceConnection } from '../../types/index';
 import ConnectShopModal from './ConnectShopModal';
 import SettlementImportModal from '../../components/integrations/SettlementImportModal';
 
@@ -52,18 +52,6 @@ const Integrations = () => {
 
     // Settings modal
     const settingsShop = settingsShopId ? shops.find(s => s.id === settingsShopId) : null;
-
-    const handleSaveSettings = async (filter: ImportStatusFilter): Promise<void> => {
-        if (settingsShopId) {
-            try {
-                await updateConnection.mutateAsync({ id: settingsShopId, importStatusFilter: filter });
-            } catch (saveError) {
-                window.alert(saveError instanceof Error ? saveError.message : 'Failed to save integration settings.');
-                return;
-            }
-        }
-        setSettingsShopId(null);
-    };
 
     const handleSaveSalesType = async (salesTypeId: string): Promise<void> => {
         if (settingsShopId) {
@@ -171,33 +159,7 @@ const Integrations = () => {
                         <Button text="Edit VAT and accounting mappings" variant="secondary" disabled={!canEdit} onClick={() => { setEditShopId(settingsShop.id); setSettingsShopId(null); }} />
                         <div className="mb-4">
                             <label className="form-label">Import Status Filter</label>
-                            <span className="integrations-field-hint mb-2 block">
-                                Choose which order statuses to include when importing transactions.
-                            </span>
-                            <div className="flex flex-col gap-2">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="radio"
-                                        name="importStatusFilter"
-                                        value="Selesai"
-                                        checked={settingsShop.importStatusFilter === 'Selesai'}
-                                        disabled={!canEdit || updateConnection.isPending}
-                                        onChange={() => handleSaveSettings('Selesai' as ImportStatusFilter)}
-                                    />
-                                    <span className="text-sm">Completed only</span>
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="radio"
-                                        name="importStatusFilter"
-                                        value="All"
-                                        checked={settingsShop.importStatusFilter === 'All'}
-                                        disabled={!canEdit || updateConnection.isPending}
-                                        onChange={() => handleSaveSettings('All' as ImportStatusFilter)}
-                                    />
-                                    <span className="text-sm">All statuses</span>
-                                </label>
-                            </div>
+                            <span className="integrations-field-hint mb-2 block">Shipped and completed orders are included; cancelled orders are skipped and returns are held for review.</span>
                         </div>
 
                         <div className="mb-4">

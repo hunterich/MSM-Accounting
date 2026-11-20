@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok, err } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { matchTransferStatementLine } from '@/lib/bank-transfer-statement-match';
+import { ApiError } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -47,9 +49,25 @@ export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async 
       organizationId: orgId,
       bankAccountId: statement.bankAccountId,
       status: 'UNMATCHED',
+      type: { not: 'TRANSFER' },
     },
     select: { id: true, date: true, amount: true },
   });
+
+  // Transfers can have one statement line on each account, with opposite
+  // signs. The shared status may already be MATCHED because the other leg was
+  // matched; the transactional helper checks the individual account instead.
+  const transfers = await prisma.bankTransaction.findMany({ where: {
+    organizationId: orgId, type: 'TRANSFER', OR: [{ bankAccountId: statement.bankAccountId }, { toBankAccountId: statement.bankAccountId }],
+  }, select: { id: true, date: true, amount: true, bankAccountId: true, toBankAccountId: true } });
+  // A match on this account consumes only this leg; a match on the other
+  // account must not prevent reconciliation here. Keep legacy transfers with
+  // no statement evidence for the helper to reject conservatively.
+  const matchedLegs = await prisma.bankStatementLine.findMany({ where: {
+    statement: { organizationId: orgId, bankAccountId: statement.bankAccountId },
+    matchStatus: 'MATCHED', matchedTxId: { in: transfers.map(t => t.id) },
+  }, select: { matchedTxId: true } });
+  const matchedOnAccount = new Set(matchedLegs.map(line => line.matchedTxId));
 
   let matchedCount = 0;
   const usedTxIds = new Set<string>();
@@ -57,6 +75,25 @@ export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async 
   for (const line of unmatchedLines) {
     const lineAmount = Number(line.amount);
     const lineTime = new Date(line.date).getTime();
+
+    const candidates = transfers.filter(t => !usedTxIds.has(t.id) && !matchedOnAccount.has(t.id) &&
+      Math.abs((t.bankAccountId === statement.bankAccountId ? -1 : 1) * Number(t.amount) - lineAmount) < 0.01 &&
+      Math.abs(t.date.getTime() - lineTime) <= THREE_DAYS_MS);
+    const otherCandidates = bankTxns.filter(t => !usedTxIds.has(t.id) && Math.abs(Number(t.amount) - lineAmount) < 0.01 && Math.abs(t.date.getTime() - lineTime) <= THREE_DAYS_MS);
+    // Ambiguous transfers need staff review rather than an arbitrary match.
+    if (candidates.length === 1 && otherCandidates.length === 0) {
+      try {
+        await prisma.$transaction(tx => matchTransferStatementLine(tx, orgId, line.id, candidates[0].id));
+        usedTxIds.add(candidates[0].id);
+        matchedCount++;
+        continue;
+      } catch (error) {
+        // Already matched, stale, or legacy match: leave for manual review.
+        if (!(error instanceof ApiError) || ![409, 422].includes(error.status)) throw error;
+        continue;
+      }
+    }
+    if (candidates.length > 0) continue;
 
     const matchedTx = bankTxns.find((tx) => {
       if (usedTxIds.has(tx.id)) return false;
@@ -71,18 +108,17 @@ export const POST = withPermission({ module: 'BANKING', action: 'edit' }, async 
     if (matchedTx) {
       usedTxIds.add(matchedTx.id);
 
-      await prisma.$transaction([
-        prisma.bankStatementLine.update({
-          where: { id: line.id },
-          data: { matchStatus: 'MATCHED', matchedTxId: matchedTx.id },
-        }),
-        prisma.bankTransaction.update({
-          where: { id: matchedTx.id },
-          data: { status: 'MATCHED' },
-        }),
-      ]);
-
-      matchedCount++;
+      const claimed = await prisma.$transaction(async tx => {
+        const lineClaim = await tx.bankStatementLine.updateMany({ where: { id: line.id, matchStatus: 'UNMATCHED', matchedTxId: null }, data: { matchStatus: 'MATCHED', matchedTxId: matchedTx.id } });
+        if (!lineClaim.count) return false;
+        const transactionClaim = await tx.bankTransaction.updateMany({ where: { id: matchedTx.id, status: 'UNMATCHED' }, data: { status: 'MATCHED' } });
+        if (!transactionClaim.count) throw new ApiError('Transaction was matched concurrently', 409);
+        return true;
+      }).catch(error => {
+        if (error instanceof ApiError && error.status === 409) return false;
+        throw error;
+      });
+      if (claimed) matchedCount++;
     }
   }
 

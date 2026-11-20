@@ -26,6 +26,13 @@ const dnApplied = (over: any = {}) => ({ id: 'dn-1', number: 'DN-0001', status: 
 describe('voidCreditNote', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('does not reverse a refund already reconciled to a marketplace statement', async () => {
+    const tx = makeCnTx(cnApplied({ marketplaceRefundReceiptId: 'receipt' }));
+    await expect(voidCreditNote(tx as never, 'org-a', 'cn-1', { date: DATE })).rejects.toThrow('reconciled');
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(tx.creditNote.updateMany).not.toHaveBeenCalled();
+  });
+
   it('reverses the JE and marks VOID', async () => {
     const tx = makeCnTx(cnApplied());
     await voidCreditNote(tx as never, 'org-a', 'cn-1', { date: DATE });

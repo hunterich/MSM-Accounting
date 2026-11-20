@@ -52,7 +52,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
     const [name, setName] = useState('');
     const [customerId, setCustomerId] = useState('');
     const [holdingAccountId, setHoldingAccountId] = useState('');
-    const [importStatusFilter, setImportStatusFilter] = useState<ImportStatusFilter>('Selesai');
+    const [importStatusFilter, setImportStatusFilter] = useState<ImportStatusFilter>('Shipped');
     const [mappings, setMappings] = useState<ShopMappings>(emptyMappings());
     const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -72,6 +72,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
     const { data: bankAccounts = [] } = useBankAccounts();
     const { data: revenueAccounts = [] } = useAccountsByType('Revenue', { enabled: isOpen });
     const { data: expenseAccounts = [] } = useAccountsByType('Expense', { enabled: isOpen });
+    const { data: assetAccounts = [] } = useAccountsByType('Asset', { enabled: isOpen });
     const { data: liabilityAccounts = [] } = useAccountsByType('Liability', { enabled: isOpen });
 
     // Mutations
@@ -106,8 +107,8 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
         [expenseAccounts]
     );
     const taxOptions: SelectOption[] = useMemo(
-        () => [...liabilityAccounts, ...expenseAccounts].map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
-        [liabilityAccounts, expenseAccounts]
+        () => [...assetAccounts, ...liabilityAccounts, ...expenseAccounts].map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+        [assetAccounts, liabilityAccounts, expenseAccounts]
     );
     const roundingOptions: SelectOption[] = useMemo(
         () => [...expenseAccounts, ...revenueAccounts].map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
@@ -120,7 +121,7 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
         setName('');
         setCustomerId('');
         setHoldingAccountId('');
-        setImportStatusFilter('Selesai');
+        setImportStatusFilter('Shipped');
         setMappings(emptyMappings());
         setErrors({});
         setShowNewCustomer(false); setNewCustomerName(''); setNewCustomerError('');
@@ -374,6 +375,25 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
                                     />
                                     {fieldErr('fees.affiliateFeeAccountId')}
                                 </div>
+                                <div>
+                                    <label className="form-label">TikTok Growth Xtra Fee</label>
+                                    <SearchableSelect
+                                        options={expenseOptions}
+                                        value={mappings.fees?.growthXtraAccountId ?? ''}
+                                        onChange={(v) => setFee('growthXtraAccountId', v)}
+                                        placeholder="Select expense account..."
+                                    />
+                                    <span className="integrations-field-hint">Required when a settlement includes this fee.</span>
+                                    {fieldErr('fees.growthXtraAccountId')}
+                                </div>
+                                <div>
+                                    <label className="form-label">Shopee Free Shipping XTRA Fee</label>
+                                    <SearchableSelect options={expenseOptions} value={mappings.fees?.freeShippingXtraAccountId ?? ''} onChange={(v) => setFee('freeShippingXtraAccountId', v)} placeholder="Select expense account..." />
+                                </div>
+                                <div>
+                                    <label className="form-label">Shopee Other Fee</label>
+                                    <SearchableSelect options={expenseOptions} value={mappings.fees?.otherPlatformFeeAccountId ?? ''} onChange={(v) => setFee('otherPlatformFeeAccountId', v)} placeholder="Select expense account..." />
+                                </div>
                             </div>
                         </div>
                     )}
@@ -417,27 +437,8 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
                     </div>
 
                     {!editShop && <div>
-                        <label className="form-label">Import Sales with Status</label>
-                        <div className="flex gap-4 mt-1">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="importStatus"
-                                    checked={importStatusFilter === 'Selesai'}
-                                    onChange={() => setImportStatusFilter('Selesai')}
-                                />
-                                <span className="text-sm">Completed only</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="importStatus"
-                                    checked={importStatusFilter === 'All'}
-                                    onChange={() => setImportStatusFilter('All')}
-                                />
-                                <span className="text-sm">All statuses</span>
-                            </label>
-                        </div>
+                        <label className="form-label">Import shipped orders</label>
+                        <p className="text-sm text-neutral-600">Revenue and stock use the shipment date. For shipped or completed Shopee orders, the shipping-arranged date is used if no dispatch date is available. Unshipped and cancelled orders are excluded; returns are held for review.</p>
                     </div>
 
                     }
@@ -525,13 +526,8 @@ const ConnectShopModal = ({ isOpen, onClose, existingShops, canCreate, editShop 
                 <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="form-label">Refund</label>
-                            <SearchableSelect
-                                options={revenueOptions}
-                                value={mappings.others?.refundAccountId ?? ''}
-                                onChange={(v) => setOther('refundAccountId', v)}
-                                placeholder="Select account..."
-                            />
+                            <label className="form-label">Refunds</label>
+                            <p className="text-sm text-neutral-600">Use a linked sales return and refund credit note. Settlement matches that note and does not book another refund expense.</p>
                         </div>
                         <div>
                             <label className="form-label">Seller-borne Voucher</label>

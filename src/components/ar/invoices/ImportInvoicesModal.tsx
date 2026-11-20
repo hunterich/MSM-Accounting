@@ -50,7 +50,6 @@ interface ImportCheckpoint {
     parseResult: ShopeeParseResult | null;
     localMappings: Record<string, string>;
     recordPayment: boolean;
-    dateField: 'completionDate' | 'paymentDate' | 'orderDate';
     fallbackDate: string;
     importResult: MarketplaceImportResult | null;
 }
@@ -122,13 +121,11 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     // Configure state
     const [recordPayment, setRecordPayment] = useState<boolean>(recovered?.recordPayment ?? true);
-    const [dateField, setDateField] = useState<'completionDate' | 'paymentDate' | 'orderDate'>(recovered?.dateField || 'completionDate');
     const [fallbackDate, setFallbackDate] = useState<string>(recovered?.fallbackDate || '');
     const [reviewState, setReviewState] = useState<{ key: string; result: MarketplaceImportPreviewResult } | null>(null);
     const [reviewLoading, setReviewLoading] = useState<boolean>(false);
     const [reviewError, setReviewError] = useState<string>('');
     const [amountsReviewed, setAmountsReviewed] = useState<boolean>(false);
-    const [statusesReviewed, setStatusesReviewed] = useState<boolean>(false);
     const [alreadyImportedOrderNos, setAlreadyImportedOrderNos] = useState<Set<string>>(new Set());
 
     // Import state
@@ -138,7 +135,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     useEffect(() => {
         if (!parseResult) return;
         const preserve = () => {
-            if (!writeImportRecovery(recoveryKey, { step, shopId, parseResult, localMappings, recordPayment, dateField, fallbackDate, importResult } satisfies ImportCheckpoint)) setRecoveryFailed(true);
+            if (!writeImportRecovery(recoveryKey, { step, shopId, parseResult, localMappings, recordPayment, fallbackDate, importResult } satisfies ImportCheckpoint)) setRecoveryFailed(true);
         };
         preserve();
         window.addEventListener(DRAFT_FLUSH_EVENT, preserve);
@@ -147,7 +144,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             window.removeEventListener(DRAFT_FLUSH_EVENT, preserve);
             window.removeEventListener('pagehide', preserve);
         };
-    }, [recoveryKey, step, shopId, parseResult, localMappings, recordPayment, dateField, fallbackDate, importResult]);
+    }, [recoveryKey, step, shopId, parseResult, localMappings, recordPayment, fallbackDate, importResult]);
 
     const selectedShop = useMemo<EcommerceConnection | undefined>(
         () => shops.find((s) => s.id === shopId),
@@ -187,13 +184,11 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setCreatingItems(false);
         setCreateError('');
         setRecordPayment(true);
-        setDateField('completionDate');
         setFallbackDate('');
         setReviewState(null);
         setReviewLoading(false);
         setReviewError('');
         setAmountsReviewed(false);
-        setStatusesReviewed(false);
         setAlreadyImportedOrderNos(new Set());
         setImportResult(null);
         setImportError('');
@@ -377,7 +372,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 return;
             }
 
-            const result = await parseShopeeExcel(f, shop?.importStatusFilter || 'Selesai', shop?.platform);
+            const result = await parseShopeeExcel(f, 'Shipped', shop?.platform);
 
             if (result.parsedOrders.length === 0) {
                 setParseError(result.warnings[0] || 'No orders could be parsed from this file.');
@@ -419,7 +414,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             buyer: o.buyerUsername || o.recipientName,
             itemCount: o.items.length,
             totalProductAmount: o.totalProductAmount,
-            date: o.completionDate || o.paymentDate || o.orderDate,
+            date: o.shipmentDate,
             paymentMethod: o.paymentMethod,
         }));
     }, [parseResult]);
@@ -443,7 +438,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     };
 
     const ordersMissingAllDates = useMemo(
-        () => parseResult?.parsedOrders.filter((order) => !order.completionDate && !order.paymentDate && !order.orderDate).length ?? 0,
+        () => parseResult?.parsedOrders.filter((order) => !order.shipmentDate).length ?? 0,
         [parseResult],
     );
 
@@ -453,10 +448,12 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             connectionId: selectedShop.id,
             options: { customerId: selectedShop.customer, recordPayment },
             orders: parseResult.parsedOrders.map((order) => {
-                const sourceDate = order[dateField] || order.completionDate || order.paymentDate || order.orderDate;
+                const sourceDate = order.shipmentDate;
                 return {
                     orderNo: order.orderNumber,
                     issueDate: sourceDate || fallbackDate || new Date().toISOString().slice(0, 10),
+                    shipmentDate: sourceDate || fallbackDate || undefined,
+                    orderStatus: order.orderStatus,
                     shippingAddress: [order.shippingAddress, order.city, order.province].filter(Boolean).join(', '),
                     shippingCarrier: order.shippingCarrier || '',
                     trackingNumber: order.trackingNumber || '',
@@ -474,7 +471,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 };
             }),
         };
-    }, [parseResult, shopId, selectedShop?.customer, recordPayment, dateField, fallbackDate, resolvedMappings]);
+    }, [parseResult, shopId, selectedShop?.customer, recordPayment, fallbackDate, resolvedMappings]);
 
     const reviewKey = useMemo(() => previewRequest ? JSON.stringify(previewRequest) : '', [previewRequest]);
     const currentReview = reviewState?.key === reviewKey ? reviewState.result : null;
@@ -487,7 +484,6 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         setReviewLoading(true);
         setReviewError('');
         setAmountsReviewed(false);
-        setStatusesReviewed(false);
         void previewOrders(previewRequest)
             .then((result) => {
                 if (!active) return;
@@ -617,8 +613,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const handleImport = async (): Promise<void> => {
         if (!previewRequest || !currentReview || currentReview.create + currentReview.logisticsUpdates === 0 ||
             currentReview.setupErrors.length > 0 ||
-            (currentReview.amountDifferences > 0 && !amountsReviewed) ||
-            (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)) return;
+            (currentReview.amountDifferences > 0 && !amountsReviewed)) return;
 
         setImportError('');
         setStep('importing');
@@ -630,7 +625,6 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             if (JSON.stringify(freshReview) !== JSON.stringify(currentReview)) {
                 setReviewState({ key: reviewKey, result: freshReview });
                 setAmountsReviewed(false);
-                setStatusesReviewed(false);
                 setReviewError('The review changed while it was open. Check the updated counts and amounts before importing.');
                 setStep('configure');
                 return;
@@ -680,7 +674,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 {selectedShop && (
                     <div className="mt-2 text-xs text-neutral-500">
                         Customer: <strong>{selectedShop.customerName || selectedShop.customer}</strong>
-                        {' | '}Filter: <strong>{selectedShop.importStatusFilter === 'All' ? 'All Statuses' : 'Completed Only'}</strong>
+                        {' | '}Filter: <strong>Shipped orders; cancelled orders skipped and returns held for review</strong>
                     </div>
                 )}
             </div>
@@ -970,27 +964,19 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     ))}
                 </div>
                 <div className="mt-1 text-xs text-neutral-500">
-                    When &ldquo;Paid&rdquo;, a receipt is recorded against each invoice.
+                    When &ldquo;Paid&rdquo;, a receipt is recorded into the marketplace clearing account. This does not mean a bank payout has arrived.
                 </div>
             </div>
 
             <div>
-                <label className="form-label">Invoice Date From</label>
-                <select
-                    className="w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0"
-                    value={dateField}
-                    onChange={(e) => setDateField(e.target.value as 'completionDate' | 'paymentDate' | 'orderDate')}
-                >
-                    <option value="completionDate">Order Completion Date</option>
-                    <option value="paymentDate">Payment Date</option>
-                    <option value="orderDate">Order Creation Date</option>
-                </select>
+                <label className="form-label">Invoice and stock date: shipment date</label>
+                <p className="text-sm text-neutral-600">Revenue, COGS and stock use the shipment date. For shipped or completed Shopee orders, the shipping-arranged date is used when no dispatch date is available. The receipt goes to the marketplace clearing account; payout is reconciled separately. Import the full order export regularly, including orders still in transit.</p>
             </div>
 
             {ordersMissingAllDates > 0 && (
                 <div>
                     <label className="form-label" htmlFor="marketplace-import-fallback-date">
-                        Date for {ordersMissingAllDates} order{ordersMissingAllDates > 1 ? 's' : ''} with no date in the file
+                        Date for {ordersMissingAllDates} order{ordersMissingAllDates > 1 ? 's' : ''} with no shipment date in the file
                     </label>
                     <input
                         id="marketplace-import-fallback-date"
@@ -999,7 +985,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         value={fallbackDate}
                         onChange={(event) => setFallbackDate(event.target.value)}
                     />
-                    <p className="mt-1 text-xs text-neutral-500">These orders will be excluded until you enter a date.</p>
+                    <p className="mt-1 text-xs text-neutral-500">Enter the actual dispatch date. Split orders shipped on different dates into separate imports. Do not use the completion date.</p>
                 </div>
             )}
 
@@ -1070,15 +1056,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                 </div>
             )}
 
-            {selectedShop?.importStatusFilter === 'All' && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
-                    <p>All Statuses is selected for this shop. The file may contain canceled or refunded orders.</p>
-                    <label className="flex items-center gap-2 mt-2 text-xs cursor-pointer">
-                        <input type="checkbox" checked={statusesReviewed} onChange={(event) => setStatusesReviewed(event.target.checked)} />
-                        I reviewed the order statuses in the export.
-                    </label>
-                </div>
-            )}
+
 
             {(reviewError || importError) && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
@@ -1233,8 +1211,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                                 onClick={() => void handleImport()}
                                 disabled={reviewLoading || !currentReview || currentReview.create + currentReview.logisticsUpdates === 0 ||
                                     currentReview.setupErrors.length > 0 ||
-                                    (currentReview.amountDifferences > 0 && !amountsReviewed) ||
-                                    (selectedShop?.importStatusFilter === 'All' && !statusesReviewed)}
+                                    (currentReview.amountDifferences > 0 && !amountsReviewed)}
                             />
                         ) : step === 'mapping' ? (
                             <Button

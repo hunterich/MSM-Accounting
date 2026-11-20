@@ -44,6 +44,7 @@ const STATUS_UP: Record<string, string> = {
 };
 
 const FILTER_DOWN: Record<string, ImportStatusFilter> = {
+  Shipped: 'Shipped',
   Selesai: 'Selesai',
   All: 'All',
 };
@@ -141,6 +142,8 @@ export interface MarketplaceImportPayload {
   orders: Array<{
     orderNo: string;
     issueDate: string;
+    shipmentDate?: string;
+    orderStatus?: string;
     shippingAddress?: string;
     shippingCarrier?: string;
     trackingNumber?: string;
@@ -211,7 +214,7 @@ export function useImportMarketplaceOrders() {
 }
 
 export interface SettlementImportPayload {
-  orders: Array<{ orderId: string; netReleased: number; charges: Record<string, number> }>;
+  orders: Array<{ orderId: string; settlementDate?: string; netReleased: number; charges: Record<string, number>; refundOnly?: boolean; refundCreditNoteNumbers?: string[]; requireMappedCharges?: boolean }>;
 }
 export interface SettlementImportResult {
   posted: number;

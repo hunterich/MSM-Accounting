@@ -369,6 +369,9 @@ export interface ShopFeesMapping {
   platformFeeAccountId?: string | null;
   adjustmentAccountId?: string | null;
   affiliateFeeAccountId?: string | null;
+  growthXtraAccountId?: string | null;
+  freeShippingXtraAccountId?: string | null;
+  otherPlatformFeeAccountId?: string | null;
 }
 
 export interface ShopShippingMapping {
@@ -482,7 +485,7 @@ export type SOStatus       = 'draft' | 'confirmed' | 'closed' | 'cancelled';
 export type InventoryCostingMethod = 'FIFO' | 'WEIGHTED_AVERAGE';
 export type EcommercePlatform = 'Shopee' | 'TikTok' | 'Tokopedia' | 'Lazada' | 'Other';
 export type ConnectionStatus = 'Active' | 'Syncing' | 'Inactive';
-export type ImportStatusFilter = 'Selesai' | 'All';
+export type ImportStatusFilter = 'Shipped' | 'Selesai' | 'All';
 
 export interface OrganizationSettings {
   id: string;
@@ -1006,6 +1009,7 @@ export interface RawBankTransaction {
   taxRate?: number | string | null;
   bankAccount?: unknown;
   toAccountId?: string | null;
+  toBankAccountId?: string | null;
   payee?: string | null;
   expenseAccountId?: string | null;
   receivedFrom?: string | null;

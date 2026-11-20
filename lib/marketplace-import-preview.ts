@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { asMoney } from './money';
 import { calculateMarketplaceOrderTotals, type ImportOrder } from './marketplace-import';
+import { isMarketplaceReversalStatus, isMarketplaceShippedStatus } from '@/src/utils/marketplaceLifecycle';
 
 export interface PreviewOrder extends ImportOrder {
   sourceTotal: number;
@@ -104,6 +105,12 @@ export async function previewMarketplaceOrders(
       row.status = 'blocked';
       row.reason = 'Order number occurs more than once in this file';
       result.blocked++;
+    } else if (order.orderStatus && isMarketplaceReversalStatus(order.orderStatus)) {
+      row.status = 'blocked';
+      row.reason = existing
+        ? 'Imported order: create a linked sales return and credit note, then reconcile the settlement refund. Restock only goods actually received.'
+        : 'Cancelled/returned order: no new sale will be posted. If it was dispatched, record the verified original shipment first, then its linked return.';
+      result.blocked++;
     } else if (existing) {
       if ((!existing.trackingNumber && order.trackingNumber) ||
           (!existing.shippingCarrier && order.shippingCarrier) ||
@@ -115,6 +122,10 @@ export async function previewMarketplaceOrders(
         row.status = 'already_imported';
         result.alreadyImported++;
       }
+    } else if (order.orderStatus && !isMarketplaceShippedStatus(order.orderStatus) && !order.shipmentDate) {
+      row.status = 'blocked';
+      row.reason = 'No confirmed shipment; supply the verified dispatch date before importing.';
+      result.blocked++;
     } else if (order.missingDate) {
       row.status = 'blocked';
       row.reason = 'No usable order date; enter a date for orders missing one';

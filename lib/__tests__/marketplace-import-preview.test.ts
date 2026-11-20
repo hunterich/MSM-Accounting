@@ -36,6 +36,17 @@ beforeEach(() => {
 });
 
 describe('marketplace import review', () => {
+  it('blocks reversals, including previously imported orders, and unshipped statuses', async () => {
+    const result = await previewMarketplaceOrders('org-1', 'connection-1', [
+      { ...order('existing'), orderStatus: 'Cancelled' },
+      { ...order('new'), orderStatus: 'Returned' },
+      { ...order('unshipped'), orderStatus: 'To ship' },
+    ], { recordPayment: true });
+    expect(result.blocked).toBe(3);
+    expect(result.create).toBe(0);
+    expect(result.orders[0].reason).toContain('linked sales return');
+    expect(result.orders[2].reason).toContain('confirmed shipment');
+  });
   it('classifies orders and uses posted invoice totals without writing invoices', async () => {
     const result = await previewMarketplaceOrders('org-1', 'connection-1', [
       order('existing'),

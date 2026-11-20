@@ -18,7 +18,11 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   const bankAccountId = searchParams.get('bankAccountId');
   const type = searchParams.get('type');
   const where: any = { organizationId: orgId };
-  if (bankAccountId) where.bankAccountId = bankAccountId;
+  if (bankAccountId) {
+    if (searchParams.get('includeTransfersToAccount') === 'true') {
+      where.AND = [{ OR: [{ bankAccountId }, { type: 'TRANSFER', toBankAccountId: bankAccountId }] }];
+    } else where.bankAccountId = bankAccountId;
+  }
   if (type) where.type = type;
   const search = searchParams.get('search');
   const status = searchParams.get('status');
