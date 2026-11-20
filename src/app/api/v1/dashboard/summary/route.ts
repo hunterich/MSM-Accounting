@@ -5,11 +5,12 @@ import {
   dashboardSummaryQuerySchema,
   dashboardSummaryResponseSchema,
 } from '@/types/api';
-import { withHandler, requireOrg, ok, err, ApiError } from '@/lib/api-utils';
+import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
 import { ledgerCashOnHand } from '@/lib/cash-accounts';
 import { dashboardAging } from '@/lib/dashboard-aging';
+import { withPermission } from '@/lib/authz';
 
-export const GET = withHandler(async function GET(request: NextRequest) {
+export const GET = withPermission({ module: 'DASHBOARD', action: 'view' }, async function GET(request: NextRequest) {
   const orgId = requireOrg(request);
 
   const parsedQuery = dashboardSummaryQuerySchema.safeParse({ organizationId: orgId });

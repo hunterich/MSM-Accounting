@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { warehouseInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -27,7 +28,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('warehouses'), async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
 

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -15,7 +16,7 @@ export async function OPTIONS() {
  * returns the next available SKU string: "{CODE}-{NNNN}".
  * Using update+increment is safe against concurrent requests.
  */
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withPermission({ module: 'INV_ITEMS', action: 'create' }, async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId  = req.headers.get('x-org-id')!;
   const updated = await prisma.$transaction(async (tx) => {
@@ -29,4 +30,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!updated) return err('Not found', 404);
   const seq = String(updated.skuSequence).padStart(4, '0');
   return ok({ sku: `${updated.code}-${seq}` });
-}
+});

@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok, requireOrg } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { updateAssetCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -34,7 +35,7 @@ async function assertCategoryAccountsInOrg(
   }
 }
 
-export const GET = withHandler(async function GET(
+export const GET = withPermission(readScope('assets'), async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

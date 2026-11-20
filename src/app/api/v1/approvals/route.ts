@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, ok, withHandler } from '@/lib/api-utils';
+import { ok, withHandler } from '@/lib/api-utils';
+import { authActor, permittedModules } from '@/lib/authz';
+import { APPROVAL_REGISTRY } from '@/lib/approval/registry';
 
 export const runtime = 'nodejs';
 
@@ -251,9 +253,16 @@ async function fetchSummaries(
   return map;
 }
 
+/**
+ * The pending approvals the caller may see. Each row names a document and its
+ * amount and party, so the list is scoped per row rather than by one module:
+ * a caller sees the requests for document types they can approve (`approve` on
+ * the type's module, per the approval registry) plus the requests they
+ * submitted themselves. ADMIN sees all. Issue #234.
+ */
 export const GET = withHandler(async function GET(req: NextRequest) {
-  const orgId = req.headers.get('x-org-id');
-  if (!orgId) return err('Unauthenticated', 401);
+  const { orgId, userId } = authActor(req);
+  const approvable = await permittedModules(req, 'approve');
 
   const { searchParams } = new URL(req.url);
   const rawType = searchParams.get('type');
@@ -267,6 +276,13 @@ export const GET = withHandler(async function GET(req: NextRequest) {
   };
   if (typeFilter) {
     where.documentType = typeFilter;
+  }
+  if (approvable !== 'ALL') {
+    const types = DOCUMENT_TYPES.filter((type) => {
+      const moduleKey = APPROVAL_REGISTRY[type]?.moduleKey;
+      return moduleKey !== undefined && approvable.has(moduleKey);
+    });
+    where.OR = [{ documentType: { in: types } }, { requestedById: userId }];
   }
 
   const approvalRequests = await prisma.approvalRequest.findMany({

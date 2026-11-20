@@ -106,7 +106,7 @@ async function resolvePositionId(
   return created.id;
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission({ module: 'HR_EMPLOYEES', action: 'view' }, async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const employee = await prisma.employee.findFirst({
@@ -119,7 +119,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   if (!employee) return err('Not found', 404);
   return ok(serializeEmployee(employee));
-}
+});
 
 export const PUT = withPermission(
   { module: 'HR_EMPLOYEES', action: 'edit' },

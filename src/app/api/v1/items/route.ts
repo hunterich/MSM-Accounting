@@ -2,8 +2,9 @@ import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { ApiError, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { createItemInputSchema } from '@/types/api';
 import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { stockStatusOf } from '@/src/utils/inventoryStock';
@@ -17,7 +18,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('items'), async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });

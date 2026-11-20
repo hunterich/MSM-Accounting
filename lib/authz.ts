@@ -30,27 +30,40 @@ export function authActor(req: NextRequest): { orgId: string; userId: string; ro
 }
 
 /**
+ * One module, or a list of modules of which ANY one grants access. The list form
+ * is for shared lookups that several screens read (the account picker, the
+ * customer list, ...). Each list lives in `lib/authz-read-scopes.ts` with the
+ * reason for it written next to it.
+ */
+export type ModuleScope = ModuleKey | readonly ModuleKey[];
+
+const scopeKeys = (scope: ModuleScope): readonly ModuleKey[] =>
+  typeof scope === 'string' ? [scope] : scope;
+
+/**
  * Server-side authorization check. Throws ApiError(403) unless the caller's role
- * grants `action` on `moduleKey`. ADMIN bypasses all checks. Permissions are read
- * fresh from the DB per request (no stale-token window). Fail-closed: a missing
- * membership or permission row denies.
+ * grants `action` on `moduleKey` (or, when given a list, on at least one of the
+ * listed modules). ADMIN bypasses all checks. Permissions are read fresh from the
+ * DB per request (no stale-token window). Fail-closed: a missing membership or
+ * permission row denies, and so does an empty list.
  */
 export async function requirePermission(
   req: NextRequest,
-  moduleKey: ModuleKey,
+  moduleKey: ModuleScope,
   action: Action,
   db: Db = prisma,
 ): Promise<void> {
   const { orgId, userId, roleType } = authActor(req);
   if (roleType === 'ADMIN') return;
 
-  const membership = await db.userOrganization.findFirst({
+  const keys = scopeKeys(moduleKey);
+  const membership = keys.length === 0 ? null : await db.userOrganization.findFirst({
     where: { userId, organizationId: orgId, isActive: true },
     select: {
       role: {
         select: {
           permissions: {
-            where: { moduleKey },
+            where: keys.length === 1 ? { moduleKey: keys[0] } : { moduleKey: { in: [...keys] } },
             select: { canView: true, canCreate: true, canEdit: true, canDelete: true, canApprove: true },
           },
         },
@@ -58,10 +71,36 @@ export async function requirePermission(
     },
   });
 
-  const allowed = membership?.role?.permissions?.[0]?.[COLUMN[action]] ?? false;
+  const rows = membership?.role?.permissions ?? [];
+  const allowed = rows.some((row) => row?.[COLUMN[action]] === true);
   if (!allowed) {
-    throw new ApiError(`Forbidden: missing ${action} permission for ${moduleKey}`, 403);
+    const label = keys.length === 1 ? keys[0] : `any of ${keys.join(', ')}`;
+    throw new ApiError(`Forbidden: missing ${action} permission for ${label}`, 403);
   }
+}
+
+/**
+ * The modules on which the caller holds `action`, for a route that filters rows
+ * by module instead of refusing outright (the approvals inbox). `'ALL'` for ADMIN.
+ */
+export async function permittedModules(
+  req: NextRequest,
+  action: Action,
+  db: Db = prisma,
+): Promise<'ALL' | Set<ModuleKey>> {
+  const { orgId, userId, roleType } = authActor(req);
+  if (roleType === 'ADMIN') return 'ALL';
+  const membership = await db.userOrganization.findFirst({
+    where: { userId, organizationId: orgId, isActive: true },
+    select: {
+      role: {
+        select: {
+          permissions: { where: { [COLUMN[action]]: true }, select: { moduleKey: true } },
+        },
+      },
+    },
+  });
+  return new Set((membership?.role?.permissions ?? []).map((row) => row.moduleKey));
 }
 
 /**
@@ -88,13 +127,14 @@ export async function canOverrideTransactionDate(
   }
 }
 
-export type PermissionDescriptor = { module: ModuleKey; action: Action };
+export type PermissionDescriptor = { module: ModuleScope; action: Action };
 
 /**
  * Declarative permission wrapper for an API route handler. Runs `requirePermission`
  * before the handler, reusing `withHandler`'s error handling (so a denied request
  * returns a clean 403 JSON response and never reaches the handler). The descriptor
- * may be static or a function of the request/context.
+ * may be static or a function of the request/context. `module` may be a list, in
+ * which case a grant on any one of the listed modules is enough.
  */
 export function withPermission<TContext = unknown>(
   descriptor: PermissionDescriptor | ((req: NextRequest, ctx: TContext) => PermissionDescriptor),

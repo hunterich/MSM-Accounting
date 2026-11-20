@@ -12,7 +12,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission({ module: 'BANKING', action: 'view' }, async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const txn = await prisma.bankTransaction.findFirst({
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   if (!txn) return err('Not found', 404);
   return ok(txn);
-}
+});
 
 export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;

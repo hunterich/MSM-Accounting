@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey } from '@/lib/api-utils';
 import { asMoney, toNumber } from '@/lib/money';
 import { withPermission } from '@/lib/authz';
 import { createDebitNoteInputSchema } from '@/types/api';
@@ -13,7 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'AP_DEBITS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 50, maxLimit: 100 });
   const status = searchParams.get('status');

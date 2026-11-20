@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, ok, listResponse, logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { itemCategoryInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -11,7 +12,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('itemCategories'), async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id')!;
   const { searchParams } = new URL(req.url);
   const page  = Math.max(1, Number(searchParams.get('page')  ?? 1));
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     prisma.itemCategory.count({ where }),
   ]);
   return listResponse(data, total, page, limit);
-}
+});
 
 export const POST = withPermission({ module: 'INV_CATEGORIES', action: 'create' }, async (req: NextRequest) => {
   const orgId = req.headers.get('x-org-id')!;

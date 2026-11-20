@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, listResponse, parsePaginationParams, requireOrg, withHandler, logAudit } from '@/lib/api-utils';
+import { ok, err, listResponse, parsePaginationParams, requireOrg, logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
@@ -10,7 +10,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'SETTINGS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { page, limit } = parsePaginationParams(req);
 

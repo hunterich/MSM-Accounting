@@ -5,7 +5,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { ApiError, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey } from '@/lib/api-utils';
 import { purchaseOrderInputSchema } from '@/types/api';
 import { withPermission } from '@/lib/authz';
 import { assertItemsActive } from '@/lib/item-availability';
@@ -18,7 +18,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'AP_POS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const status = searchParams.get('status');

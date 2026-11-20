@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { ApiError, logAudit, softDelete, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { updateCustomerInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -36,7 +37,7 @@ async function resolveCustomerCategoryId(orgId: string, categoryId?: string | nu
   return category.id;
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission(readScope('customers'), async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   try {
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
 export const PUT = withPermission({ module: 'AR_CUSTOMERS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;

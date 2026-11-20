@@ -21,7 +21,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(
+export const GET = withPermission({ module: 'AP_BILLS', action: 'view' }, async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -42,7 +42,7 @@ export async function GET(
     const message = error instanceof Error ? error.message : 'Failed to load bill import';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
 export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async (
   request: NextRequest,

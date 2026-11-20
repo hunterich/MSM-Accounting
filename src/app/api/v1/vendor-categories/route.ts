@@ -11,7 +11,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'AP_VENDORS', action: 'view' }, async function GET(req: NextRequest) {
   try {
     const orgId = req.headers.get('x-org-id');
     if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to list vendor categories';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
 export const POST = withPermission({ module: 'AP_VENDORS', action: 'create' }, async (req: NextRequest) => {
   try {

@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, requireOrg, withHandler } from '@/lib/api-utils';
+import { ok, err, requireOrg } from '@/lib/api-utils';
+import { withPermission } from '@/lib/authz';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +33,7 @@ interface MatchedPair {
   customerOrVendor: string;
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'BANKING', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
 
   // Fetch completed AR payments

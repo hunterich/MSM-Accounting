@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { computeSettlement } from '@/lib/document-settlement';
+import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 
 export const runtime = 'nodejs';
 
@@ -12,7 +14,7 @@ export async function OPTIONS() {
 const num = (v: unknown): number => Number(v ?? 0);
 
 // Payment / return position of one purchase bill (paid, returned, owing, history).
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission(readScope('bills'), async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
@@ -59,4 +61,4 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const message = error instanceof Error ? error.message : 'Failed';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});

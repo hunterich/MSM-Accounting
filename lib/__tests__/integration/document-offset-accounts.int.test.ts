@@ -277,7 +277,7 @@ describe('document offsets cannot bypass party subledgers', () => {
     try {
       const foreignCustomer = await createCustomer(other.orgId);
       await prisma.creditNote.create({ data: { organizationId: other.orgId, customerId: foreignCustomer, number: 'FOREIGN', date: DATE, amount: 1, arAccountId: f.org.accounts.bankAsset } });
-      const response = await getAccounts(new NextRequest('http://localhost/api/v1/accounts?withControlFlags=1&limit=1000', { headers: { 'x-org-id': f.org.orgId } }));
+      const response = await getAccounts(new NextRequest('http://localhost/api/v1/accounts?withControlFlags=1&limit=1000', { headers: { 'x-org-id': f.org.orgId, 'x-user-id': 'qa-admin', 'x-role-type': 'ADMIN' } }));
       const { data } = await response.json();
       expect(data.find((a: { id: string }) => a.id === f.accountId).isPartyControlAccount).toBe(true);
       expect(data.find((a: { id: string }) => a.id === f.org.accounts.bankAsset).isPartyControlAccount).toBe(false);

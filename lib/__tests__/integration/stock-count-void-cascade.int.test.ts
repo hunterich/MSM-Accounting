@@ -67,7 +67,7 @@ async function postCount(org: TestOrg, countId: string): Promise<string> {
 
 function journalReq(countId: string, orgId: string) {
   return journalRoute(
-    new NextRequest(`http://localhost/api/v1/stock-counts/${countId}/journal`, { headers: { 'x-org-id': orgId } }),
+    new NextRequest(`http://localhost/api/v1/stock-counts/${countId}/journal`, { headers: { 'x-org-id': orgId, 'x-user-id': 'qa-admin', 'x-role-type': 'ADMIN' } }),
     { params: Promise.resolve({ id: countId }) },
   );
 }

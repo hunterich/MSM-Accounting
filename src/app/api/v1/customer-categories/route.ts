@@ -11,7 +11,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'AR_CUSTOMERS', action: 'view' }, async function GET(req: NextRequest) {
   try {
     const orgId = req.headers.get('x-org-id');
     const { searchParams } = new URL(req.url);
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to list customer categories';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
 export const POST = withPermission({ module: 'AR_CUSTOMERS', action: 'create' }, async (req: NextRequest) => {
   try {

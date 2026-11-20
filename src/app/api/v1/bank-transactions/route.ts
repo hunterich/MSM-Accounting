@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
+import { requireOrg, err, ok, listResponse, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { bankTransactionInputSchema } from '@/types/api';
 import { postBankTransactionIfNeeded } from '@/lib/bank-transaction-posting';
@@ -12,7 +12,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'BANKING', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 50, maxLimit: 100 });
   const bankAccountId = searchParams.get('bankAccountId');
