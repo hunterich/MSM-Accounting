@@ -31,6 +31,7 @@ export default function BankingReportResult({ activeReport }: ReportResultProps)
     if (!cfRows.length) return renderEmptyReport('No cash flow data found for the selected period.');
     return (
       <div>
+        <p className="mb-3 text-sm text-neutral-600">Inflows and outflows include transfers between bank accounts; internal transfers appear on both sides of the total.</p>
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-blue-50">

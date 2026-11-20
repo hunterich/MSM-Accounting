@@ -396,3 +396,32 @@ describe('GET /api/v1/reports/banking — cash & bank reports', () => {
     expect(body.rows).toEqual([]);
   });
 });
+
+describe('GET /api/v1/reports/gl — cash flow by bank', () => {
+  it('rejects a transfer with no valid destination instead of omitting its inflow', async () => {
+    vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([{ date: new Date('2026-06-15'), description: 'Transfer', type: 'TRANSFER', amount: 30, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: null }] as never);
+    const res = await getGlReport(makeReq('/api/v1/reports/gl?type=cash-flow&dateFrom=2026-06-01&dateTo=2026-06-30', 'org-a'));
+    expect(res.status).toBe(400);
+  });
+
+  it('reports income, expenses and both sides of an internal transfer', async () => {
+    const date = new Date('2026-06-15T00:00:00Z');
+    vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([
+      { date, description: 'Sale', type: 'INCOME', amount: 100, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: null },
+      { date, description: 'Purchase', type: 'EXPENSE', amount: 20, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: null },
+      { date, description: 'Transfer', type: 'TRANSFER', amount: 30, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: 'B' },
+    ] as never);
+    vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([{ id: 'B', name: 'Mandiri' }] as never);
+    const request = (filter = '') => makeReq(`/api/v1/reports/gl?type=cash-flow&dateFrom=2026-06-01&dateTo=2026-06-30${filter}`, 'org-a');
+    const all = await (await getGlReport(request())).json();
+    expect(all.rows.map((row: any) => [row.bankAccountName, row.inflow, row.outflow, row.net])).toEqual([
+      ['BCA', 100, 0, 100], ['BCA', 0, 20, -20], ['BCA', 0, 30, -30], ['Mandiri', 30, 0, 30],
+    ]);
+    expect(all.summary).toMatchObject({ totalInflow: 130, totalOutflow: 50, totalNet: 80 });
+    const destination = await (await getGlReport(request('&bankAccountId=B'))).json();
+    expect(destination.rows).toHaveLength(1);
+    expect(destination.rows[0]).toMatchObject({ bankAccountName: 'Mandiri', inflow: 30, outflow: 0 });
+    expect(destination.summary).toMatchObject({ totalInflow: 30, totalOutflow: 0, totalNet: 30 });
+    expect(prisma.bankTransaction.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a', OR: [{ bankAccountId: 'B' }, { type: 'TRANSFER', toBankAccountId: 'B' }] }) }));
+  });
+});

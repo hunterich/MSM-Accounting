@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import ReportResult from '../ReportResult';
 import { ALL_REPORTS, findReportById } from '../reportDefinitions';
-import { buildApCsv, buildInventoryCsv, buildSalesCsv } from '../reportCsv';
+import { buildApCsv, buildBankingCsv, buildInventoryCsv, buildSalesCsv } from '../reportCsv';
 import type { OpenReportEntry, ReportType } from '../reportTypes';
 
 function entry(id: ReportType, data: unknown): OpenReportEntry {
@@ -60,6 +60,18 @@ describe('report output after splitting renderers', () => {
     expect(csv).toContain('"BILL-123","Vendor A"');
     expect(csv).toContain(',0,0,125000,0,0,125000');
     expect(csv).toContain('Total,,,,,0,0,125000,0,0,125000');
+  });
+
+  it('shows and exports bank cash flow amounts with transfer disclosure', () => {
+    const data = { rows: [{ bankAccountId: 'A', bankAccountName: 'BCA', date: '2026-06-15', inflow: 120000, outflow: 0, net: 120000 }], summary: { totalInflow: 120000, totalOutflow: 0, totalNet: 120000 } };
+    const report = entry('cash-flow', data);
+    const html = render(report);
+    expect(html).toContain('BCA');
+    expect(html).toContain('120.000');
+    expect(html).toContain('internal transfers appear on both sides');
+    const csv = buildBankingCsv(report.report, data);
+    expect(csv).toContain('"BCA","2026-06-15",120000,0,120000');
+    expect(csv).toContain('Total,,120000,0,120000');
   });
 
   it('warns when the trial balance or balance sheet is out of balance (#228)', () => {

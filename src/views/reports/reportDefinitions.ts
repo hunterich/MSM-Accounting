@@ -260,7 +260,7 @@ const BANKING_REPORTS: ReportDefinition[] = [
     category: 'banking',
     apiPath: '/api/v1/reports/gl',
     name: 'Cash Flow',
-    description: 'Shows inflows, outflows, and net cash per bank account for a date range.',
+    description: 'Shows inflows, outflows, and net cash per bank account, including transfers between banks.',
     type: 'table',
     filterMode: 'date-range',
   },

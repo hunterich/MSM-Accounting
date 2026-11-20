@@ -456,6 +456,7 @@ export const buildBankingCsv = (report: ReportDefinition, data: Record<string, u
       row.inflow, row.outflow, row.net,
     ].join(',')).join('\n');
     csv += `\nTotal,,${summary.totalInflow || 0},${summary.totalOutflow || 0},${summary.totalNet || 0}`;
+    csv += '\n"Inflows and outflows include transfers between banks; internal transfers appear on both sides of the total.",,,,';
     return csv;
   }
   if (report.id === 'bank-reconciliation') {
