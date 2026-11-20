@@ -12,17 +12,7 @@ import { assertPeriodOpen } from '@/lib/period-guard';
 import { assertNoDirectControlPosting } from '@/lib/control-account-guard';
 import { allocateJournalEntryNumber } from '@/lib/journal-posting';
 import { toAccountingDate } from '@/lib/accounting-date';
-import {
-  ok,
-  err,
-  logAudit,
-  withHandler,
-  requireOrg,
-  requireAuth,
-  parsePaginationParams,
-  listResponse,
-  ApiError,
-} from '@/lib/api-utils';
+import { ok, err, logAudit, requireOrg, requireAuth, parsePaginationParams, listResponse, ApiError } from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -69,7 +59,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async (req: NextRequest) => {
+export const GET = withPermission({ module: 'GL_JOURNAL', action: 'view' }, async (req: NextRequest) => {
   const orgId = requireOrg(req);
 
   const { searchParams, page, limit } = parsePaginationParams(req);

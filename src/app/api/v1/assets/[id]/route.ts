@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok, requireOrg, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { updateAssetInputSchema } from '@/types/api';
 import { lockAssetPurchases } from '@/lib/asset-purchases';
 
@@ -12,7 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(
+export const GET = withPermission(readScope('assets'), async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

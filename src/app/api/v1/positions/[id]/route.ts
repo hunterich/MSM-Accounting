@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, logAudit, ok, withHandler } from '@/lib/api-utils';
+import { ApiError, err, logAudit, ok } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { positionInputSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -24,7 +25,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(
+export const GET = withPermission(readScope('hrStructure'), async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

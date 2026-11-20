@@ -2,8 +2,9 @@ import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ok, err, logAudit, listResponse, parsePaginationParams, withHandler } from '@/lib/api-utils';
+import { ok, err, logAudit, listResponse, parsePaginationParams } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { createAccountInputSchema } from '@/types/api';
 import { listPartyControlAccountIds } from '@/lib/control-account-guard';
 import {
@@ -38,7 +39,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('accounts'), async function GET(req: NextRequest) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
   // maxLimit is 1000, not 100: the chart of accounts is a bounded reference list

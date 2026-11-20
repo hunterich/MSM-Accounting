@@ -45,7 +45,13 @@ async function seedTwoOrgUser(orgAId: string, orgBId: string) {
     select: { id: true },
   });
   const roleB = await prisma.role.create({
-    data: { organizationId: orgBId, name: `VIEWER-${randomUUID()}`, roleType: 'VIEWER' },
+    data: {
+      organizationId: orgBId,
+      name: `VIEWER-${randomUUID()}`,
+      roleType: 'VIEWER',
+      // Reads need the module's view right (#234); the customer list is the read under test.
+      permissions: { create: [{ moduleKey: 'AR_CUSTOMERS', canView: true }] },
+    },
     select: { id: true },
   });
   const user = await prisma.user.create({

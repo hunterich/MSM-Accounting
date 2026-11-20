@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg } from '@/lib/api-utils';
 import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
 import { postBillToLedger } from '@/lib/bill-posting';
@@ -14,6 +14,7 @@ import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { assertItemsActive } from '@/lib/item-availability';
 
 export const runtime = 'nodejs';
@@ -33,7 +34,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('bills'), async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const status = searchParams.get('status');

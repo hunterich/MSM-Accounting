@@ -22,52 +22,121 @@ function listRouteFiles(dir: string, base = ''): string[] {
   return out;
 }
 
-// Routes intentionally NOT permission-wrapped (public / self-service / pure lookup).
-// Keep this list tight and justified.
-const OPEN_ALLOWLIST = new Set([
-  'auth/google/route.ts', 'auth/login/route.ts', 'auth/logout/route.ts', 'auth/me/route.ts',
-  'auth/refresh/route.ts',                      // self-service: re-issues the caller's own token (cookie-guarded)
-  'users/me/password/route.ts',                 // self-service: change your own password
-  'item-categories/[id]/next-sku/route.ts',     // read-only lookup (computes next SKU)
-  'approvals/[id]/approve/route.ts',            // guarded by assertApprovalAuthorized (approval engine)
-  'approvals/[id]/reject/route.ts',             // guarded by assertApprovalAuthorized
-  'organizations/route.ts',                     // guarded by a DB membership check (ADMIN of any company, or no company yet): creation is an owner capability above module RBAC — no per-module permission exists for a not-yet-created org
-]);
+/**
+ * Handlers that are NOT behind a module permission, each with the reason.
+ * Keyed `<route file> <METHOD>`, so a guarded PUT can no longer vouch for an
+ * unguarded GET in the same file (the loophole behind issue #234). Keep this
+ * list tight: every entry is a deliberate, reviewed exception.
+ */
+const OPEN_HANDLERS: Record<string, string> = {
+  // Authentication and self-service: no module applies before or around login.
+  'auth/google/route.ts POST': 'sign-in (Google ID token)',
+  'auth/login/route.ts POST': 'sign-in (password)',
+  'auth/logout/route.ts POST': 'sign-out',
+  'auth/me/route.ts GET': "the caller's own session, role and permissions",
+  'auth/refresh/route.ts POST': "re-issues the caller's own token (cookie-guarded)",
+  'users/me/password/route.ts POST': 'change your own password',
+  'organizations/route.ts POST':
+    'company creation is an owner capability above module RBAC: guarded by a DB membership check (ADMIN of any company, or no company yet)',
+  'access-schedule/route.ts GET':
+    "always 401 here: middleware answers the probe with the caller's own access window from a live membership query",
+  'organization/settings/route.ts GET':
+    'company profile and posting policies (no credentials) that every screen reads through ProtectedRoute; the PUT stays SETTINGS/edit',
+  // Approvals: the permission depends on the document each request points at.
+  'approvals/route.ts GET':
+    'filtered per row: only document types the caller can approve (approval registry module + canApprove), plus requests the caller submitted',
+  'approvals/[id]/approve/route.ts POST':
+    "assertApprovalAuthorized checks canApprove on the request's document module and blocks self-approval",
+  'approvals/[id]/reject/route.ts POST':
+    "assertApprovalAuthorized checks canApprove on the request's document module and blocks self-approval",
+};
 
-// GET-only handlers we DO enforce (sensitive reads). Every other GET-only file may stay open.
-const ENFORCED_READS = new Set([
-  'audit-logs/route.ts',
-  'backup/history/route.ts', 'backup/[id]/download/route.ts',
-  'payroll-runs/route.ts', 'payroll-runs/[id]/route.ts',
-  'employees/route.ts', 'employees/[id]/route.ts',
-  'reports/ap/route.ts', 'reports/ar/route.ts', 'reports/banking/route.ts',
-  'reports/gl/route.ts', 'reports/hr/route.ts', 'reports/sales/route.ts',
-  'inventory/valuation/route.ts',
-]);
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+type Method = (typeof METHODS)[number];
 
-const files = listRouteFiles(ROOT).filter((f) => !f.includes('__tests__'));
+interface Handler {
+  method: Method;
+  /** `withPermission`, `withHandler`, ... or `function` for `export async function`. */
+  wrapper: string;
+  /** Source from this export to the next top-level export. */
+  body: string;
+}
+
+// `export const GET = withPermission(` / `export async function GET(`
+const EXPORT_RE = /^export\s+(?:const\s+(GET|POST|PUT|PATCH|DELETE)\s*=\s*([A-Za-z_$][\w$]*)?|(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b)/gm;
+
+function exportedHandlers(src: string): Handler[] {
+  const starts: { index: number; method: Method; wrapper: string }[] = [];
+  for (const m of src.matchAll(EXPORT_RE)) {
+    starts.push({ index: m.index!, method: (m[1] ?? m[3]) as Method, wrapper: m[1] ? (m[2] ?? '') : 'function' });
+  }
+  const exportsAt = [...src.matchAll(/^export\s/gm)].map((m) => m.index!);
+  return starts.map((s) => {
+    const next = exportsAt.find((i) => i > s.index) ?? src.length;
+    return { method: s.method, wrapper: s.wrapper, body: src.slice(s.index, next) };
+  });
+}
+
+const GUARD_WRAPPERS = new Set(['withPermission', 'withPlatformAdmin']);
+const INNER_GUARD = /\b(requirePermission|requirePlatformAdmin)\s*\(/;
+
+function guardOf(h: Handler): 'wrapped' | 'inner' | null {
+  if (GUARD_WRAPPERS.has(h.wrapper)) return 'wrapped';
+  if (INNER_GUARD.test(h.body)) return 'inner';
+  return null;
+}
+
+const files = listRouteFiles(ROOT).sort();
+const handlers = files.flatMap((rel) =>
+  exportedHandlers(readFileSync(path.join(ROOT, rel), 'utf8')).map((h) => ({ rel, key: `${rel} ${h.method}`, ...h })),
+);
 
 describe('route permission coverage', () => {
-  it('found the route files', () => {
+  it('found the route files and their handlers', () => {
     expect(files.length).toBeGreaterThan(140);
+    expect(handlers.length).toBeGreaterThan(300);
   });
 
-  for (const rel of files.sort()) {
-    const src = readFileSync(path.join(ROOT, rel), 'utf8');
-    const hasMutation = /export\s+(const|async function)\s+(POST|PUT|PATCH|DELETE)\b/.test(src);
-    const isEnforcedRead = ENFORCED_READS.has(rel);
-    const needsGuard = (hasMutation || isEnforcedRead) && !OPEN_ALLOWLIST.has(rel);
+  it('every file exporting a handler is understood by the scanner', () => {
+    // A handler exported some other way (`export { GET }`, a re-export) would
+    // slip past the per-handler check below. Fail loudly instead.
+    for (const rel of files) {
+      const src = readFileSync(path.join(ROOT, rel), 'utf8');
+      expect(/export\s*\{[^}]*\b(GET|POST|PUT|PATCH|DELETE)\b/.test(src), `${rel} re-exports a handler`).toBe(false);
+    }
+  });
 
-    it(`${rel} ${needsGuard ? 'is permission-guarded' : 'is intentionally open'}`, () => {
-      if (!needsGuard) {
-        expect(true).toBe(true);
+  for (const h of handlers) {
+    const reason = OPEN_HANDLERS[h.key];
+    it(`${h.key} is ${reason ? 'intentionally open' : 'permission-guarded'}`, () => {
+      if (reason) {
+        expect(guardOf(h), `${h.key} is guarded now: drop it from OPEN_HANDLERS`).toBeNull();
         return;
       }
       // withPlatformAdmin is a stricter, platform-superadmin guard used by the
-      // system-global backup routes (which must not be reachable via an org-scoped
-      // permission a tenant admin can self-grant).
-      const guarded = src.includes('withPermission') || src.includes('withPlatformAdmin');
-      expect(guarded, `${rel} must use withPermission or withPlatformAdmin`).toBe(true);
+      // system-global backup routes (which must not be reachable via an
+      // org-scoped permission a tenant admin can self-grant).
+      expect(
+        guardOf(h),
+        `${h.key} must be wrapped in withPermission/withPlatformAdmin, call requirePermission, or be listed in OPEN_HANDLERS with a reason`,
+      ).not.toBeNull();
     });
   }
+
+  it('reads are guarded by the view action', () => {
+    // Spec (docs/superpowers/specs/2026-06-25-server-side-rbac-design.md §3): GET → view.
+    const offenders = handlers
+      .filter((h) => h.method === 'GET' && h.wrapper === 'withPermission')
+      .filter((h) => {
+        const descriptor = h.body.slice(h.body.indexOf('withPermission(') + 'withPermission('.length).trimStart();
+        return !(descriptor.startsWith('readScope(') || /^\{[^}]*action:\s*'view'/.test(descriptor));
+      })
+      .map((h) => h.key);
+    expect(offenders).toEqual([]);
+  });
+
+  it('OPEN_HANDLERS has no stale entries', () => {
+    const known = new Set(handlers.map((h) => h.key));
+    expect(Object.keys(OPEN_HANDLERS).filter((k) => !known.has(k))).toEqual([]);
+  });
 });

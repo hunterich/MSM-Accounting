@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, listResponse, parsePaginationParams, logAudit } from '@/lib/api-utils';
+import { requireOrg, ok, listResponse, parsePaginationParams, logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { attendanceRecordInputSchema } from '@/types/api';
 
@@ -11,7 +11,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'HR_ATTENDANCE', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 50, maxLimit: 200 });
   const employeeId = searchParams.get('employeeId');

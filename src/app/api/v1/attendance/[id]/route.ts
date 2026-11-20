@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, ok, err, logAudit } from '@/lib/api-utils';
+import { ok, err, logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { updateAttendanceRecordInputSchema } from '@/types/api';
 
@@ -11,7 +11,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission({ module: 'HR_ATTENDANCE', action: 'view' }, async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const record = await prisma.attendanceRecord.findFirst({
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   if (!record) return err('Not found', 404);
   return ok(record);
-}
+});
 
 export const PUT = withPermission(
   { module: 'HR_ATTENDANCE', action: 'edit' },

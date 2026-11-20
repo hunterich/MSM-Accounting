@@ -21,7 +21,7 @@ import { GET as journalRoute } from '../stock-counts/[id]/journal/route';
 
 const params = { params: Promise.resolve({ id: 'sc-1' }) };
 function get() {
-  return new NextRequest('http://localhost/api/v1/stock-counts/sc-1/journal', { headers: { 'x-org-id': 'org-a' } });
+  return new NextRequest('http://localhost/api/v1/stock-counts/sc-1/journal', { headers: { 'x-org-id': 'org-a', 'x-user-id': 'u-1', 'x-role-type': 'ADMIN' } });
 }
 
 const POSTED_ENTRY = {

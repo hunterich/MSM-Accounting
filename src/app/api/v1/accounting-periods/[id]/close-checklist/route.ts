@@ -1,10 +1,12 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, ok, requireOrg } from '@/lib/api-utils';
 import { countUnpostedInPeriod } from '@/lib/period-close';
 import { pendingFinancialInPeriod } from '@/lib/approval/financial-period';
 import { reconcileControlAccounts } from '@/lib/control-reconciliation';
+import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 
 export const runtime = 'nodejs';
 
@@ -12,7 +14,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(
+export const GET = withPermission(readScope('periodClose'), async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

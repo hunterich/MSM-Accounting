@@ -6,7 +6,8 @@ vi.mock('@/lib/prisma', () => ({
   prisma: { userOrganization: { findFirst: (...a: unknown[]) => findFirst(...a) } },
 }));
 
-import { requirePermission, withPermission, authActor } from '../authz';
+import { requirePermission, withPermission, authActor, permittedModules } from '../authz';
+import { READ_SCOPES, readScope } from '../authz-read-scopes';
 import { ApiError } from '../errors';
 
 function req(headers: Record<string, string>) {
@@ -87,5 +88,71 @@ describe('withPermission', () => {
     const wrapped = withPermission({ module: 'AR_INVOICES', action: 'edit' }, handler);
     const res = await wrapped(req(ADMIN), { params: Promise.resolve({ id: 'x1' }) });
     expect(await res.json()).toEqual({ id: 'x1' });
+  });
+});
+
+describe('requirePermission with a list of modules (shared lookups)', () => {
+  const row = (canView: boolean) => ({ canView, canCreate: false, canEdit: false, canDelete: false, canApprove: false });
+
+  it('allows when any one listed module grants the action', async () => {
+    findFirst.mockResolvedValue({ role: { permissions: [row(false), row(true)] } });
+    await expect(requirePermission(req(VIEWER), ['AR_INVOICES', 'AP_BILLS'], 'view')).resolves.toBeUndefined();
+    const where = findFirst.mock.calls[0][0].select.role.select.permissions.where;
+    expect(where).toEqual({ moduleKey: { in: ['AR_INVOICES', 'AP_BILLS'] } });
+  });
+
+  it('denies when none of the listed modules grants the action', async () => {
+    findFirst.mockResolvedValue({ role: { permissions: [row(false)] } });
+    await expect(requirePermission(req(VIEWER), ['AR_INVOICES', 'AP_BILLS'], 'view'))
+      .rejects.toMatchObject({ status: 403, message: expect.stringContaining('any of AR_INVOICES, AP_BILLS') });
+  });
+
+  it('denies an empty list without querying', async () => {
+    await expect(requirePermission(req(VIEWER), [], 'view')).rejects.toMatchObject({ status: 403 });
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it('keeps the single-module query shape', async () => {
+    findFirst.mockResolvedValue({ role: { permissions: [row(true)] } });
+    await requirePermission(req(VIEWER), 'HR_EMPLOYEES', 'view');
+    expect(findFirst.mock.calls[0][0].select.role.select.permissions.where).toEqual({ moduleKey: 'HR_EMPLOYEES' });
+  });
+});
+
+describe('permittedModules', () => {
+  it('returns ALL for ADMIN without a lookup', async () => {
+    await expect(permittedModules(req(ADMIN), 'approve')).resolves.toBe('ALL');
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns the modules whose flag is set', async () => {
+    findFirst.mockResolvedValue({ role: { permissions: [{ moduleKey: 'AR_INVOICES' }, { moduleKey: 'AP_POS' }] } });
+    const got = await permittedModules(req(VIEWER), 'approve');
+    expect(got).toEqual(new Set(['AR_INVOICES', 'AP_POS']));
+    expect(findFirst.mock.calls[0][0].select.role.select.permissions.where).toEqual({ canApprove: true });
+  });
+
+  it('returns an empty set without a membership', async () => {
+    findFirst.mockResolvedValue(null);
+    await expect(permittedModules(req(VIEWER), 'view')).resolves.toEqual(new Set());
+  });
+});
+
+describe('READ_SCOPES', () => {
+  it('every scope is a non-empty list of distinct modules', () => {
+    for (const [name, modules] of Object.entries(READ_SCOPES)) {
+      expect(modules.length, name).toBeGreaterThan(0);
+      expect(new Set(modules).size, name).toBe(modules.length);
+    }
+  });
+
+  it('no scope lets DASHBOARD alone read shared records (widgets check their own module)', () => {
+    for (const modules of Object.values(READ_SCOPES)) {
+      expect(modules as readonly string[]).not.toContain('DASHBOARD');
+    }
+  });
+
+  it('readScope builds a view descriptor', () => {
+    expect(readScope('vendors')).toEqual({ module: READ_SCOPES.vendors, action: 'view' });
   });
 });

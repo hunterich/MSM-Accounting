@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { ApiError, ok, requireOrg } from '@/lib/api-utils';
 import { buildClosingPreview } from '@/lib/fiscal-year-close';
 import { resolveFiscalYearStart } from '@/lib/fiscal-year-start';
+import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 
 export const runtime = 'nodejs';
 
@@ -15,7 +17,7 @@ export async function OPTIONS() {
  * What the fiscal-year close would post, and whether it can run at all.
  * Read-only — this is what the confirm screen shows before anything is written.
  */
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('periodClose'), async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams } = new URL(req.url);
 
