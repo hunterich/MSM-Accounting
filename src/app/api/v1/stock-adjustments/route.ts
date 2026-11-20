@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
+import { requireOrg, err, ok, listResponse, nextNumber, logAudit, parsePaginationParams, validateForeignKey } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { stockAdjustmentInputSchema } from '@/types/api';
 import { lockInventoryItems } from '@/lib/inventory-costing';
@@ -16,7 +16,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'INV_ADJ', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const where: any = { organizationId: orgId };

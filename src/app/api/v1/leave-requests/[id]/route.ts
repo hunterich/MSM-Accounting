@@ -11,7 +11,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission({ module: 'HR_ATTENDANCE', action: 'view' }, async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const record = await prisma.leaveRequest.findFirst({
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   if (!record) return err('Not found', 404);
   return ok(record);
-}
+});
 
 export const PUT = withPermission({ module: 'HR_ATTENDANCE', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;

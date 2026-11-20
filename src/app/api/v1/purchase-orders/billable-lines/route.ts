@@ -6,8 +6,10 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { err, ok, requireOrg, withHandler } from '@/lib/api-utils';
+import { err, ok, requireOrg } from '@/lib/api-utils';
 import { toNumber } from '@/lib/money';
+import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 
 export const runtime = 'nodejs';
 
@@ -15,7 +17,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('billablePoLines'), async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const vendorId = new URL(req.url).searchParams.get('vendorId');
   if (!vendorId) return err('vendorId is required', 400);

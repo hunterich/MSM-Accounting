@@ -22,7 +22,10 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const orgId = requireOrg(req);
 
   const { searchParams } = new URL(req.url);
-  const type           = searchParams.get('type') || 'by-customer';
+  const requestedType  = searchParams.get('type') || 'by-customer';
+  // Workspace tabs persist the report id as the API type. Keep the original
+  // API name working for other callers and already-saved tabs.
+  const type           = requestedType === 'sales-return-list' ? 'return-list' : requestedType;
   const dateFrom       = searchParams.get('dateFrom');
   const dateTo         = searchParams.get('dateTo');
   const customerSearch = searchParams.get('customerSearch') || '';

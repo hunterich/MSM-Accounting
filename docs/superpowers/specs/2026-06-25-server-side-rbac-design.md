@@ -129,11 +129,21 @@ recurring-invoices → `AR_INVOICES`; recurring-bills → `AP_BILLS`; delivery-n
 - **Sensitive reads: enforced** with the matching `view` permission —
   `audit-logs`, `backup/*` (history/download), `payroll-runs/*`, `employees/*`,
   `reports`/financial exports, `organization/settings` (GET stays readable; PUT is admin).
-- **Operational reference reads stay authenticated-only** (any active org member) —
-  e.g. `accounts`, `customers`, `vendors`, `items`, `*-categories`, `warehouses`,
-  `dashboard/summary`. These feed cross-module dropdowns; gating them per-module would break
-  legitimate non-admin workflows (e.g. an AR clerk needs the account/customer lists). They
-  expose only non-sensitive reference data within the user's own book.
+- ~~**Operational reference reads stay authenticated-only**~~ — superseded by issue #234
+  (2026-11-20). Leaving reads open meant 92 GET handlers (invoices, journals, bank
+  transactions, employee compensation, ...) answered any member of the company. Now:
+  - **Every read is enforced.** A GET needs `view` on the module its writes use.
+  - **Shared lookups** (`accounts`, `customers`, `vendors`, `items`, `item-categories`,
+    `warehouses`, `bank-accounts`, `accounting-periods`, and documents other screens list,
+    such as open invoices on receive-payment) accept `view` on **any** module whose screen
+    reads them. Each list, with the screens behind it, is in `lib/authz-read-scopes.ts`;
+    `withPermission` takes the list as `module`.
+  - **Exceptions** are listed per handler, with a reason, in
+    `src/app/api/v1/__tests__/route-permission-coverage.test.ts` (`OPEN_HANDLERS`): auth and
+    self-service, `organization/settings` GET (company profile every screen reads),
+    `access-schedule`, and the approvals routes (scoped per document type: the inbox lists only
+    the types the caller can approve plus their own requests; approve/reject keep
+    `assertApprovalAuthorized`).
 
 ### 5. Specific hardening (audit findings 2–5)
 

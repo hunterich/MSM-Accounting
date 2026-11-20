@@ -4,7 +4,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey, withHandler } from '@/lib/api-utils';
+import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requireOrg, validateForeignKey } from '@/lib/api-utils';
 import { nextNumber } from '@/lib/api-utils';
 import { apPaymentInputSchema } from '@/types/api';
 import { postApPaymentIfNeeded } from '@/lib/payment-posting';
@@ -20,7 +20,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'AP_PAYMENTS', action: 'view' }, async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 20, maxLimit: 100 });
   const status   = searchParams.get('status');

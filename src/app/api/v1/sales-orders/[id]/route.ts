@@ -19,7 +19,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, context: RouteContext) {
+export const GET = withPermission({ module: 'AR_SALES_ORDERS', action: 'view' }, async function GET(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const orgId = req.headers.get('x-org-id');
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const message = error instanceof Error ? error.message : 'Failed to get sales order';
     return withCors(NextResponse.json({ error: message }, { status: 500 }));
   }
-}
+});
 
 export const PUT = withPermission({ module: 'AR_SALES_ORDERS', action: 'edit' }, async (req: NextRequest, context: RouteContext) => {
   try {

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ApiError, ok, err, logAudit, softDelete, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { updateItemInputSchema } from '@/types/api';
 import { lockOpeningStock, postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { assertInventoryAccountChangeAllowed } from '@/lib/item-inventory-account-guard';
@@ -15,13 +16,13 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission(readScope('items'), async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const item = await prisma.item.findFirst({ where: { id, organizationId: orgId }, include: { category: { select: { id: true, name: true, code: true } } } });
   if (!item) return err('Not found', 404);
   return ok(item);
-}
+});
 
 export const PUT = withPermission({ module: 'INV_ITEMS', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;

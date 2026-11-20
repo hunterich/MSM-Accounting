@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { withHandler, requireOrg, ok, err, logAudit } from '@/lib/api-utils';
+import { requireOrg, ok, err, logAudit } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { createBankAccountInputSchema } from '@/types/api';
 import { postBankOpeningBalance } from '@/lib/bank-transaction-posting';
 import { toAccountingDate } from '@/lib/accounting-date';
@@ -13,7 +14,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission(readScope('bankAccounts'), async function GET(req: NextRequest) {
   const orgId = requireOrg(req);
   const { searchParams } = new URL(req.url);
   const isActive = searchParams.get('isActive');

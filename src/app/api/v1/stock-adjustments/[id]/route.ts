@@ -13,7 +13,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission({ module: 'INV_ADJ', action: 'view' }, async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const orgId = req.headers.get('x-org-id')!;
   const adj = await prisma.stockAdjustment.findFirst({
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   if (!adj) return err('Not found', 404);
   return ok(adj);
-}
+});
 
 export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;

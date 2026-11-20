@@ -9,12 +9,14 @@
  * the posting date and refuses to write into it once locked.
  *
  * A date that falls outside every defined period is allowed — an undefined
- * period is simply "not yet closed". Throws `ApiError(422)`, which the route
- * `withHandler` wrapper translates into a clean client error.
+ * period is simply "not yet closed" — unless it falls inside a closed fiscal
+ * year. Throws `ApiError(422)`, which the route `withHandler` wrapper
+ * translates into a clean client error.
  */
 import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { accountingDay, toAccountingDate } from './accounting-date';
+import { advisoryLockKey } from './advisory-lock';
 import {
   assertTransactionDateAllowed,
   type TransactionDateGuardOptions,
@@ -33,6 +35,16 @@ export async function lockOpenAccountingPeriod(
   // raw, it would land in (and be blocked by) the previous month while every
   // report puts it in the new one.
   const accountingDate = toAccountingDate(date);
+  // A closed fiscal year refuses postings on its own, independent of period
+  // rows: a year can be closed while some of its months have no period row
+  // (later years get rows only when generated), and a closed month without
+  // linked manual journals can be deleted. Either way a posting would land
+  // after the closing entry and leave it stale (#170). The shared lock pairs
+  // with the exclusive one closeFiscalYear and the year reopen take: a close
+  // waits for in-flight postings, and a posting waiting on a close re-reads
+  // FiscalYearClose below with a fresh snapshot once the close commits. It is
+  // taken before the period row, matching the close's lock order.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${advisoryLockKey(`fiscal-year:${organizationId}`)})`;
   // Lock the matching period row FOR SHARE (if one exists). Concurrent posts
   // share the lock and don't block each other, but a concurrent period-close
   // (FOR UPDATE on the same row) waits for in-flight posts to commit and blocks
@@ -56,6 +68,27 @@ export async function lockOpenAccountingPeriod(
     const on = accountingDay(date);
     throw new ApiError(
       `Accounting period "${period.name}" is closed/locked — cannot post on ${on}`,
+      422,
+    );
+  }
+
+  // A separate statement after the lock, so it sees a close that committed
+  // while this transaction waited.
+  const closedYears = await tx.$queryRaw<Array<{ startDate: Date; endDate: Date }>>`
+    SELECT "startDate", "endDate"
+    FROM "FiscalYearClose"
+    WHERE "organizationId" = ${organizationId}
+      AND "startDate" <= ${accountingDate}
+      AND "endDate" >= ${accountingDate}
+    LIMIT 1
+  `;
+  if (closedYears[0]) {
+    // The year's bounds are UTC calendar boundaries (endDate is its last
+    // millisecond), so take their calendar days directly, as the close does.
+    const day = (d: Date) => new Date(d).toISOString().slice(0, 10);
+    const { startDate, endDate } = closedYears[0];
+    throw new ApiError(
+      `Fiscal year ${day(startDate)} to ${day(endDate)} is closed — cannot post on ${accountingDay(date)}. Reopen the fiscal year first.`,
       422,
     );
   }

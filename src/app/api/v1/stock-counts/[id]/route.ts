@@ -14,7 +14,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withPermission({ module: 'INV_ADJ', action: 'view' }, async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const orgId = req.headers.get('x-org-id');
   if (!orgId) return err('Unauthenticated', 401);
   const { id } = await params;
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
 
   return ok({ ...count, lines });
-}
+});
 
 export const PUT = withPermission({ module: 'INV_ADJ', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const orgId = req.headers.get('x-org-id');

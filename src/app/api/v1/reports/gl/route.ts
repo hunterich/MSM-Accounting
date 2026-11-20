@@ -326,7 +326,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         organizationId: orgId,
         date: { gte: dateFrom, lte: dateTo },
       };
-      if (bankAccountId) txWhere.bankAccountId = bankAccountId;
+      if (bankAccountId) txWhere.OR = [{ bankAccountId }, { type: 'TRANSFER', toBankAccountId: bankAccountId }];
 
       const transactions = await prisma.bankTransaction.findMany({
         where: txWhere,
@@ -346,37 +346,38 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
 
       const summaryByAccount = new Map<string, AccountSummary>();
 
-      const rows = transactions.map((tx) => {
+      const destinationIds = [...new Set(transactions.flatMap(tx => tx.type === 'TRANSFER' && tx.toBankAccountId ? [tx.toBankAccountId] : []))];
+      const destinations = destinationIds.length ? await prisma.bankAccount.findMany({
+        where: { organizationId: orgId, id: { in: destinationIds } }, select: { id: true, name: true },
+      }) : [];
+      const nameById = new Map(destinations.map(account => [account.id, account.name]));
+      if (transactions.some(tx => tx.type === 'TRANSFER' && (!tx.toBankAccountId || !nameById.has(tx.toBankAccountId)))) {
+        return err('A bank transfer has a missing or invalid destination account; correct it before running this report', 400);
+      }
+      const rows: Array<{ date: Date; description: string; type: string; amount: number; bankAccountId: string; bankAccountName: string; inflow: number; outflow: number; net: number }> = [];
+      const addRow = (tx: typeof transactions[number], accountId: string, accountName: string, inflow: number, outflow: number) => {
+        if (bankAccountId && accountId !== bankAccountId) return;
+        const existing = summaryByAccount.get(accountId) || {
+          accountId, accountName, totalInflows: 0, totalOutflows: 0, net: 0,
+        };
+        existing.totalInflows = asMoney(existing.totalInflows + inflow);
+        existing.totalOutflows = asMoney(existing.totalOutflows + outflow);
+        existing.net = asMoney(existing.totalInflows - existing.totalOutflows);
+        summaryByAccount.set(accountId, existing);
+        rows.push({ date: tx.date, description: tx.description, type: tx.type, amount: Number(tx.amount), bankAccountId: accountId, bankAccountName: accountName, inflow, outflow, net: asMoney(inflow - outflow) });
+      };
+      for (const tx of transactions) {
         const amount = Number(tx.amount);
-        const isInflow = tx.type === 'INCOME';
-        const isOutflow = tx.type === 'EXPENSE';
-
-        const existing = summaryByAccount.get(tx.bankAccountId) || {
-          accountId: tx.bankAccountId,
-          accountName: tx.bankAccount.name,
-          totalInflows: 0,
-          totalOutflows: 0,
-          net: 0,
-        };
-
-        if (isInflow) existing.totalInflows += amount;
-        if (isOutflow) existing.totalOutflows += amount;
-        existing.net = existing.totalInflows - existing.totalOutflows;
-        summaryByAccount.set(tx.bankAccountId, existing);
-
-        return {
-          date: tx.date,
-          description: tx.description,
-          type: tx.type,
-          amount,
-          bankAccountId: tx.bankAccountId,
-          bankAccountName: tx.bankAccount.name,
-        };
-      });
+        if (tx.type === 'INCOME') addRow(tx, tx.bankAccountId, tx.bankAccount.name, amount, 0);
+        if (tx.type === 'EXPENSE' || tx.type === 'TRANSFER') addRow(tx, tx.bankAccountId, tx.bankAccount.name, 0, amount);
+        if (tx.type === 'TRANSFER' && tx.toBankAccountId && nameById.has(tx.toBankAccountId)) {
+          addRow(tx, tx.toBankAccountId, nameById.get(tx.toBankAccountId)!, amount, 0);
+        }
+      }
 
       const accountSummaries = Array.from(summaryByAccount.values());
-      const overallInflows = accountSummaries.reduce((sum, s) => sum + s.totalInflows, 0);
-      const overallOutflows = accountSummaries.reduce((sum, s) => sum + s.totalOutflows, 0);
+      const overallInflows = asMoney(accountSummaries.reduce((sum, s) => sum + s.totalInflows, 0));
+      const overallOutflows = asMoney(accountSummaries.reduce((sum, s) => sum + s.totalOutflows, 0));
 
       return ok({
         type,
@@ -387,7 +388,10 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           byAccount: accountSummaries,
           totalInflows: overallInflows,
           totalOutflows: overallOutflows,
-          net: overallInflows - overallOutflows,
+          net: asMoney(overallInflows - overallOutflows),
+          totalInflow: overallInflows,
+          totalOutflow: overallOutflows,
+          totalNet: asMoney(overallInflows - overallOutflows),
         },
       });
     }

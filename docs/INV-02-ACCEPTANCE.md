@@ -100,3 +100,55 @@ This is local branch verification. CI, finance and release acceptance are separa
 
 No new migration, posting/costing policy, historical rewrite, production query,
 initialization, deployment or merge is performed by this increment. Keep #170 open.
+
+# Follow-up — 2026-11-20: HTTP receive route and fiscal-year close
+
+Closes the two concurrency gaps listed above that were code work:
+`inventory-route-year-close-acceptance.int.test.ts`.
+
+## Defect found: postings into a closed fiscal year
+
+`closeFiscalYear` requires every *existing* period row of the year to be CLOSED,
+and `assertPeriodOpen` treats a date with no period row as open. Bootstrap only
+creates rows for the first fiscal year, and a closed month with no linked manual
+journal can be deleted. In either case the year could be (or stay) closed while
+sales, receipts and stock adjustments dated in it still posted after the closing
+entry, so revenue/COGS reappeared in a closed year and Retained Earnings no
+longer matched.
+
+`lockOpenAccountingPeriod` now takes the fiscal-year advisory lock in shared
+mode (close and reopen take it exclusively) before the period row, then refuses
+any date covered by a `FiscalYearClose`. A posting in flight makes the close wait
+and is included in it; a posting that arrives during the close waits and is
+refused. The lock is taken before any period row, the same order as the close.
+Reopening the year lifts the refusal. Missing period rows are still allowed to
+close, as before; the guard makes that safe rather than adding a coverage rule.
+
+## New PostgreSQL cases
+
+| Case | Fixed checks |
+| --- | --- |
+| Three concurrent HTTP receives of 2 against 3 ordered | Exactly one 201, two 422 over-receive; received 2, one receipt bill, 7 units worth 9,000, GR/IR -4,000. |
+| HTTP receive while a sale holds its locks | Route waits; sale costs 2,000 at the opening average; 6 units worth 9,000 after the receipt; PO closed. |
+| HTTP receive while FIFO→WA holds the company row | Route waits; original lot identities and prices kept; only the receipt journal added; 8 units worth 11,000. |
+| HTTP receive while the current month closes | Route waits, then 422; PO, bills, lots, ledger and journals unchanged. |
+| Year with no period rows, closed | A later-dated sale and stock adjustment are refused with nothing written; the next year still posts; reopening allows the year again. |
+| Closed year after deleting a closed month | The month's sale is refused. |
+| Year close holding its lock vs sale / stock adjustment | Contender waits, then 422; only the closing entry is added; P&L nets to zero, RE −4,000. |
+| Sale holding its locks vs year close | Close waits and includes the sale: revenue 12,000, COGS 4,000 closed, RE −8,000. |
+
+Every case asserts lot carrying value = stock ledger = Inventory GL and a balanced
+trial balance. The route cases can only hold the *other* side open, so they cover
+"route arrives second"; "route first" is the sequential case already covered.
+
+## Validation on this increment
+
+- Unit suite and TypeScript pass, apart from the two known Windows pagination
+  locale failures (`350.000`) and three `cashFlowClass` errors from a stale
+  shared Prisma client in the local checkout.
+- Not run against PostgreSQL locally (no database on this host); CI runs the
+  integration suite.
+
+## Remaining gates
+
+The finance, legacy-data, rehearsal and release gates listed above are unchanged.

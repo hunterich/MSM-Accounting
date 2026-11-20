@@ -5,8 +5,9 @@ import {
   createInvoiceInputSchema,
   createInvoiceResponseSchema,
 } from '@/types/api';
-import { ApiError, logAudit, withHandler, ok, err, requireAuth, parsePaginationParams, listResponse, validateForeignKey } from '@/lib/api-utils';
+import { ApiError, logAudit, ok, err, requireAuth, parsePaginationParams, listResponse, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { readScope } from '@/lib/authz-read-scopes';
 import { toNumber } from '@/lib/money';
 import { calculateInvoiceTotals } from '@/lib/invoice-totals';
 import { nextInvoiceNumber } from '@/lib/invoice-number';
@@ -22,7 +23,7 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-export const GET = withHandler(async (req: NextRequest) => {
+export const GET = withPermission(readScope('invoices'), async (req: NextRequest) => {
   const { orgId, userId } = requireAuth(req);
 
   const { searchParams, page, limit } = parsePaginationParams(req);

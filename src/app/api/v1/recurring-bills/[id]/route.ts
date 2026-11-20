@@ -1,14 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import {
-  ApiError,
-  logAudit,
-  ok,
-  err,
-  requireOrg,
-  withHandler,
-} from '@/lib/api-utils';
+import { ApiError, logAudit, ok, err, requireOrg } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { assertItemsActive } from '@/lib/item-availability';
 
@@ -20,7 +13,7 @@ export async function OPTIONS() {
 
 const VALID_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'] as const;
 
-export const GET = withHandler(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
+export const GET = withPermission({ module: 'AP_BILLS', action: 'view' }, async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const orgId = requireOrg(req);
   const { id } = await ctx.params;
 

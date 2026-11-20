@@ -2,16 +2,7 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import {
-  ApiError,
-  listResponse,
-  logAuditTx,
-  nextNumber,
-  ok,
-  parsePaginationParams,
-  requireAuth,
-  withHandler,
-} from '@/lib/api-utils';
+import { ApiError, listResponse, logAuditTx, nextNumber, ok, parsePaginationParams, requireAuth } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
 import { toNumber } from '@/lib/money';
 
@@ -39,7 +30,7 @@ const CreateDNSchema = z.object({
     .min(1),
 });
 
-export const GET = withHandler(async function GET(req: NextRequest) {
+export const GET = withPermission({ module: 'AR_SALES_ORDERS', action: 'view' }, async function GET(req: NextRequest) {
   const { orgId } = requireAuth(req);
   const { searchParams, page, limit } = parsePaginationParams(req, { limit: 50, maxLimit: 200 });
 

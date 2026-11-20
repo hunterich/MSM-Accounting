@@ -49,6 +49,15 @@ export const escapeCsvCell = (value: unknown): string => {
   return `"${String(value).replace(/"/g, '""')}"`;
 };
 
+/** Keep financial caveats with both CSV and PDF exports. */
+export function appendReportExportNotes(csv: string, basis: string | undefined, data: { summary?: { unappliedCredits?: number; unallocatedCredit?: number; netOutstanding?: number }; warnings?: unknown }) {
+  const credit = data.summary?.unappliedCredits ?? data.summary?.unallocatedCredit ?? 0;
+  if (credit > 0) csv += `\nUnapplied credits / credit balances,${credit}\nNet balance,${data.summary?.netOutstanding ?? ''}`;
+  if (basis) csv += `\nBasis,${escapeCsvCell(basis)}`;
+  if (Array.isArray(data.warnings)) for (const warning of data.warnings) csv += `\nWarning,${escapeCsvCell(warning)}`;
+  return csv;
+}
+
 // ── CSV builders ───────────────────────────────────────────────────────────────
 
 export const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {
@@ -402,14 +411,14 @@ export const buildApCsv = (report: ReportDefinition, data: Record<string, unknow
     const summary = (data.summary || {}) as APAgingSummary;
     let csv = 'Bill No.,Vendor,Bill Date,Due Date,Days Overdue,Current,1-30,31-60,61-90,90+,Balance\n';
     csv += rows.map((row) => [
-      escapeCsvCell(row.id),
+      escapeCsvCell(row.billNumber),
       escapeCsvCell(row.vendorName),
       escapeCsvCell(row.billDate),
       escapeCsvCell(row.dueDate),
       row.daysOverdue,
-      row.current, row.d1_30, row.d31_60, row.d61_90, row.d90plus, row.balance,
+      row.current, row.d1To30, row.d31To60, row.d61To90, row.d90Plus, row.balance,
     ].join(',')).join('\n');
-    csv += `\nTotal,,,,, ${summary.current || 0},${summary.d1_30 || 0},${summary.d31_60 || 0},${summary.d61_90 || 0},${summary.d90plus || 0},${summary.balance || 0}`;
+    csv += `\nTotal,,,,,${summary.current || 0},${summary.d1To30 || 0},${summary.d31To60 || 0},${summary.d61To90 || 0},${summary.d90Plus || 0},${summary.totalOutstanding || 0}`;
     return csv;
   }
 
@@ -456,6 +465,7 @@ export const buildBankingCsv = (report: ReportDefinition, data: Record<string, u
       row.inflow, row.outflow, row.net,
     ].join(',')).join('\n');
     csv += `\nTotal,,${summary.totalInflow || 0},${summary.totalOutflow || 0},${summary.totalNet || 0}`;
+    csv += '\n"Inflows and outflows include transfers between banks; internal transfers appear on both sides of the total.",,,,';
     return csv;
   }
   if (report.id === 'bank-reconciliation') {

@@ -23,7 +23,7 @@ import ReportEntitySelect from './ReportEntitySelect';
 import ReportResult from './ReportResult';
 import { controlReconciliationKind, controlReconciliationCsv } from './controlReconciliation';
 import type { ControlReconciliation } from '../../../lib/control-reconciliation';
-import { buildApCsv, buildArCsv, buildBankingCsv, buildGlCsv, buildHrCsv, buildInventoryCsv, buildSalesCsv } from './reportCsv';
+import { appendReportExportNotes, buildApCsv, buildArCsv, buildBankingCsv, buildGlCsv, buildHrCsv, buildInventoryCsv, buildSalesCsv } from './reportCsv';
 import { DEFAULT_CATEGORY, IMPLEMENTED_CATEGORIES, REPORTS_BY_CATEGORY } from './reportDefinitions';
 import { renderEmptyReport } from './reportResultHelpers';
 import type {
@@ -503,11 +503,7 @@ const Reports: React.FC<ReportsProps> = ({
 
     const { report, data } = activeReport;
     if (controlReconciliationKind(report.id) && (isLoading || error)) return;
-    let csv = buildActiveReportCsv(report, data as Record<string, unknown>);
-    const credit = data?.summary?.unappliedCredits ?? data?.summary?.unallocatedCredit ?? 0;
-    if (credit > 0) csv += `\nUnapplied credits / credit balances,${credit}\nNet balance,${data.summary.netOutstanding}`;
-    if (report.basis) csv += `\nBasis,"${report.basis.replaceAll('"', '""')}"`;
-    if (Array.isArray(data?.warnings)) for (const warning of data.warnings) csv += `\nWarning,"${String(warning).replaceAll('"', '""')}"`;
+    const csv = appendReportExportNotes(buildActiveReportCsv(report, data as Record<string, unknown>), report.basis, data);
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -523,7 +519,7 @@ const Reports: React.FC<ReportsProps> = ({
 
     const { report, data } = activeReport;
     if (controlReconciliationKind(report.id) && (isLoading || error)) return;
-    const csv = buildActiveReportCsv(report, data as Record<string, unknown>);
+    const csv = appendReportExportNotes(buildActiveReportCsv(report, data as Record<string, unknown>), report.basis, data);
     if (!csv.trim()) return;
 
     exportCsvToPdf(
