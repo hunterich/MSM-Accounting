@@ -37,8 +37,8 @@ export default function ApReportResult({ activeReport }: ReportResultProps): Rea
           </thead>
           <tbody>
             {apRows.map((row) => (
-              <tr key={row.id} className="hover:bg-neutral-50">
-                <td className="p-3 border border-neutral-200 font-mono text-xs">{row.id}</td>
+              <tr key={row.billId} className="hover:bg-neutral-50">
+                <td className="p-3 border border-neutral-200 font-mono text-xs">{row.billNumber}</td>
                 <td className="p-3 border border-neutral-200">{row.vendorName}</td>
                 <td className="p-3 border border-neutral-200">{formatDateID(row.billDate)}</td>
                 <td className="p-3 border border-neutral-200">{formatDateID(row.dueDate)}</td>
@@ -46,10 +46,10 @@ export default function ApReportResult({ activeReport }: ReportResultProps): Rea
                   {row.daysOverdue > 0 ? <span className="text-danger-600 font-medium">{row.daysOverdue}</span> : 'Current'}
                 </td>
                 <td className="p-3 border border-neutral-200 text-right">{row.current ? formatIDR(row.current) : '—'}</td>
-                <td className="p-3 border border-neutral-200 text-right">{row.d1_30 ? formatIDR(row.d1_30) : '—'}</td>
-                <td className="p-3 border border-neutral-200 text-right">{row.d31_60 ? formatIDR(row.d31_60) : '—'}</td>
-                <td className="p-3 border border-neutral-200 text-right">{row.d61_90 ? formatIDR(row.d61_90) : '—'}</td>
-                <td className="p-3 border border-neutral-200 text-right">{row.d90plus ? formatIDR(row.d90plus) : '—'}</td>
+                <td className="p-3 border border-neutral-200 text-right">{row.d1To30 ? formatIDR(row.d1To30) : '—'}</td>
+                <td className="p-3 border border-neutral-200 text-right">{row.d31To60 ? formatIDR(row.d31To60) : '—'}</td>
+                <td className="p-3 border border-neutral-200 text-right">{row.d61To90 ? formatIDR(row.d61To90) : '—'}</td>
+                <td className="p-3 border border-neutral-200 text-right">{row.d90Plus ? formatIDR(row.d90Plus) : '—'}</td>
                 <td className="p-3 border border-neutral-200 text-right font-medium">{formatIDR(row.balance)}</td>
               </tr>
             ))}
@@ -57,11 +57,11 @@ export default function ApReportResult({ activeReport }: ReportResultProps): Rea
         </table>
         <div className="mt-4 pt-4 border-t border-neutral-200 flex flex-wrap gap-4 text-sm font-semibold text-neutral-700">
           <span>Current: {formatIDR(apSummary.current || 0)}</span>
-          <span>1-30: {formatIDR(apSummary.d1_30 || 0)}</span>
-          <span>31-60: {formatIDR(apSummary.d31_60 || 0)}</span>
-          <span>61-90: {formatIDR(apSummary.d61_90 || 0)}</span>
-          <span>90+: {formatIDR(apSummary.d90plus || 0)}</span>
-          <span className="ml-auto text-primary-700">Total Outstanding: {formatIDR(apSummary.balance || 0)}</span>
+          <span>1-30: {formatIDR(apSummary.d1To30 || 0)}</span>
+          <span>31-60: {formatIDR(apSummary.d31To60 || 0)}</span>
+          <span>61-90: {formatIDR(apSummary.d61To90 || 0)}</span>
+          <span>90+: {formatIDR(apSummary.d90Plus || 0)}</span>
+          <span className="ml-auto text-primary-700">Total Outstanding: {formatIDR(apSummary.totalOutstanding || 0)}</span>
         </div>
       </div>
     );

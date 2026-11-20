@@ -323,26 +323,27 @@ export interface BalanceSheetMultiSummary {
 // ── AP Aging ───────────────────────────────────────────────────────────────────
 
 export interface APAgingRow {
-  id: string;
+  billId: string;
+  billNumber: string;
   vendorName: string;
   billDate: string;
-  dueDate: string;
+  dueDate: string | null;
   daysOverdue: number;
   balance: number;
   current: number;
-  d1_30: number;
-  d31_60: number;
-  d61_90: number;
-  d90plus: number;
+  d1To30: number;
+  d31To60: number;
+  d61To90: number;
+  d90Plus: number;
 }
 
 export interface APAgingSummary {
   current: number;
-  d1_30: number;
-  d31_60: number;
-  d61_90: number;
-  d90plus: number;
-  balance: number;
+  d1To30: number;
+  d31To60: number;
+  d61To90: number;
+  d90Plus: number;
+  totalOutstanding: number;
 }
 
 // ── Cash Flow ──────────────────────────────────────────────────────────────────
