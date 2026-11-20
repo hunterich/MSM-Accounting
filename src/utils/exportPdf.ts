@@ -215,8 +215,12 @@ export const buildPdfTableFromCsv = (csv: string): PdfTableModel | null => {
     const parsed = parseCsv(csv).filter((r) => r.length > 0 && !(r.length === 1 && r[0].value === ''));
     if (parsed.length === 0) return null;
 
-    const headerRow = parsed[0];
-    const bodyRows = parsed.slice(1);
+    // Bank history and account ledger start with a one-cell section title,
+    // followed by the actual column headings. Repeat the headings on each page;
+    // a repeated bank name could otherwise misidentify later bank sections.
+    const hasLeadingTitle = parsed[0].length === 1 && (parsed[1]?.length ?? 0) > 1;
+    const headerRow = hasLeadingTitle ? parsed[1] : parsed[0];
+    const bodyRows = hasLeadingTitle ? [parsed[0], ...parsed.slice(2)] : parsed.slice(1);
     const colCount = parsed.reduce((max, row) => Math.max(max, row.length), 0);
 
     const head = [Array.from({ length: colCount }, (_, colIdx) => headerRow[colIdx]?.value ?? '')];

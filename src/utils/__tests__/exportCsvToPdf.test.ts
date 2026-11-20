@@ -46,10 +46,19 @@ describe('buildPdfTableFromCsv', () => {
   it('preserves all columns when the report begins with a single-cell title', () => {
     const csv = 'Account: 100 - Cash\nDate,Journal,Description,Debit,Credit,Balance\n2026-01-01,JE-1,Payment,1500,0,1500';
     const { head, body, columnStyles } = buildPdfTableFromCsv(csv)!;
-    expect(head[0]).toHaveLength(6);
-    expect(body[0]).toEqual(['Date', 'Journal', 'Description', 'Debit', 'Credit', 'Balance']);
+    expect(head[0]).toEqual(['Date', 'Journal', 'Description', 'Debit', 'Credit', 'Balance']);
+    expect(body[0]).toEqual(['Account: 100 - Cash', '', '', '', '', '']);
     expect(body[1]).toEqual(['2026-01-01', 'JE-1', 'Payment', '1.500', '0', '1.500']);
     expect(columnStyles[5]).toEqual({ halign: 'right' });
+  });
+
+  it('repeats column headings rather than the first bank name across bank history pages', () => {
+    const csv = 'BCA\nDate,Description,In,Out,Balance\n2026-01-01,Receipt,100,0,100\nMandiri\nDate,Description,In,Out,Balance\n2026-01-02,Payment,0,50,50';
+    const { head, body } = buildPdfTableFromCsv(csv)!;
+    expect(head[0]).toEqual(['Date', 'Description', 'In', 'Out', 'Balance']);
+    expect(body[0][0]).toBe('BCA');
+    expect(body[2][0]).toBe('Mandiri');
+    expect(body[4]).toEqual(['2026-01-02', 'Payment', '0', '50', '50']);
   });
 
   it('keeps financial basis, warnings, and unapplied credit notes in the PDF model', () => {
