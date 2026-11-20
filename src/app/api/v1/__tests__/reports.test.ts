@@ -14,6 +14,7 @@ vi.mock('@/lib/prisma', () => ({
     salesInvoice: {
       findMany: vi.fn(),
     },
+    salesReturn: { findMany: vi.fn() },
     aRPaymentAllocation: {
       groupBy: vi.fn(),
     },
@@ -57,6 +58,8 @@ vi.mock('@/lib/prisma', () => ({
     bankAccount: {
       findMany: vi.fn(),
     },
+    bankStatementLine: { findMany: vi.fn() },
+    bankStatement: { findFirst: vi.fn() },
     inventoryLedgerEntry: {
       findMany: vi.fn(),
     },
@@ -91,6 +94,7 @@ import { GET as getArReport } from '../reports/ar/route';
 import { GET as getApReport } from '../reports/ap/route';
 import { GET as getGlReport } from '../reports/gl/route';
 import { GET as getBankingReport } from '../reports/banking/route';
+import { GET as getSalesReport } from '../reports/sales/route';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -109,6 +113,7 @@ beforeEach(() => {
 
   // Default: return empty arrays for all prisma calls
   vi.mocked(prisma.salesInvoice.findMany).mockResolvedValue([]);
+  vi.mocked(prisma.salesReturn.findMany).mockResolvedValue([]);
   vi.mocked(prisma.aRPaymentAllocation.groupBy).mockResolvedValue([]);
   vi.mocked(prisma.aRPayment.findMany).mockResolvedValue([]);
   vi.mocked(prisma.creditNote.findMany).mockResolvedValue([]);
@@ -149,6 +154,23 @@ describe('Report routes — auth enforcement', () => {
 });
 
 // ── AR report ────────────────────────────────────────────────────────────────
+
+describe('GET /api/v1/reports/sales — returns', () => {
+  it.each(['sales-return-list', 'return-list'])('returns matching sales returns for %s', async (type) => {
+    vi.mocked(prisma.salesReturn.findMany).mockResolvedValue([{
+      id: 'r1', number: 'SR-001', returnDate: new Date('2026-06-15'),
+      customer: { name: 'West' }, invoice: { number: 'INV-001' },
+      status: 'APPLIED', totalAmount: 125,
+    }] as never);
+    const res = await getSalesReport(makeReq(`/api/v1/reports/sales?type=${type}&dateFrom=2026-06-01&dateTo=2026-06-30&customerSearch=West`, 'org-a'));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]).toMatchObject({ number: 'SR-001', customerName: 'West', invoiceNumber: 'INV-001', totalAmount: 125 });
+    expect(body.grandTotal).toBe(125);
+    expect(prisma.salesReturn.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a', customer: { name: { contains: 'West', mode: 'insensitive' } } }) }));
+  });
+});
 
 describe('GET /api/v1/reports/ar', () => {
   it('returns 200 with rows and summary for aging type (empty org)', async () => {
@@ -302,6 +324,18 @@ describe('GET /api/v1/reports/gl', () => {
 describe('GET /api/v1/reports/banking — cash & bank reports', () => {
   const req = (qs: string) => makeReq(`/api/v1/reports/banking?${qs}`, 'org1');
 
+  it.each(['bank-reconciliation', 'reconciliation-summary'])('returns real reconciliation rows for %s', async (type) => {
+    vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([{ id: 'A', name: 'BCA', code: '100', bankName: 'BCA', currentBalance: 100 }] as never);
+    vi.mocked(prisma.bankStatementLine.findMany).mockResolvedValue([{ amount: 15, matchStatus: 'UNMATCHED' }] as never);
+    vi.mocked(prisma.bankStatement.findFirst).mockResolvedValue({ lines: [{ balance: 115 }], toDate: null, importedAt: new Date('2026-06-30') } as never);
+    const res = await getBankingReport(req(`type=${type}`));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]).toMatchObject({ accountName: 'BCA', bookBalance: 100, statementEndBalance: 115, variance: 15, unmatchedAmount: 15 });
+    expect(body.summary.totalUnmatched).toBe(1);
+  });
+
   it('bank-history: opening = account opening + prior movements, with running balance and transfers both directions', async () => {
     vi.mocked(prisma.bankAccount.findMany)
       // first call: scoped accounts (has openingBalance); second call: id→name map
@@ -360,5 +394,34 @@ describe('GET /api/v1/reports/banking — cash & bank reports', () => {
     const body = await res.json();
     expect(body.summary).toEqual({ count: 0, totalReceived: 0 });
     expect(body.rows).toEqual([]);
+  });
+});
+
+describe('GET /api/v1/reports/gl — cash flow by bank', () => {
+  it('rejects a transfer with no valid destination instead of omitting its inflow', async () => {
+    vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([{ date: new Date('2026-06-15'), description: 'Transfer', type: 'TRANSFER', amount: 30, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: null }] as never);
+    const res = await getGlReport(makeReq('/api/v1/reports/gl?type=cash-flow&dateFrom=2026-06-01&dateTo=2026-06-30', 'org-a'));
+    expect(res.status).toBe(400);
+  });
+
+  it('reports income, expenses and both sides of an internal transfer', async () => {
+    const date = new Date('2026-06-15T00:00:00Z');
+    vi.mocked(prisma.bankTransaction.findMany).mockResolvedValue([
+      { date, description: 'Sale', type: 'INCOME', amount: 100, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: null },
+      { date, description: 'Purchase', type: 'EXPENSE', amount: 20, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: null },
+      { date, description: 'Transfer', type: 'TRANSFER', amount: 30, bankAccountId: 'A', bankAccount: { id: 'A', name: 'BCA' }, toBankAccountId: 'B' },
+    ] as never);
+    vi.mocked(prisma.bankAccount.findMany).mockResolvedValue([{ id: 'B', name: 'Mandiri' }] as never);
+    const request = (filter = '') => makeReq(`/api/v1/reports/gl?type=cash-flow&dateFrom=2026-06-01&dateTo=2026-06-30${filter}`, 'org-a');
+    const all = await (await getGlReport(request())).json();
+    expect(all.rows.map((row: any) => [row.bankAccountName, row.inflow, row.outflow, row.net])).toEqual([
+      ['BCA', 100, 0, 100], ['BCA', 0, 20, -20], ['BCA', 0, 30, -30], ['Mandiri', 30, 0, 30],
+    ]);
+    expect(all.summary).toMatchObject({ totalInflow: 130, totalOutflow: 50, totalNet: 80 });
+    const destination = await (await getGlReport(request('&bankAccountId=B'))).json();
+    expect(destination.rows).toHaveLength(1);
+    expect(destination.rows[0]).toMatchObject({ bankAccountName: 'Mandiri', inflow: 30, outflow: 0 });
+    expect(destination.summary).toMatchObject({ totalInflow: 30, totalOutflow: 0, totalNet: 30 });
+    expect(prisma.bankTransaction.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a', OR: [{ bankAccountId: 'B' }, { type: 'TRANSFER', toBankAccountId: 'B' }] }) }));
   });
 });

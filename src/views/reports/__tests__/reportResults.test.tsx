@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import ReportResult from '../ReportResult';
 import { ALL_REPORTS, findReportById } from '../reportDefinitions';
-import { buildInventoryCsv, buildSalesCsv } from '../reportCsv';
+import { buildApCsv, buildBankingCsv, buildInventoryCsv, buildSalesCsv } from '../reportCsv';
 import type { OpenReportEntry, ReportType } from '../reportTypes';
 
 function entry(id: ReportType, data: unknown): OpenReportEntry {
@@ -43,6 +43,35 @@ describe('report output after splitting renderers', () => {
     const csv = buildSalesCsv(report.report, data);
     expect(csv).toContain('"Customer, ""West"""');
     expect(csv).toContain('125000');
+  });
+
+  it('shows and exports AP aging bill numbers, buckets, and totals returned by the API', () => {
+    const data = {
+      rows: [{ billId: 'internal-id', billNumber: 'BILL-123', vendorName: 'Vendor A', billDate: '2026-01-01', dueDate: '2026-01-31', daysOverdue: 45, current: 0, d1To30: 0, d31To60: 125000, d61To90: 0, d90Plus: 0, balance: 125000 }],
+      summary: { current: 0, d1To30: 0, d31To60: 125000, d61To90: 0, d90Plus: 0, totalOutstanding: 125000 },
+    };
+    const report = entry('ap-aging', data);
+    const html = render(report);
+    expect(html).toContain('BILL-123');
+    expect(html).toContain('31-60: Rp');
+    expect(html).toContain('125.000');
+    expect(html).toMatch(/Total Outstanding:[\s\S]*125\.000/);
+    const csv = buildApCsv(report.report, data);
+    expect(csv).toContain('"BILL-123","Vendor A"');
+    expect(csv).toContain(',0,0,125000,0,0,125000');
+    expect(csv).toContain('Total,,,,,0,0,125000,0,0,125000');
+  });
+
+  it('shows and exports bank cash flow amounts with transfer disclosure', () => {
+    const data = { rows: [{ bankAccountId: 'A', bankAccountName: 'BCA', date: '2026-06-15', inflow: 120000, outflow: 0, net: 120000 }], summary: { totalInflow: 120000, totalOutflow: 0, totalNet: 120000 } };
+    const report = entry('cash-flow', data);
+    const html = render(report);
+    expect(html).toContain('BCA');
+    expect(html).toContain('120.000');
+    expect(html).toContain('internal transfers appear on both sides');
+    const csv = buildBankingCsv(report.report, data);
+    expect(csv).toContain('"BCA","2026-06-15",120000,0,120000');
+    expect(csv).toContain('Total,,120000,0,120000');
   });
 
   it('warns when the trial balance or balance sheet is out of balance (#228)', () => {

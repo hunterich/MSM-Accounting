@@ -60,7 +60,10 @@ export async function OPTIONS() {
 export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async function GET(req: NextRequest) {
     const orgId = requireOrg(req);
     const { searchParams } = new URL(req.url);
-    const type = searchParams.get('type') ?? 'reconciliation-summary';
+    const requestedType = searchParams.get('type') ?? 'reconciliation-summary';
+    // The report workspace sends its saved report id; older callers use the
+    // API's original name.
+    const type = requestedType === 'bank-reconciliation' ? 'reconciliation-summary' : requestedType;
     const bankAccountId = searchParams.get('bankAccountId') ?? undefined;
     const dateFrom = startOfDay(searchParams.get('dateFrom'));
     const dateTo = endOfDay(searchParams.get('dateTo'));
