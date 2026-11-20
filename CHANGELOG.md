@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — depreciation run could lower book value without posting a journal (#232)
+- The depreciation run now posts every asset to its category's depreciation expense and accumulated depreciation accounts, and always writes the journal. Accounts are no longer guessed from account names.
+- If any asset that depreciates in the run has a missing, inactive, non-postable or wrong-type account, the whole run is refused (422) and nothing is recorded; the message names each asset, its category and the account to fix. Assets with nothing to depreciate that month do not block the run.
+- Companies whose asset categories have no depreciation accounts must set them before running depreciation. No migration or stored-data change. Integration tests and browser not run locally.
+
 ### Fixed — an account with postings could become a header and vanish from the statements (#228)
 - An account that already has posted journal lines can no longer be switched to Group / Header; the posting mode is now locked like type, normal side and parent, in the API and in the Chart of Accounts form. A header that already carries postings can still be made postable again.
 - Trial Balance, Balance Sheet, P&L, Cash Flow Statement and the dashboard P&L now read every account that has posted lines, whatever its posting flag, so existing headers with postings get their balances back. Headers without lines still do not appear.

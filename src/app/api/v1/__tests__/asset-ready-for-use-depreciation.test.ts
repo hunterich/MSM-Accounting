@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: vi.fn(), auditLog: { create: vi.fn(async () => ({})) } } }));
 vi.mock('@/lib/period-guard', () => ({ assertPeriodOpen: vi.fn(async () => {}) }));
@@ -44,4 +44,61 @@ it('refuses depreciation when category posting accounts become unavailable', asy
   tx.account.findMany.mockResolvedValue([]);
   expect((await POST(req(10))).status).toBe(422);
   expect(tx.journalEntry.create).not.toHaveBeenCalled(); expect(tx.assetDepreciation.create).not.toHaveBeenCalled();
+});
+
+// #232: depreciation used to be recorded (book value lowered) with no journal
+// when a non-purchased asset's category had no accounts and no account name matched.
+describe('depreciation run without usable category accounts (#232)', () => {
+  const namedLikeDepreciation = [
+    { id: 'beban', name: 'Beban Penyusutan', type: 'EXPENSE', isPostable: true },
+    { id: 'akum', name: 'Akumulasi Penyusutan', type: 'ASSET', isPostable: true },
+  ];
+  const expectNothingWritten = (tx: ReturnType<typeof fixture>) => {
+    expect(tx.journalEntry.create).not.toHaveBeenCalled();
+    expect(tx.assetDepreciation.create).not.toHaveBeenCalled();
+    expect(tx.asset.update).not.toHaveBeenCalled();
+  };
+
+  it('refuses a legacy asset whose category has no accounts, naming the asset and account', async () => {
+    const tx = fixture(null, { purchaseLine: null, category: { name: 'Kendaraan', depExpenseAccountId: null, accumDepAccountId: null } });
+    // Accounts that merely look like depreciation accounts are no longer guessed.
+    tx.account.findMany.mockResolvedValue(namedLikeDepreciation);
+    const res = await POST(req(9));
+    expect(res.status).toBe(422);
+    const { error } = await res.json();
+    expect(error).toContain('ASSET-1 Laptop (category "Kendaraan")');
+    expect(error).toContain('no depreciation expense account is set');
+    expect(error).toContain('no accumulated depreciation account is set');
+    expectNothingWritten(tx);
+  });
+
+  it('refuses an account of the wrong type', async () => {
+    const tx = fixture(null, { purchaseLine: null });
+    tx.account.findMany.mockResolvedValue([{ id: 'dep', type: 'EXPENSE', isPostable: true }, { id: 'accum', type: 'EXPENSE', isPostable: true }]);
+    const res = await POST(req(9));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toContain('accumulated depreciation account is inactive, not postable or not an Asset account');
+    expectNothingWritten(tx);
+  });
+
+  it('records nothing for any asset when one asset in the run lacks accounts', async () => {
+    const tx = fixture(null, { purchaseLine: null });
+    const good = (await tx.asset.findMany())[0];
+    tx.asset.findMany.mockResolvedValue([good, { ...good, id: 'asset-2', assetNo: 'ASSET-2', name: 'Printer', category: { depExpenseAccountId: null as unknown as string, accumDepAccountId: 'accum' } }]);
+    const res = await POST(req(9));
+    expect(res.status).toBe(422);
+    const { error } = await res.json();
+    expect(error).toContain('ASSET-2 Printer');
+    expect(error).not.toContain('ASSET-1');
+    expectNothingWritten(tx);
+  });
+
+  it('does not block the run for an asset with nothing to depreciate', async () => {
+    const tx = fixture(null, { purchaseLine: null });
+    const good = (await tx.asset.findMany())[0];
+    tx.asset.findMany.mockResolvedValue([good, { ...good, id: 'done', assetNo: 'ASSET-9', accumulatedDepreciation: 1200, category: {} as typeof good.category }]);
+    expect((await POST(req(9))).status).toBe(200);
+    expect(tx.journalEntry.create).toHaveBeenCalledTimes(1);
+    expect(tx.assetDepreciation.create.mock.calls[0][0]).toMatchObject({ data: { assetId: 'asset', journalEntryId: 'je' } });
+  });
 });
