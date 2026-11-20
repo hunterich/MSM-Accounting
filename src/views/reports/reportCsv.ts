@@ -49,6 +49,15 @@ export const escapeCsvCell = (value: unknown): string => {
   return `"${String(value).replace(/"/g, '""')}"`;
 };
 
+/** Keep financial caveats with both CSV and PDF exports. */
+export function appendReportExportNotes(csv: string, basis: string | undefined, data: { summary?: { unappliedCredits?: number; unallocatedCredit?: number; netOutstanding?: number }; warnings?: unknown }) {
+  const credit = data.summary?.unappliedCredits ?? data.summary?.unallocatedCredit ?? 0;
+  if (credit > 0) csv += `\nUnapplied credits / credit balances,${credit}\nNet balance,${data.summary?.netOutstanding ?? ''}`;
+  if (basis) csv += `\nBasis,${escapeCsvCell(basis)}`;
+  if (Array.isArray(data.warnings)) for (const warning of data.warnings) csv += `\nWarning,${escapeCsvCell(warning)}`;
+  return csv;
+}
+
 // ── CSV builders ───────────────────────────────────────────────────────────────
 
 export const buildSalesCsv = (report: ReportDefinition, data: Record<string, unknown>): string => {

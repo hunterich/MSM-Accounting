@@ -208,16 +208,18 @@ export interface PdfTableModel {
 
 // Pure transform: CSV string → autotable-ready model. Quoted cells stay text;
 // unquoted numbers are grouped (id-ID) and their column right-aligned; ragged
-// rows are padded to the header width. Returns null when there is no data.
+// rows are padded to the widest row. Some reports start with a single-cell
+// title before their table header; using that title's width would drop columns.
+// Returns null when there is no data.
 export const buildPdfTableFromCsv = (csv: string): PdfTableModel | null => {
     const parsed = parseCsv(csv).filter((r) => r.length > 0 && !(r.length === 1 && r[0].value === ''));
     if (parsed.length === 0) return null;
 
     const headerRow = parsed[0];
     const bodyRows = parsed.slice(1);
-    const colCount = headerRow.length;
+    const colCount = parsed.reduce((max, row) => Math.max(max, row.length), 0);
 
-    const head = [headerRow.map((c) => c.value)];
+    const head = [Array.from({ length: colCount }, (_, colIdx) => headerRow[colIdx]?.value ?? '')];
     const body = bodyRows.map((r) =>
         Array.from({ length: colCount }, (_, colIdx) => {
             const cell = r[colIdx];
@@ -228,7 +230,7 @@ export const buildPdfTableFromCsv = (csv: string): PdfTableModel | null => {
 
     // A column is right-aligned when any of its body cells is an unquoted number.
     const columnStyles: Record<number, { halign: string }> = {};
-    headerRow.forEach((_, colIdx) => {
+    head[0].forEach((_, colIdx) => {
         if (bodyRows.some((r) => r[colIdx] && isNumericCell(r[colIdx]))) {
             columnStyles[colIdx] = { halign: 'right' };
         }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPdfTableFromCsv } from '../exportPdf';
+import { appendReportExportNotes } from '../../views/reports/reportCsv';
 
 describe('buildPdfTableFromCsv', () => {
   // Mirrors a real AR-aging CSV: quoted text cells (some with commas/escaped
@@ -40,6 +41,24 @@ describe('buildPdfTableFromCsv', () => {
     expect(body[2]).toHaveLength(head[0].length);
     expect(body[2][1]).toBe(''); // empty cell in the Total row
     expect(body[2][3]).toBe('1.750.000,5');
+  });
+
+  it('preserves all columns when the report begins with a single-cell title', () => {
+    const csv = 'Account: 100 - Cash\nDate,Journal,Description,Debit,Credit,Balance\n2026-01-01,JE-1,Payment,1500,0,1500';
+    const { head, body, columnStyles } = buildPdfTableFromCsv(csv)!;
+    expect(head[0]).toHaveLength(6);
+    expect(body[0]).toEqual(['Date', 'Journal', 'Description', 'Debit', 'Credit', 'Balance']);
+    expect(body[1]).toEqual(['2026-01-01', 'JE-1', 'Payment', '1.500', '0', '1.500']);
+    expect(columnStyles[5]).toEqual({ halign: 'right' });
+  });
+
+  it('keeps financial basis, warnings, and unapplied credit notes in the PDF model', () => {
+    const csv = appendReportExportNotes('Name,Amount\nCustomer,100', 'Net sales', { summary: { unappliedCredits: 20, netOutstanding: 80 }, warnings: ['Review "opening" balance'] });
+    const { body } = buildPdfTableFromCsv(csv)!;
+    expect(body).toContainEqual(['Unapplied credits / credit balances', '20']);
+    expect(body).toContainEqual(['Net balance', '80']);
+    expect(body).toContainEqual(['Basis', 'Net sales']);
+    expect(body).toContainEqual(['Warning', 'Review "opening" balance']);
   });
 
   it('returns null for an empty or blank CSV', () => {
