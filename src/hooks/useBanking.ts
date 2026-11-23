@@ -7,6 +7,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/apiClient';
+import { calculateBankAmounts } from '../../lib/bank-amounts';
 import type {
   BankAccount, RawBankAccount,
   BankTransaction, RawBankTransaction,
@@ -44,14 +45,14 @@ function normalizeAccount(raw: RawBankAccount): BankAccount {
 
 function normalizeTxn(raw: RawBankTransaction): BankTransaction {
   const type = raw.type ? (TYPE_DOWN[raw.type] ?? (raw.type.toLowerCase() as TxnType)) : 'income';
-  const amount = type === 'expense'
-    ? -Math.abs(Number(raw.amount ?? 0))
-    : Math.abs(Number(raw.amount ?? 0));
+  const cash = Math.abs(Number(raw.cashAmount ?? raw.amount ?? 0));
+  const amount = type === 'expense' ? -cash : cash;
   return {
     id:          raw.id,
     date:        raw.date ? String(raw.date).slice(0, 10) : '',
     description: raw.description || '',
     amount,
+    baseAmount: raw.amount == null ? undefined : String(raw.amount),
     type,
     accountId:   raw.bankAccountId || raw.accountId || '',
     reference:   raw.reference || '',
@@ -131,7 +132,12 @@ export function useBankTransactions(filters: Record<string, unknown> = {}) {
 }
 
 function buildTxnPayload(action: TxnType, formData: BankTxnFormData) {
-  const amount = Math.abs(Number(formData.amount) || 0);
+  const type = TYPE_UP[action] ?? 'INCOME';
+  const taxType = (formData.taxType || 'none').toUpperCase();
+  const amounts = calculateBankAmounts({
+    amount: String(formData.amount ?? '').trim() || 0,
+    type, taxType, taxRate: String(formData.taxRate ?? '').trim() || 0,
+  });
   const bankAccountId =
     action === 'transfer' ? formData.fromAccountId :
     action === 'expense'  ? formData.paidFromId    :
@@ -139,18 +145,18 @@ function buildTxnPayload(action: TxnType, formData: BankTxnFormData) {
 
   return {
     bankAccountId,
-    type:        TYPE_UP[action] ?? 'INCOME',
-    amount,
+    type,
+    amount:      amounts.base.abs().toFixed(2),
     date:        formData.date,
     description: formData.description ||
                  `${action.charAt(0).toUpperCase() + action.slice(1)} — ${formData.reference || 'Manual entry'}`,
     reference:   formData.reference,
     notes:       formData.notes,
     costCenter:  formData.costCenter,
-    taxType:     (formData.taxType || 'none').toUpperCase(),
-    taxRate:     formData.taxType !== 'none' ? Number(formData.taxRate) : 0,
+    taxType,
+    taxRate:     taxType === 'NONE' ? '0.00' : amounts.rate.toFixed(2),
     // status omitted — API schema only accepts MATCHED/UNMATCHED and defaults to UNMATCHED
-    ...(action === 'transfer' ? { toAccountId:      formData.toAccountId }      : {}),
+    ...(action === 'transfer' ? { toBankAccountId:  formData.toAccountId }      : {}),
     ...(action === 'expense'  ? { payee:             formData.payee,
                                   expenseAccountId:  formData.expenseAccountId } : {}),
     ...(action === 'income'   ? { receivedFrom:      formData.receivedFrom,

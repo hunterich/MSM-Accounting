@@ -32,6 +32,7 @@ interface RawLineItem {
     qtyReturn?: number | string;
     unit?: string;
     price?: number | string;
+    lineTotal?: number | string;
 }
 
 interface NormalizedLine {
@@ -56,7 +57,7 @@ const normalizeLine = (line: RawLineItem, index: number): NormalizedLine => {
         qty,
         unit,
         price,
-        total: qty * price,
+        total: line.lineTotal == null ? qty * price : toNumber(line.lineTotal),
     };
 };
 

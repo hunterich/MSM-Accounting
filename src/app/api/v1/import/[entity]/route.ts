@@ -7,6 +7,8 @@ import { postOpeningStockIfNeeded } from '@/lib/inventory-opening';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { allocateJournalEntryNumber } from '@/lib/journal-posting';
 import { toAccountingDate } from '@/lib/accounting-date';
+import { normalizeJournalAmounts } from '@/lib/journal-amounts';
+import { journalAmountInput } from '@/types/api';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
@@ -59,8 +61,8 @@ const AccountRowSchema = z.object({
 
 const OpeningJournalLineSchema = z.object({
   accountCode: z.string().min(1, 'accountCode is required'),
-  debit: z.coerce.number().min(0).optional().default(0),
-  credit: z.coerce.number().min(0).optional().default(0),
+  debit: journalAmountInput.default(0),
+  credit: journalAmountInput.default(0),
   description: z.string().optional(),
 });
 
@@ -253,38 +255,24 @@ export const POST = withPermission(
       });
       const codeToId = Object.fromEntries(accounts.map((a) => [a.code, a.id]));
 
-      const journalLines: { accountId: string; debit: number; credit: number; description: string | null; lineNo: number }[] = [];
-      let totalDebit = 0;
-      let totalCredit = 0;
-
-      for (const line of lines) {
+      const resolvedLines = lines.flatMap(line => {
         const accountId = codeToId[line.accountCode];
         if (!accountId) {
           errors.push({ row: -1, message: `Account code ${line.accountCode} not found — skipped` });
-          continue;
+          return [];
         }
-        const debit = Math.round((line.debit + Number.EPSILON) * 100) / 100;
-        const credit = Math.round((line.credit + Number.EPSILON) * 100) / 100;
-        if (debit === 0 && credit === 0) continue;
-        journalLines.push({
-          accountId,
-          debit,
-          credit,
-          description: line.description || null,
-          lineNo: journalLines.length + 1,
-        });
-        totalDebit += debit;
-        totalCredit += credit;
-      }
+        return [{ accountId, debit: line.debit, credit: line.credit, description: line.description || null }];
+      });
+      const normalized = normalizeJournalAmounts(resolvedLines);
+      const { totalDebit, totalCredit } = normalized;
+      const journalLines = normalized.lines.filter(line => !line.debit.isZero() || !line.credit.isZero())
+        .map((line, index) => ({ ...line, lineNo: index + 1 }));
 
-      totalDebit = Math.round((totalDebit + Number.EPSILON) * 100) / 100;
-      totalCredit = Math.round((totalCredit + Number.EPSILON) * 100) / 100;
-
-      if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      if (!totalDebit.eq(totalCredit)) {
         return ok({
           created: 0,
           skipped: 0,
-          errors: [{ row: -1, message: `Journal does not balance: Debit ${totalDebit} vs Credit ${totalCredit} (difference ${Math.abs(totalDebit - totalCredit).toFixed(2)})` }],
+          errors: [{ row: -1, message: `Journal does not balance: Debit ${totalDebit} vs Credit ${totalCredit} (difference ${totalDebit.minus(totalCredit).abs().toFixed(2)})` }],
         });
       }
 

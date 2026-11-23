@@ -17,6 +17,7 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { accountingDay, toAccountingDate } from './accounting-date';
 import { advisoryLockKey } from './advisory-lock';
+import { sqlUtcTimestamp } from './sql-timestamp';
 import {
   assertTransactionDateAllowed,
   type TransactionDateGuardOptions,
@@ -34,7 +35,7 @@ export async function lockOpenAccountingPeriod(
   // WIB on the 1st is 19:00 UTC on the last day of the previous month; matched
   // raw, it would land in (and be blocked by) the previous month while every
   // report puts it in the new one.
-  const accountingDate = toAccountingDate(date);
+  const postingDate = sqlUtcTimestamp(toAccountingDate(date));
   // A closed fiscal year refuses postings on its own, independent of period
   // rows: a year can be closed while some of its months have no period row
   // (later years get rows only when generated), and a closed month without
@@ -57,8 +58,8 @@ export async function lockOpenAccountingPeriod(
     SELECT "name", "status", "isLocked"
     FROM "AccountingPeriod"
     WHERE "organizationId" = ${organizationId}
-      AND "startDate" <= ${accountingDate}
-      AND "endDate" >= ${accountingDate}
+      AND "startDate" <= ${postingDate}
+      AND "endDate" >= ${postingDate}
     LIMIT 1
     FOR SHARE
   `;
@@ -78,8 +79,8 @@ export async function lockOpenAccountingPeriod(
     SELECT "startDate", "endDate"
     FROM "FiscalYearClose"
     WHERE "organizationId" = ${organizationId}
-      AND "startDate" <= ${accountingDate}
-      AND "endDate" >= ${accountingDate}
+      AND "startDate" <= ${postingDate}
+      AND "endDate" >= ${postingDate}
     LIMIT 1
   `;
   if (closedYears[0]) {

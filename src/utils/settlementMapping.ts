@@ -23,7 +23,7 @@ export const SHOPEE_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
 };
 
 // Real TikTok income_ file: normalized Indonesian column → canonical key.
-// (The service's adjustment plug absorbs any unmapped TikTok fee column.)
+// Unrepresented fees leave a payout difference for review.
 export const TIKTOK_COLUMN_TO_KEY: Record<string, SettlementFeeKey> = {
   biayakomisiplatform: 'commissionFee',
   biayakomisisebelumdiskon: 'commissionFee',

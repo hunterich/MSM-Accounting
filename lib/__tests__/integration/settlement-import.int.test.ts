@@ -15,6 +15,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { importMarketplaceOrders, type ImportOrder } from '../../marketplace-import';
+import type { MarketplaceImportPreview } from '../../marketplace-import-preview';
 import { importSettlement } from '../../settlement-import';
 import { postOpeningStockIfNeeded } from '../../inventory-opening';
 import { postSalesReturnOnApproval } from '../../sales-return-posting';
@@ -32,12 +33,23 @@ import type { Prisma } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { POST as createBankTransaction } from '@/src/app/api/v1/bank-transactions/route';
 import { POST as autoMatchStatement } from '@/src/app/api/v1/bank-statements/match/route';
+import { POST as previewImport } from '@/src/app/api/v1/integrations/[id]/import/preview/route';
+import { POST as submitImport } from '@/src/app/api/v1/integrations/[id]/import/route';
+import { POST as submitSettlement } from '@/src/app/api/v1/integrations/[id]/settlement-import/route';
 
 const SEED_DATE = new Date('2026-01-01T00:00:00.000Z');
 
 afterAll(async () => {
   await disconnect();
 });
+
+function marketplaceRequest(orgId: string, userId: string, connectionId: string, path: string, body: unknown) {
+  return new NextRequest(`http://localhost/api/v1/integrations/${connectionId}/${path}`, {
+    method: 'POST',
+    headers: { 'x-org-id': orgId, 'x-user-id': userId, 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
 
 let seq = 0;
 function tag(): string {
@@ -121,17 +133,24 @@ interface ImportedOrder {
   /** Gross X of the imported order (invoice total). */
   gross: number;
   walletAccountId: string;
+  preview?: MarketplaceImportPreview;
 }
 
 /**
  * Seed an org with a wallet bank, fee-account mappings, and a stocked item,
  * then run ②'s import to create order 'ORD1' (invoice + wallet receipt).
  */
-async function seedImportedOrder(options: { tax?: boolean; shipmentDate?: string } = {}): Promise<ImportedOrder> {
+async function seedImportedOrder(options: {
+  tax?: boolean;
+  shipmentDate?: string;
+  line?: Pick<ImportOrder['lines'][number], 'quantity' | 'unitPrice' | 'sourceLineAmount'>;
+} = {}): Promise<ImportedOrder> {
   const org = await createTestOrg();
   if (options.tax) {
     const outputTax = await prisma.account.create({ data: { organizationId: org.orgId, code: `2200-${tag()}`, name: 'Output Tax', type: 'LIABILITY', normalSide: 'CREDIT', isActive: true, isPostable: true } });
     await prisma.organization.update({ where: { id: org.orgId }, data: { taxEnabled: true, taxDefaultRate: 11, accountDefaults: { ...org.accounts, arTax: outputTax.id } } });
+  } else if (options.line) {
+    await prisma.organization.update({ where: { id: org.orgId }, data: { taxEnabled: false } });
   }
   const userId = await createUser();
   const customerId = await createCustomer(org.orgId);
@@ -167,13 +186,28 @@ async function seedImportedOrder(options: { tax?: boolean; shipmentDate?: string
     orderNo: 'ORD1',
     issueDate: options.shipmentDate ?? '2026-06-01',
     lines: [
-      { itemId, description: 'Stocked Product', sku: 'SKU-STK', quantity: 5, unitPrice: 100_000 },
+      { itemId, description: 'Stocked Product', sku: 'SKU-STK', ...(options.line ?? { quantity: 5, unitPrice: 100_000 }) },
     ],
   };
-  const res = await importMarketplaceOrders(org.orgId, userId, conn.id, [order], {
-    recordPayment: true,
-  });
-  expect(res.created).toBe(1);
+  const importOptions = { recordPayment: true };
+  let preview: MarketplaceImportPreview | undefined;
+  if (options.line?.sourceLineAmount != null) {
+    const context = { params: Promise.resolve({ id: conn.id }) };
+    const previewResponse = await previewImport(marketplaceRequest(org.orgId, userId, conn.id, 'import/preview', {
+      orders: [{ ...order, sourceTotal: options.line.sourceLineAmount, missingDate: false }],
+      options: importOptions,
+    }), context);
+    expect(previewResponse.status).toBe(200);
+    preview = await previewResponse.json();
+    const importResponse = await submitImport(marketplaceRequest(org.orgId, userId, conn.id, 'import', {
+      orders: [order], options: importOptions,
+    }), context);
+    expect(importResponse.status).toBe(200);
+    expect(await importResponse.json()).toMatchObject({ created: 1, failed: [] });
+  } else {
+    const result = await importMarketplaceOrders(org.orgId, userId, conn.id, [order], importOptions);
+    expect(result.created).toBe(1);
+  }
 
   const invoice = await prisma.salesInvoice.findFirst({
     where: { organizationId: org.orgId, poNumber: 'ORD1' },
@@ -190,6 +224,7 @@ async function seedImportedOrder(options: { tax?: boolean; shipmentDate?: string
 
   return {
     orgId: org.orgId,
+    preview,
     userId,
     connectionId: conn.id,
     gross,
@@ -235,6 +270,62 @@ function laterRefund(noteNumber: string, amount: number) {
 }
 
 describe('settlement reconciliation service', () => {
+  it('keeps a Rp6.67 exported amount in the preview, invoice and GL, then posts the rounded fees against the payout', async () => {
+    const s = await seedImportedOrder({ line: { quantity: '3', unitPrice: '2.22', sourceLineAmount: '6.67' } });
+    try {
+      expect(s.preview).toMatchObject({
+        amountDifferences: 0, sourceTotal: 6.67, invoiceTotal: 6.67,
+        orders: [{ status: 'create', sourceTotal: 6.67, invoiceTotal: 6.67, difference: 0 }],
+      });
+      const invoice = await prisma.salesInvoice.findFirstOrThrow({
+        where: { organizationId: s.orgId, poNumber: 'ORD1' }, include: { lines: true },
+      });
+      expect(invoice.lines[0].lineSubtotal.toFixed(2)).toBe('6.67');
+      expect(invoice.totalAmount.toFixed(2)).toBe('6.67');
+      const saleLines = await prisma.journalLine.findMany({ where: { entryId: { in: invoice.postingJournalIds } } });
+      expect(saleLines.find(line => line.description?.startsWith('Sales -'))?.credit.toFixed(2)).toBe('6.67');
+      expect(saleLines.find(line => line.description?.startsWith('AR -'))?.debit.toFixed(2)).toBe('6.67');
+
+      const receipt = await prisma.aRPayment.findFirstOrThrow({
+        where: { organizationId: s.orgId, ecommerceConnectionId: s.connectionId }, include: { allocations: true },
+      });
+      expect(receipt.totalAmount.toFixed(2)).toBe('6.67');
+      expect(receipt.allocations[0].amountApplied.toFixed(2)).toBe('6.67');
+      const receiptLines = await prisma.journalLine.findMany({ where: { entryId: receipt.journalEntryId! } });
+      expect(receiptLines.find(line => line.accountId === s.walletAccountId)?.debit.toFixed(2)).toBe('6.67');
+      expect(receiptLines.find(line => line.description?.startsWith('AR settlement -'))?.credit.toFixed(2)).toBe('6.67');
+
+      const order = {
+        orderId: 'ORD1', settlementDate: '2026-06-15', netReleased: '6.65',
+        charges: { commissionFee: '0.005', serviceFee: '0.005' },
+      };
+      async function settle(netReleased: string) {
+        const request = marketplaceRequest(s.orgId, s.userId, s.connectionId, 'settlement-import', {
+          orders: [{ ...order, netReleased }],
+        });
+        const response = await submitSettlement(request, { params: Promise.resolve({ id: s.connectionId }) });
+        expect(response.status).toBe(200);
+        return response.json();
+      }
+      const before = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+      const mismatch = await settle('6.66');
+      expect(mismatch.failed[0].reason).toContain('differs by Rp0.01 (statement Rp6.66, expected Rp6.65');
+      expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(before);
+      expect((await prisma.aRPayment.findUniqueOrThrow({ where: { id: receipt.id } })).settledAt).toBeNull();
+
+      const result = await settle(order.netReleased);
+      expect(result.failed).toEqual([]);
+      expect(result.posted).toBe(1);
+      const settled = await prisma.aRPayment.findUniqueOrThrow({ where: { id: receipt.id } });
+      const payoutLines = await prisma.journalLine.findMany({ where: { entryId: settled.settlementJournalId! } });
+      expect(payoutLines).toHaveLength(3);
+      expect(payoutLines.filter(line => line.accountId !== s.walletAccountId).map(line => line.debit.toFixed(2))).toEqual(['0.01', '0.01']);
+      expect(payoutLines.find(line => line.accountId === s.walletAccountId)?.credit.toFixed(2)).toBe('0.02');
+      expect(await accountBalance(s.orgId, s.walletAccountId)).toBe(6.65);
+      await assertTrialBalanced(s.orgId, 'marketplace rounding');
+    } finally { await cleanupOrg(s.orgId); }
+  });
+
   it('requires mapped Shopee fees and an exact settlement balance before posting', async () => {
     const s = await seedImportedOrder();
     try {
@@ -543,6 +634,7 @@ describe('settlement reconciliation service', () => {
   it('failed bucket: bad order (no adjustment account, unbalanced) is isolated; good order in its own connection still posts', async () => {
     // BAD org: connection has NO adjustmentAccountId — seeded without exp3 in mappings.
     const badOrg = await createTestOrg();
+    await prisma.organization.update({ where: { id: badOrg.orgId }, data: { taxEnabled: false } });
     const badUserId = await createUser();
     const badCustomerId = await createCustomer(badOrg.orgId);
     const badBankId = await createWalletBank(badOrg.orgId);
@@ -585,6 +677,7 @@ describe('settlement reconciliation service', () => {
 
     // GOOD org: separate connection WITH an adjustment account, numbers balance perfectly.
     const goodOrg = await createTestOrg();
+    await prisma.organization.update({ where: { id: goodOrg.orgId }, data: { taxEnabled: false } });
     const goodUserId = await createUser();
     const goodCustomerId = await createCustomer(goodOrg.orgId);
     const goodBankId = await createWalletBank(goodOrg.orgId);
@@ -627,7 +720,7 @@ describe('settlement reconciliation service', () => {
     const badResult = await importSettlement(badOrg.orgId, badUserId, badConn.id, {
       orders: [
         // bad: plug = 15_000 but no adjustment account → throws → lands in failed[]
-        { orderId: 'BAD-ORD', settlementDate: '2026-06-15', netReleased: 80_000, charges: { commissionFee: 5_000 } },
+        { orderId: 'BAD-ORD', settlementDate: '2026-06-15', netReleased: 80_000, charges: { commissionFee: 5_000 }, requireMappedCharges: false },
       ],
     });
 

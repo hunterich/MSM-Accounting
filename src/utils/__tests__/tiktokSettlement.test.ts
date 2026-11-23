@@ -21,10 +21,10 @@ describe('parseTikTokSettlement', () => {
     expect(res.orders).toHaveLength(1);
     const o = res.orders[0];
     expect(o.orderId).toBe('ORD1');
-    expect(o.netReleased).toBe(44885);
-    expect(o.charges.commissionFee).toBe(3069);
-    expect(o.charges.serviceFee).toBe(2046);
-    expect(o.charges.sellerPromotion).toBe(1000);
+    expect(o.netReleased).toBe('44885.00');
+    expect(o.charges.commissionFee).toBe('3069.00');
+    expect(o.charges.serviceFee).toBe('2046.00');
+    expect(o.charges.sellerPromotion).toBe('1000.00');
     expect(res.nonOrderRows).toEqual([{ orderId: 'ADJ1', type: 'Pembayaran GMV untuk Iklan TikTok', amount: -11100000 }]);
   });
   it('rejects a non-TikTok workbook', async () => {
@@ -42,7 +42,20 @@ describe('parseTikTokSettlement', () => {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Laporan']]), 'Laporan');
     const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     const result = await parseTikTokSettlement(new File([buf], 'income.xlsx'));
-    expect(result.orders[0].charges.refund).toBe(90);
-    expect(result.orders[0].charges.growthXtraFee).toBe(5);
+    expect(result.orders[0].charges.refund).toBe('90.00');
+    expect(result.orders[0].charges.growthXtraFee).toBe('5.00');
+  });
+  it('adds components of the same fee before rounding and sums rounded order payouts', async () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['ID Pesanan/Penyesuaian', 'Jenis transaksi', 'Jumlah penyelesaian pembayaran', 'Biaya komisi platform', 'Komisi Afiliasi', 'Komisi Mitra Afiliasi'],
+      ['ORD1', 'Pesanan', '3.334', '-0.005', '-0.002', '-0.003'],
+      ['ORD2', 'Pesanan', '3.334', 0, 0, 0],
+    ]), 'Detail pesanan');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Laporan']]), 'Laporan');
+    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const result = await parseTikTokSettlement(new File([buf], 'income.xlsx'));
+    expect(result.orders[0].charges).toEqual({ commissionFee: '0.01', serviceFee: '0.01' });
+    expect(result.totalNetReleased).toBe('6.66');
   });
 });

@@ -1,20 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Input from '../../components/UI/Input';
-import Button from '../../components/UI/Button';
+import { AlertTriangle, CheckCircle2, Landmark } from 'lucide-react';
+
+import DocumentFormLayout from '../../components/documents/DocumentFormLayout';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import { useBankAccounts, useBankTransactions, useCreateBankAccount, useCreateBankTransaction } from '../../hooks/useBanking';
+import { useChartOfAccounts } from '../../hooks/useGL';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { bankingActionSchema, zodToFormErrors } from '../../utils/formSchemas';
+import { formatIDR, terbilang } from '../../utils/formatters';
+import type { BankAccount } from '../../types';
+import { getActionFromPath, ACTION_TITLES } from './bankingAction';
+import { calculateBankAmounts } from '../../../lib/bank-amounts';
 
-interface SelectFieldProps {
-    label?:    string;
-    name:      string;
-    value:     string;
-    onChange:  React.ChangeEventHandler<HTMLSelectElement>;
-    error?:    string | null;
-    disabled?: boolean;
-    children:  React.ReactNode;
-}
+/**
+ * BankingActionForm — Payment, Receive, Bank Transfer and Add Bank Account.
+ *
+ * Rendered on the shared document-form shell (DocumentFormLayout) so it looks
+ * and behaves like Sales Order / Invoice / Bill: same action bar, same header
+ * card + field typography, and a sticky right rail with the money summary and
+ * the bank-account context (balance before → after this transaction).
+ */
 
 interface BankingActionFormData {
     fromAccountId: string;
@@ -41,44 +48,19 @@ interface BankingActionFormData {
 }
 
 type BankingActionErrors = Record<string, string | null | undefined>;
-import { useChartOfAccounts } from '../../hooks/useGL';
-import FormPage from '../../components/Layout/FormPage';
-import { getActionFromPath, ACTION_TITLES } from './bankingAction';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
-/**
- * SelectField — wraps label + select in a form-group div so it aligns
- * perfectly with the Input component inside the grid.
- */
-const SelectField = ({ label, name, value, onChange, error, disabled, children }: SelectFieldProps) => (
-    <div>
-        {label && <label className="form-label">{label}</label>}
-        <select
-            className={`w-full h-10 px-3 rounded-md border bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed ${error ? 'border-danger-500' : 'border-neutral-300'}`}
-            name={name}
-            value={value}
-            onChange={onChange}
-            disabled={disabled}
-        >
-            {children}
-        </select>
-        {error && <div className="form-feedback invalid-feedback">{error}</div>}
-    </div>
-);
-
-const buildInitialState = (expenseAccounts: Array<{ id?: string }>, incomeAccounts: Array<{ id?: string }>): BankingActionFormData => ({
+const buildInitialState = (): BankingActionFormData => ({
     // ── Transfer fields
     fromAccountId: '',
     toAccountId:   '',
     // ── Expense fields
     paidFromId:       '',
-    expenseAccountId: expenseAccounts[0]?.id || '',
+    expenseAccountId: '',
     payee:            '',
     // ── Income fields
-    depositToId:    '',
-    incomeAccountId: incomeAccounts[0]?.id || '',
-    receivedFrom:   '',
+    depositToId:     '',
+    incomeAccountId: '',
+    receivedFrom:    '',
     // ── Shared transaction fields
     amount:      '',
     date:        new Date().toISOString().slice(0, 10),
@@ -95,6 +77,119 @@ const buildInitialState = (expenseAccounts: Array<{ id?: string }>, incomeAccoun
     openingBalance:  '',
     currency:        'IDR',
 });
+
+/** Fields that, once touched, make the form "dirty" (unsaved). */
+const DIRTY_FIELDS: Array<keyof BankingActionFormData> = [
+    'fromAccountId', 'toAccountId', 'paidFromId', 'payee', 'depositToId', 'receivedFrom',
+    'amount', 'reference', 'description', 'costCenter', 'notes',
+    'accountNickname', 'bankName', 'last4', 'openingBalance',
+];
+
+// ── Shared field styling (matches SOFormV2 / document forms) ──────────────────
+const lbl = 'block mb-1 text-[12px] font-medium text-neutral-700';
+const ctlBase = 'w-full h-9 px-2.5 text-[13px] text-neutral-900 bg-white border rounded-md focus:border-primary-500 focus:outline-0 focus:ring-2 focus:ring-primary-100 disabled:bg-neutral-100 disabled:cursor-not-allowed';
+const ctl = (error?: string | null) => `${ctlBase} ${error ? 'border-danger-500' : 'border-neutral-300'}`;
+const card = 'bg-neutral-0 border border-neutral-200 rounded-lg p-4';
+const cardTitle = 'text-[11px] uppercase tracking-wide text-neutral-500 font-semibold mb-3';
+
+const Req = () => <span className="text-danger-500">*</span>;
+const FieldError = ({ error }: { error?: string | null }) =>
+    error ? <div className="mt-1 text-[12px] text-danger-600">{error}</div> : null;
+
+interface FieldProps {
+    label: React.ReactNode;
+    error?: string | null;
+    hint?: React.ReactNode;
+    children: React.ReactNode;
+}
+const Field = ({ label, error, hint, children }: FieldProps) => (
+    <div>
+        <label className={lbl}>{label}</label>
+        {children}
+        <FieldError error={error} />
+        {!error && hint && <div className="mt-1 text-[11px] text-neutral-500">{hint}</div>}
+    </div>
+);
+
+/** SearchableSelect with an inline error / hint, sized to sit in the header grid. */
+const AccountSelect = ({
+    label, value, onChange, options, placeholder, error, hint, disabled,
+}: {
+    label: React.ReactNode;
+    value: string;
+    onChange: (v: string) => void;
+    options: { value: string; label: string; subLabel?: string }[];
+    placeholder: string;
+    error?: string | null;
+    hint?: React.ReactNode;
+    disabled?: boolean;
+}) => (
+    <div>
+        <SearchableSelect
+            className="!mb-0"
+            label={label}
+            options={options}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            disabled={disabled}
+        />
+        <FieldError error={error} />
+        {!error && hint && <div className="mt-1 text-[11px] text-neutral-500">{hint}</div>}
+    </div>
+);
+
+const SummaryRow = ({ k, v, strong, brand, negative }: { k: string; v: number; strong?: boolean; brand?: boolean; negative?: boolean }) => (
+    <div className="flex justify-between items-baseline gap-3">
+        <span className={strong ? 'font-semibold text-neutral-900' : 'text-neutral-600'}>{k}</span>
+        <span className={`tabular-nums ${brand ? 'font-bold text-primary-700 text-lg' : strong ? 'font-semibold text-neutral-900' : 'text-neutral-900'} ${negative && v < 0 ? '!text-danger-600' : ''}`}>
+            {formatIDR(v)}
+        </span>
+    </div>
+);
+
+/** Rail card: one bank account's balance before → after this transaction. */
+const AccountImpact = ({ title, account, delta }: { title: string; account?: BankAccount; delta: number }) => {
+    if (!account) {
+        return (
+            <div className={`${card} text-sm text-neutral-500`}>
+                <div className={cardTitle}>{title}</div>
+                Select an account to see its balance.
+            </div>
+        );
+    }
+    const after = account.balance + delta;
+    const overdrawn = delta < 0 && after < 0;
+    return (
+        <div className={card}>
+            <div className={cardTitle}>{title}</div>
+            <div className="flex items-center gap-2 mb-3">
+                <span className="w-7 h-7 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500">
+                    <Landmark size={14} />
+                </span>
+                <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-neutral-900 leading-tight truncate">{account.name}</div>
+                    <div className="text-[11px] text-neutral-500 truncate">
+                        {[account.bankName, account.accountNumber].filter(Boolean).join(' · ') || account.currency}
+                    </div>
+                </div>
+            </div>
+            <div className="flex flex-col gap-2 text-[13px]">
+                <SummaryRow k="Current balance" v={account.balance} />
+                <SummaryRow k="This transaction" v={delta} negative />
+                <div className="border-t border-neutral-200 mt-1 pt-2">
+                    <SummaryRow k="Balance after" v={after} strong negative />
+                </div>
+            </div>
+            {overdrawn && (
+                <div className="mt-3 flex items-start gap-2 p-2.5 rounded-md bg-warning-50 border border-warning-200 text-[12px] text-warning-800">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    <span>This will take the account below zero by {formatIDR(Math.abs(after))}.</span>
+                </div>
+            )}
+        </div>
+    );
+};
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
@@ -128,36 +223,97 @@ const BankingActionForm = ({ action: actionProp, sourceTransactionId, workspaceT
         [chartOfAccounts]
     );
 
-    const [formData, setFormData] = useState<BankingActionFormData>(() => buildInitialState(expenseAccounts, incomeAccounts));
+    const [formData, setFormData] = useState<BankingActionFormData>(buildInitialState);
     const [errors, setErrors]     = useState<BankingActionErrors>({});
+
+    // Default the GL account to the first postable one once the chart loads
+    // (the chart arrives async, so it can't be seeded in the initial state).
+    useEffect(() => {
+        setFormData((prev) => ({
+            ...prev,
+            expenseAccountId: prev.expenseAccountId || expenseAccounts[0]?.id || '',
+            incomeAccountId:  prev.incomeAccountId  || incomeAccounts[0]?.id  || '',
+        }));
+    }, [expenseAccounts, incomeAccounts]);
 
     useEffect(() => {
         if (!sourceTransaction) return;
         setFormData((prev) => ({
             ...prev,
-            amount: String(Math.abs(Number(sourceTransaction.amount || 0))),
+            amount: sourceTransaction.baseAmount ?? String(Math.abs(sourceTransaction.amount)),
+            taxType: sourceTransaction.taxType || prev.taxType,
+            taxRate: String(sourceTransaction.taxRate ?? prev.taxRate),
             date: sourceTransaction.date || prev.date,
             reference: sourceTransaction.id || prev.reference,
             description: sourceTransaction.description || prev.description,
-            ...(action === 'transfer' ? { fromAccountId: sourceTransaction.accountId || prev.fromAccountId } : {}),
+            ...(action === 'transfer' ? { fromAccountId: sourceTransaction.accountId || prev.fromAccountId,
+                toAccountId: sourceTransaction.toAccountId || prev.toAccountId } : {}),
             ...(action === 'expense' ? { paidFromId: sourceTransaction.accountId || prev.paidFromId } : {}),
             ...(action === 'income' ? { depositToId: sourceTransaction.accountId || prev.depositToId } : {})
         }));
     }, [sourceTransaction?.id, action]);
 
-    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const name = event.target.name as keyof BankingActionFormData;
-        const { value } = event.target;
+    const setField = (name: keyof BankingActionFormData, value: string) => {
         setFormData((prev) => ({ ...prev, [name]: value }));
-        setErrors((prev)    => ({ ...prev, [name]: null }));
+        setErrors((prev)    => ({ ...prev, [name]: null, _api: null }));
     };
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+        setField(event.target.name as keyof BankingActionFormData, event.target.value);
 
     const isSaving = createAccount.isPending || createTransaction.isPending;
     const isPageLoading = chartOfAccountsLoading || accountsLoading;
 
-    const handleSave = async () => {
+    // ── Money ───────────────────────────────────────────────────────────────
+    const amounts = calculateBankAmounts({
+        type: action.toUpperCase(), amount: formData.amount.trim() || 0,
+        taxType: formData.taxType.toUpperCase(), taxRate: formData.taxRate.trim() || 0,
+    });
+    const baseAmount = amounts.base.toNumber();
+    const taxAmount = amounts.tax.toNumber();
+    const total = amounts.cash.toNumber();
+    const hasTax = action !== 'transfer' && action !== 'account' && formData.taxType === 'ppn';
+
+    // ── Options ─────────────────────────────────────────────────────────────
+    const bankOptions = useMemo(
+        () => bankAccounts.map((a) => ({
+            value: a.id,
+            label: a.name,
+            subLabel: formatIDR(a.balance),
+        })),
+        [bankAccounts],
+    );
+    const glOptions = (list: typeof expenseAccounts) => list.map((a) => ({
+        value: a.id,
+        label: `${a.code} — ${a.name}`,
+    }));
+    const expenseOptions = useMemo(() => glOptions(expenseAccounts), [expenseAccounts]);
+    const incomeOptions  = useMemo(() => glOptions(incomeAccounts), [incomeAccounts]);
+
+    const accountById = (id: string) => bankAccounts.find((a) => a.id === id);
+    const balanceHint = (id: string) => {
+        const a = accountById(id);
+        return a ? <>Balance <span className="tabular-nums">{formatIDR(a.balance)}</span></> : null;
+    };
+
+    // ── Workspace tab status ────────────────────────────────────────────────
+    const initial = useMemo(buildInitialState, []);
+    const dirty = DIRTY_FIELDS.some((k) => formData[k] !== initial[k]);
+
+    // A banking entry posts on save (no draft state), so its tab stays "new"
+    // until saved — same as a new Sales Order.
+
+    const setStatus  = useWorkspaceStore((s) => s.setStatus);
+    const closeTab   = useWorkspaceStore((s) => s.closeTab);
+    const clearDraft = useWorkspaceStore((s) => s.clearDraft);
+    useEffect(() => {
+        if (!workspaceTabId) return;
+        setStatus(workspaceTabId, 'new');
+    }, [workspaceTabId, setStatus]);
+
+    // ── Save ────────────────────────────────────────────────────────────────
+    const persist = async (): Promise<boolean> => {
         const result = bankingActionSchema(action).safeParse(formData);
-        if (!result.success) { setErrors(zodToFormErrors(result.error)); return; }
+        if (!result.success) { setErrors(zodToFormErrors(result.error)); return false; }
 
         try {
             if (action === 'account') {
@@ -165,486 +321,324 @@ const BankingActionForm = ({ action: actionProp, sourceTransactionId, workspaceT
             } else {
                 await createTransaction.mutateAsync({ action, formData });
             }
-            navigate('/banking');
+            return true;
         } catch (err) {
             setErrors((prev) => ({
                 ...prev,
                 _api: err instanceof Error ? err.message : 'Save failed. Please try again.'
             }));
+            return false;
         }
     };
 
-    // Computed tax amount for display
-    const taxAmount = useMemo(() => {
-        if (formData.taxType === 'none' || !formData.amount) return 0;
-        return (Number(formData.amount) * Number(formData.taxRate)) / 100;
-    }, [formData.taxType, formData.amount, formData.taxRate]);
+    const handleSave = async () => {
+        if (!(await persist())) return;
+        if (workspaceTabId) {
+            clearDraft(workspaceTabId);
+            closeTab(workspaceTabId);
+        } else {
+            navigate('/banking');
+        }
+    };
 
-    const totalWithTax = useMemo(() => {
-        if (formData.taxType === 'none') return Number(formData.amount) || 0;
-        return (Number(formData.amount) || 0) + taxAmount;
-    }, [formData.amount, taxAmount, formData.taxType]);
+    /** Save, then start a fresh entry of the same kind — keeps the bank account and date. */
+    const handleSaveAndNew = async () => {
+        if (!(await persist())) return;
+        setFormData((prev) => ({
+            ...buildInitialState(),
+            date: prev.date,
+            fromAccountId: prev.fromAccountId,
+            paidFromId: prev.paidFromId,
+            depositToId: prev.depositToId,
+            expenseAccountId: prev.expenseAccountId,
+            incomeAccountId: prev.incomeAccountId,
+        }));
+        setErrors({});
+    };
 
-    // ─── Shared bottom section (tax + notes) for expense & income ─────────
-    const SharedFields = () => (
-        <>
-            {/* Row: Tax Type + Tax Rate + Cost Center */}
-            <div className="col-span-3">
-                <SelectField label="Tax / VAT" name="taxType" value={formData.taxType} onChange={handleChange}>
-                    <option value="none">No Tax</option>
-                    <option value="ppn">PPN (VAT)</option>
-                    <option value="gst">GST</option>
-                    <option value="withholding">Withholding Tax (PPh)</option>
-                </SelectField>
-            </div>
-
-            {formData.taxType !== 'none' ? (
-                <div className="col-span-2">
-                    <Input
-                        label="Tax Rate (%)"
-                        name="taxRate"
-                        type="number"
-                        value={formData.taxRate}
-                        onChange={handleChange}
-                        error={errors.taxRate}
-                    />
-                </div>
-            ) : (
-                <div className="col-span-2" /> /* spacer */
-            )}
-
-            <div className="col-span-4">
-                <Input
-                    label="Cost Center / Dept."
-                    name="costCenter"
-                    value={formData.costCenter}
-                    onChange={handleChange}
-                    placeholder="e.g. Marketing, IT, Operations"
+    // ── Sections ────────────────────────────────────────────────────────────
+    const amountField = (label: string) => (
+        <Field label={<>{label} <Req /></>} error={errors.amount}>
+            <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] text-neutral-500">Rp</span>
+                <input
+                    type="number" min="0" name="amount" inputMode="decimal"
+                    className={`${ctl(errors.amount)} pl-8 text-right tabular-nums`}
+                    value={formData.amount} onChange={handleChange} placeholder="0"
                 />
             </div>
+        </Field>
+    );
 
-            {formData.taxType !== 'none' && (
-                <div className="col-span-3 banking-tax-summary">
-                    <div className="form-label">Tax Summary</div>
-                    <div className="banking-tax-line">
-                        <span>Base Amount</span>
-                        <span>Rp {Number(formData.amount || 0).toLocaleString('id-ID')}</span>
+    const dateField = (label: string) => (
+        <Field label={<>{label} <Req /></>} error={errors.date}>
+            <input type="date" name="date" className={ctl(errors.date)} value={formData.date} onChange={handleChange} />
+        </Field>
+    );
+
+    const header = (() => {
+        if (action === 'transfer') {
+            return (
+                <div className="grid grid-cols-12 gap-3">
+                    <div className="col-span-6">
+                        <AccountSelect
+                            label={<>From account <Req /></>}
+                            options={bankOptions} value={formData.fromAccountId}
+                            onChange={(v) => setField('fromAccountId', v)}
+                            placeholder="Select source account…"
+                            error={errors.fromAccountId} hint={balanceHint(formData.fromAccountId)}
+                            disabled={accountsLoading}
+                        />
                     </div>
-                    <div className="banking-tax-line">
-                        <span>Tax ({formData.taxRate}%)</span>
-                        <span>Rp {taxAmount.toLocaleString('id-ID')}</span>
+                    <div className="col-span-3">{dateField('Transfer date')}</div>
+                    <div className="col-span-3">{amountField('Amount')}</div>
+                    <div className="col-span-6">
+                        <AccountSelect
+                            label={<>To account <Req /></>}
+                            options={bankOptions.filter((o) => o.value !== formData.fromAccountId)}
+                            value={formData.toAccountId}
+                            onChange={(v) => setField('toAccountId', v)}
+                            placeholder="Select destination account…"
+                            error={errors.toAccountId} hint={balanceHint(formData.toAccountId)}
+                            disabled={accountsLoading}
+                        />
                     </div>
-                    <div className="banking-tax-line banking-tax-total">
-                        <span>Total</span>
-                        <span>Rp {totalWithTax.toLocaleString('id-ID')}</span>
+                    <div className="col-span-6">
+                        <Field label="Description">
+                            <input name="description" className={ctl()} value={formData.description} onChange={handleChange} placeholder="Purpose of this transfer" />
+                        </Field>
                     </div>
                 </div>
-            )}
+            );
+        }
 
-            {/* Row: Notes (full width) */}
-            <div className="col-span-12">
-                <div>
-                    <label className="form-label">Notes / Internal Memo</label>
-                    <textarea
-                        className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 resize-y"
-                        name="notes"
-                        rows={2}
-                        value={formData.notes}
-                        onChange={handleChange}
-                        placeholder="Internal notes — not visible on documents"
-                        style={{ resize: 'vertical', minHeight: 64 }}
+        const isExpense = action === 'expense';
+        const bankKey = isExpense ? 'paidFromId' : 'depositToId';
+        const glKey = isExpense ? 'expenseAccountId' : 'incomeAccountId';
+        const partyKey = isExpense ? 'payee' : 'receivedFrom';
+        return (
+            <div className="grid grid-cols-12 gap-3">
+                <div className="col-span-6">
+                    <AccountSelect
+                        label={<>{isExpense ? 'Paid from' : 'Deposit to'} <Req /></>}
+                        options={bankOptions} value={formData[bankKey]}
+                        onChange={(v) => setField(bankKey, v)}
+                        placeholder="Select cash / bank account…"
+                        error={errors[bankKey]} hint={balanceHint(formData[bankKey])}
+                        disabled={accountsLoading}
                     />
                 </div>
+                <div className="col-span-3">{dateField(isExpense ? 'Payment date' : 'Date received')}</div>
+                <div className="col-span-3">{amountField('Amount')}</div>
+                <div className="col-span-6">
+                    <AccountSelect
+                        label={<>{isExpense ? 'Expense account' : 'Revenue account'} <Req /></>}
+                        options={isExpense ? expenseOptions : incomeOptions}
+                        value={formData[glKey]}
+                        onChange={(v) => setField(glKey, v)}
+                        placeholder={isExpense ? 'Select expense account…' : 'Select revenue account…'}
+                        error={errors[glKey]}
+                        disabled={chartOfAccountsLoading}
+                    />
+                </div>
+                <div className="col-span-6">
+                    <Field label={isExpense ? 'Payee / vendor' : 'Received from'}>
+                        <input
+                            name={partyKey} className={ctl()} value={formData[partyKey]} onChange={handleChange}
+                            placeholder={isExpense ? 'e.g. Telkom Indonesia' : 'e.g. Customer name or source'}
+                        />
+                    </Field>
+                </div>
             </div>
+        );
+    })();
+
+    const details = action === 'transfer' ? (
+        <div className={card}>
+            <div className={cardTitle}>Additional info</div>
+            <div className="grid grid-cols-12 gap-3">
+                <div className="col-span-6">
+                    <Field label="Reference no.">
+                        <input name="reference" className={ctl()} value={formData.reference} onChange={handleChange} placeholder="e.g. TRF-001" />
+                    </Field>
+                </div>
+                <div className="col-span-6">
+                    <Field label="Cost center / dept.">
+                        <input name="costCenter" className={ctl()} value={formData.costCenter} onChange={handleChange} placeholder="e.g. Finance, Operations" />
+                    </Field>
+                </div>
+            </div>
+        </div>
+    ) : (
+        <div className={card}>
+            <div className={cardTitle}>Additional info</div>
+            <div className="grid grid-cols-12 gap-3">
+                <div className="col-span-4">
+                    <Field label={action === 'expense' ? 'Reference / receipt no.' : 'Reference / invoice no.'}>
+                        <input
+                            name="reference" className={ctl()} value={formData.reference} onChange={handleChange}
+                            placeholder={action === 'expense' ? 'e.g. RCP-2026-001' : 'e.g. INV-1001'}
+                        />
+                    </Field>
+                </div>
+                <div className="col-span-4">
+                    <Field label="Cost center / dept.">
+                        <input name="costCenter" className={ctl()} value={formData.costCenter} onChange={handleChange} placeholder="e.g. Marketing, IT, Operations" />
+                    </Field>
+                </div>
+                <div className={formData.taxType !== 'none' ? 'col-span-2' : 'col-span-4'}>
+                    <Field label="Tax / VAT">
+                        <select name="taxType" className={ctl()} value={formData.taxType} onChange={handleChange}>
+                            <option value="none">No tax</option>
+                            <option value="ppn">PPN (VAT)</option>
+                            <option value="gst">GST</option>
+                            <option value="withholding">Withholding (PPh)</option>
+                        </select>
+                    </Field>
+                </div>
+                {formData.taxType !== 'none' && (
+                    <div className="col-span-2">
+                        <Field label="Rate (%)" error={errors.taxRate}>
+                            <input type="number" name="taxRate" className={`${ctl(errors.taxRate)} text-right`} value={formData.taxRate} onChange={handleChange} />
+                        </Field>
+                    </div>
+                )}
+                <div className="col-span-12">
+                    <Field label="Description">
+                        <input
+                            name="description" className={ctl()} value={formData.description} onChange={handleChange}
+                            placeholder={action === 'expense' ? 'What was this payment for?' : 'What is this receipt for?'}
+                        />
+                    </Field>
+                </div>
+            </div>
+        </div>
+    );
+
+    const notes = (
+        <div className={card}>
+            <label className={lbl}>Internal notes</label>
+            <textarea
+                name="notes" className={`${ctl()} h-[68px] py-2 resize-y`}
+                value={formData.notes} onChange={handleChange}
+                placeholder="Internal memo — not visible on documents"
+            />
+        </div>
+    );
+
+    const accountForm = (
+        <div className={card}>
+            <div className="grid grid-cols-12 gap-3">
+                <div className="col-span-6">
+                    <Field label={<>Account nickname <Req /></>} error={errors.accountNickname}>
+                        <input name="accountNickname" className={ctl(errors.accountNickname)} value={formData.accountNickname} onChange={handleChange} placeholder="e.g. BCA Operational" />
+                    </Field>
+                </div>
+                <div className="col-span-3">
+                    <Field label="Bank name">
+                        <input name="bankName" className={ctl()} value={formData.bankName} onChange={handleChange} placeholder="e.g. BCA" />
+                    </Field>
+                </div>
+                <div className="col-span-3">
+                    <Field label="Currency">
+                        <select name="currency" className={ctl()} value={formData.currency} onChange={handleChange}>
+                            <option value="IDR">IDR — Indonesian Rupiah</option>
+                            <option value="USD">USD — US Dollar</option>
+                            <option value="SGD">SGD — Singapore Dollar</option>
+                            <option value="EUR">EUR — Euro</option>
+                        </select>
+                    </Field>
+                </div>
+                <div className="col-span-6">
+                    <Field label="Account number / last 4" error={errors.last4}>
+                        <input name="last4" className={ctl(errors.last4)} value={formData.last4} onChange={handleChange} placeholder="e.g. 1234-567-890 or ••••4589" />
+                    </Field>
+                </div>
+                <div className="col-span-6">
+                    <Field label="Opening balance" error={errors.openingBalance}>
+                        <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] text-neutral-500">Rp</span>
+                            <input type="number" min="0" name="openingBalance" className={`${ctl(errors.openingBalance)} pl-8 text-right tabular-nums`} value={formData.openingBalance} onChange={handleChange} placeholder="0" />
+                        </div>
+                    </Field>
+                </div>
+            </div>
+        </div>
+    );
+
+    const main = (
+        <>
+            {action !== 'account' && <ClosedPeriodBanner date={formData.date} />}
+            {errors._api && (
+                <div className="p-3 bg-danger-50 border border-danger-200 rounded-md text-[13px] text-danger-700">{errors._api}</div>
+            )}
+            {action === 'account' ? accountForm : (
+                <>
+                    <div className={card}>{header}</div>
+                    {details}
+                    {notes}
+                </>
+            )}
+            {isPageLoading && <div className="text-[12px] text-neutral-500 px-1">Loading accounts…</div>}
+        </>
+    );
+
+    // ── Rail ────────────────────────────────────────────────────────────────
+    const summary = (
+        <div className={card}>
+            <div className={cardTitle}>Summary</div>
+            <div className="flex flex-col gap-2 text-[13px]">
+                {action === 'account' ? (
+                    <SummaryRow k="Opening balance" v={Number(formData.openingBalance) || 0} brand />
+                ) : (
+                    <>
+                        <SummaryRow k={action === 'transfer' ? 'Transfer amount' : 'Amount'} v={baseAmount} />
+                        {hasTax && <SummaryRow k={`Tax (${formData.taxRate || 0}%)`} v={taxAmount} />}
+                        <div className="border-t border-neutral-200 mt-1 pt-2">
+                            <SummaryRow k="Total" v={total} brand />
+                        </div>
+                        <div className="text-[11px] text-neutral-500 italic leading-snug mt-1">
+                            Terbilang: {terbilang(total)}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+
+    const rail = (
+        <>
+            {summary}
+            {action === 'transfer' && (
+                <>
+                    <AccountImpact title="From account" account={accountById(formData.fromAccountId)} delta={-total} />
+                    <AccountImpact title="To account" account={accountById(formData.toAccountId)} delta={total} />
+                </>
+            )}
+            {action === 'expense' && <AccountImpact title="Paid from" account={accountById(formData.paidFromId)} delta={-total} />}
+            {action === 'income' && <AccountImpact title="Deposit to" account={accountById(formData.depositToId)} delta={total} />}
         </>
     );
 
     return (
-        <FormPage
-            containerClassName="banking-module"
-            title={ACTION_TITLES[action]}
-            backTo="/banking"
-            backLabel="Back to Cash & Bank"
-            isLoading={isPageLoading}
-            actions={
-                <>
-                    <Button text="Cancel" variant="secondary" onClick={() => navigate('/banking')} />
-                    <Button text="Save" variant="primary" onClick={handleSave} disabled={isSaving} />
-                </>
-            }
-        >
-            {/* 'account' creates a bank account — it posts nothing, so it has no date. */}
-            {action !== 'account' && <ClosedPeriodBanner date={formData.date} className="mb-4" />}
-
-            <div className="invoice-panel panel-primary-top">
-
-                {errors._api && (
-                    <div className="col-span-12 mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
-                        {errors._api}
-                    </div>
-                )}
-
-                {/* ── Add Bank Account ────────────────────────────────── */}
-                {action === 'account' && (
-                    <>
-                        <div className="invoice-panel-header">
-                            <span className="invoice-panel-title">Account Details</span>
-                        </div>
-                        <div className="grid-12 form-grid-start">
-                            <div className="col-span-5">
-                                <Input
-                                    label="Account Nickname *"
-                                    name="accountNickname"
-                                    value={formData.accountNickname}
-                                    onChange={handleChange}
-                                    placeholder="e.g. BCA Operational"
-                                    error={errors.accountNickname}
-                                />
-                            </div>
-                            <div className="col-span-4">
-                                <Input
-                                    label="Bank Name"
-                                    name="bankName"
-                                    value={formData.bankName}
-                                    onChange={handleChange}
-                                    placeholder="e.g. BCA"
-                                />
-                            </div>
-                            <div className="col-span-3">
-                                <Input
-                                    label="Account Number / Last 4"
-                                    name="last4"
-                                    value={formData.last4}
-                                    onChange={handleChange}
-                                    placeholder="e.g. 1234-567-890 or ••••4589"
-                                    error={errors.last4}
-                                />
-                            </div>
-                            <div className="col-span-4">
-                                <Input
-                                    label="Opening Balance"
-                                    name="openingBalance"
-                                    type="number"
-                                    value={formData.openingBalance}
-                                    onChange={handleChange}
-                                    placeholder="0"
-                                    error={errors.openingBalance}
-                                />
-                            </div>
-                            <div className="col-span-3">
-                                <SelectField label="Currency" name="currency" value={formData.currency} onChange={handleChange}>
-                                    <option value="IDR">IDR — Indonesian Rupiah</option>
-                                    <option value="USD">USD — US Dollar</option>
-                                    <option value="SGD">SGD — Singapore Dollar</option>
-                                    <option value="EUR">EUR — Euro</option>
-                                </SelectField>
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {/* ── Bank Transfer ────────────────────────────────────── */}
-                {action === 'transfer' && (
-                    <>
-                        <div className="invoice-panel-header">
-                            <span className="invoice-panel-title">Transfer Details</span>
-                        </div>
-                        <div className="grid-12 form-grid-start">
-                            {/* Row 1: From → To */}
-                            <div className="col-span-6">
-                                <SelectField
-                                    label="From Account *"
-                                    name="fromAccountId"
-                                    value={formData.fromAccountId}
-                                    onChange={handleChange}
-                                    error={errors.fromAccountId}
-                                    disabled={accountsLoading}
-                                >
-                                    <option value="">— Select Account —</option>
-                                    {bankAccounts.map((a) => (
-                                        <option key={a.id} value={a.id}>{a.name}</option>
-                                    ))}
-                                </SelectField>
-                            </div>
-                            <div className="col-span-6">
-                                <SelectField
-                                    label="To Account *"
-                                    name="toAccountId"
-                                    value={formData.toAccountId}
-                                    onChange={handleChange}
-                                    error={errors.toAccountId}
-                                    disabled={accountsLoading}
-                                >
-                                    <option value="">— Select Account —</option>
-                                    {bankAccounts.map((a) => (
-                                        <option key={a.id} value={a.id}>{a.name}</option>
-                                    ))}
-                                </SelectField>
-                            </div>
-
-                            {/* Row 2: Amount + Date + Reference */}
-                            <div className="col-span-4">
-                                <Input
-                                    label="Amount *"
-                                    name="amount"
-                                    type="number"
-                                    value={formData.amount}
-                                    onChange={handleChange}
-                                    placeholder="0"
-                                    error={errors.amount}
-                                />
-                            </div>
-                            <div className="col-span-4">
-                                <Input
-                                    label="Transfer Date *"
-                                    name="date"
-                                    type="date"
-                                    value={formData.date}
-                                    onChange={handleChange}
-                                    error={errors.date}
-                                />
-                            </div>
-                            <div className="col-span-4">
-                                <Input
-                                    label="Reference No."
-                                    name="reference"
-                                    value={formData.reference}
-                                    onChange={handleChange}
-                                    placeholder="e.g. TRF-001"
-                                />
-                            </div>
-
-                            {/* Row 3: Description + Notes */}
-                            <div className="col-span-6">
-                                <Input
-                                    label="Description"
-                                    name="description"
-                                    value={formData.description}
-                                    onChange={handleChange}
-                                    placeholder="Purpose of this transfer"
-                                />
-                            </div>
-                            <div className="col-span-6">
-                                <Input
-                                    label="Cost Center / Dept."
-                                    name="costCenter"
-                                    value={formData.costCenter}
-                                    onChange={handleChange}
-                                    placeholder="e.g. Finance, Operations"
-                                />
-                            </div>
-
-                            {/* Row 4: Notes */}
-                            <div className="col-span-12">
-                                <div>
-                                    <label className="form-label">Internal Notes</label>
-                                    <textarea
-                                        className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm focus:border-primary-500 focus:outline-0 resize-y"
-                                        name="notes"
-                                        rows={2}
-                                        value={formData.notes}
-                                        onChange={handleChange}
-                                        placeholder="Optional internal memo"
-                                        style={{ resize: 'vertical', minHeight: 64 }}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {/* ── Payment ──────────────────────────────────────────── */}
-                {action === 'expense' && (
-                    <>
-                        <div className="invoice-panel-header">
-                            <span className="invoice-panel-title">Payment Details</span>
-                        </div>
-                        <div className="grid-12 form-grid-start">
-                            {/* Row 1: Paid From + Payee */}
-                            <div className="col-span-6">
-                                <SelectField
-                                    label="Paid From *"
-                                    name="paidFromId"
-                                    value={formData.paidFromId}
-                                    onChange={handleChange}
-                                    error={errors.paidFromId}
-                                    disabled={accountsLoading}
-                                >
-                                    <option value="">— Select Account —</option>
-                                    {bankAccounts.map((a) => (
-                                        <option key={a.id} value={a.id}>{a.name}</option>
-                                    ))}
-                                </SelectField>
-                            </div>
-                            <div className="col-span-6">
-                                <Input
-                                    label="Payee / Vendor"
-                                    name="payee"
-                                    value={formData.payee}
-                                    onChange={handleChange}
-                                    placeholder="e.g. Telkom Indonesia"
-                                />
-                            </div>
-
-                            {/* Row 2: Expense Account + Amount + Date */}
-                            <div className="col-span-5">
-                                <SelectField
-                                    label="Expense Account"
-                                    name="expenseAccountId"
-                                    value={formData.expenseAccountId}
-                                    onChange={handleChange}
-                                    error={errors.expenseAccountId}
-                                >
-                                    {expenseAccounts.map((a) => (
-                                        <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                    ))}
-                                </SelectField>
-                            </div>
-                            <div className="col-span-4">
-                                <Input
-                                    label="Amount *"
-                                    name="amount"
-                                    type="number"
-                                    value={formData.amount}
-                                    onChange={handleChange}
-                                    placeholder="0"
-                                    error={errors.amount}
-                                />
-                            </div>
-                            <div className="col-span-3">
-                                <Input
-                                    label="Payment Date *"
-                                    name="date"
-                                    type="date"
-                                    value={formData.date}
-                                    onChange={handleChange}
-                                    error={errors.date}
-                                />
-                            </div>
-
-                            {/* Row 3: Reference + Description */}
-                            <div className="col-span-4">
-                                <Input
-                                    label="Reference / Receipt No."
-                                    name="reference"
-                                    value={formData.reference}
-                                    onChange={handleChange}
-                                    placeholder="e.g. RCP-2026-001"
-                                />
-                            </div>
-                            <div className="col-span-8">
-                                <Input
-                                    label="Description"
-                                    name="description"
-                                    value={formData.description}
-                                    onChange={handleChange}
-                                    placeholder="What was this expense for?"
-                                />
-                            </div>
-
-                            {/* Row 4: Tax + Cost Center + Tax Summary */}
-                            <SharedFields />
-                        </div>
-                    </>
-                )}
-
-                {/* ── Receive ──────────────────────────────────────────── */}
-                {action === 'income' && (
-                    <>
-                        <div className="invoice-panel-header">
-                            <span className="invoice-panel-title">Receive Details</span>
-                        </div>
-                        <div className="grid-12 form-grid-start">
-                            {/* Row 1: Deposit To + Received From */}
-                            <div className="col-span-6">
-                                <SelectField
-                                    label="Deposit To *"
-                                    name="depositToId"
-                                    value={formData.depositToId}
-                                    onChange={handleChange}
-                                    error={errors.depositToId}
-                                    disabled={accountsLoading}
-                                >
-                                    <option value="">— Select Account —</option>
-                                    {bankAccounts.map((a) => (
-                                        <option key={a.id} value={a.id}>{a.name}</option>
-                                    ))}
-                                </SelectField>
-                            </div>
-                            <div className="col-span-6">
-                                <Input
-                                    label="Received From"
-                                    name="receivedFrom"
-                                    value={formData.receivedFrom}
-                                    onChange={handleChange}
-                                    placeholder="e.g. Customer name or source"
-                                />
-                            </div>
-
-                            {/* Row 2: Revenue Account + Amount + Date */}
-                            <div className="col-span-5">
-                                <SelectField
-                                    label="Revenue Account"
-                                    name="incomeAccountId"
-                                    value={formData.incomeAccountId}
-                                    onChange={handleChange}
-                                    error={errors.incomeAccountId}
-                                >
-                                    {incomeAccounts.map((a) => (
-                                        <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                    ))}
-                                </SelectField>
-                            </div>
-                            <div className="col-span-4">
-                                <Input
-                                    label="Amount *"
-                                    name="amount"
-                                    type="number"
-                                    value={formData.amount}
-                                    onChange={handleChange}
-                                    placeholder="0"
-                                    error={errors.amount}
-                                />
-                            </div>
-                            <div className="col-span-3">
-                                <Input
-                                    label="Date Received *"
-                                    name="date"
-                                    type="date"
-                                    value={formData.date}
-                                    onChange={handleChange}
-                                    error={errors.date}
-                                />
-                            </div>
-
-                            {/* Row 3: Reference + Description */}
-                            <div className="col-span-4">
-                                <Input
-                                    label="Reference / Invoice No."
-                                    name="reference"
-                                    value={formData.reference}
-                                    onChange={handleChange}
-                                    placeholder="e.g. INV-1001"
-                                />
-                            </div>
-                            <div className="col-span-8">
-                                <Input
-                                    label="Description"
-                                    name="description"
-                                    value={formData.description}
-                                    onChange={handleChange}
-                                    placeholder="What is this income for?"
-                                />
-                            </div>
-
-                            {/* Row 4: Tax + Cost Center + Tax Summary */}
-                            <SharedFields />
-                        </div>
-                    </>
-                )}
-
-            </div>
-        </FormPage>
+        <div className="p-0">
+            <DocumentFormLayout
+                title={ACTION_TITLES[action]}
+                dirty={dirty}
+                saving={isSaving}
+                onBack={() => navigate('/banking')}
+                backLabel="Cash & Bank"
+                primaryLabel="Save"
+                primaryIcon={<CheckCircle2 size={13} />}
+                onPrimary={handleSave}
+                primaryOptions={[
+                    { label: 'Save & close', hint: action === 'account' ? 'Add the account' : 'Post to the ledger', onClick: handleSave },
+                    { label: 'Save & new', hint: 'Save, then start another', onClick: handleSaveAndNew },
+                ]}
+                main={main}
+                rail={rail}
+            />
+        </div>
     );
 };
 

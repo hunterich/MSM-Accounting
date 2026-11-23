@@ -7,7 +7,7 @@ export type OutboxType = 'shift-open' | 'sale' | 'shift-close';
 export type OutboxStatus = 'pending' | 'synced' | 'failed';
 
 export interface ShiftOpenPayload { clientShiftId: string; registerId: string; openingFloat: number }
-export interface SalePayload { clientSaleId: string; clientShiftId: string; registerId: string; shiftId?: string; salesTypeId?: string | null; lines: SaleLineInput[]; tenders: { method: 'CASH'; amount: number }[] }
+export interface SalePayload { clientSaleId: string; clientShiftId: string; registerId: string; shiftId?: string; salesTypeId?: string | null; lines: SaleLineInput[]; tenders: { method: 'CASH'; amount: number }[]; quotedTotal?: number }
 export interface ShiftClosePayload { clientShiftId: string; shiftId?: string; countedCash: number }
 
 export interface OutboxItem {

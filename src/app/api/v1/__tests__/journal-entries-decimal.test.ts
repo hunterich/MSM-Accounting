@@ -5,7 +5,7 @@
  * with floats, so a legitimate balanced entry could trip the unbalanced
  * guard due to IEEE-754 drift (e.g. 33.33 + 33.33 + 33.34 != 100). The
  * fix routes line amounts through `Prisma.Decimal` end-to-end, which sums
- * exactly and matches the half-cent tolerance used by `lib/journal-posting.ts`.
+ * exactly after rounding each line to its stored precision.
  *
  * The credit-note / debit-note POST balance tests that used to live here
  * were removed when the lifecycle fix (#22) moved their JE posting from POST
@@ -128,7 +128,7 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
     expect(String(update.totalCredit)).toBe('100');
   });
 
-  it('rejects entries that are unbalanced beyond the half-cent tolerance', async () => {
+  it('rejects a draft edit whose debits only balance before rounding', async () => {
     putExistingEntry = {
       id: 'je-existing',
       status: 'DRAFT',
@@ -142,14 +142,16 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
         source: 'ADJUSTMENT',
         status: 'DRAFT',
         lines: [
-          { accountId: 'acc-expense', debit: 100, credit: 0 },
-          { accountId: 'acc-cash', debit: 0, credit: 99 },
+          { accountId: 'acc-expense', debit: '0.005', credit: 0 },
+          { accountId: 'acc-expense', debit: '0.005', credit: 0 },
+          { accountId: 'acc-cash', debit: 0, credit: '0.01' },
         ],
       }),
       { params: Promise.resolve({ id: 'je-existing' }) },
     );
 
     expect(res.status).toBe(422);
+    expect(putUpdates).toHaveLength(0);
   });
 
   it('preserves precision on Decimal-shaped string inputs', async () => {
@@ -166,8 +168,8 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
         source: 'ADJUSTMENT',
         status: 'POSTED',
         lines: [
-          { accountId: 'acc-expense', debit: '12345.67', credit: 0 },
-          { accountId: 'acc-cash', debit: 0, credit: '12345.67' },
+          { accountId: 'acc-expense', debit: '900719925474099.13', credit: 0 },
+          { accountId: 'acc-cash', debit: 0, credit: '900719925474099.13' },
         ],
       }),
       { params: Promise.resolve({ id: 'je-existing' }) },
@@ -176,8 +178,8 @@ describe('PUT /api/v1/journal-entries/[id] — Prisma.Decimal arithmetic on edit
     expect(res.status).toBe(200);
     const update = putUpdates[0];
     // totalDebit / totalCredit must be Prisma.Decimal preserving full precision.
-    expect(update.totalDebit).toBeInstanceOf(Prisma.Decimal);
-    expect(String(update.totalDebit)).toBe('12345.67');
-    expect(String(update.totalCredit)).toBe('12345.67');
+    expect(Prisma.Decimal.isDecimal(update.totalDebit)).toBe(true);
+    expect(String(update.totalDebit)).toBe('900719925474099.13');
+    expect(String(update.totalCredit)).toBe('900719925474099.13');
   });
 });

@@ -111,7 +111,7 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
     await enforceCustomerCreditLimit(tx, {
       organizationId: payload.organizationId,
       customerId: payload.customerId,
-      documentAmount: totals.totalAmount,
+      documentAmount: totals.totalAmount.toNumber(),
     });
 
     // "Manual" on the form sends the typed number; "Auto" sends an empty one

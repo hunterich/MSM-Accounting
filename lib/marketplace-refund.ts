@@ -1,11 +1,10 @@
 import { Prisma } from '@prisma/client';
-import { BALANCE_TOLERANCE } from './journal-posting';
-import { toNumber } from './money';
+import { MoneyDecimal } from './money-decimal';
 
 /** Validate the financial leg already posted by credit notes; never infer receipt of goods. */
 export async function matchMarketplaceRefund(
   tx: Prisma.TransactionClient,
-  input: { orgId: string; invoiceId: string; receiptId: string; walletAccountId: string; amount: number; noteNumbers: string[] },
+  input: { orgId: string; invoiceId: string; receiptId: string; walletAccountId: string; amount: Prisma.Decimal.Value; noteNumbers: string[] },
 ) {
   const numbers = [...new Set(input.noteNumbers)];
   if (!numbers.length || numbers.length !== input.noteNumbers.length) {
@@ -22,8 +21,8 @@ export async function matchMarketplaceRefund(
   if (notes.length !== numbers.length) {
     throw new Error('Each refund needs an applied credit note linked to this order and a posted sales return, refunding the original marketplace clearing account.');
   }
-  const total = notes.reduce((sum, note) => sum + toNumber(note.amount), 0);
-  if (Math.abs(total - input.amount) > BALANCE_TOLERANCE) {
+  const total = notes.reduce((sum, note) => sum.plus(note.amount), new MoneyDecimal(0));
+  if (!total.eq(input.amount)) {
     throw new Error('Settlement refund does not equal the linked credit note total. Review the refund before reconciling.');
   }
   if (notes.some(note => note.marketplaceRefundReceiptId && note.marketplaceRefundReceiptId !== input.receiptId)) {

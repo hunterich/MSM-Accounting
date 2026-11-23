@@ -18,13 +18,13 @@ function expMonthYear(iso: string | null | undefined): string | null {
   return `${mm}/${yy}`;
 }
 
-export default function CartLines({ cart, onQty, onRemove }: { cart: Cart; onQty: (key: string, qty: number) => void; onRemove: (key: string) => void }): React.ReactElement {
+export default function CartLines({ cart, lineTotals, onQty, onRemove }: { cart: Cart; lineTotals: readonly number[]; onQty: (key: string, qty: number) => void; onRemove: (key: string) => void }): React.ReactElement {
   if (cart.lines.length === 0) return <p className="p-8 text-center text-gray-400">{t('checkout.empty')}</p>;
   return (
     <ul className="divide-y">
-      {cart.lines.map((l) => {
+      {cart.lines.map((l, index) => {
         const exp = expMonthYear(l.earliestExpiry);
-        const lineTotal = l.price * l.quantity * (1 - l.discountPct / 100);
+        const lineTotal = lineTotals[index];
         return (
           <li key={l.key} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">

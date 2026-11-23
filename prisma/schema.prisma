@@ -667,6 +667,8 @@ model SalesInvoiceLine {
   price         Decimal  @default(0) @db.Decimal(18, 2)
   discountPct   Decimal  @default(0) @db.Decimal(5, 2)
   lineSubtotal  Decimal  @default(0) @db.Decimal(18, 2)
+  // Null inherits the invoice tax setting. Recurring generation copies its line's tax treatment.
+  taxable       Boolean?
   // Actual COGS consumed at posting; null means historical cost is unavailable.
   cogsAmount    Decimal? @db.Decimal(18, 2)
   // Immutable snapshots of accounts used by the current posting. Null on
@@ -911,6 +913,7 @@ model SalesReturnLine {
   unit          String   @default("PCS")
   price         Decimal  @default(0) @db.Decimal(18, 2)
   lineTotal     Decimal  @default(0) @db.Decimal(18, 2)
+  taxAmount     Decimal? @db.Decimal(18, 2)
   sourceInvoiceLineId String?
   goodsReceived Boolean @default(true)
   inventoryCost Decimal? @db.Decimal(18, 2)
@@ -1029,6 +1032,7 @@ model PurchaseOrderLine {
   unit            String   @default("PCS")
   price           Decimal  @default(0) @db.Decimal(18, 2)
   discountPct     Decimal  @default(0) @db.Decimal(5, 2)
+  taxable         Boolean?
   lineTotal       Decimal  @default(0) @db.Decimal(18, 2)
   receivedQty     Decimal  @default(0) @db.Decimal(15, 4)
 
@@ -1103,6 +1107,10 @@ model BillLine {
   price                Decimal  @default(0) @db.Decimal(18, 2)
   discountPct          Decimal  @default(0) @db.Decimal(5, 2)
   lineTotal            Decimal  @default(0) @db.Decimal(18, 2)
+  // Null inherits the bill tax setting. Recurring generation copies its line's tax treatment.
+  taxable              Boolean?
+  // Tax allocated when this line was received, including zero on a non-taxable receipt.
+  poReceiptTaxAmount    Decimal? @db.Decimal(18, 2)
   purchaseOrderLineId  String?
 
   bill                 Bill                @relation(fields: [billId], references: [id], onDelete: Cascade)
@@ -1286,6 +1294,7 @@ model PurchaseReturnLine {
   unit             String   @default("PCS")
   price            Decimal  @default(0) @db.Decimal(18, 2)
   lineTotal        Decimal  @default(0) @db.Decimal(18, 2)
+  taxAmount        Decimal? @db.Decimal(18, 2)
 
   purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
   item             Item?          @relation(fields: [itemId], references: [id], onDelete: SetNull)
@@ -1523,6 +1532,7 @@ model BankTransaction {
   date             DateTime
   description      String
   amount           Decimal        @db.Decimal(18, 2)
+  cashAmount       Decimal?       @db.Decimal(18, 2)
   type             BankTxnType
   status           MatchStatus    @default(UNMATCHED)
   reference        String?
@@ -2195,6 +2205,7 @@ model InventoryLot {
   unitCost       Decimal               @db.Decimal(15, 6)
   initialValue   Decimal?              @db.Decimal(18, 2)
   carryingValue  Decimal?              @db.Decimal(18, 2)
+  poReceipt      Boolean               @default(false)
   migrationBatchId String?
   createdAt      DateTime              @default(now())
   draws          InventoryLotDraw[]

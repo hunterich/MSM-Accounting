@@ -21,6 +21,7 @@ export interface TaxState {
 interface AdditionalInfoTabProps {
     party: 'customer' | 'vendor';
     tax: TaxState;
+    taxReadOnly?: boolean;
     onTaxChange: (next: Partial<TaxState>) => void;
     deliveryDate: string;
     onDeliveryDateChange: (v: string) => void;
@@ -57,7 +58,7 @@ const ctl =
 const fmtIDR = (n: number): string => `Rp ${Math.round(n).toLocaleString('id-ID')}`;
 
 const AdditionalInfoTab = ({
-    party, tax, onTaxChange, deliveryDate, onDeliveryDateChange,
+    party, tax, taxReadOnly, onTaxChange, deliveryDate, onDeliveryDateChange,
     reference, onReferenceChange, referenceError, isOrder, autoClose, onAutoCloseChange,
     withholding,
 }: AdditionalInfoTabProps): React.ReactElement => {
@@ -71,10 +72,10 @@ const AdditionalInfoTab = ({
                 <div>
                     <div className="text-[11px] uppercase tracking-wide text-neutral-500 font-semibold mb-2">Tax</div>
                     <label className="flex items-center gap-2 cursor-pointer whitespace-nowrap">
-                        <input type="checkbox" checked={tax.on} onChange={(e) => onTaxChange({ on: e.target.checked })} className="accent-primary-600 w-4 h-4" />
+                        <input type="checkbox" checked={tax.on} disabled={taxReadOnly} onChange={(e) => onTaxChange({ on: e.target.checked })} className="accent-primary-600 w-4 h-4" />
                         <span className="text-[13px] font-medium text-neutral-900">With PPN {tax.rate}%</span>
                     </label>
-                    <div className="text-[12px] text-neutral-500 mt-1 mb-3">Off by default — tick to apply PPN to this document.</div>
+                    <div className="text-[12px] text-neutral-500 mt-1 mb-3">{taxReadOnly ? 'PPN treatment was set when the goods were received.' : 'Off by default — tick to apply PPN to this document.'}</div>
                     {tax.on && (
                         <div className="flex flex-col gap-2">
                             {([
@@ -83,7 +84,7 @@ const AdditionalInfoTab = ({
                             ] as const).map(([val, label, hint]) => {
                                 const active = tax.mode === val;
                                 return (
-                                    <button key={val} type="button" onClick={() => onTaxChange({ mode: val })}
+                                    <button key={val} type="button" disabled={taxReadOnly} onClick={() => onTaxChange({ mode: val })}
                                         className={`flex items-start gap-2.5 text-left p-2.5 rounded-lg border transition-colors ${active ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-100' : 'border-neutral-200 bg-white hover:border-neutral-300'}`}>
                                         <span className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${active ? 'border-primary-500' : 'border-neutral-300'}`}>
                                             {active && <span className="w-2 h-2 rounded-full bg-primary-600" />}

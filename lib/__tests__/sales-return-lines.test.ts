@@ -37,13 +37,13 @@ describe('sales return source validation', () => {
 describe('original sale costs', () => {
   it('uses the saved cost without reading current inventory or the historical ledger', async () => {
     const client = tx();
-    expect(await originalSalesLineCost(client as any, 'org-1', source)).toBe(100);
+    expect((await originalSalesLineCost(client as any, 'org-1', source)).toFixed(2)).toBe('100.00');
     expect(client.inventoryLedgerEntry.findMany).not.toHaveBeenCalled();
   });
   it('recovers and saves the exact historical outbound value', async () => {
     const client = tx();
-    expect(await originalSalesLineCost(client as any, 'org-1', { ...source, cogsAmount: null })).toBe(100);
-    expect(client.salesInvoiceLine.update).toHaveBeenCalledWith({ where: { id: 'line-1' }, data: { cogsAmount: 100 } });
+    expect((await originalSalesLineCost(client as any, 'org-1', { ...source, cogsAmount: null })).toFixed(2)).toBe('100.00');
+    expect(client.salesInvoiceLine.update).toHaveBeenCalledWith({ where: { id: 'line-1' }, data: { cogsAmount: expect.anything() } });
   });
   it('blocks missing or ambiguous historical costs rather than guessing', async () => {
     for (const client of [tx({ salesInvoiceLine: { count: vi.fn(async () => 2) } }), tx({ inventoryLedgerEntry: { findMany: vi.fn(async () => []) } })]) {

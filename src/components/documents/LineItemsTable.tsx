@@ -19,6 +19,7 @@ import type { DocLine } from './types';
 
 interface LineItemsTableProps {
     lines: DocLine[];
+    lineTotal?: (line: DocLine) => number;
     showTax?: boolean;
     onChange: (id: string, key: keyof DocLine, value: string | number) => void;
     onRemove: (id: string) => void;
@@ -41,6 +42,7 @@ const cell =
 
 const LineItemsTable = ({
     lines,
+    lineTotal = lineNet,
     showTax = false,
     onChange,
     onRemove,
@@ -127,14 +129,14 @@ const LineItemsTable = ({
                                         )}
                                     </td>
                                 )}
-                                <td className="px-2 py-1.5"><input type="number" disabled={!!l.assetPurchase} value={l.qty} onChange={handle(l.id, 'qty')} className={`${cell} text-right tabular-nums`} /></td>
-                                <td className="px-2 py-1.5"><input value={l.unit} onChange={handle(l.id, 'unit')} className={cell} /></td>
-                                <td className="px-2 py-1.5"><input type="number" value={l.price} onChange={handle(l.id, 'price')} className={`${cell} text-right tabular-nums`} /></td>
-                                <td className="px-2 py-1.5"><input type="number" value={l.discount} onChange={handle(l.id, 'discount')} className={`${cell} text-right tabular-nums`} /></td>
-                                {showTax && <td className="px-2 py-1.5 text-right text-neutral-500 text-[12px]">{l.taxRate ?? 0}%</td>}
-                                <td className="px-3 py-1.5 text-right font-semibold text-neutral-900 tabular-nums">{formatIDR(lineNet(l))}</td>
+                                <td className="px-2 py-1.5"><input type="number" disabled={!!(l.assetPurchase || l.receivedAmounts)} value={l.qty} onChange={handle(l.id, 'qty')} className={`${cell} text-right tabular-nums`} /></td>
+                                <td className="px-2 py-1.5"><input disabled={!!l.receivedAmounts} value={l.unit} onChange={handle(l.id, 'unit')} className={cell} /></td>
+                                <td className="px-2 py-1.5"><input type="number" disabled={!!l.receivedAmounts} value={l.price} onChange={handle(l.id, 'price')} className={`${cell} text-right tabular-nums`} /></td>
+                                <td className="px-2 py-1.5"><input type="number" disabled={!!l.receivedAmounts} value={l.discount} onChange={handle(l.id, 'discount')} className={`${cell} text-right tabular-nums`} /></td>
+                                {showTax && <td className="px-2 py-1.5 text-right text-neutral-500 text-[12px]">{l.taxable === false ? '0%' : `${l.taxRate ?? 0}%`}</td>}
+                                <td className="px-3 py-1.5 text-right font-semibold text-neutral-900 tabular-nums">{formatIDR(lineTotal(l))}</td>
                                 <td className="px-2 py-1.5 text-center">
-                                    <button type="button" onClick={() => onRemove(l.id)} className="text-neutral-300 hover:text-danger-500" aria-label="Remove line">
+                                    <button type="button" disabled={!!l.receivedAmounts} onClick={() => onRemove(l.id)} className="text-neutral-300 hover:text-danger-500 disabled:opacity-40" aria-label="Remove line">
                                         <X size={15} />
                                     </button>
                                 </td>

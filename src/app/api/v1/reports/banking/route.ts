@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireOrg, ok } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import type { Prisma } from '@prisma/client';
+import { recordedBankCashAmount } from '@/lib/bank-amounts';
 
 export const runtime = 'nodejs';
 
@@ -19,18 +21,12 @@ const endOfDay = (value: string | null): Date | null => {
   return d;
 };
 
-type BankTxnRow = {
-  id: string; number: string | null; date: Date; description: string;
-  amount: unknown; type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
-  reference: string | null; payee: string | null; receivedFrom: string | null;
-  bankAccountId: string; toBankAccountId: string | null;
-  journalEntry: { entryNo: string } | null;
-};
+type BankTxnRow = Prisma.BankTransactionGetPayload<{ select: typeof TXN_SELECT }>;
 
 /** Signed money-in/out a transaction has on a specific account, or null if it
  *  doesn't touch that account. */
 function effectOn(t: BankTxnRow, acctId: string): { inAmt: number; outAmt: number } | null {
-  const amt = Number(t.amount);
+  const amt = recordedBankCashAmount(t)?.toNumber() ?? Number(t.amount);
   if (t.type === 'INCOME' && t.bankAccountId === acctId) return { inAmt: amt, outAmt: 0 };
   if (t.type === 'EXPENSE' && t.bankAccountId === acctId) return { inAmt: 0, outAmt: amt };
   if (t.type === 'TRANSFER' && t.bankAccountId === acctId) return { inAmt: 0, outAmt: amt };
@@ -49,8 +45,9 @@ function counterpartyOf(t: BankTxnRow, acctId: string, nameById: Map<string, str
 
 const TXN_SELECT = {
   id: true, number: true, date: true, description: true, amount: true, type: true,
+  cashAmount: true, taxType: true, taxRate: true,
   reference: true, payee: true, receivedFrom: true, bankAccountId: true, toBankAccountId: true, createdAt: true,
-  journalEntry: { select: { entryNo: true } },
+  journalEntry: { select: { entryNo: true, totalDebit: true } },
 } as const;
 
 export async function OPTIONS() {
@@ -83,7 +80,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       const allAccounts = await prisma.bankAccount.findMany({ where: { organizationId: orgId }, select: { id: true, name: true } });
       const nameById = new Map(allAccounts.map((a) => [a.id, a.name] as const));
 
-      const txns = (await prisma.bankTransaction.findMany({
+      const txns = await prisma.bankTransaction.findMany({
         where: {
           organizationId: orgId,
           ...(dateTo ? { date: { lte: dateTo } } : {}),
@@ -91,7 +88,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         },
         select: TXN_SELECT,
         orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
-      })) as unknown as BankTxnRow[];
+      });
 
       const banks = accounts.map((acct) => {
         let opening = Number(acct.openingBalance);
@@ -154,11 +151,11 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
         ? [{ type: 'INCOME' as const, bankAccountId }, { type: 'TRANSFER' as const, toBankAccountId: bankAccountId }]
         : [{ type: 'EXPENSE' as const, bankAccountId }, { type: 'TRANSFER' as const, bankAccountId }];
 
-      const txns = (await prisma.bankTransaction.findMany({
+      const txns = await prisma.bankTransaction.findMany({
         where: { organizationId: orgId, ...dateWhere, OR: or },
         select: TXN_SELECT,
         orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
-      })) as unknown as BankTxnRow[];
+      });
 
       const rows = txns.map((t) => {
         const base = {
@@ -169,7 +166,7 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
           date: t.date,
           description: t.description,
           reference: t.reference ?? null,
-          amount: Number(t.amount),
+          amount: recordedBankCashAmount(t)?.toNumber() ?? Number(t.amount),
         };
         if (type === 'bank-received') {
           return { ...base, from: t.type === 'TRANSFER' ? (nameById.get(t.bankAccountId) ?? '') : (t.receivedFrom ?? '') };

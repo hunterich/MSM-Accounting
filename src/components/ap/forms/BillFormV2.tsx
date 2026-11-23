@@ -10,7 +10,7 @@ import DocumentSettlementPanel from '../../documents/DocumentSettlementPanel';
 import DocumentTotals from '../../documents/DocumentTotals';
 import VendorContextRail, { type RecentDoc } from './VendorContextRail';
 import { useDocumentLines } from '../../documents/useDocumentLines';
-import { computeTotals } from '../../documents/computeTotals';
+import { billFormLineTotal, computeBillFormTotals } from './billFormTotals';
 import type { DocLine } from '../../documents/types';
 
 import SearchableSelect from '../../UI/SearchableSelect';
@@ -128,6 +128,11 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
             price: num(l.price),
             discount: num(l.discountPct ?? l.discount),
             taxRate: TAX_RATE,
+            taxable: typeof l.taxable === 'boolean' ? l.taxable : undefined,
+            purchaseOrderLineId: str(l.purchaseOrderLineId) || undefined,
+            ...((l.poReceiptTaxAmount != null || Boolean(l.purchaseOrderLineId && editingBill?.receiptPostingJournalId)) && {
+                receivedAmounts: { lineTotal: num(l.lineTotal), tax: l.poReceiptTaxAmount == null ? undefined : num(l.poReceiptTaxAmount) },
+            }),
             accountId: firstStr(l.accountId),
             ...(!!l.assetId && { assetPurchase: { mode: 'LINK' as const, assetId: str(l.assetId) } }),
         }));
@@ -206,7 +211,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
 
     // ── Totals ──────────────────────────────────────────────────────────────
     const totals = useMemo(
-        () => computeTotals(doc.lines, doc.charges, { taxOn: tax.on, taxRate: tax.rate, taxMode: tax.mode, withholdingRate }),
+        () => computeBillFormTotals(doc.lines, doc.charges, { taxOn: tax.on, taxRate: tax.rate, taxMode: tax.mode, withholdingRate }),
         [doc.lines, doc.charges, tax, withholdingRate],
     );
 
@@ -267,7 +272,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
         issueDate,
         ...(dueDate && { dueDate }),
         status,
-        taxRate: tax.on ? tax.rate : 0,
+        taxRate: tax.on || doc.lines.some(line => line.receivedAmounts) ? tax.rate : 0,
         taxable: tax.on,
         taxInclusive: tax.mode === 'inclusive',
         withholdingRate,
@@ -283,12 +288,14 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
                 ...(l.productId && { itemId: l.productId }),
                 ...(!l.productId && l.accountId && { accountId: l.accountId }),
                 ...(l.assetPurchase && { assetPurchase: l.assetPurchase }),
+                ...(l.purchaseOrderLineId && { purchaseOrderLineId: l.purchaseOrderLineId }),
                 description: l.description.trim(),
                 quantity: num(l.qty),
                 unit: l.unit || 'PCS',
                 price: num(l.price),
                 discountPct: num(l.discount),
-                lineTotal: Math.round(num(l.qty) * num(l.price) * (1 - num(l.discount) / 100) * 100) / 100,
+                lineTotal: billFormLineTotal(l),
+                taxable: l.taxable ?? undefined,
             })),
         charges: doc.charges
             .filter((c) => c.label.trim() && num(c.amount) !== 0)
@@ -424,11 +431,11 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
             {activeTab === 'items' && (
                 <div className="space-y-3">
                 <div className="flex justify-end"><button type="button" className="text-[13px] font-semibold text-primary-700 px-3 py-2 rounded-md border border-primary-200" onClick={() => doc.addLine({ description: 'Asset purchase', qty: 1, assetPurchase: { mode: 'CREATE', name: '', categoryId: '', salvageValue: 0 } })}>+ Add asset purchase</button></div>
-                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={id => {
+                <LineItemsTable lines={doc.lines} lineTotal={billFormLineTotal} showTax={tax.on} onChange={doc.updateLine} onRemove={id => {
                     if (seedLines.some(l => l.id === id && l.assetPurchase)) { window.alert('Keep saved asset links. Delete the draft bill to cancel this purchase.'); return; } doc.removeLine(id);
                 }} searchSlot={searchSlot} accountOptions={accountOptions} renderLineDetails={line => <AssetPurchaseFields line={line} categories={assetCategories}
                     assets={(draftAssets?.data ?? []).filter(a => !a.purchaseLine || a.purchaseLine.billId === str(editingBill?._id))}
-                    cost={Math.round(line.qty * line.price * (1 - line.discount / 100) / (tax.on && tax.mode === 'inclusive' ? 1 + tax.rate / 100 : 1) * 100) / 100}
+                    cost={Math.round(line.qty * line.price * (1 - line.discount / 100) / (tax.on && tax.mode === 'inclusive' && line.taxable !== false ? 1 + tax.rate / 100 : 1) * 100) / 100}
                     saved={seedLines.some(l => l.id === line.id && !!l.assetPurchase)}
                     onChange={assetPurchase => setLines(prev => prev.map(l => l.id === line.id ? { ...l, assetPurchase, ...(assetPurchase ? { qty: 1, accountId: undefined } : {}) } : l))} />}/>
                 </div>
@@ -440,6 +447,7 @@ const BillFormV2: React.FC<BillFormV2Props> = ({ mode = 'create', recordId, work
                 <AdditionalInfoTab
                     party="vendor"
                     tax={tax}
+                    taxReadOnly={doc.lines.some(line => line.receivedAmounts)}
                     onTaxChange={(next) => setTax((t) => ({ ...t, ...next }))}
                     deliveryDate={dueDate}
                     onDeliveryDateChange={setDueDate}

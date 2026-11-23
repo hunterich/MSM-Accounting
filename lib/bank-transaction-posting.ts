@@ -32,24 +32,29 @@ import {
 import { assertPeriodOpen } from './period-guard';
 import { toNumber, asMoney } from './money';
 import { assertNoDirectControlPosting } from './control-account-guard';
+import { ApiError } from './errors';
+import { bankCashJournal, calculateBankAmounts, recordedBankCashAmount } from './bank-amounts';
+import { roundMoneyDecimal } from './money-decimal';
 
 type Tx = Prisma.TransactionClient;
 
-type JournalLine = { accountId: string; description: string; debit: number; credit: number };
+type JournalLine = { accountId: string; description: string; debit: Prisma.Decimal.Value; credit: Prisma.Decimal.Value };
 
 export interface BankPostingResult {
   /** The posted journal entry id, or null when nothing was posted. */
   journalEntryId: string | null;
+  cashAmount: Prisma.Decimal | null;
   /** Cached-balance deltas to apply to each affected bank account. */
-  moves: Array<{ bankAccountId: string; delta: number }>;
+  moves: Array<{ bankAccountId: string; delta: Prisma.Decimal }>;
 }
 
-const NOTHING: BankPostingResult = { journalEntryId: null, moves: [] };
+const NOTHING: BankPostingResult = { journalEntryId: null, cashAmount: null, moves: [] };
 
-/** PPN added on top of the base amount; non-PPN tax types add no VAT leg. */
-function ppnTaxOf(base: number, taxType: string, taxRate: unknown): number {
-  if (taxType !== 'PPN') return 0;
-  return asMoney(base * (toNumber(taxRate) / 100));
+function bankCashMoves(txn: BankTransaction, cash: Prisma.Decimal): BankPostingResult['moves'] {
+  if (cash.isZero()) return [];
+  const moves = [{ bankAccountId: txn.bankAccountId, delta: txn.type === 'INCOME' ? cash : cash.negated() }];
+  if (txn.type === 'TRANSFER' && txn.toBankAccountId) moves.push({ bankAccountId: txn.toBankAccountId, delta: cash });
+  return moves;
 }
 
 /**
@@ -87,6 +92,7 @@ interface BankPosting {
   memo: string;
   /** Whether the GL accounts resolved and a journal entry can be posted. */
   postable: boolean;
+  cashAmount: Prisma.Decimal;
 }
 
 /**
@@ -98,35 +104,30 @@ interface BankPosting {
  */
 function buildBankPosting(txn: BankTransaction, ctx: BankPostingContext): BankPosting {
   const { accounts, bankAccounts, settings } = ctx;
-  const base = toNumber(txn.amount);
+  const { base, tax, cash } = calculateBankAmounts(txn);
+  const moves = bankCashMoves(txn, cash);
   const srcBankGlId = resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, txn.bankAccountId);
   const ref = txn.number ?? txn.reference ?? txn.id;
 
   if (txn.type === 'INCOME') {
     const incomeId = txn.incomeAccountId ?? resolveAccountDefaultId(accounts, settings, 'salesRevenue');
     const outputTaxId = resolveAccountDefaultId(accounts, settings, 'arTax');
-    const tax = ppnTaxOf(base, txn.taxType, txn.taxRate);
-    // Cash in always equals the sum of credits (base + recognised PPN).
-    let bankDebit = base;
     const creditLines: JournalLine[] = [{ accountId: incomeId, description: `Income - ${ref}`, debit: 0, credit: base }];
-    if (tax > 0 && outputTaxId) {
+    if (tax.gt(0)) {
+      if (!outputTaxId) throw new ApiError('Configure an Output Tax account before posting this bank receipt with PPN.', 422);
       creditLines.push({ accountId: outputTaxId, description: `Output tax - ${ref}`, debit: 0, credit: tax });
-      bankDebit = asMoney(base + tax);
     }
-    const moves = [{ bankAccountId: txn.bankAccountId, delta: bankDebit }];
     const postable = Boolean(srcBankGlId && incomeId);
     const lines = postable
-      ? [{ accountId: srcBankGlId, description: `Bank receipt - ${ref}`, debit: bankDebit, credit: 0 }, ...creditLines]
+      ? [{ accountId: srcBankGlId, description: `Bank receipt - ${ref}`, debit: cash, credit: 0 }, ...creditLines]
       : [];
-    return { moves, lines, memo: `Bank income: ${ref}`, postable };
+    return { moves, lines, memo: `Bank income: ${ref}`, postable, cashAmount: cash };
   }
 
   if (txn.type === 'TRANSFER') {
-    const moves = [{ bankAccountId: txn.bankAccountId, delta: -base }];
     const destBankGlId = txn.toBankAccountId
       ? resolveBankLinkedAssetAccountId(bankAccounts, accounts, settings, txn.toBankAccountId)
       : '';
-    if (txn.toBankAccountId) moves.push({ bankAccountId: txn.toBankAccountId, delta: base });
     const postable = Boolean(txn.toBankAccountId && srcBankGlId && destBankGlId);
     const lines = postable
       ? [
@@ -134,26 +135,22 @@ function buildBankPosting(txn: BankTransaction, ctx: BankPostingContext): BankPo
           { accountId: srcBankGlId, description: `Transfer out - ${ref}`, debit: 0, credit: base },
         ]
       : [];
-    return { moves, lines, memo: `Bank transfer: ${ref}`, postable };
+    return { moves, lines, memo: `Bank transfer: ${ref}`, postable, cashAmount: cash };
   }
 
   // EXPENSE
   const expenseId = txn.expenseAccountId ?? resolveAccountDefaultId(accounts, settings, 'cogsExpense');
   const inputTaxId = resolveAccountDefaultId(accounts, settings, 'apTax');
-  const tax = ppnTaxOf(base, txn.taxType, txn.taxRate);
-  // Cash out always equals the sum of debits (base + recognised PPN).
-  let bankCredit = base;
   const debitLines: JournalLine[] = [{ accountId: expenseId, description: `Expense - ${ref}`, debit: base, credit: 0 }];
-  if (tax > 0 && inputTaxId) {
+  if (tax.gt(0)) {
+    if (!inputTaxId) throw new ApiError('Configure an Input Tax account before posting this bank expense with PPN.', 422);
     debitLines.push({ accountId: inputTaxId, description: `Input tax - ${ref}`, debit: tax, credit: 0 });
-    bankCredit = asMoney(base + tax);
   }
-  const moves = [{ bankAccountId: txn.bankAccountId, delta: -bankCredit }];
   const postable = Boolean(srcBankGlId && expenseId);
   const lines = postable
-    ? [...debitLines, { accountId: srcBankGlId, description: `Bank disbursement - ${ref}`, debit: 0, credit: bankCredit }]
+    ? [...debitLines, { accountId: srcBankGlId, description: `Bank disbursement - ${ref}`, debit: 0, credit: cash }]
     : [];
-  return { moves, lines, memo: `Bank expense: ${ref}`, postable };
+  return { moves, lines, memo: `Bank expense: ${ref}`, postable, cashAmount: cash };
 }
 
 /**
@@ -164,22 +161,24 @@ export async function postBankTransactionIfNeeded(tx: Tx, orgId: string, txnId: 
   const txn = await tx.bankTransaction.findFirst({ where: { id: txnId, organizationId: orgId } });
   if (!txn || txn.journalEntryId) return NOTHING;
 
-  const base = toNumber(txn.amount);
-  if (base <= 0) return NOTHING;
+  if (roundMoneyDecimal(txn.amount).lte(0)) {
+    const cashAmount = roundMoneyDecimal(0);
+    await tx.bankTransaction.update({ where: { id: txn.id }, data: { cashAmount } });
+    return { ...NOTHING, cashAmount };
+  }
 
   await assertPeriodOpen(tx, orgId, new Date(txn.date));
 
   const ctx = await loadBankPostingContext(tx, orgId);
-  const { moves, lines, memo, postable } = buildBankPosting(txn, ctx);
+  const { moves, lines, memo, postable, cashAmount } = buildBankPosting(txn, ctx);
   const directAccountId = txn.type === 'INCOME' ? txn.incomeAccountId : txn.type === 'EXPENSE' ? txn.expenseAccountId : null;
   // Reject the categorisation even when the bank cannot resolve to GL: its
   // cached balance must not move under a forbidden control-account category.
   await assertNoDirectControlPosting(tx, orgId, [...lines.map(line => line.accountId), ...(directAccountId ? [directAccountId] : [])]);
-  if (!postable) return { journalEntryId: null, moves };
-
-  const je = await postJournalEntry(tx, { organizationId: orgId, date: new Date(txn.date), memo, lines });
-  await tx.bankTransaction.update({ where: { id: txn.id }, data: { journalEntryId: je.id } });
-  return { journalEntryId: je.id, moves };
+  const je = postable ? await postJournalEntry(tx, { organizationId: orgId, date: new Date(txn.date), memo, lines }) : null;
+  const journalEntryId = je?.id ?? null;
+  await tx.bankTransaction.update({ where: { id: txn.id }, data: { journalEntryId, cashAmount } });
+  return { journalEntryId, moves, cashAmount };
 }
 
 /**
@@ -188,17 +187,27 @@ export async function postBankTransactionIfNeeded(tx: Tx, orgId: string, txnId: 
  * applied. Used by the edit path to undo a transaction before re-posting it from
  * the edited data, so both the GL and the cached balances stay in lockstep.
  *
- * The undo moves are derived from the transaction's *current* (pre-edit) fields
- * via the same `buildBankPosting` the create path used, so they cancel exactly.
- * The caller is responsible for clearing `journalEntryId` and re-posting.
+ * Reverse the saved cash movement, falling back to the original journal for
+ * transactions recorded before the cash amount was saved separately.
  */
 export async function reverseBankTransactionPosting(
   tx: Tx,
   orgId: string,
   txn: BankTransaction,
 ): Promise<BankPostingResult['moves']> {
-  const ctx = await loadBankPostingContext(tx, orgId);
-  const { moves } = buildBankPosting(txn, ctx);
+  const journalEntry = txn.cashAmount == null && txn.journalEntryId
+    ? await tx.journalEntry.findFirstOrThrow({ where: { id: txn.journalEntryId, organizationId: orgId }, ...bankCashJournal })
+    : null;
+  let cash = recordedBankCashAmount({ ...txn, journalEntry });
+  if (cash == null) {
+    // Historical balance-only PPN transactions used the tax mapping, if set,
+    // and the old rounding rule. No journal exists to recover the movement.
+    const { accounts, settings } = await loadBankPostingContext(tx, orgId);
+    const taxAccount = resolveAccountDefaultId(accounts, settings, txn.type === 'INCOME' ? 'arTax' : 'apTax');
+    const base = toNumber(txn.amount);
+    const tax = taxAccount ? asMoney(base * (toNumber(txn.taxRate) / 100)) : 0;
+    cash = roundMoneyDecimal(asMoney(base + tax));
+  }
 
   if (txn.journalEntryId) {
     const ref = txn.number ?? txn.reference ?? txn.id;
@@ -208,7 +217,7 @@ export async function reverseBankTransactionPosting(
     });
   }
 
-  return moves.map((m) => ({ bankAccountId: m.bankAccountId, delta: -m.delta }));
+  return bankCashMoves(txn, cash.negated());
 }
 
 /**

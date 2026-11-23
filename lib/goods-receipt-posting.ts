@@ -1,6 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { InventoryDocumentType } from '@prisma/client';
-import { toNumber, asMoney } from './money';
+import { toNumber } from './money';
+import { MoneyDecimal } from './money-decimal';
+import { calculateBillAmounts } from './bill-totals';
 import { ApiError } from './errors';
 import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
@@ -14,6 +16,8 @@ interface ReceiptLine {
   itemId: string | null;
   quantity: unknown;
   lineTotal: unknown;
+  taxable?: boolean | null;
+  poReceiptTaxAmount?: unknown;
 }
 
 interface GoodsReceiptPostingArgs {
@@ -21,7 +25,7 @@ interface GoodsReceiptPostingArgs {
   poNumber: string;
   date: Date;
   taxInclusive: boolean;
-  taxRate: number; // percent, e.g. 11
+  taxRate: Prisma.Decimal.Value; // percent, e.g. 11
   lines: ReceiptLine[];
 }
 
@@ -41,7 +45,7 @@ export async function postGoodsReceiptToLedger(
   orgId: string,
   args: GoodsReceiptPostingArgs,
 ): Promise<void> {
-  const rate = args.taxInclusive ? toNumber(args.taxRate) / 100 : 0;
+  const amounts = calculateBillAmounts({ ...args, taxable: args.taxInclusive });
 
   const itemIds = args.lines.map((l) => l.itemId).filter((x): x is string => Boolean(x));
   // Hold the item locks while reading account mappings and posting stock.
@@ -55,26 +59,25 @@ export async function postGoodsReceiptToLedger(
   const inventoryItemIds = new Set(inventoryItems.map((i) => i.id));
   const itemById = new Map(inventoryItems.map(item => [item.id, item]));
 
-  let grirNet = 0;
-  const layers: Array<{ itemId: string; qty: number; unitCost: number; value: number }> = [];
-  for (const line of args.lines) {
+  const zero = new MoneyDecimal(0);
+  let grirNet = zero;
+  const layers: Array<{ itemId: string; qty: number; unitCost: number; value: Prisma.Decimal }> = [];
+  for (const [index, line] of args.lines.entries()) {
     if (!line.itemId || !inventoryItemIds.has(line.itemId)) continue;
     const qty = toNumber(line.quantity);
     if (qty <= 0) continue;
-    const gross = toNumber(line.lineTotal);
-    const net = args.taxInclusive ? asMoney(gross / (1 + rate)) : gross;
-    grirNet += net;
-    layers.push({ itemId: line.itemId, qty, unitCost: net / qty, value: asMoney(net) });
+    const net = amounts.lines[index].net;
+    grirNet = grirNet.plus(net);
+    layers.push({ itemId: line.itemId, qty, unitCost: net.div(qty).toNumber(), value: net });
   }
-  grirNet = asMoney(grirNet);
-  if (!layers.length || grirNet < 0) return;
+  if (!layers.length || grirNet.lt(0)) return;
 
   // Quantity is independent of price. Free receipts still create stock and
   // may settle an estimated shortage (whose COGS journal is posted by the
   // cost-layer service), but require no Inventory/GRIR receipt journal.
-  if (grirNet === 0) {
+  if (grirNet.isZero()) {
     for (const layer of layers) {
-      await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value);
+      await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value, undefined, true);
     }
     return;
   }
@@ -85,17 +88,17 @@ export async function postGoodsReceiptToLedger(
   });
   const settings = await loadOrgAccountDefaults(tx, orgId);
   const defaultInventoryAccountId = resolveAccountDefaultId(accounts, settings, 'inventoryAsset');
-  const inventoryByAccount = new Map<string, number>();
+  const inventoryByAccount = new Map<string, Prisma.Decimal>();
   const layerAccounts = layers.map(layer => {
     const accountId = itemPostingAccount(accounts, itemById.get(layer.itemId)?.inventoryAccountId, defaultInventoryAccountId, 'ASSET', 'inventory');
     if (!accountId) throw new ApiError('Cannot receive stock: no Inventory asset account is configured. Set the Inventory default in Settings → Accounts.', 422);
-    inventoryByAccount.set(accountId, asMoney((inventoryByAccount.get(accountId) ?? 0) + layer.value));
+    inventoryByAccount.set(accountId, (inventoryByAccount.get(accountId) ?? zero).plus(layer.value));
     return accountId;
   });
   const grirAccountId = await ensureGrIrAccount(tx, orgId);
 
   for (const [index, layer] of layers.entries()) {
-    await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value, layerAccounts[index]);
+    await addCostLayer(tx, orgId, layer.itemId, null, layer.qty, layer.unitCost, InventoryDocumentType.PURCHASE, args.billId, args.date, layer.value, layerAccounts[index], true);
   }
 
   const journal = await postJournalEntry(tx, {

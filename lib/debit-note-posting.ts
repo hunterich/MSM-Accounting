@@ -15,7 +15,7 @@
 import { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
-import { toNumber } from './money';
+import { roundMoneyDecimal } from './money-decimal';
 import { ApiError } from './api-utils';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
@@ -67,8 +67,10 @@ export async function postDebitNoteOnApply(
 
   // Idempotency token — already posted, nothing to do.
   if (dn.journalEntryId) return;
+  const amount = roundMoneyDecimal(dn.amount);
+  const taxAmount = roundMoneyDecimal(dn.applyTax ? dn.taxAmount : 0);
   await lockEligibleNoteReturn(tx, 'debit', {
-    id: dn.id, amount: dn.amount,
+    id: dn.id, amount, taxAmount,
     organizationId: dn.organizationId, partyId: dn.vendorId,
     sourceId: dn.sourceBillId, returnId: dn.purchaseReturnId,
   });
@@ -82,16 +84,14 @@ export async function postDebitNoteOnApply(
   // Refuse to post into a closed/locked accounting period.
   await assertPeriodOpen(tx, dn.organizationId, dn.date, opts);
 
-  const amount = toNumber(dn.amount);
-  if (amount <= 0) {
+  if (amount.lte(0)) {
     throw new Error(`DebitNote ${dn.number}: amount must be > 0 to apply`);
   }
 
   // `amount` is the gross total debited against the vendor; `taxAmount` is
   // the Input-Tax (PPN Masukan) portion inside it. It reverses the tax
   // receivable claimed on the original bill.
-  const taxAmount = dn.applyTax ? toNumber(dn.taxAmount) : 0;
-  if (taxAmount < 0 || taxAmount >= amount) {
+  if (taxAmount.lt(0) || taxAmount.gt(amount) || (taxAmount.eq(amount) && !dn.purchaseReturnId)) {
     throw new Error(
       `DebitNote ${dn.number}: taxAmount must be >= 0 and below the gross amount`,
     );
@@ -117,10 +117,10 @@ export async function postDebitNoteOnApply(
   }
 
   const taxAccountId =
-    taxAmount > 0
+    taxAmount.gt(0)
       ? dn.taxAccountId ?? resolveAccountDefaultId(accounts, settings, 'apTax')
       : null;
-  if (taxAmount > 0 && !taxAccountId) {
+  if (taxAmount.gt(0) && !taxAccountId) {
     throw new Error(
       `DebitNote ${dn.number}: taxAmount is set but no Input Tax account is configured (apTax default)`,
     );
@@ -137,13 +137,13 @@ export async function postDebitNoteOnApply(
         debit: amount,
         credit: 0,
       },
-      {
+      ...(amount.gt(taxAmount) ? [{
         accountId: returnAccountId,
         description: `Purchase return - ${dn.number}`,
         debit: 0,
-        credit: amount - taxAmount,
-      },
-      ...(taxAmount > 0 && taxAccountId
+        credit: amount.minus(taxAmount),
+      }] : []),
+      ...(taxAmount.gt(0) && taxAccountId
         ? [{
             accountId: taxAccountId,
             description: `Input tax reversal - ${dn.number}`,

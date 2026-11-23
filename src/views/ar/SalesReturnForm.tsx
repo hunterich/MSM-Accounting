@@ -58,7 +58,7 @@ import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { useCustomers, useInvoices } from '../../hooks/useAR';
 import { useChartOfAccounts } from '../../hooks/useGL';
-import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn } from '../../hooks/useReturns';
+import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn, useSalesReturnPreview } from '../../hooks/useReturns';
 import { useAllItems } from '../../hooks/useInventory';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
@@ -66,6 +66,7 @@ import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { makeTabId } from '../../stores/workspace/types';
 import { pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
+import { MoneyDecimal } from '../../../lib/money-decimal';
 
 const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -263,12 +264,12 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             .filter((ret) => !excludeReturnId || ret.id !== excludeReturnId)
             .filter((ret) => ret.status !== 'Void')
             .reduce((sum, ret) => {
-                return sum + (ret.lines || [])
+                return (ret.lines || [])
                     .filter((ln) => sourceInvoiceLineId && ln.sourceInvoiceLineId
                         ? ln.sourceInvoiceLineId === sourceInvoiceLineId
                         : ln.itemId === itemId)
-                    .reduce((qty, ln) => qty + Number(ln.qtyReturn || 0), 0);
-            }, 0);
+                    .reduce((qty, ln) => qty.plus(ln.qtyReturn), sum);
+            }, new MoneyDecimal(0)).toNumber();
     };
 
     const invoiceCandidatesByItem = useMemo<InvoiceCandidate[]>(() => {
@@ -296,38 +297,28 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [lookupItemId, returnData.customerId, invoices, invoiceItemTemplates, salesReturns, state.returnId]);
 
-    const totals = useMemo(() => {
-        const invoice = invoices.find(item => item.id === returnData.invoiceId);
-        const stored = isView ? salesReturns.find(item => item.id === state.returnId) : undefined;
-        if (stored) return { subtotal: stored.subtotal, taxAmount: stored.taxAmount, total: stored.totalAmount };
-        const lineSum = returnData.lines.reduce((sum, line) => {
-            const source = invoice?.lines.find(item => item.id === line.sourceInvoiceLineId);
-            return sum + (source && Number(source.quantity) > 0
-                ? Number(source.lineSubtotal) * line.qtyReturn / Number(source.quantity) : 0);
-        }, 0);
-        const discountFactor = invoice && invoice.subtotal > 0 ? 1 - invoice.discountAmount / invoice.subtotal : 1;
-        const subtotal = Math.round((lineSum * discountFactor + Number.EPSILON) * 100) / 100;
-        const taxRate = Number(returnData.taxRate || 0) / 100;
-        let taxAmount = 0;
-        let total = subtotal;
-
-        if (returnData.applyTax) {
-            if (returnData.taxIncluded) {
-                const base = subtotal / (1 + taxRate);
-                taxAmount = Math.round((subtotal - base + Number.EPSILON) * 100) / 100;
-                total = subtotal;
-            } else {
-                taxAmount = Math.round((subtotal * taxRate + Number.EPSILON) * 100) / 100;
-                total = subtotal + taxAmount;
-            }
-        }
-
-        return {
-            subtotal,
-            taxAmount,
-            total
-        };
-    }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate, returnData.invoiceId, invoices, isView, salesReturns, state.returnId]);
+    const previewEnabled = !isView && Boolean(returnData.invoiceId && returnData.customerId)
+        && returnData.lines.some(line => line.qtyReturn > 0);
+    const preview = useSalesReturnPreview({
+        invoiceId: returnData.invoiceId,
+        customerId: returnData.customerId,
+        returnId: state.returnId,
+        lines: returnData.lines.map(line => ({
+            sourceInvoiceLineId: line.sourceInvoiceLineId || undefined,
+            itemId: line.itemId,
+            itemName: line.itemName,
+            qtyReturn: line.qtyReturn,
+        })),
+    }, previewEnabled);
+    const stored = isView ? salesReturns.find(item => item.id === state.returnId) : undefined;
+    const valuation = stored ?? preview.data;
+    const totals = {
+        subtotal: Number(valuation?.subtotal ?? 0),
+        taxAmount: Number(valuation?.taxAmount ?? 0),
+        total: Number(valuation?.totalAmount ?? 0),
+        net: new MoneyDecimal(valuation?.totalAmount ?? 0).minus(valuation?.taxAmount ?? 0).toNumber(),
+    };
+    const previewUnavailable = previewEnabled && (!preview.data || preview.isError);
 
     const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
@@ -344,7 +335,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             {
                 side: 'DR',
                 accountId: returnData.returnAccountId,
-                amount: totals.total - totals.taxAmount
+                amount: totals.net
             }
         ];
 
@@ -368,7 +359,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         returnData.taxAccountId,
         returnData.arAccountId,
         returnData.applyTax,
-        totals.subtotal,
+        totals.net,
         totals.taxAmount,
         totals.total
     ]);
@@ -405,8 +396,8 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             if (field === 'qtyReturn') {
                 const parsed = Number(value || 0);
                 const alreadyReturned = getAlreadyReturnedQty(prev.invoiceId, line.itemId, state.returnId, line.sourceInvoiceLineId);
-                const maxReturnableQty = Math.max(0, Number(line.qtySold || 0) - alreadyReturned);
-                line.qtyReturn = Math.max(0, Math.min(parsed, maxReturnableQty));
+                const maxReturnableQty = new MoneyDecimal(line.qtySold).minus(alreadyReturned);
+                line.qtyReturn = MoneyDecimal.max(0, MoneyDecimal.min(new MoneyDecimal(parsed).toDecimalPlaces(4), maxReturnableQty)).toNumber();
             } else {
                 (line as any)[field] = value;
             }
@@ -431,6 +422,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             window.alert('Set Qty Return for at least one item before saving the sales return.');
             return;
         }
+        if (previewUnavailable) return;
 
         const invalidPostingAccounts = postingPreview
             .filter((line) => Number(line.amount || 0) > 0 && isAccountLegacy(line.accountId))
@@ -446,6 +438,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
         const payload = {
             ...returnData,
             ...(returnNumber && { returnNumber }),
+            expectedValuation: preview.data && { totalAmount: preview.data.totalAmount, taxAmount: preview.data.taxAmount },
             lines: selectedLines.map((line) => ({ ...line, sourceInvoiceLineId: line.sourceInvoiceLineId || undefined }))
         };
         // Persist the return via API
@@ -464,6 +457,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                 ? await updateSalesReturnMutation.mutateAsync({ id: state.returnId, ...returnRecord } as any)
                 : await createSalesReturnMutation.mutateAsync(returnRecord as any));
         } catch (err) {
+            void preview.refetch();
             window.alert(`Failed to save sales return: ${err instanceof Error ? err.message : 'Unknown error'}`);
             return;
         }
@@ -556,10 +550,10 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
             isLoading={isPageLoading}
             actions={(
                 <>
-                    <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
-                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveReturn('draft'); }} />}
-                    {!isView && <Button text="Save Return (no credit note)" variant="secondary" onClick={() => { if (window.confirm('Save this return without a credit note? Stock is updated, but no refund or credit is recorded for the customer, and you cannot add a credit note to this return later. Use this for Shopee/TikTok orders (the settlement import records the refund) or free replacements.')) void handleSaveReturn('return-only'); }} />}
-                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveReturn('credit'); }} />
+                    <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0 || previewUnavailable} onClick={() => setIsPrintOpen(true)} />
+                    {!isView && <Button text="Save Draft" variant="secondary" disabled={previewUnavailable} onClick={() => { void handleSaveReturn('draft'); }} />}
+                    {!isView && <Button text="Save Return (no credit note)" variant="secondary" disabled={previewUnavailable} onClick={() => { if (window.confirm('Save this return without a credit note? Stock is updated, but no refund or credit is recorded for the customer, and you cannot add a credit note to this return later. Use this for Shopee/TikTok orders (the settlement import records the refund) or free replacements.')) void handleSaveReturn('return-only'); }} />}
+                    <Button text={isView ? 'Close' : 'Save & Create Credit Note'} variant="primary" disabled={previewUnavailable} onClick={isView ? () => navigate('/ar/credits') : () => { void handleSaveReturn('credit'); }} />
                 </>
             )}
         >
@@ -569,10 +563,12 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                     <div className="module-status-number">{returnData.returnNumber || 'Otomatis'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Approved' : 'Draft'} />
                 </div>
-                <div className="module-status-total">{formatIDR(totals.total)}</div>
+                <div className="module-status-total">{previewUnavailable ? '—' : formatIDR(totals.total)}</div>
             </div>
 
             {!isView && <ClosedPeriodBanner date={returnData.returnDate} className="mb-4" />}
+            {previewEnabled && preview.isError && <p role="alert" className="text-danger-600">{preview.error.message}</p>}
+            {previewUnavailable && !preview.isError && <p role="status">Calculating return totals…</p>}
 
             <div className="invoice-panel panel-primary-top no-top-margin">
                 <div className="grid-12 form-grid-tight">
@@ -750,6 +746,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                                         type="number"
                                         className="w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed"
                                         min={0}
+                                        step="0.0001"
                                         max={Math.max(0, Number(line.qtySold || 0) - getAlreadyReturnedQty(returnData.invoiceId, line.itemId, state.returnId, line.sourceInvoiceLineId))}
                                         value={line.qtyReturn}
                                         onChange={(e) => updateLine(idx, 'qtyReturn', e.target.value)}
@@ -764,12 +761,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                                 </td>
                                 <td>{line.unit}</td>
                                 <td className="text-right">{formatIDR(line.price)}</td>
-                                <td className="text-right text-strong">{formatIDR(isView && line.lineTotal != null ? line.lineTotal : (() => {
-                                    const invoice = invoices.find(item => item.id === returnData.invoiceId);
-                                    const source = invoice?.lines.find(item => item.id === line.sourceInvoiceLineId);
-                                    const factor = invoice && invoice.subtotal > 0 ? 1 - invoice.discountAmount / invoice.subtotal : 1;
-                                    return source && Number(source.quantity) > 0 ? Number(source.lineSubtotal) * line.qtyReturn / Number(source.quantity) * factor : 0;
-                                })())}</td>
+                                <td className="text-right text-strong">{previewUnavailable ? '—' : formatIDR(valuation?.lines[idx]?.lineTotal ?? 0)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -785,15 +777,15 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                     <div className="col-span-4 panel-box panel-box-tight">
                         <div className="panel-summary-row">
                             <span>Subtotal</span>
-                            <strong>{formatIDR(totals.subtotal)}</strong>
+                            <strong>{previewUnavailable ? '—' : formatIDR(totals.subtotal)}</strong>
                         </div>
                         <div className="panel-summary-row">
                             <span>Tax ({returnData.applyTax ? `${returnData.taxRate}%` : '0%'})</span>
-                            <strong>{formatIDR(returnData.applyTax ? totals.taxAmount : 0)}</strong>
+                            <strong>{previewUnavailable ? '—' : formatIDR(totals.taxAmount)}</strong>
                         </div>
                         <div className="panel-summary-total">
                             <span className="label">Total Credit Basis</span>
-                            <span className="value">{formatIDR(totals.total)}</span>
+                            <span className="value">{previewUnavailable ? '—' : formatIDR(totals.total)}</span>
                         </div>
                     </div>
                     <div className="col-span-12">
@@ -845,7 +837,7 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
                         reference: returnData.invoiceId,
                         notes: returnData.reason,
                     }}
-                    lineItems={returnData.lines}
+                    lineItems={returnData.lines.map((line, index) => ({ ...line, lineTotal: valuation?.lines[index]?.lineTotal ?? 0 }))}
                     subtotal={totals.subtotal}
                     taxAmount={totals.taxAmount}
                     total={totals.total}

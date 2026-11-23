@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import OffsetAccountSelect from '../../components/UI/OffsetAccountSelect';
+import { computeInvoiceFormTotals, invoiceFormLineInput, invoiceFormLineTotal } from './invoiceFormTotals';
 
 interface InvoiceChargeDraft { label: string; accountId: string; amount: number; taxRate: number }
 
@@ -14,6 +15,7 @@ interface InvoiceLineItem {
     unit:        string;
     price:       number;
     discount?:   number;
+    taxable?:    boolean | null;
 }
 
 interface InvoiceAttachment {
@@ -431,33 +433,10 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         });
     };
 
-    const calculateItemTotal = (item: InvoiceLineItem) => {
-        const sub = item.quantity * item.price;
-        const disc = sub * ((item.discount || 0) / 100);
-        return sub - disc;
-    };
-
-    const calculateSubtotal = () => formData.items.reduce((acc, item) => acc + calculateItemTotal(item), 0);
-
-    const calculateDiscountAmount = (subtotal: number) => subtotal * (formData.discount / 100);
-
-    const calculateTaxAmount = (netAmount: number) => {
-        if (!taxSettings.enabled) return 0;
-        const rate = taxSettings.rate / 100;
-        netAmount += formData.charges.filter(charge => charge.taxRate > 0).reduce((sum, charge) => sum + charge.amount, 0);
-        if (taxSettings.inclusive) {
-            return netAmount - (netAmount / (1 + rate));
-        }
-        return netAmount * rate;
-    };
-
-    const calculateTotal = () => {
-        const subtotal = calculateSubtotal();
-        const discount = calculateDiscountAmount(subtotal);
-        const tax = calculateTaxAmount(subtotal - discount);
-        const net = subtotal - discount + formData.charges.reduce((sum, charge) => sum + charge.amount, 0);
-        return taxSettings.enabled && !taxSettings.inclusive ? net + tax : net;
-    };
+    const invoiceTotals = useMemo(
+        () => computeInvoiceFormTotals(formData.items, formData.charges, formData.discount, taxSettings),
+        [formData.items, formData.charges, formData.discount, taxSettings],
+    );
 
     const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
     const isPageLoading = customersLoading || invoicesLoading || itemsLoading || (!!resolvedEditId && invoiceDetailLoading);
@@ -578,10 +557,6 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         try {
             if (editingInvoiceId) {
                 // Posted corrections reverse and re-post atomically server-side.
-                const subtotalAmt = calculateSubtotal();
-                const discountAmt = calculateDiscountAmount(subtotalAmt);
-                const netAmt = subtotalAmt - discountAmt;
-                const taxAmt = calculateTaxAmount(netAmt);
                 await updateInvoiceMutation.mutateAsync({
                     id: editingInvoiceId,
                     customerId: formData.customerId,
@@ -597,24 +572,11 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     taxEnabled: taxSettings.enabled,
                     taxInclusive: taxSettings.inclusive,
                     taxRate: taxSettings.rate,
-                    subtotal: subtotalAmt,
                     discountPct: Number(formData.discount || 0),
-                    discountAmount: discountAmt,
-                    taxAmount: taxAmt,
-                    totalAmount: calculateTotal(),
                     charges: formData.charges,
-                    lines: cleanedItems.map((line, idx) => ({
-                        lineNo: idx + 1,
-                        itemId: line.productId || null,
-                        description: line.description,
-                        quantity: Number(line.quantity || 0),
-                        unit: line.unit || 'PCS',
-                        price: Number(line.price || 0),
-                        discountPct: Number(line.discount || 0),
-                        lineSubtotal: Math.round(Number(line.quantity || 0) * Number(line.price || 0) * (1 - Number(line.discount || 0) / 100) * 100) / 100,
-                    })),
+                    lines: cleanedItems.map(invoiceFormLineInput),
                     ...(currentStatus === 'Draft' && !saveAsDraft ? { status: 'Sent' } : {}),
-                } as any);
+                });
             } else {
                 // POST always creates a DRAFT (createInvoiceInputSchema shape;
                 // the server assigns the number and computes totals).
@@ -637,15 +599,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                         rate: taxSettings.rate,
                     },
                     ...(formData.notes && { notes: formData.notes }),
-                    lines: cleanedItems.map((line) => ({
-                        ...(line.productId && { itemId: line.productId }),
-                        ...(line.code && { code: line.code }),
-                        description: line.description,
-                        quantity: Number(line.quantity || 0),
-                        unit: line.unit || 'PCS',
-                        price: Number(line.price || 0),
-                        discountPct: Number(line.discount || 0),
-                    })),
+                    lines: cleanedItems.map(invoiceFormLineInput),
                 }) as { id: string; number: string };
                 savedInvoiceId = created.id;
                 savedNumber = created.number;
@@ -674,14 +628,15 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         dueDate: formData.dueDate,
         status: (editingInvoiceId ? invoices.find((inv) => inv.id === editingInvoiceId)?.status : undefined) || 'Draft',
         notes: formData.notes,
-        amount: calculateTotal(),
-        subtotal: calculateSubtotal(),
-        discountAmount: calculateDiscountAmount(calculateSubtotal()),
+        amount: invoiceTotals.totalAmount.toNumber(),
+        subtotal: invoiceTotals.subtotal.toNumber(),
+        discountAmount: invoiceTotals.discountAmount.toNumber(),
         taxEnabled: taxSettings.enabled,
         taxInclusive: taxSettings.inclusive,
         taxRate: taxSettings.rate,
-        taxAmount: calculateTaxAmount(calculateSubtotal() - calculateDiscountAmount(calculateSubtotal())),
-        totalAmount: calculateTotal(),
+        taxAmount: invoiceTotals.taxAmount.toNumber(),
+        totalAmount: invoiceTotals.totalAmount.toNumber(),
+        charges: invoiceTotals.charges.map(charge => ({ amount: charge.amount.toNumber() })),
     };
 
     // Attachment Logic
@@ -750,9 +705,6 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
     // Rail: the money summary, always visible rather than buried under the
     // Items tab. Discount % stays editable, so it sits above the read-only
     // DocumentTotals card the other document forms use.
-    const railSubtotal = calculateSubtotal();
-    const railDiscount = calculateDiscountAmount(railSubtotal);
-    const railTax = taxSettings.enabled ? calculateTaxAmount(railSubtotal - railDiscount) : 0;
     const canDeleteInvoice = Boolean(editingInvoiceId)
         && invoices.find((inv) => inv.id === editingInvoiceId)?.status === 'Draft';
 
@@ -775,13 +727,13 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
             </div>
             <DocumentTotals
                 totals={{
-                    subtotal: railSubtotal,
-                    chargesTotal: formData.charges.reduce((sum, charge) => sum + charge.amount, 0),
-                    documentDiscount: railDiscount,
-                    taxableBase: railSubtotal - railDiscount,
-                    tax: railTax,
+                    subtotal: invoiceTotals.subtotal.toNumber(),
+                    chargesTotal: invoiceTotals.chargesTotal.toNumber(),
+                    documentDiscount: invoiceTotals.discountAmount.toNumber(),
+                    taxableBase: invoiceTotals.taxableBase.toNumber(),
+                    tax: invoiceTotals.taxAmount.toNumber(),
                     withholding: 0,
-                    grandTotal: calculateTotal(),
+                    grandTotal: invoiceTotals.totalAmount.toNumber(),
                 }}
                 taxRate={taxSettings.enabled ? taxSettings.rate : undefined}
             />
@@ -1069,7 +1021,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                                     />
                                                 </td>
                                                 <td className="p-2 align-top text-right font-bold text-neutral-800 pt-3.5">
-                                                    {formatIDR(calculateItemTotal(item))}
+                                                    {formatIDR(invoiceFormLineTotal(item))}
                                                 </td>
                                                 <td className="p-2 align-top text-center pt-3">
                                                     <button
@@ -1257,7 +1209,10 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         >
             <InvoicePrintTemplate
                 invoice={printInvoice}
-                lineItems={formData.items as unknown as Record<string, unknown>[]}
+                lineItems={invoiceTotals.lines.map(line => ({
+                    ...line, quantity: line.quantity.toNumber(), price: line.price.toNumber(),
+                    discountPct: line.discountPct.toNumber(), lineSubtotal: line.lineSubtotal.toNumber(),
+                }))}
                 company={company as unknown as Record<string, unknown>}
                 options={printSettings}
                 taxRate={taxSettings.rate}

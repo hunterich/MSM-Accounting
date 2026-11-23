@@ -42,7 +42,8 @@ function makeTx(opts: {
       // No closed fiscal year covers the posting date.
       if (strings.join('?').includes('"FiscalYearClose"')) return []
       if (strings.join('?').includes('AccountingPeriod')) {
-        state.periodDates.push(values[1] as Date)
+        const query = Prisma.sql(strings, ...values)
+        state.periodDates.push(new Date(query.values[1] as string))
         return opts.periodClosed ? [{ name: 'September 2026', status: 'CLOSED', isLocked: false }] : []
       }
       return [{ max_seq: state.journals.length }]
@@ -97,7 +98,7 @@ const receipt = (quantity: string, value: string, lotId = 'lot-r', documentId = 
   documentType: 'PURCHASE' as const, documentId, date: RECEIPT_DATE,
   inventoryPostingAccountId: 'inv',
 })
-const journalLines = (journal: Row) => journal.lines.create.map((line: Row) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit }))
+const journalLines = (journal: Row) => journal.lines.create.map((line: Row) => ({ accountId: line.accountId, debit: Number(line.debit), credit: Number(line.credit) }))
 
 describe('receipt-date Weighted Average shortage settlement', () => {
   it('posts the approved Dr COGS 40 / Cr Inventory 40 on the receipt date and keeps the 200 estimate', async () => {
@@ -111,7 +112,9 @@ describe('receipt-date Weighted Average shortage settlement', () => {
     expect(state.ledger).toEqual([expect.objectContaining({ documentType: 'SHORTFALL_SETTLEMENT', documentId: 'bill-1',
       date: RECEIPT_DATE, qtyIn: 0, qtyOut: 0, valueChange: D('-40.00') })])
     expect(state.journals).toHaveLength(1)
-    expect(state.journals[0]).toMatchObject({ date: RECEIPT_DATE, totalDebit: 40, totalCredit: 40 })
+    expect(state.journals[0].date).toEqual(RECEIPT_DATE)
+    expect(state.journals[0].totalDebit.toFixed(2)).toBe('40.00')
+    expect(state.journals[0].totalCredit.toFixed(2)).toBe('40.00')
     expect(journalLines(state.journals[0])).toEqual([{ accountId: 'cogs', debit: 40, credit: 0 }, { accountId: 'inv', debit: 0, credit: 40 }])
     expect(state.settlements).toEqual([expect.objectContaining({ saleDrawId: 'draw-1', saleLedgerEntryId: 'sale-draw-1',
       receiptLedgerEntryId: 'in-lot-r', receiptLotId: 'lot-r', adjustmentLedgerEntryId: 'move-1', journalEntryId: 'je-1',

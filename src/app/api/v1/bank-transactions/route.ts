@@ -5,6 +5,8 @@ import { requireOrg, err, ok, listResponse, logAudit, parsePaginationParams, val
 import { withPermission } from '@/lib/authz';
 import { bankTransactionInputSchema } from '@/types/api';
 import { postBankTransactionIfNeeded } from '@/lib/bank-transaction-posting';
+import { bankCashJournal, recordedBankCashAmount } from '@/lib/bank-amounts';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 
 export const runtime = 'nodejs';
 
@@ -40,11 +42,13 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
       skip: (page - 1) * limit,
       take: limit,
       orderBy: [{ date: 'desc' }, { id: 'desc' }],
-      include: { bankAccount: { select: { id: true, name: true } } },
+      include: { bankAccount: { select: { id: true, name: true } }, journalEntry: bankCashJournal },
     }),
     prisma.bankTransaction.count({ where }),
   ]);
-  return listResponse(data, total, page, limit);
+  return listResponse(data.map(({ journalEntry, ...txn }) => ({
+    ...txn, cashAmount: recordedBankCashAmount({ ...txn, journalEntry }),
+  })), total, page, limit);
 });
 
 export const POST = withPermission({ module: 'BANKING', action: 'create' }, async function POST(req: NextRequest) {
@@ -63,7 +67,8 @@ export const POST = withPermission({ module: 'BANKING', action: 'create' }, asyn
       await validateForeignKey(tx.bankAccount, { id: rest.toBankAccountId, organizationId: orgId, isActive: true }, 'Destination bank account not found in organization');
     }
     const txn = await tx.bankTransaction.create({
-      data: { ...rest, bankAccountId, type, amount, date: new Date(date), organizationId: orgId },
+      data: { ...rest, bankAccountId, type, amount: roundMoneyDecimal(amount),
+        taxRate: roundMoneyDecimal(rest.taxRate), date: new Date(date), organizationId: orgId },
       include: { bankAccount: { select: { id: true, name: true } } },
     });
     // Post the GL entry for the transaction (EXPENSE / INCOME / TRANSFER) and get
@@ -72,14 +77,14 @@ export const POST = withPermission({ module: 'BANKING', action: 'create' }, asyn
     // stays in lockstep with the ledger.
     const posting = await postBankTransactionIfNeeded(tx, orgId, txn.id);
     for (const move of posting.moves) {
-      if (move.delta !== 0) {
+      if (!move.delta.isZero()) {
         await tx.bankAccount.update({
           where: { id: move.bankAccountId },
           data: { currentBalance: { increment: move.delta } },
         });
       }
     }
-    return txn;
+    return { ...txn, cashAmount: posting.cashAmount, journalEntryId: posting.journalEntryId };
   });
 
   logAudit({ orgId, actorId: req.headers.get('x-user-id'), entityType: 'BankTransaction', entityId: result.id, action: 'CREATE', payload: { bankAccountId, type, amount } });

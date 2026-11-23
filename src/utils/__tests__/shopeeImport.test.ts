@@ -75,6 +75,7 @@ describe('transformOrdersToInvoices', () => {
             trackingNumber: 'JNE-123',
             totalPayment: 300000,
             totalProductAmount: 250000,
+            sourceTotal: '250000.00',
             items: [
                 {
                     productName: 'Face Cream',
@@ -82,6 +83,7 @@ describe('transformOrdersToInvoices', () => {
                     priceAfterDiscount: 125000,
                     quantity: 2,
                     productTotal: 250000,
+                    sourceLineAmount: '250000.00',
                     parentSKU: 'SKU-001',
                     skuReference: '',
                     sellerDiscount: 0,
@@ -375,6 +377,18 @@ describe('TikTok Shop export parsing', () => {
         expect(item.priceAfterDiscount).toBe(34200);
     });
 
+    it('adds the TikTok-funded discount before rounding each of two seller lines to Rp3.33', async () => {
+        const file = buildTikTokFile([
+            descriptionRow(),
+            tiktokRow({ 'Seller SKU': 'FIRST', 'SKU Subtotal After Discount': '3.30', 'SKU Platform Discount': '0.034' }),
+            tiktokRow({ 'Seller SKU': 'SECOND', 'SKU Subtotal After Discount': '3.30', 'SKU Platform Discount': '0.034' }),
+        ]);
+        const result = await parseShopeeExcel(file, 'Selesai', 'TikTok');
+        expect(result.parsedOrders[0].items.map(line => line.sourceLineAmount)).toEqual(['3.33', '3.33']);
+        expect(result.parsedOrders[0].sourceTotal).toBe('6.66');
+        expect(result.stats.totalAmount).toBe(6.66);
+    });
+
     it('groups multiple SKU rows of one order into a single order', async () => {
         const file = buildTikTokFile([
             descriptionRow(),
@@ -393,8 +407,8 @@ describe('TikTok Shop export parsing', () => {
             orderDate: '2026-04-21', paymentDate: '2026-04-21', completionDate: '2026-04-24',
             buyerUsername: 'c***pliss', recipientName: 'A S', phone: '0812', shippingAddress: 'Jl. Mawar',
             city: 'Surabaya', province: 'Jawa Timur', paymentMethod: 'DANA', trackingNumber: 'JX1',
-            totalPayment: 35200, totalProductAmount: 34200,
-            items: [{ productName: 'Shampo', variationName: '', priceAfterDiscount: 34200, quantity: 1, productTotal: 34200, parentSKU: 'CC246A', skuReference: '', sellerDiscount: 0, shopeeDiscount: 0 }],
+            totalPayment: 35200, totalProductAmount: 34200, sourceTotal: '34200.00',
+            items: [{ productName: 'Shampo', variationName: '', priceAfterDiscount: 34200, quantity: 1, productTotal: 34200, sourceLineAmount: '34200.00', parentSKU: 'CC246A', skuReference: '', sellerDiscount: 0, shopeeDiscount: 0 }],
         }];
         const result = transformOrdersToInvoices(orders, {
             customerId: 'CUST-TT', customerName: 'TikTok Sales', shopId: 'SHOP-002', platform: 'TikTok',
@@ -410,8 +424,8 @@ describe('TikTok Shop export parsing', () => {
             orderDate: '2026-04-08', paymentDate: '2026-04-08', completionDate: '2026-04-08',
             buyerUsername: 'b', recipientName: 'r', phone: '', shippingAddress: '',
             city: '', province: '', paymentMethod: 'Bayar di tempat', trackingNumber: 'JX1',
-            totalPayment: 35848, totalProductAmount: 34493,
-            items: [{ productName: 'Shampo', variationName: '', priceAfterDiscount: 34493, quantity: 1, productTotal: 34493, parentSKU: 'CC247A', skuReference: '', sellerDiscount: 0, shopeeDiscount: 0 }],
+            totalPayment: 35848, totalProductAmount: 34493, sourceTotal: '34493.00',
+            items: [{ productName: 'Shampo', variationName: '', priceAfterDiscount: 34493, quantity: 1, productTotal: 34493, sourceLineAmount: '34493.00', parentSKU: 'CC247A', skuReference: '', sellerDiscount: 0, shopeeDiscount: 0 }],
         }];
         const result = transformOrdersToInvoices(orders, {
             customerId: 'C', customerName: 'TikTok Sales', shopId: 'S', platform: 'TikTok',
@@ -453,6 +467,25 @@ describe('Shopee reconciliation file parsing', () => {
         expect(result.stats.skippedRows).toBe(0);
         expect(result.parsedOrders).toHaveLength(3);
         expect(result.parsedOrders[0].totalProductAmount).toBe(48000);
+    });
+
+    it('keeps a Shopee seller total of Rp6.67 when its displayed unit prices multiply to Rp6.66', async () => {
+        const file = buildReconFile([
+            ['2608125NSM5QC1', 'Selesai', '2026-08-12 07:53', '233Q', 'Hair Color', '2,22', 3, '6,67', '', 6.67],
+        ]);
+        const result = await parseShopeeExcel(file, 'Selesai', 'Shopee');
+        expect(result.parsedOrders[0].items[0]).toMatchObject({ quantity: 3, priceAfterDiscount: 2.22, sourceLineAmount: '6.67' });
+        expect(result.parsedOrders[0].sourceTotal).toBe('6.67');
+    });
+
+    it('calculates a missing Shopee subtotal but preserves an explicit zero', async () => {
+        const file = buildReconFile([
+            ['ORDER1', 'Selesai', '2026-08-12 07:53', 'SKU1', 'Hair Color', 2.22, 3, '', '', 6.66],
+            ['ORDER1', 'Selesai', '2026-08-12 07:53', 'GIFT', 'Gift', 2.22, 1, 0, '', 6.66],
+        ]);
+        const result = await parseShopeeExcel(file, 'Selesai', 'Shopee');
+        expect(result.parsedOrders[0].items.map(line => line.sourceLineAmount)).toEqual(['6.66', '0.00']);
+        expect(result.parsedOrders[0].sourceTotal).toBe('6.66');
     });
 });
 

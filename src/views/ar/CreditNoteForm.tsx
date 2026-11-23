@@ -6,6 +6,7 @@ import Input from '../../components/UI/Input';
 import { translate } from '../../i18n/language';
 import { useLanguageStore } from '../../stores/useLanguageStore';
 import StatusTag from '../../components/UI/StatusTag';
+import { MoneyDecimal, roundMoneyDecimal } from '../../../lib/money-decimal';
 
 interface CreditNoteLine {
     itemId?:  string;
@@ -38,8 +39,8 @@ interface CreditNoteFormData {
     taxAccountId:        string;
     settlementAccountId: string;
     note:                string;
-    amount:              number;
-    recordedTaxAmount:   number;
+    amount:              number | string;
+    recordedTaxAmount:   number | string;
     lines:               CreditNoteLine[];
     applyTax:            boolean;
     taxIncluded:         boolean;
@@ -65,18 +66,13 @@ const buildCreditNo = (dateStr: string, seq = 1) => {
     return `CRN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const toReturnTotals = (ret: Partial<CreditNoteFormData> | null) => {
-    if (!ret) return { subtotal: 0, taxAmount: 0, total: 0 };
-    const subtotal = (ret.lines || []).reduce((sum, line) => sum + (line.lineTotal == null ? Number(line.qtyReturn || 0) * Number(line.price || 0) : Number(line.lineTotal)), 0);
-    if (!ret.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
-    const taxRate = Number(ret.taxRate || 0) / 100;
-    if (ret.taxIncluded) {
-        const base = subtotal / (1 + taxRate);
-        return { subtotal, taxAmount: subtotal - base, total: subtotal };
-    }
-    const taxAmount = subtotal * taxRate;
-    return { subtotal, taxAmount, total: subtotal + taxAmount };
-};
+function legacyReturnTotals(ret: Partial<CreditNoteFormData>) {
+    const subtotal = (ret.lines ?? []).reduce((sum, line) =>
+        sum.plus(line.lineTotal ?? roundMoneyDecimal(new MoneyDecimal(line.qtyReturn ?? 0).mul(line.price ?? 0))), new MoneyDecimal(0));
+    const rate = new MoneyDecimal(ret.taxRate ?? 0).div(100);
+    const taxAmount = ret.applyTax ? roundMoneyDecimal(subtotal.mul(rate).div(ret.taxIncluded ? rate.plus(1) : 1)) : new MoneyDecimal(0);
+    return { totalAmount: (ret.taxIncluded ? subtotal : subtotal.plus(taxAmount)).toFixed(2), taxAmount: taxAmount.toFixed(2) };
+}
 
 interface CreditNoteFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
 
@@ -150,6 +146,7 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
         if (state.returnDraft) {
             const draft = state.returnDraft;
             const customerInvoice = invoices.find((inv) => inv.id === draft.invoiceId);
+            const legacyAmounts = draft.totalAmount == null || draft.taxAmount == null ? legacyReturnTotals(draft) : null;
             setNumberingMode('auto');
             setFormData((prev) => ({
                 ...prev,
@@ -163,8 +160,8 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
                 returnAccountId: draft.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.arReturn,
                 taxAccountId: draft.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.arTax,
                 settlementAccountId: prev.settlementAccountId || resolvedAccountDefaults.bankAsset,
-                amount: Number(draft.totalAmount ?? toReturnTotals(draft).total),
-                recordedTaxAmount: Number(draft.taxAmount ?? toReturnTotals(draft).taxAmount),
+                amount: draft.totalAmount ?? legacyAmounts?.totalAmount ?? 0,
+                recordedTaxAmount: draft.taxAmount ?? legacyAmounts?.taxAmount ?? 0,
                 lines: (draft.lines || []) as CreditNoteLine[],
                 applyTax: draft.applyTax,
                 taxIncluded: draft.taxIncluded,
@@ -285,8 +282,9 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     }, [formData.sourceInvoiceId, invoices]);
 
     const totals = useMemo(() => {
-        const total = Number(formData.amount), taxAmount = formData.applyTax ? Number(formData.recordedTaxAmount) : 0;
-        return { subtotal: total - taxAmount, taxAmount, total };
+        const total = roundMoneyDecimal(formData.amount);
+        const taxAmount = roundMoneyDecimal(formData.applyTax ? formData.recordedTaxAmount : 0);
+        return { subtotal: total.minus(taxAmount).toNumber(), taxAmount: taxAmount.toNumber(), total: total.toNumber() };
     }, [formData.amount, formData.recordedTaxAmount, formData.applyTax]);
 
     const formatAccountOption = (accountId: string) => {
@@ -439,8 +437,8 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
             returnAccountId: formData.returnAccountId,
             taxAccountId: formData.taxAccountId,
             settlementAccountId: formData.settlementAccountId,
-            amount: totals.total || formData.amount,
-            taxAmount: formData.applyTax ? totals.taxAmount : 0,
+            amount: roundMoneyDecimal(formData.amount).toFixed(2),
+            taxAmount: roundMoneyDecimal(formData.applyTax ? formData.recordedTaxAmount : 0).toFixed(2),
             applyTax: formData.applyTax,
             status: saveAsDraft ? 'Draft' : 'Applied',
         };

@@ -27,6 +27,8 @@ vi.mock('@/lib/api-utils', async (importOriginal) => {
 });
 
 import { createBillRecord } from '../bills';
+import { postBillToLedger } from '../bill-posting';
+import { computeBillFormTotals } from '../../src/components/ap/forms/billFormTotals';
 import type { BillInput } from '@/types/api';
 
 type CreateManyArgs = { data: Array<Record<string, unknown>> };
@@ -80,6 +82,69 @@ function lastLines(calls: ReturnType<typeof makeTx>['calls']): Array<Record<stri
 }
 
 describe('createBillRecord — Decimal arithmetic', () => {
+  it('shows, saves, and posts the same payable for two Rp100.05 lines with 11% PPN', async () => {
+    const { tx, calls } = makeTx();
+    const lines = ['Item A', 'Item B'].map(description => ({ description, quantity: 1, price: 100.05, unit: 'PCS' }));
+    const preview = computeBillFormTotals(
+      lines.map((line, index) => ({ ...line, id: String(index), code: '', qty: line.quantity, discount: 0 })),
+      [],
+      { taxOn: true, taxRate: 11 },
+    );
+    expect(preview.tax).toBe(22.02);
+    expect(preview.grandTotal).toBe(222.12);
+
+    await createBillRecord(tx as never, 'org-1', {
+      ...baseHeader,
+      lines,
+      taxable: true,
+      taxRate: 11,
+      taxAmount: 22,
+      totalAmount: 222, // A stale client sent the old whole-rupiah result.
+    });
+    const savedHeader = calls.bill.create.mock.lastCall![0].data;
+    expect(savedHeader.taxAmount.toFixed(2)).toBe('22.02');
+    expect(savedHeader.totalAmount.toFixed(2)).toBe('222.12');
+
+    const journal = vi.fn(async (_args: { data: Prisma.JournalEntryCreateArgs['data'] }) => ({ id: 'je-1', entryNo: 'JE-000001' }));
+    const postingTx = {
+      ...tx,
+      $executeRaw: vi.fn(),
+      journalEntry: { create: journal },
+      inventoryLot: { count: vi.fn(async () => 0) },
+      organization: { findUnique: vi.fn(async () => ({ accountDefaults: { arControl: 'ar', apControl: 'ap', apTax: 'ppn', cogsExpense: 'expense' } })) },
+      account: { findMany: vi.fn(async ({ where }: { where: { id?: { in: string[] } } }) => {
+        const accounts = [
+          { id: 'ar', code: '121', name: 'Receivable', type: 'Asset' },
+          { id: 'ppn', code: '122', name: 'PPN Masukan', type: 'Asset' },
+          { id: 'ap', code: '21', name: 'Payable', type: 'Liability' },
+          { id: 'expense', code: '51', name: 'Expense', type: 'Expense' },
+        ].map(account => ({ ...account, isActive: true, isPostable: true }));
+        const ids = where.id?.in;
+        return ids ? accounts.filter(account => ids.includes(account.id)) : accounts;
+      }) },
+      bill: { ...tx.bill, update: vi.fn(), findFirst: vi.fn() },
+      aRPayment: { findFirst: vi.fn() },
+      salesReturn: { findFirst: vi.fn() },
+      creditNote: { findFirst: vi.fn() },
+      aPPayment: { findFirst: vi.fn() },
+      purchaseReturn: { findFirst: vi.fn() },
+      debitNote: { findFirst: vi.fn() },
+    };
+    const savedLines = lastLines(calls).map((line, index) => ({
+      id: String(index), itemId: null, purchaseOrderLineId: null,
+      quantity: line.quantity, price: line.price, lineTotal: line.lineTotal,
+    }));
+    const bill = { ...savedHeader, id: 'bill-1', lines: savedLines, apAccountId: 'ap' };
+    await expect(postBillToLedger(postingTx as never, 'org-1', { ...bill, totalAmount: 222 })).rejects.toThrow(/saved payable.*222.12/);
+    expect(journal).not.toHaveBeenCalled();
+
+    await postBillToLedger(postingTx as never, 'org-1', bill);
+    const posted = journal.mock.lastCall![0].data;
+    const postedLines = posted.lines?.create as Prisma.JournalLineUncheckedCreateWithoutEntryInput[];
+    expect(String(postedLines.find(line => line.accountId === 'ap')?.credit)).toBe('222.12');
+    expect(String(postedLines.find(line => line.accountId === 'ppn')?.debit)).toBe('22.02');
+  });
+
   it('persists quantity, price, and lineTotal as Prisma.Decimal instances', async () => {
     const { tx, calls } = makeTx();
     await createBillRecord(tx as never, 'org-1', {
@@ -88,9 +153,9 @@ describe('createBillRecord — Decimal arithmetic', () => {
     });
 
     const [line] = lastLines(calls);
-    expect(line.quantity).toBeInstanceOf(Prisma.Decimal);
-    expect(line.price).toBeInstanceOf(Prisma.Decimal);
-    expect(line.lineTotal).toBeInstanceOf(Prisma.Decimal);
+    expect(Prisma.Decimal.isDecimal(line.quantity)).toBe(true);
+    expect(Prisma.Decimal.isDecimal(line.price)).toBe(true);
+    expect(Prisma.Decimal.isDecimal(line.lineTotal)).toBe(true);
     expect(String(line.lineTotal)).toBe('100');
   });
 

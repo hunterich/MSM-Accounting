@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { lockEligibleNoteReturn } from '../note-return-eligibility';
 import { linkedReturnValue, salesReturnAmounts } from '../note-return-value';
 import { auditLinkedReturnLimits } from '../note-return-audit';
+import { calculateSalesReturnAmounts } from '../sales-return-amounts';
 
 const d = (value: string | number) => new Prisma.Decimal(value);
 function fixture(kind: 'credit' | 'debit', used = '0', total = '111.00') {
@@ -50,6 +51,21 @@ for (const kind of ['credit', 'debit'] as const) describe(`${kind} return limits
 });
 
 describe('return valuation basis', () => {
+  it('allocates only the merchandise share of the original invoice PPN after a legacy partial return', () => {
+    const source = { id: 'line', quantity: d(3), lineSubtotal: d('6.67'), taxable: true };
+    const invoice = {
+      lines: [source], charges: [{ amount: d('2.22'), taxRate: d(11) }],
+      subtotal: d('6.67'), discountAmount: d(0), taxEnabled: true, taxInclusive: false,
+      taxRate: d(11), taxAmount: d('0.98'), postingTracked: true,
+    };
+    const prior = [{
+      sourceId: source.id, salesReturnId: 'legacy', qtyReturn: d(1), lineTotal: d('2.22'), taxAmount: null,
+      salesReturn: { taxAmount: d('0.24'), taxIncluded: false, applyTax: true },
+    }];
+    const remainder = calculateSalesReturnAmounts(invoice, [{ source, qtyReturn: d(2) }], prior);
+    expect([remainder.subtotal, remainder.taxAmount, remainder.totalAmount].map(amount => amount.toFixed(2)))
+      .toEqual(['4.45', '0.50', '4.95']);
+  });
   it('allocates fractional-cent line values without losing the rounded document total', () => {
     const invoice = { id: 'source', subtotal: d(3), discountAmount: d(0), taxEnabled: true, taxInclusive: true, taxRate: d(11) };
     const source = { invoiceId: 'source', quantity: d(3), lineSubtotal: d(1) };

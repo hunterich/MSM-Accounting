@@ -11,6 +11,7 @@ import { withPermission } from '@/lib/authz';
 import { assertItemsActive } from '@/lib/item-availability';
 import { normalizePurchasePolicy } from '@/lib/organization/settings-config';
 import { resolveAutoCloseOptions } from '@/lib/purchase-order-auto-close-config';
+import { calculateBillAmounts, normalizeBillLineAmounts } from '@/lib/bill-totals';
 
 export const runtime = 'nodejs';
 
@@ -64,6 +65,16 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
     throw new ApiError(parsed.error.issues[0]?.message || 'Invalid purchase order payload', 400);
   }
   const { lines, charges, number: manualNumber, ...header } = parsed.data;
+  const orderLines = lines.map(({ quantity, price, discountPct, taxable, ...line }, index) => ({
+    lineNo: line.lineNo ?? index + 1,
+    itemId: line.itemId || null,
+    accountId: line.accountId || null,
+    description: line.description,
+    unit: line.unit,
+    taxable,
+    ...normalizeBillLineAmounts({ quantity, price, discountPct }),
+  }));
+  const { subtotal, taxAmount, totalAmount } = calculateBillAmounts({ ...header, lines: orderLines, charges });
 
   const po = await prisma.$transaction(async (tx) => {
     const org = await tx.organization.findUnique({ where: { id: orgId }, select: { purchasePolicy: true } });
@@ -83,6 +94,7 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
     const created = await tx.purchaseOrder.create({
       data: {
         ...header,
+        subtotal, taxAmount, totalAmount,
         ...autoClose,
         // The schema validates YYYY-MM-DD strings; Prisma's DateTime needs a Date.
         date: new Date(header.date),
@@ -91,28 +103,9 @@ export const POST = withPermission({ module: 'AP_POS', action: 'create' }, async
         number,
       },
     });
-    if (lines && lines.length > 0) {
+    if (orderLines.length > 0) {
       await tx.purchaseOrderLine.createMany({
-        // Map explicitly (not ...l) — documentLineSchema carries bill-only
-        // fields like purchaseOrderLineId that aren't columns on PurchaseOrderLine.
-        data: lines.map((l: any, idx: number) => {
-          const qty = Number(l.quantity) || 0;
-          const price = Number(l.price) || 0;
-          const disc = Number(l.discountPct) || 0;
-          const netTotal = Math.round(qty * price * (1 - disc / 100) * 100) / 100;
-          return {
-            purchaseOrderId: created.id,
-            lineNo: l.lineNo ?? idx + 1,
-            itemId: l.itemId || null,
-            accountId: l.accountId || null,
-            description: l.description,
-            quantity: l.quantity,
-            unit: l.unit,
-            price: l.price,
-            discountPct: disc,
-            lineTotal: l.lineTotal != null ? l.lineTotal : netTotal,
-          };
-        }),
+        data: orderLines.map(line => ({ purchaseOrderId: created.id, ...line })),
       });
     }
     if (charges && charges.length > 0) {

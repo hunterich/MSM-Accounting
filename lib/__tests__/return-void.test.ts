@@ -24,10 +24,10 @@ function makeSrTx(ret: any) {
   return { $executeRaw: vi.fn(), creditNote: { findMany: vi.fn(async () => []) }, salesReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
 function makePrTx(ret: any) {
-  return { debitNote: { findMany: vi.fn(async () => []) }, purchaseReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
+  return { $executeRaw: vi.fn(), debitNote: { findMany: vi.fn(async () => []) }, purchaseReturn: { findFirst: vi.fn(async () => ret), updateMany: vi.fn(async () => ({ count: 1 })) } };
 }
 const sr = (over: any = {}) => ({ id: 'sr-1', invoiceId: 'inv-1', number: 'SR-0001', status: 'APPROVED', journalEntryId: 'je-1', creditNotes: [], ...over });
-const pr = (over: any = {}) => ({ id: 'pr-1', number: 'PR-0001', status: 'APPROVED', journalEntryId: 'je-2', debitNotes: [], ...over });
+const pr = (over: any = {}) => ({ id: 'pr-1', billId: 'bill-1', number: 'PR-0001', status: 'APPROVED', journalEntryId: 'je-2', debitNotes: [], ...over });
 
 describe('voidSalesReturn', () => {
   beforeEach(() => vi.clearAllMocks());

@@ -1,3 +1,5 @@
+import { roundMoneyDecimal } from '../money-decimal';
+
 export interface CashTenderResult {
   ok: boolean;
   change: number;
@@ -9,8 +11,12 @@ export function validateCashTender(total: number, cashGiven: number): CashTender
   if (total <= 0) {
     return { ok: false, change: 0, reason: 'Sale total must be greater than zero' };
   }
-  if (cashGiven < total) {
+  if (!Number.isFinite(cashGiven)) {
+    return { ok: false, change: 0, reason: 'Invalid cash amount' };
+  }
+  const cash = roundMoneyDecimal(cashGiven);
+  if (cash.lt(total)) {
     return { ok: false, change: 0, reason: 'Insufficient cash tendered' };
   }
-  return { ok: true, change: Math.round((cashGiven - total + Number.EPSILON) * 100) / 100 };
+  return { ok: true, change: cash.minus(total).toNumber() };
 }

@@ -10,7 +10,7 @@ import { ApiError, err, listResponse, logAudit, ok, parsePaginationParams, requi
 import { billInputSchema } from '@/types/api';
 import { createBillRecord } from '@/lib/bills';
 import { postBillToLedger } from '@/lib/bill-posting';
-import { applyBillPoReceipt } from '@/lib/bill-po-receipt';
+import { applyBillPoReceipt, lockPurchaseOrdersForBill } from '@/lib/bill-po-receipt';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
@@ -102,6 +102,11 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
         .filter((line) => !line.purchaseOrderLineId)
         .map((line) => line.itemId),
     );
+    const linkedLineIds = parsed.data.lines.flatMap(line => line.purchaseOrderLineId ? [line.purchaseOrderLineId] : []);
+    if (linkedLineIds.length && POSTING_STATUSES.has(parsed.data.status)) {
+      // Receipts acquire the PO lock before allocating a bill number.
+      await lockPurchaseOrdersForBill(tx, orgId, linkedLineIds);
+    }
     const createdBill = await createBillRecord(tx, orgId, parsed.data);
 
     // --- PO line qty tracking: VALIDATE + LINK at create time ---
@@ -169,17 +174,15 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
         });
         (createdBill as any).status = 'PENDING_APPROVAL';
       } else {
-        // Finalized directly. Apply the PO receipt FIRST (before postBillToLedger
-        // books the inventory lots applyBillPoReceipt uses to detect an already-
-        // booked goods receipt), then post GL into an open accounting period.
-        await applyBillPoReceipt(tx, orgId, createdBill.id);
         await assertPeriodOpen(
           tx,
           orgId,
           createdBill.issueDate ? new Date(createdBill.issueDate) : new Date(),
-      dateOverride,
-    );
-        await postBillToLedger(tx, orgId, createdBill as any);
+          dateOverride,
+        );
+        const receiptBill = await applyBillPoReceipt(tx, orgId, createdBill);
+        await postBillToLedger(tx, orgId, receiptBill ?? createdBill);
+        if (receiptBill) return receiptBill;
       }
     }
     return createdBill;

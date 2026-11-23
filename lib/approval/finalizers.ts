@@ -28,12 +28,8 @@ export const FINALIZERS: Partial<Record<ApprovalDocumentType, Finalizer>> = {
     const bill = await tx.bill.findFirst({ where: { id: documentId, organizationId: orgId }, include: { lines: true, charges: true } });
     if (!bill) throw new ApiError('Bill not found', 404);
     await assertPeriodOpen(tx, orgId, bill.issueDate ? new Date(bill.issueDate) : new Date());
-    // Apply the PO receipt FIRST (before postBillToLedger books the inventory
-    // lots applyBillPoReceipt uses to detect an already-booked goods receipt).
-    // This is the held -> approved finalize: the receipt deferred at create time
-    // now lands, exactly once.
-    await applyBillPoReceipt(tx, orgId, documentId);
-    await postBillToLedger(tx, orgId, bill as never);
+    const receiptBill = await applyBillPoReceipt(tx, orgId, bill);
+    await postBillToLedger(tx, orgId, receiptBill ?? bill);
     await tx.bill.update({ where: { id: documentId }, data: { status: 'OPEN', updatedAt: new Date() } });
   },
   SALES_ORDER: async (tx, _orgId, documentId) => {

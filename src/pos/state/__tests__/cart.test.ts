@@ -41,6 +41,12 @@ describe('cart', () => {
     expect(cartTotal(c)).toBe(19000); // 10000 + 9000
   });
 
+  it('shows Rp6.66 for two fractional lines that each round to Rp3.33', () => {
+    let cart = addItem(addItem(emptyCart(), { ...paracetamol, sellingPrice: 10 }), { ...vitc, sellingPrice: 10 });
+    cart = setQty(setQty(cart, 'i1', 0.3333), 'i2', 0.3333);
+    expect(cartTotal(cart)).toBe(6.66);
+  });
+
   it('keeps a configured line separate from a plain line, merges identical configs', () => {
     let c = addItem(emptyCart(), coffee);
     c = addConfiguredItem(c, coffee, [oat]);

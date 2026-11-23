@@ -5,6 +5,9 @@ import { ApiError, ok, err, logAudit, validateForeignKey } from '@/lib/api-utils
 import { withPermission } from '@/lib/authz';
 import { updateBankTransactionInputSchema } from '@/types/api';
 import { postBankTransactionIfNeeded, reverseBankTransactionPosting } from '@/lib/bank-transaction-posting';
+import { bankCashJournal, recordedBankCashAmount } from '@/lib/bank-amounts';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
+import type { Prisma } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -17,11 +20,21 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
   const orgId = req.headers.get('x-org-id')!;
   const txn = await prisma.bankTransaction.findFirst({
     where: { id, organizationId: orgId },
-    include: { bankAccount: { select: { id: true, name: true } } },
+    include: { bankAccount: { select: { id: true, name: true } }, journalEntry: bankCashJournal },
   });
   if (!txn) return err('Not found', 404);
-  return ok(txn);
+  const { journalEntry, ...transaction } = txn;
+  return ok({ ...transaction, cashAmount: recordedBankCashAmount(txn) });
 });
+
+async function assertNoStatementMatch(tx: Prisma.TransactionClient, txn: {
+  id: string; organizationId: string; type: string; status: string;
+}) {
+  if ((txn.type === 'TRANSFER' && txn.status === 'MATCHED') ||
+      await tx.bankStatementLine.count({ where: { matchedTxId: txn.id, matchStatus: 'MATCHED', statement: { organizationId: txn.organizationId } } })) {
+    throw new ApiError('Unmatch the bank statement lines before changing this transaction.', 409);
+  }
+}
 
 export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
@@ -34,9 +47,7 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (
       await tx.$queryRaw`SELECT "id" FROM "BankTransaction" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const existing = await tx.bankTransaction.findFirst({ where: { id, organizationId: orgId } });
       if (!existing) return null;
-      if (existing.type === 'TRANSFER' && (existing.status === 'MATCHED' || await tx.bankStatementLine.count({ where: { matchedTxId: id, matchStatus: 'MATCHED', statement: { organizationId: orgId } } }))) {
-        throw new ApiError('Unmatch both transfer statement lines before editing this transaction.', 409);
-      }
+      await assertNoStatementMatch(tx, existing);
       if (parsed.data.bankAccountId) {
         await validateForeignKey(tx.bankAccount, { id: parsed.data.bankAccountId, organizationId: orgId, isActive: true }, 'Bank account not found in organization');
       }
@@ -49,7 +60,7 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (
       // start from a clean slate before re-posting.
       const undoMoves = await reverseBankTransactionPosting(tx, orgId, existing);
       for (const move of undoMoves) {
-        if (move.delta !== 0) {
+        if (!move.delta.isZero()) {
           await tx.bankAccount.update({
             where: { id: move.bankAccountId },
             data: { currentBalance: { increment: move.delta } },
@@ -62,8 +73,11 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (
         where: { id, organizationId: orgId },
         data: {
           ...parsed.data,
+          ...(parsed.data.amount !== undefined && { amount: roundMoneyDecimal(parsed.data.amount) }),
+          ...(parsed.data.taxRate !== undefined && { taxRate: roundMoneyDecimal(parsed.data.taxRate) }),
           ...(parsed.data.date !== undefined && { date: new Date(parsed.data.date) }),
           journalEntryId: null,
+          cashAmount: null,
           updatedAt: new Date(),
         },
       });
@@ -73,7 +87,7 @@ export const PUT = withPermission({ module: 'BANKING', action: 'edit' }, async (
       // the ledger — both source and destination for a transfer.
       const posting = await postBankTransactionIfNeeded(tx, orgId, id);
       for (const move of posting.moves) {
-        if (move.delta !== 0) {
+        if (!move.delta.isZero()) {
           await tx.bankAccount.update({
             where: { id: move.bankAccountId },
             data: { currentBalance: { increment: move.delta } },
@@ -104,12 +118,9 @@ export const DELETE = withPermission({ module: 'BANKING', action: 'delete' }, as
     await tx.$queryRaw`SELECT "id" FROM "BankTransaction" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
     const existing = await tx.bankTransaction.findFirst({
       where: { id, organizationId: orgId },
-      select: { id: true, bankAccountId: true, type: true, amount: true, journalEntryId: true, status: true },
     });
     if (!existing) return null;
-    if (existing.type === 'TRANSFER' && (existing.status === 'MATCHED' || await tx.bankStatementLine.count({ where: { matchedTxId: id, matchStatus: 'MATCHED', statement: { organizationId: orgId } } }))) {
-      throw new ApiError('Unmatch both transfer statement lines before deleting this transaction.', 409);
-    }
+    await assertNoStatementMatch(tx, existing);
     if (existing.journalEntryId) {
       throw new ApiError('This expense has already been posted to the ledger and cannot be deleted — void it instead.', 409);
     }
@@ -125,16 +136,11 @@ export const DELETE = withPermission({ module: 'BANKING', action: 'delete' }, as
       throw new ApiError('Transaction not found or already posted', 409);
     }
 
-    const delta = existing.type === 'INCOME'
-      ? -Number(existing.amount)
-      : existing.type === 'TRANSFER'
-        ? 0
-        : Number(existing.amount);
-
-    if (delta !== 0) {
+    const undoMoves = await reverseBankTransactionPosting(tx, orgId, existing);
+    for (const move of undoMoves) {
       await tx.bankAccount.update({
-        where: { id: existing.bankAccountId },
-        data: { currentBalance: { increment: delta } },
+        where: { id: move.bankAccountId },
+        data: { currentBalance: { increment: move.delta } },
       });
     }
 

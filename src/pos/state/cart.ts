@@ -1,4 +1,5 @@
-import { computeSaleTotals, type SaleLineInput, type SelectedModifier } from '@/lib/pos/pricing';
+import { pricePosSale, type SaleLineInput, type SelectedModifier } from '@/lib/pos/pricing';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 
 /** A selectable option within a modifier group (e.g. "Large", "Extra shot"). */
 export interface ModifierOptionView {
@@ -86,7 +87,7 @@ export function addConfiguredItem(cart: Cart, item: CatalogItem, mods: SelectedM
   if (existing) {
     return { lines: cart.lines.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l)) };
   }
-  const price = item.sellingPrice + mods.reduce((s, m) => s + m.priceDelta, 0);
+  const price = mods.reduce((sum, mod) => sum.plus(roundMoneyDecimal(mod.priceDelta)), roundMoneyDecimal(item.sellingPrice)).toNumber();
   return {
     lines: [
       ...cart.lines,
@@ -137,5 +138,5 @@ export function toSaleLines(cart: Cart): SaleLineInput[] {
 }
 
 export function cartTotal(cart: Cart): number {
-  return computeSaleTotals(toSaleLines(cart), 11).totalAmount;
+  return pricePosSale(toSaleLines(cart)).totalAmount.toNumber();
 }

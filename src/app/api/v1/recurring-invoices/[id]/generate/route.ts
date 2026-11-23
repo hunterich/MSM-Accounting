@@ -1,3 +1,4 @@
+import { recurringInvoiceAmounts } from '@/lib/recurring-document-totals';
 import { advisoryLockKey } from '@/lib/advisory-lock';
 import { nextRecurringDate } from '@/lib/billing-calendar';
 import { nextInvoiceNumber } from '@/lib/invoice-number';
@@ -57,32 +58,6 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
 
     const invoiceNumber = await nextInvoiceNumber(tx, orgId, { issueDate: template.nextRunDate });
 
-    // 4. Compute totals
-    const taxRate = Number(template.taxRate);
-    let subtotal = 0;
-    for (const line of template.lines) {
-      const qty = Number(line.quantity);
-      const price = Number(line.price);
-      const discountPct = Number(line.discountPct);
-      const lineAmount = qty * price * (1 - discountPct / 100);
-      if (line.taxable) {
-        subtotal += lineAmount;
-      } else {
-        subtotal += lineAmount;
-      }
-    }
-    // Round to 2 decimal places
-    subtotal = Math.round(subtotal * 100) / 100;
-    const taxableSubtotal = template.lines.reduce((sum, line) => {
-      if (!line.taxable) return sum;
-      const qty = Number(line.quantity);
-      const price = Number(line.price);
-      const discountPct = Number(line.discountPct);
-      return sum + qty * price * (1 - discountPct / 100);
-    }, 0);
-    const taxAmount = Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100;
-    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
-
     // 5. Create SalesInvoice
     const issueDate = new Date(template.nextRunDate);
     const dueDate = new Date(template.nextRunDate);
@@ -99,30 +74,8 @@ export const POST = withPermission({ module: 'AR_INVOICES', action: 'create' }, 
         currency: 'IDR',
         status: template.autoPost ? 'SENT' : 'DRAFT',
         recurringInvoiceId: template.id,
-        taxEnabled: taxRate > 0,
-        taxInclusive: false,
-        taxRate,
-        taxAmount,
-        subtotal,
-        discountPct: 0,
-        discountAmount: 0,
-        totalAmount,
         notes: template.notes || null,
-        // 6. Create invoice lines from template lines
-        lines: {
-          create: template.lines.map((line) => ({
-            lineNo: line.lineNo,
-            itemId: line.itemId || null,
-            description: line.description,
-            quantity: Number(line.quantity),
-            unit: line.unit || 'PCS',
-            price: Number(line.price),
-            discountPct: Number(line.discountPct),
-            lineSubtotal: Math.round(
-              Number(line.quantity) * Number(line.price) * (1 - Number(line.discountPct) / 100) * 100,
-            ) / 100,
-          })),
-        },
+        ...recurringInvoiceAmounts(template),
       },
       select: { id: true, number: true },
     });

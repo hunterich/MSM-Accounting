@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
-import { asMoney, toNumber } from '@/lib/money';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { createCreditNoteInputSchema } from '@/types/api';
 import { validateNoteRefundAccount } from '@/lib/note-refund-account';
 
@@ -76,8 +76,8 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
         ...d,
         number,
         organizationId: orgId,
-        amount: asMoney(toNumber(d.amount)),
-        taxAmount: asMoney(toNumber(d.taxAmount ?? 0)),
+        amount: roundMoneyDecimal(d.amount),
+        taxAmount: roundMoneyDecimal(d.applyTax === false ? 0 : (d.taxAmount ?? 0)),
         date: new Date(d.date),
         status: 'DRAFT',
       },

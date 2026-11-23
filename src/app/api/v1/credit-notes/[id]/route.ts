@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit, logAuditTx, validateForeignKey } from '@/lib/api-utils';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
-import { asMoney, toNumber } from '@/lib/money';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { updateCreditNoteInputSchema } from '@/types/api';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -90,7 +90,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       await tx.$queryRaw`SELECT "id" FROM "CreditNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.creditNote.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, amount: true, status: true, journalEntryId: true, postedAt: true, customerId: true, sourceInvoiceId: true, salesReturnId: true },
+        select: { id: true, amount: true, taxAmount: true, applyTax: true, status: true, journalEntryId: true, postedAt: true, customerId: true, sourceInvoiceId: true, salesReturnId: true },
       });
       if (!prior) {
         throw Object.assign(new Error('Not found'), { status: 404 });
@@ -123,7 +123,8 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       // also protects submission to approval, which posts no journal yet.
       if (prior.status === 'DRAFT' && nextStatus === 'APPLIED') {
         await lockEligibleNoteReturn(tx, 'credit', {
-          id, amount: d.amount !== undefined ? asMoney(toNumber(d.amount)) : prior.amount,
+          id, amount: d.amount !== undefined ? roundMoneyDecimal(d.amount) : prior.amount,
+          taxAmount: (d.applyTax ?? prior.applyTax) ? (d.taxAmount ?? prior.taxAmount) : 0,
           organizationId: orgId, partyId: d.customerId ?? prior.customerId,
           sourceId: d.sourceInvoiceId !== undefined ? d.sourceInvoiceId : prior.sourceInvoiceId,
           returnId: d.salesReturnId !== undefined ? d.salesReturnId : prior.salesReturnId,
@@ -139,8 +140,8 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         where: { id, organizationId: orgId },
         data: {
           ...d,
-          ...(d.amount !== undefined && { amount: asMoney(toNumber(d.amount)) }),
-          ...(d.taxAmount !== undefined && { taxAmount: asMoney(toNumber(d.taxAmount)) }),
+          ...(d.amount !== undefined && { amount: roundMoneyDecimal(d.amount) }),
+          ...((d.taxAmount !== undefined || d.applyTax === false) && { taxAmount: roundMoneyDecimal((d.applyTax ?? prior.applyTax) === false ? 0 : (d.taxAmount ?? 0)) }),
           ...(d.date !== undefined && { date: new Date(d.date) }),
           updatedAt: new Date(),
         },

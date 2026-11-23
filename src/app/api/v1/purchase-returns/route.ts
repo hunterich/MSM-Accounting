@@ -4,9 +4,10 @@ import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
-import { asMoney, toNumber } from '@/lib/money';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { createPurchaseReturnInputSchema } from '@/types/api';
+import { preparePurchaseReturnValuation } from '@/lib/purchase-return-amounts';
+import { assertReturnPreview } from '@/lib/note-return-value';
 
 export const runtime = 'nodejs';
 
@@ -55,50 +56,30 @@ export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, as
   const body = await req.json();
   const parsed = createPurchaseReturnInputSchema.safeParse(body);
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid purchase return payload', 400);
-  const { lines, ...header } = parsed.data;
+  const { lines, expectedValuation, ...header } = parsed.data;
 
   const purchaseReturn = await prisma.$transaction(async (tx) => {
     // Tenant isolation: the vendor, the source bill, and every referenced line
     // item must belong to this org — otherwise they leak back through the GET
     // `include` joins (vendor / bill / lines.item).
     await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
-    await validateForeignKey(tx.bill, { id: header.billId, organizationId: orgId }, 'Bill not found in organization');
-    const returnItemIds = Array.from(
-      new Set((lines ?? []).map((l: any) => l.itemId).filter((id: unknown): id is string => !!id)),
-    );
+    const returnItemIds = new Set((lines ?? []).map(line => line.itemId).filter((id): id is string => Boolean(id)));
     for (const itemId of returnItemIds) {
       await validateForeignKey(tx.item, { id: itemId, organizationId: orgId }, 'Item not found in organization');
     }
+    const { lines: valuedLines, ...amounts } = await preparePurchaseReturnValuation(tx, orgId, { ...header, lines });
+    assertReturnPreview(amounts, expectedValuation);
     const number = await nextNumber(tx, 'PurchaseReturn', 'number', 'PRN');
     const created = await tx.purchaseReturn.create({
       data: {
         ...header,
+        ...amounts,
         number,
         organizationId: orgId,
         returnDate: new Date(header.returnDate),
-        subtotal:    asMoney(toNumber(header.subtotal)),
-        taxAmount:   asMoney(toNumber(header.taxAmount)),
-        totalAmount: asMoney(toNumber(header.totalAmount)),
-        taxRate:     toNumber(header.taxRate ?? 11),
-        lines: lines?.length ? {
-          create: lines.map((l: any, idx: number) => {
-            const qtyReturn = toNumber(l.qtyReturn);
-            const price = asMoney(toNumber(l.price));
-            return {
-              lineNo:       idx + 1,
-              lineKey:      l.lineKey || null,
-              itemId:       l.itemId || null,
-              description:  l.description || '',
-              qtyPurchased: toNumber(l.qtyPurchased),
-              qtyReturn,
-              unit:         l.unit || 'PCS',
-              price,
-              lineTotal:    asMoney(l.lineTotal != null ? toNumber(l.lineTotal) : qtyReturn * price),
-            };
-          }),
-        } : undefined,
+        lines: valuedLines.length ? { create: valuedLines } : undefined,
       },
-      include: { lines: true },
+      include: { lines: { orderBy: { lineNo: 'asc' } } },
     });
 
     // Post inventory leg if user creates as APPROVED directly. If the approval

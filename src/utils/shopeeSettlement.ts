@@ -1,18 +1,22 @@
 import * as XLSX from 'xlsx';
+import type { Decimal } from '@prisma/client/runtime/index-browser.js';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { normalizeHeader } from './headerUtils';
 import { isShopeeSettlement } from './marketplaceFormat';
-import { SHOPEE_COLUMN_TO_KEY, SettlementFeeKey } from './settlementMapping';
+import { readMarketplaceDecimal } from './marketplaceMoney';
+import { SHOPEE_COLUMN_TO_KEY } from './settlementMapping';
+import { settlementPostingCharges, totalSettlementPayout, type SettlementCharges } from './settlementMoney';
 
 export interface SettlementOrder {
   orderId: string;
-  netReleased: number;
-  charges: Partial<Record<SettlementFeeKey, number>>; // positive magnitudes
+  netReleased: string;
+  charges: SettlementCharges<string>; // positive magnitudes in posting precision
   settlementDate?: string;
   requireMappedCharges?: boolean;
 }
 export interface SettlementParseResult {
   orders: SettlementOrder[];
-  totalNetReleased: number;
+  totalNetReleased: string;
   nonOrderRows: Array<{ orderId: string; type: string; amount: number }>;
 }
 
@@ -52,21 +56,19 @@ export async function parseShopeeSettlement(file: File): Promise<SettlementParse
       }
       if (seen.has(orderId)) throw new Error(`Order ${orderId} appears more than once as an order-level income row. Review before importing.`);
       seen.add(orderId);
-      const rawNet = row[netCol];
-      if (rawNet === '' || rawNet == null || !Number.isFinite(Number(rawNet))) throw new Error(`Invalid released amount for ${orderId}.`);
-      const charges: Partial<Record<SettlementFeeKey, number>> = {};
+      const net = readMarketplaceDecimal(row[netCol], `released amount for ${orderId}`);
+      if (!net) throw new Error(`Invalid released amount for ${orderId}.`);
+      const charges: SettlementCharges<Decimal> = {};
       for (let col = 0; col < header.length; col++) {
         const key = SHOPEE_COLUMN_TO_KEY[header[col]];
         const value = row[col];
-        if (value === '' || value == null) continue;
-        if (strict && col > productCol && col <= endCol && !key && Number(value) !== 0) throw new Error(`Unmapped financial column ${rawHeader[col]} has a value for ${orderId}; review the report format.`);
-        if (!key) continue;
-        const v = Number(value);
-        if (!Number.isFinite(v)) throw new Error(`Invalid ${rawHeader[col]} amount for ${orderId}.`);
-        if (!v) continue;
+        if (!key && !(strict && col > productCol && col <= endCol)) continue;
+        const v = readMarketplaceDecimal(value, `${rawHeader[col]} amount for ${orderId}`);
+        if (!v || v.isZero()) continue;
+        if (!key) throw new Error(`Unmapped financial column ${rawHeader[col]} has a value for ${orderId}; review the report format.`);
         const income = ['buyerShipping', 'shippingRebate', 'platformRebate'].includes(key);
-        if (strict && ((income && v < 0) || (!income && v > 0))) throw new Error(`Unexpected sign for ${rawHeader[col]} on ${orderId}; review the transaction.`);
-        charges[key] = (charges[key] ?? 0) + Math.abs(v);
+        if (strict && ((income && v.lt(0)) || (!income && v.gt(0)))) throw new Error(`Unexpected sign for ${rawHeader[col]} on ${orderId}; review the transaction.`);
+        charges[key] = v.abs().plus(charges[key] ?? 0);
       }
       let settlementDate: string | undefined;
       if (strict) {
@@ -78,7 +80,13 @@ export async function parseShopeeSettlement(file: File): Promise<SettlementParse
         const d = new Date(`${settlementDate}T00:00:00.000Z`);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(settlementDate ?? '') || !Number.isFinite(d.valueOf()) || d.toISOString().slice(0, 10) !== settlementDate) throw new Error(`Invalid payout date for ${orderId}.`);
       }
-      orders.push({ orderId, netReleased: Number(rawNet), charges, ...(strict ? { settlementDate, requireMappedCharges: true } : {}) });
+      orders.push({
+        orderId,
+        netReleased: roundMoneyDecimal(net).toFixed(2),
+        charges: settlementPostingCharges(charges),
+        settlementDate,
+        requireMappedCharges: true,
+      });
     }
   }
   const adjustment = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets.Adjustment, { header: 1, blankrows: false });
@@ -96,5 +104,5 @@ export async function parseShopeeSettlement(file: File): Promise<SettlementParse
       if (amount) nonOrderRows.push({ orderId: String(row[h.indexOf('Linked Order No.')] ?? ''), type, amount });
     }
   }
-  return { orders, totalNetReleased: orders.reduce((s, o) => s + o.netReleased, 0), nonOrderRows };
+  return { orders, totalNetReleased: totalSettlementPayout(orders), nonOrderRows };
 }

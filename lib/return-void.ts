@@ -5,6 +5,7 @@ import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
 import { reverseAddedLayers, restoreConsumedLayers } from './inventory-costing';
 import { lockSalesReturns } from './sales-return-lines';
+import { lockPurchaseReturns } from './purchase-return-amounts';
 
 type Tx = Prisma.TransactionClient;
 
@@ -131,16 +132,23 @@ const PR_CONFIG: VoidConfig = {
   label: 'purchase return',
   noteLabel: 'debit note',
   find: async (tx, orgId, id) => {
+    const initial = await tx.purchaseReturn.findFirst({ where: { id, organizationId: orgId }, select: { billId: true } });
+    if (!initial) return null;
+    await lockPurchaseReturns(tx, orgId, initial.billId);
     const r = await tx.purchaseReturn.findFirst({
       where: { id, organizationId: orgId },
       select: {
         id: true,
+        billId: true,
         number: true,
         status: true,
         journalEntryId: true,
         debitNotes: { where: { status: 'APPLIED' }, select: { id: true } },
       },
     });
+    if (r && r.billId !== initial.billId) {
+      throw new ApiError('Purchase return changed its source bill; retry the void action', 409);
+    }
     return r ? { id: r.id, number: r.number, status: r.status, journalEntryId: r.journalEntryId, appliedNotes: r.debitNotes } : null;
   },
   unwindInventory: (tx, orgId, id, date) => restoreConsumedLayers(tx, orgId, InventoryDocumentType.PURCHASE_RETURN, id, date),

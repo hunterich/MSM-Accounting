@@ -361,18 +361,6 @@
     @apply mb-4 rounded-md border border-warning-300 bg-warning-50 px-4 py-3 text-sm text-warning-800;
   }
 
-  .banking-tax-summary {
-    @apply self-end rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm;
-  }
-
-  .banking-tax-line {
-    @apply flex justify-between text-neutral-700;
-  }
-
-  .banking-tax-total {
-    @apply mt-0.5 border-t border-neutral-300 pt-1 font-semibold text-neutral-900;
-  }
-
   /* Integrations */
   .integrations-info-grid {
     @apply mb-5;

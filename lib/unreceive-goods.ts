@@ -4,7 +4,7 @@ import { toNumber } from './money';
 import { assertPeriodOpen } from './period-guard';
 import { reversePurchaseLayers } from './inventory-costing';
 import { postJournalEntry } from './journal-posting';
-import { advisoryLockKey } from './advisory-lock';
+import { lockPurchaseOrder } from './purchase-order-auto-close';
 
 type Tx = Prisma.TransactionClient;
 
@@ -37,7 +37,7 @@ export async function unreceiveGoodsReceipt(
       poId: true,
       receiptPostingJournalId: true,
       deletedAt: true,
-      lines: { select: { quantity: true, purchaseOrderLineId: true } },
+      lines: { select: { quantity: true, purchaseOrderLineId: true, poReceiptTaxAmount: true } },
     },
   });
 
@@ -50,11 +50,15 @@ export async function unreceiveGoodsReceipt(
   if (bill.status !== 'DRAFT') {
     throw new ApiError('Only a draft goods receipt can be un-received — void the bill first', 422);
   }
+  if (!bill.receiptPostingJournalId && !bill.lines.some(line => line.poReceiptTaxAmount != null)
+    && !await tx.inventoryLot.count({ where: { organizationId: orgId, documentType: 'PURCHASE', documentId: billId } })) {
+    throw new ApiError('This draft bill has no booked goods receipt to reverse', 422);
+  }
 
   await assertPeriodOpen(tx, orgId, opts.date);
   // Receiving and un-receiving the same PO share the receive claim. PO row
   // changes below precede item locks and journal numbering, as in receiving.
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(`po-receive:${bill.poId}`)})`;
+  await lockPurchaseOrder(tx, bill.poId);
 
   // Atomically claim the un-receive before any side effect, using the soft-delete
   // field as the claim token. The guarded `updateMany` takes a row lock; a
@@ -76,7 +80,7 @@ export async function unreceiveGoodsReceipt(
     if (!line.purchaseOrderLineId) continue;
     await tx.purchaseOrderLine.update({
       where: { id: line.purchaseOrderLineId },
-      data: { receivedQty: { decrement: toNumber(line.quantity) } },
+      data: { receivedQty: { decrement: line.quantity } },
     });
   }
   const poLines = await tx.purchaseOrderLine.findMany({

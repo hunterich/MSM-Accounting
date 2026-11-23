@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
-import { logAudit, logAuditTx } from '@/lib/api-utils';
+import { logAudit, logAuditTx, validateForeignKey } from '@/lib/api-utils';
 import { postPurchaseReturnOnApproval } from '@/lib/purchase-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { updatePurchaseReturnInputSchema } from '@/types/api';
 import { ApiError } from '@/lib/errors';
 import { lockReturnForDeletion, assertNoLinkedNotes } from '@/lib/return-deletion-guard';
+import { lockPurchaseReturns, preparePurchaseReturnValuation } from '@/lib/purchase-return-amounts';
+import { assertReturnPreview } from '@/lib/note-return-value';
 
 export const runtime = 'nodejs';
 
@@ -52,7 +54,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid purchase return payload' }, { status: 400 }));
     }
-    const { lines, ...header } = parsed.data;
+    const { lines, expectedValuation, ...header } = parsed.data;
 
     // Voiding a posted return must reverse its inventory journal entry and unwind
     // the stock — only the dedicated endpoint does that. A bare status flip here
@@ -65,49 +67,54 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
     }
 
     const pr = await prisma.$transaction(async (tx) => {
+      const initial = await tx.purchaseReturn.findFirst({ where: { id, organizationId: orgId }, select: { billId: true } });
+      if (!initial) throw new ApiError('Purchase return not found', 404);
+      for (const billId of [...new Set([initial.billId, header.billId ?? initial.billId])].sort()) {
+        await lockPurchaseReturns(tx, orgId, billId);
+      }
+      await tx.$queryRaw`SELECT "id" FROM "PurchaseReturn" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.purchaseReturn.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, journalEntryId: true },
+        include: { lines: { orderBy: { lineNo: 'asc' } } },
       });
-      if (!prior) {
-        throw new Error('Purchase return not found');
-      }
+      if (!prior) throw new ApiError('Purchase return not found', 404);
+      if (prior.billId !== initial.billId) throw new ApiError('Purchase return source bill changed. Reload the return and retry.', 409);
 
       const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1 && lines === undefined;
       if (prior.status !== 'DRAFT' && !isStatusOnlyUpdate) {
-        throw new Error('Only DRAFT purchase returns can be modified');
+        throw new ApiError('Only DRAFT purchase returns can be modified', 422);
+      }
+      if (prior.status !== 'DRAFT' && (prior.status === 'VOID' || header.status === 'DRAFT')) {
+        throw new ApiError('Finalized purchase returns cannot return to draft or be reopened after voiding', 422);
       }
 
+      const returnItemIds = new Set((lines ?? []).map(line => line.itemId).filter((itemId): itemId is string => Boolean(itemId)));
+      for (const itemId of returnItemIds) {
+        await validateForeignKey(tx.item, { id: itemId, organizationId: orgId }, 'Item not found in organization');
+      }
+      const valuation = prior.status === 'DRAFT' ? await preparePurchaseReturnValuation(tx, orgId, {
+        ...prior, ...header, lines: lines ?? prior.lines,
+      }, id) : null;
+      if (valuation) assertReturnPreview(valuation, expectedValuation);
+      const { lines: valuedLines, ...amounts } = valuation ?? { lines: undefined };
       if (lines) {
         await tx.purchaseReturnLine.deleteMany({ where: { purchaseReturnId: id } });
+      } else if (valuedLines) {
+        for (const [index, line] of prior.lines.entries()) {
+          await tx.purchaseReturnLine.update({ where: { id: line.id }, data: valuedLines[index] });
+        }
       }
 
       const updated = await tx.purchaseReturn.update({
         where: { id, organizationId: orgId },
         data: {
           ...header,
+          ...amounts,
           ...(header.returnDate && { returnDate: new Date(header.returnDate) }),
-          ...(header.subtotal != null    && { subtotal:    Number(header.subtotal) }),
-          ...(header.taxAmount != null   && { taxAmount:   Number(header.taxAmount) }),
-          ...(header.totalAmount != null && { totalAmount: Number(header.totalAmount) }),
           updatedAt: new Date(),
-          ...(lines ? {
-            lines: {
-              create: lines.map((l, idx) => ({
-                lineNo:       idx + 1,
-                lineKey:      l.lineKey || null,
-                itemId:       l.itemId || null,
-                description:  l.description || '',
-                qtyPurchased: Number(l.qtyPurchased ?? 0),
-                qtyReturn:    Number(l.qtyReturn ?? 0),
-                unit:         l.unit || 'PCS',
-                price:        Number(l.price ?? 0),
-                lineTotal:    Number(l.lineTotal ?? 0),
-              })),
-            },
-          } : {}),
+          ...(lines && valuedLines ? { lines: { create: valuedLines } } : {}),
         },
-        include: { lines: true },
+        include: { lines: { orderBy: { lineNo: 'asc' } } },
       });
 
       // Post on DRAFT → APPROVED transition (idempotent via journalEntryId),
@@ -141,7 +148,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
     return withCors(NextResponse.json(pr));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed';
-    return withCors(NextResponse.json({ error: message }, { status: 500 }));
+    return withCors(NextResponse.json({ error: message }, { status: error instanceof ApiError ? error.status : 500 }));
   }
 });
 

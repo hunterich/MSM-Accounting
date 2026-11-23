@@ -19,7 +19,7 @@
 import { Prisma } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
-import { toNumber } from './money';
+import { roundMoneyDecimal } from './money-decimal';
 import { ApiError } from './api-utils';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
@@ -71,8 +71,10 @@ export async function postCreditNoteOnApply(
 
   // Idempotency token — already posted, nothing to do.
   if (cn.journalEntryId) return;
+  const amount = roundMoneyDecimal(cn.amount);
+  const taxAmount = roundMoneyDecimal(cn.applyTax ? cn.taxAmount : 0);
   await lockEligibleNoteReturn(tx, 'credit', {
-    id: cn.id, amount: cn.amount,
+    id: cn.id, amount, taxAmount,
     organizationId: cn.organizationId, partyId: cn.customerId,
     sourceId: cn.sourceInvoiceId, returnId: cn.salesReturnId,
   });
@@ -86,16 +88,14 @@ export async function postCreditNoteOnApply(
   // Refuse to post into a closed/locked accounting period.
   await assertPeriodOpen(tx, cn.organizationId, cn.date, opts);
 
-  const amount = toNumber(cn.amount);
-  if (amount <= 0) {
+  if (amount.lte(0)) {
     throw new Error(`CreditNote ${cn.number}: amount must be > 0 to apply`);
   }
 
   // `amount` is the gross total credited to the customer; `taxAmount` is the
   // Output-Tax (PPN Keluaran) portion inside it. It reverses the tax payable
   // booked on the original invoice instead of inflating sales-return expense.
-  const taxAmount = cn.applyTax ? toNumber(cn.taxAmount) : 0;
-  if (taxAmount < 0 || taxAmount >= amount) {
+  if (taxAmount.lt(0) || taxAmount.gt(amount) || (taxAmount.eq(amount) && !cn.salesReturnId)) {
     throw new Error(
       `CreditNote ${cn.number}: taxAmount must be >= 0 and below the gross amount`,
     );
@@ -121,10 +121,10 @@ export async function postCreditNoteOnApply(
   }
 
   const taxAccountId =
-    taxAmount > 0
+    taxAmount.gt(0)
       ? cn.taxAccountId ?? resolveAccountDefaultId(accounts, settings, 'arTax')
       : null;
-  if (taxAmount > 0 && !taxAccountId) {
+  if (taxAmount.gt(0) && !taxAccountId) {
     throw new Error(
       `CreditNote ${cn.number}: taxAmount is set but no Output Tax account is configured (arTax default)`,
     );
@@ -135,13 +135,13 @@ export async function postCreditNoteOnApply(
     date: cn.date,
     memo: `Credit note: ${cn.number}`,
     lines: [
-      {
+      ...(amount.gt(taxAmount) ? [{
         accountId: returnAccountId,
         description: `Sales return - ${cn.number}`,
-        debit: amount - taxAmount,
+        debit: amount.minus(taxAmount),
         credit: 0,
-      },
-      ...(taxAmount > 0 && taxAccountId
+      }] : []),
+      ...(taxAmount.gt(0) && taxAccountId
         ? [{
             accountId: taxAccountId,
             description: `Output tax reversal - ${cn.number}`,

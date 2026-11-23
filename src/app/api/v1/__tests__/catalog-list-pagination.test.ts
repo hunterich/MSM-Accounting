@@ -18,6 +18,10 @@ beforeEach(() => {
         model.findMany.mockResolvedValue([{ id: 'later-page-record' }]);
         model.count.mockResolvedValue(65);
     }
+    mocks.bankTransaction.findMany.mockResolvedValue([{
+        id: 'later-page-record', amount: '100', type: 'INCOME', taxType: 'NONE', taxRate: '0',
+        cashAmount: null, journalEntry: null,
+    }]);
 });
 
 describe('catalog queries paginate matching records in the organization', () => {

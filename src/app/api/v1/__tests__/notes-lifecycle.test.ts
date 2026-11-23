@@ -281,8 +281,8 @@ describe('credit notes — GL lifecycle', () => {
     };
     expect(je.memo).toMatch(/Credit note/);
     const lines = je.lines.create;
-    const debits = lines.reduce((s, l) => s + l.debit, 0);
-    const credits = lines.reduce((s, l) => s + l.credit, 0);
+    const debits = lines.reduce((s, l) => s + Number(l.debit), 0);
+    const credits = lines.reduce((s, l) => s + Number(l.credit), 0);
     expect(debits).toBe(credits);
   });
 
@@ -362,8 +362,8 @@ describe('debit notes — GL lifecycle', () => {
     };
     expect(je.memo).toMatch(/Debit note/);
     const lines = je.lines.create;
-    const debits = lines.reduce((s, l) => s + l.debit, 0);
-    const credits = lines.reduce((s, l) => s + l.credit, 0);
+    const debits = lines.reduce((s, l) => s + Number(l.debit), 0);
+    const credits = lines.reduce((s, l) => s + Number(l.credit), 0);
     expect(debits).toBe(credits);
   });
 

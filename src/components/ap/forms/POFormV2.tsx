@@ -9,7 +9,7 @@ import AdditionalInfoTab, { type TaxState } from '../../documents/AdditionalInfo
 import DocumentTotals from '../../documents/DocumentTotals';
 import VendorContextRail, { type RecentDoc } from './VendorContextRail';
 import { useDocumentLines } from '../../documents/useDocumentLines';
-import { computeTotals } from '../../documents/computeTotals';
+import { billFormLineTotal, computeBillFormTotals } from './billFormTotals';
 import type { DocLine } from '../../documents/types';
 
 import SearchableSelect from '../../UI/SearchableSelect';
@@ -132,6 +132,8 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
             price: num(l.price),
             discount: num(l.discountPct ?? l.discount),
             taxRate: TAX_RATE,
+            taxable: typeof l.taxable === 'boolean' ? l.taxable : undefined,
+            accountId: firstStr(l.accountId),
         }));
     }, [editingPO]);
 
@@ -207,7 +209,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
 
     // ── Totals ──────────────────────────────────────────────────────────────
     const totals = useMemo(
-        () => computeTotals(doc.lines, doc.charges, { taxOn: tax.on, taxRate: tax.rate, taxMode: tax.mode }),
+        () => computeBillFormTotals(doc.lines, doc.charges, { taxOn: tax.on, taxRate: tax.rate, taxMode: tax.mode }),
         [doc.lines, doc.charges, tax],
     );
 
@@ -322,7 +324,9 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
                 unit: l.unit || 'PCS',
                 price: num(l.price),
                 discountPct: num(l.discount),
-                lineTotal: Math.round(num(l.qty) * num(l.price) * (1 - num(l.discount) / 100) * 100) / 100,
+                lineTotal: billFormLineTotal(l),
+                taxable: l.taxable ?? undefined,
+                ...(l.accountId && { accountId: l.accountId }),
             })),
         charges: doc.charges
             .filter((c) => c.label.trim() && num(c.amount) !== 0)
@@ -527,7 +531,7 @@ const POFormV2: React.FC<POFormV2Props> = ({ mode = 'create', recordId, workspac
             </div>
 
             {activeTab === 'items' && (
-                <LineItemsTable lines={doc.lines} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} searchSlot={searchSlot} />
+                <LineItemsTable lines={doc.lines} lineTotal={billFormLineTotal} showTax={tax.on} onChange={doc.updateLine} onRemove={doc.removeLine} searchSlot={searchSlot} />
             )}
             {activeTab === 'costs' && (
                 <AdditionalCostsTable charges={doc.charges} onChange={doc.updateCharge} onRemove={doc.removeCharge} onAdd={doc.addCharge} accountOptions={accountOptions} />

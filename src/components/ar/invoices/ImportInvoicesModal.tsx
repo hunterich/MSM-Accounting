@@ -457,7 +457,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     shippingAddress: [order.shippingAddress, order.city, order.province].filter(Boolean).join(', '),
                     shippingCarrier: order.shippingCarrier || '',
                     trackingNumber: order.trackingNumber || '',
-                    sourceTotal: order.totalProductAmount,
+                    sourceTotal: order.sourceTotal,
                     missingDate: !sourceDate && !fallbackDate,
                     lines: order.items.map((item) => ({
                         itemId: resolvedMappings[buildProductKey(item)] ?? '',
@@ -467,6 +467,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                         sku: inventorySkuFor(item),
                         quantity: item.quantity,
                         unitPrice: item.priceAfterDiscount,
+                        sourceLineAmount: item.sourceLineAmount,
                     })),
                 };
             }),

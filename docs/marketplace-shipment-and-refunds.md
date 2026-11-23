@@ -8,6 +8,7 @@ Issue #242 policy, agreed 17 November 2026: recognise revenue and COGS and reduc
 - The import wizard selects shipped/completed orders, skips cancelled rows and holds return statuses for review. It reads the dispatch date. For a shipped or completed Shopee order without one, it uses `Waktu Pengiriman Diatur` (shipping arranged) as the accounting-date proxy, as directed by the owner; this is not independently verified as the courier handover date. An order without either date is blocked until staff enter a verified date; split different dates into separate batches. Order creation, payment, ready-to-ship and completion dates are not substitutes.
 - A repeated completed-order export does not post another sale or stock issue. Existing invoices retain their original financial dates. Historical completion-dated invoices need finance review; this change does not silently redate them.
 - For TikTok, the imported sale uses the SKU subtotal after discount plus the platform-funded SKU discount, giving the seller-side subtotal before PPN treatment. Use the original order export: a prepared file may have already reduced quantities or amounts for a return. Record the original sale and its linked refund credit note separately, and have finance verify PPN and platform-discount treatment.
+- Preview and import use the seller-side line amounts in the order export. Each line rounds half up to two decimal places before the invoice totals are summed and PPN is applied. Where the export leaves the line amount blank, it is calculated from the quantity and unit price.
 - A cancelled row is skipped and creates no sale. If an already imported shipment is later cancelled, handle its return and credit note separately against the original invoice. If its shipment was never imported, review the dispatch evidence and record the original shipment and return separately; do not import the cancelled row as a new positive sale.
 - API compatibility: callers without `shipmentDate` must supply the actual dispatch date in `issueDate`. When `shipmentDate` is supplied it overrides `issueDate` for the invoice, stock, revenue, COGS and clearing receipt.
 
@@ -36,6 +37,14 @@ the closed-period and transaction-date guards apply to that date. `settledAt`
 is the import timestamp, not the financial date. Later-refund reconciliation
 links an existing journal and does not post a new journal. Confirm the source
 statement and its dates before use; TikTok dates still require manual entry.
+
+Shopee and TikTok settlements compare the released amount to the saved invoice,
+original wallet receipt, mapped fees and linked refunds. If multiple report
+columns contribute to one fee, their amounts are added before that fee is
+rounded half up to two decimal places. The rounded fees are the amounts that
+post to the GL. An unexplained difference, including Rp0.01, leaves the payout
+open for review. The older API adjustment behavior requires an explicit
+`requireMappedCharges: false` and an adjustment account for any residual.
 
 Shopee's split `Income - 1`, `Income - 2`, etc. sheets are read together.
 Configure each fee, shipping, subsidy and withholding account used by the

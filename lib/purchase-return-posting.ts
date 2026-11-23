@@ -21,7 +21,9 @@ import { InventoryDocumentType } from '@prisma/client';
 import { postJournalEntry } from './journal-posting';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
 import { calculateAndPostCOGS, lockInventoryItems } from './inventory-costing';
-import { asMoney, toNumber } from './money';
+import { toNumber } from './money';
+import { MoneyDecimal } from './money-decimal';
+import { lockPurchaseReturns } from './purchase-return-amounts';
 import { ApiError } from './errors';
 import { lotsWithBookValue } from './item-posting-accounts';
 import { assertPeriodOpen } from './period-guard';
@@ -34,11 +36,16 @@ export async function postPurchaseReturnOnApproval(
   purchaseReturnId: string,
   opts: TransactionDateGuardOptions = {},
 ): Promise<void> {
+  const initial = await tx.purchaseReturn.findUnique({ where: { id: purchaseReturnId }, select: { organizationId: true, billId: true } });
+  if (!initial) return;
+  await lockPurchaseReturns(tx, initial.organizationId, initial.billId);
   const pr = await tx.purchaseReturn.findUnique({
     where: { id: purchaseReturnId },
     include: { lines: true },
   });
-  if (!pr || pr.journalEntryId) return;
+  if (!pr || pr.journalEntryId || pr.postedAt) return;
+  if (pr.billId !== initial.billId) throw new ApiError('Purchase return changed its source bill; retry posting', 409);
+  if (pr.status === 'VOID') throw new ApiError('Cannot post a voided purchase return', 422);
 
   // Refuse to post inventory/GL into a closed/locked accounting period.
   await assertPeriodOpen(tx, pr.organizationId, pr.returnDate, opts);
@@ -62,8 +69,8 @@ export async function postPurchaseReturnOnApproval(
   // global order before consuming any line, regardless of document line order.
   await lockInventoryItems(tx, pr.organizationId, [...inventoryItemIds]);
 
-  let totalConsumedCost = 0;
-  const inventoryByAccount = new Map<string, number>();
+  let totalConsumedCost = new MoneyDecimal(0);
+  const inventoryByAccount = new Map<string, Prisma.Decimal>();
   for (const line of pr.lines) {
     const qty = toNumber(line.qtyReturn);
     if (qty <= 0 || !line.itemId || !inventoryItemIds.has(line.itemId)) continue;
@@ -93,11 +100,11 @@ export async function postPurchaseReturnOnApproval(
       { inventoryPostingAccountId: inventoryAccountId },
     );
     if (cost > 0 && (missing || !inventoryAccountId)) throw new ApiError('Original stock account history is unavailable. Review the historical stock before posting this return.', 422);
-    if (cost > 0 && inventoryAccountId) inventoryByAccount.set(inventoryAccountId, asMoney((inventoryByAccount.get(inventoryAccountId) ?? 0) + cost));
-    totalConsumedCost = asMoney(totalConsumedCost + cost);
+    if (cost > 0 && inventoryAccountId) inventoryByAccount.set(inventoryAccountId, new MoneyDecimal(inventoryByAccount.get(inventoryAccountId) ?? 0).plus(cost));
+    totalConsumedCost = totalConsumedCost.plus(cost);
   }
 
-  if (totalConsumedCost <= 0) {
+  if (totalConsumedCost.lte(0)) {
     // Services-only return, or no inventory items. Mark posted; DN handles
     // the financial side independently.
     await tx.purchaseReturn.update({

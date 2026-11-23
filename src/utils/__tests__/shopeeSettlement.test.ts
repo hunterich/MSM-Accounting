@@ -23,10 +23,10 @@ describe('parseShopeeSettlement', () => {
     expect(res.orders).toHaveLength(2);
     const o = res.orders[0];
     expect(o.orderId).toBe('ORD1');
-    expect(o.netReleased).toBe(30832);
-    expect(o.charges.commissionFee).toBe(3069); // abs magnitude
-    expect(o.charges.serviceFee).toBe(2046);
-    expect(res.totalNetReleased).toBe(40832);
+    expect(o.netReleased).toBe('30832.00');
+    expect(o.charges.commissionFee).toBe('3069.00'); // abs magnitude
+    expect(o.charges.serviceFee).toBe('2046.00');
+    expect(res.totalNetReleased).toBe('40832.00');
     expect(res.nonOrderRows).toEqual([]);
   });
   it('rejects a non-settlement workbook', async () => {
@@ -45,7 +45,7 @@ describe('parseShopeeSettlement', () => {
     const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     const result = await parseShopeeSettlement(new File([buf], 'income.xlsx'));
     expect(result.orders).toHaveLength(2);
-    expect(result.orders[0]).toMatchObject({ orderId: 'O100', settlementDate: '2026-10-12', requireMappedCharges: true, charges: { refund: 10, commissionFee: 5, freeShippingXtraFee: 3, customTax: 2 } });
+    expect(result.orders[0]).toMatchObject({ orderId: 'O100', settlementDate: '2026-10-12', requireMappedCharges: true, charges: { refund: '10.00', commissionFee: '5.00', freeShippingXtraFee: '3.00', customTax: '2.00' } });
     expect(result.orders[1].settlementDate).toBe('2026-10-13');
     expect(result.nonOrderRows).toEqual([{ orderId: 'O100', type: 'Adjustment', amount: -12 }]);
   });

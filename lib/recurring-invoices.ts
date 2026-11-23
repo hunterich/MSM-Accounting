@@ -1,3 +1,4 @@
+import { recurringInvoiceAmounts } from './recurring-document-totals';
 import { billingDay, nextRecurringDate } from './billing-calendar';
 import { advisoryLockKey } from './advisory-lock';
 import { nextInvoiceNumber } from './invoice-number';
@@ -42,30 +43,6 @@ async function generateFromTemplate(
 
       const invoiceNumber = await nextInvoiceNumber(tx, orgId, { issueDate: template.nextRunDate });
 
-      // Compute totals
-      const taxRate = Number(template.taxRate);
-      const subtotal = Math.round(
-        template.lines.reduce((sum, line) => {
-          const qty = Number(line.quantity);
-          const price = Number(line.price);
-          const discountPct = Number(line.discountPct);
-          return sum + qty * price * (1 - discountPct / 100);
-        }, 0) * 100,
-      ) / 100;
-
-      const taxableSubtotal = Math.round(
-        template.lines.reduce((sum, line) => {
-          if (!line.taxable) return sum;
-          const qty = Number(line.quantity);
-          const price = Number(line.price);
-          const discountPct = Number(line.discountPct);
-          return sum + qty * price * (1 - discountPct / 100);
-        }, 0) * 100,
-      ) / 100;
-
-      const taxAmount = Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100;
-      const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
-
       const issueDate = new Date(template.nextRunDate);
       const dueDate = new Date(template.nextRunDate);
       dueDate.setDate(dueDate.getDate() + 30);
@@ -81,29 +58,8 @@ async function generateFromTemplate(
           currency: 'IDR',
           status: template.autoPost ? 'SENT' : 'DRAFT',
           recurringInvoiceId: template.id,
-          taxEnabled: taxRate > 0,
-          taxInclusive: false,
-          taxRate,
-          taxAmount,
-          subtotal,
-          discountPct: 0,
-          discountAmount: 0,
-          totalAmount,
           notes: template.notes || null,
-          lines: {
-            create: template.lines.map((line) => ({
-              lineNo: line.lineNo,
-              itemId: line.itemId || null,
-              description: line.description,
-              quantity: Number(line.quantity),
-              unit: line.unit || 'PCS',
-              price: Number(line.price),
-              discountPct: Number(line.discountPct),
-              lineSubtotal: Math.round(
-                Number(line.quantity) * Number(line.price) * (1 - Number(line.discountPct) / 100) * 100,
-              ) / 100,
-            })),
-          },
+          ...recurringInvoiceAmounts(template),
         },
         select: { id: true, number: true },
       });

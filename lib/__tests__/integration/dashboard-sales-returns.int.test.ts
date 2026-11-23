@@ -49,13 +49,14 @@ it('net sales recognize applied gross credit notes in their own Jakarta month wi
       { bucket: '2026-02', invoiceCount: 1, total: 78 },
       { bucket: '2026-03', invoiceCount: 0, total: -1 },
     ]);
-    await prisma.$transaction(async tx => {
-      await tx.$executeRaw`SET LOCAL TIME ZONE 'Pacific/Honolulu'`;
-      expect(await readSalesCalendar(tx, { organizationId: org.orgId }, 'month', customerId)).toEqual(calendar);
-      expect(await readDashboardSales(tx, org.orgId, febFrom, febTo, new Date('2026-02-27T17:00:00Z'), febTo)).toEqual(feb);
-      expect(await readCustomerSales(tx, { organizationId: org.orgId, dateFrom: febFrom, dateTo: febTo })).toEqual(februaryCustomers);
-
-    });
+    for (const timezone of ['UTC', 'Asia/Jakarta', 'Pacific/Honolulu']) {
+      await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT set_config('TimeZone', ${timezone}, true)`;
+        expect(await readSalesCalendar(tx, { organizationId: org.orgId }, 'month', customerId)).toEqual(calendar);
+        expect(await readDashboardSales(tx, org.orgId, febFrom, febTo, new Date('2026-02-27T17:00:00Z'), febTo)).toEqual(feb);
+        expect(await readCustomerSales(tx, { organizationId: org.orgId, dateFrom: febFrom, dateTo: febTo })).toEqual(februaryCustomers);
+      });
+    }
     await prisma.creditNote.update({ where: { id: (await prisma.creditNote.findUniqueOrThrow({ where: { organizationId_number: { organizationId: org.orgId, number: 'FEB-REFUND' } } })).id }, data: { status: 'VOID' } });
     expect((await readCustomerSales(prisma, { organizationId: org.orgId, dateFrom: febFrom, dateTo: febTo }))[0].total).toBe(189);
   } finally {

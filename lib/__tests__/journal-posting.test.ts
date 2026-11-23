@@ -90,9 +90,22 @@ describe('postJournalEntry', () => {
       ],
     });
     const captured = tx.journalEntry.create.mock.calls[0][0].data;
-    expect(captured.totalDebit).toBe(0.3);
-    expect(captured.totalCredit).toBe(0.3);
+    expect(captured.totalDebit.toFixed(2)).toBe('0.30');
+    expect(captured.totalCredit.toFixed(2)).toBe('0.30');
     expect(() => assertLinesBalanced(captured.lines.create)).not.toThrow();
+  });
+
+  it('rejects two half-cent debits whose saved amounts exceed the credit', async () => {
+    const tx = makeTx();
+    await expect(postJournalEntry(tx as never, {
+      ...baseArgs,
+      lines: [
+        { accountId: 'cash', description: 'First debit', debit: '0.005', credit: 0 },
+        { accountId: 'cash', description: 'Second debit', debit: '0.005', credit: 0 },
+        { accountId: 'rev', description: 'Offset', debit: 0, credit: '0.01' },
+      ],
+    })).rejects.toThrow(/unbalanced.*debit=0.02 credit=0.01/);
+    expect(tx.journalEntry.create).not.toHaveBeenCalled();
   });
 
   it('dates a clock-time posting on its Jakarta business day', async () => {

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, requireOrg } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
+import { bankCashJournal, recordedBankCashAmount } from '@/lib/bank-amounts';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +11,6 @@ export async function OPTIONS() {
   return corsPreflightResponse();
 }
 
-const TOLERANCE = 0.01;
 const DAY_WINDOW = 3;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -53,9 +53,9 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
   // Fetch all bank transactions
   const bankTransactions = await prisma.bankTransaction.findMany({
     where: {
-      bankAccount: { organizationId: orgId },
+      organizationId: orgId,
     },
-    include: { bankAccount: { select: { name: true } } },
+    include: { bankAccount: { select: { name: true } }, journalEntry: bankCashJournal },
     take: RECON_ROW_CAP + 1,
   });
 
@@ -70,6 +70,7 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
   const matched: MatchedPair[] = [];
   const matchedBankTxIds = new Set<string>();
   const matchedPaymentIds = new Set<string>();
+  const cashById = new Map(bankTransactions.map(tx => [tx.id, recordedBankCashAmount(tx)]));
 
   // Auto-match AR payments (credits in bank)
   for (const payment of arPayments) {
@@ -78,11 +79,11 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
 
     for (const tx of bankTransactions) {
       if (matchedBankTxIds.has(tx.id)) continue;
-      const txAmount = Math.abs(Number(tx.amount));
+      const cash = cashById.get(tx.id);
       const txDate = new Date(tx.date);
       const daysDiff = Math.abs((txDate.getTime() - paymentDate.getTime()) / MS_PER_DAY);
 
-      if (Math.abs(txAmount - paymentAmount) <= TOLERANCE && daysDiff <= DAY_WINDOW && tx.type === 'INCOME') {
+      if (cash?.eq(payment.totalAmount) && daysDiff <= DAY_WINDOW && tx.type === 'INCOME') {
         matched.push({
           paymentType: 'AR',
           paymentId: payment.id,
@@ -91,7 +92,7 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
           paymentDate: payment.date.toISOString().slice(0, 10),
           bankTransactionId: tx.id,
           bankTxnDescription: tx.description,
-          bankTxnAmount: txAmount,
+          bankTxnAmount: cash.toNumber(),
           bankTxnDate: tx.date.toISOString().slice(0, 10),
           customerOrVendor: (payment as any).customer?.name || '',
         });
@@ -109,11 +110,11 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
 
     for (const tx of bankTransactions) {
       if (matchedBankTxIds.has(tx.id)) continue;
-      const txAmount = Math.abs(Number(tx.amount));
+      const cash = cashById.get(tx.id);
       const txDate = new Date(tx.date);
       const daysDiff = Math.abs((txDate.getTime() - paymentDate.getTime()) / MS_PER_DAY);
 
-      if (Math.abs(txAmount - paymentAmount) <= TOLERANCE && daysDiff <= DAY_WINDOW && tx.type === 'EXPENSE') {
+      if (cash?.eq(payment.totalAmount) && daysDiff <= DAY_WINDOW && tx.type === 'EXPENSE') {
         matched.push({
           paymentType: 'AP',
           paymentId: payment.id,
@@ -122,7 +123,7 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
           paymentDate: payment.date.toISOString().slice(0, 10),
           bankTransactionId: tx.id,
           bankTxnDescription: tx.description,
-          bankTxnAmount: txAmount,
+          bankTxnAmount: cash.toNumber(),
           bankTxnDate: tx.date.toISOString().slice(0, 10),
           customerOrVendor: (payment as any).vendor?.name || '',
         });
@@ -161,7 +162,7 @@ export const GET = withPermission({ module: 'BANKING', action: 'view' }, async f
     .map((tx) => ({
       id: tx.id,
       description: tx.description,
-      amount: Number(tx.amount),
+      amount: cashById.get(tx.id)?.toNumber() ?? Number(tx.amount),
       date: tx.date.toISOString().slice(0, 10),
       type: tx.type,
       bankAccount: (tx as any).bankAccount?.name || '',

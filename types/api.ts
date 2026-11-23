@@ -23,6 +23,17 @@ export const positiveDecimal = decimalCoerce.min(0, {
   message: 'Must be greater than or equal to 0',
 });
 
+// Preserve decimal strings through validation for exact ledger calculations.
+const ledgerAmountInput = z.union([
+  z.string().trim().regex(/^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i).refine(value => Number.isFinite(Number(value))),
+  positiveDecimal,
+]);
+const invoicePercentInput = ledgerAmountInput.refine(value => Number(value) <= 100, 'Must be less than or equal to 100');
+export const exactDecimalInput = z.union([
+  z.string().trim().regex(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i).refine(value => Number.isFinite(Number(value))),
+  z.number().finite(),
+]);
+
 export const isoDateString = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
@@ -31,16 +42,17 @@ export const invoiceLineInputSchema = z.object({
   itemId: z.string().trim().optional(),
   code: z.string().trim().optional(),
   description: z.string().trim().min(1, 'Description is required'),
-  quantity: positiveDecimal,
+  quantity: ledgerAmountInput,
   unit: z.string().trim().min(1).default('PCS'),
-  price: positiveDecimal,
-  discountPct: positiveDecimal.max(100).default(0),
+  price: ledgerAmountInput,
+  discountPct: invoicePercentInput.default(0),
+  taxable: z.boolean().nullish(),
 });
 
 export const invoiceTaxInputSchema = z.object({
   enabled: z.boolean().default(true),
   inclusive: z.boolean().default(false),
-  rate: positiveDecimal.max(100).default(11),
+  rate: invoicePercentInput.default(11),
 });
 
 // Additional cost on a document (freight, insurance, handling). Posts to its own
@@ -51,6 +63,11 @@ export const documentChargeSchema = z.object({
   accountId: z.string().trim().optional(),
   amount: positiveDecimal.default(0),
   taxRate: positiveDecimal.max(100).optional(),
+});
+
+const invoiceChargeInputSchema = documentChargeSchema.extend({
+  amount: ledgerAmountInput.default(0),
+  taxRate: invoicePercentInput.optional(),
 });
 
 export const createInvoiceInputSchema = z.object({
@@ -68,11 +85,25 @@ export const createInvoiceInputSchema = z.object({
   billingAddress: z.string().trim().optional(),
   shippingAddress: z.string().trim().optional(),
   currency: z.string().trim().default('IDR'),
-  discountPct: positiveDecimal.max(100).default(0),
+  discountPct: invoicePercentInput.default(0),
   tax: invoiceTaxInputSchema.optional(),
   notes: z.string().trim().optional(),
   lines: z.array(invoiceLineInputSchema).min(1, 'At least one invoice line is required'),
-  charges: z.array(documentChargeSchema).optional(),
+  charges: z.array(invoiceChargeInputSchema).optional(),
+});
+
+export const updateInvoiceAmountsSchema = z.object({
+  lines: z.array(invoiceLineInputSchema.extend({
+    itemId: invoiceLineInputSchema.shape.itemId.nullable(),
+    code: invoiceLineInputSchema.shape.code.nullable(),
+  })).min(1, 'At least one invoice line is required').optional(),
+  charges: z.array(invoiceChargeInputSchema.extend({
+    accountId: invoiceChargeInputSchema.shape.accountId.nullable(),
+  })).optional(),
+  discountPct: invoicePercentInput.optional(),
+  taxEnabled: z.boolean().optional(),
+  taxInclusive: z.boolean().optional(),
+  taxRate: invoicePercentInput.optional(),
 });
 
 export const createInvoiceResponseSchema = z.object({
@@ -85,22 +116,24 @@ export const createInvoiceResponseSchema = z.object({
   currency: z.string(),
 });
 
+export const journalAmountInput = ledgerAmountInput;
+
 export const journalLineInputSchema = z
   .object({
     accountId: z.string().trim().min(1, 'Account is required'),
     description: z.string().trim().optional(),
-    debit: positiveDecimal.default(0),
-    credit: positiveDecimal.default(0),
+    debit: journalAmountInput.default(0),
+    credit: journalAmountInput.default(0),
   })
   .superRefine((line, ctx) => {
-    if (line.debit > 0 && line.credit > 0) {
+    if (Number(line.debit) > 0 && Number(line.credit) > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'A line cannot have both debit and credit values',
       });
     }
 
-    if (line.debit === 0 && line.credit === 0) {
+    if (Number(line.debit) === 0 && Number(line.credit) === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'A line must have debit or credit amount',
@@ -444,6 +477,7 @@ const documentLineSchema = z.object({
   price: positiveDecimal.default(0),
   discountPct: positiveDecimal.max(100).optional(),
   lineTotal: positiveDecimal.optional(),
+  taxable: z.boolean().nullish(),
 });
 
 export const assetPurchaseLineSchema = z.discriminatedUnion('mode', [
@@ -545,6 +579,13 @@ export const finalizeBillImportInputSchema = z.object({
   reviewData: billImportReviewDataSchema.optional(),
 });
 
+const purchaseOrderLineSchema = documentLineSchema.extend({
+  quantity: ledgerAmountInput.default(0),
+  price: ledgerAmountInput.default(0),
+  discountPct: invoicePercentInput.optional(),
+  lineTotal: ledgerAmountInput.optional(),
+});
+
 export const purchaseOrderInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   vendorId: z.string().trim().min(1, 'Vendor is required'),
@@ -562,7 +603,7 @@ export const purchaseOrderInputSchema = z.object({
   taxAmount: positiveDecimal.default(0),
   totalAmount: positiveDecimal.default(0),
   notes: z.string().trim().optional(),
-  lines: z.array(documentLineSchema).default([]),
+  lines: z.array(purchaseOrderLineSchema).default([]),
   charges: z.array(documentChargeSchema).optional(),
 });
 
@@ -580,7 +621,7 @@ export const updatePurchaseOrderInputSchema = z.object({
   taxAmount: positiveDecimal.optional(),
   totalAmount: positiveDecimal.optional(),
   notes: z.string().trim().optional(),
-  lines: z.array(documentLineSchema).optional(),
+  lines: z.array(purchaseOrderLineSchema).optional(),
   charges: z.array(documentChargeSchema).optional(),
 });
 
@@ -638,8 +679,9 @@ export const marketplaceImportLineSchema = z.object({
   itemId: z.string().trim().min(1, 'Every line must map to a master item'),
   description: z.string().trim().min(1),
   sku: z.string().trim().default(''),
-  quantity: positiveDecimal,
-  unitPrice: positiveDecimal,
+  quantity: ledgerAmountInput,
+  unitPrice: ledgerAmountInput,
+  sourceLineAmount: ledgerAmountInput.optional(),
 });
 
 export const marketplaceImportOrderSchema = z.object({
@@ -753,14 +795,14 @@ export const bankTransactionInputSchema = z.object({
   bankAccountId: z.string().trim().min(1, 'Bank account is required'),
   date: isoDateString,
   description: z.string().trim().min(1, 'Description is required'),
-  amount: positiveDecimal,
+  amount: ledgerAmountInput,
   type: z.enum(['TRANSFER', 'EXPENSE', 'INCOME']),
   status: z.enum(['MATCHED', 'UNMATCHED']).default('UNMATCHED'),
   reference: z.string().trim().optional(),
   costCenter: z.string().trim().optional(),
   notes: z.string().trim().optional(),
   taxType: z.enum(['NONE', 'PPN', 'GST', 'WITHHOLDING']).default('NONE'),
-  taxRate: positiveDecimal.max(100).default(0),
+  taxRate: invoicePercentInput.default(0),
   toBankAccountId: z.string().trim().optional(),
   payee: z.string().trim().optional(),
   receivedFrom: z.string().trim().optional(),
@@ -1263,8 +1305,8 @@ export const settlementImportInputSchema = z.object({
       const date = new Date(`${value}T00:00:00.000Z`);
       return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
     }, 'Expected a valid calendar date').optional(),
-    netReleased: z.number().finite(),
-    charges: z.record(z.string(), z.number().finite()).default({}),
+    netReleased: exactDecimalInput,
+    charges: z.record(z.string(), exactDecimalInput).default({}),
     refundOnly: z.boolean().optional(),
     refundCreditNoteNumbers: z.array(z.string().trim().min(1)).optional(),
     requireMappedCharges: z.boolean().optional(),
@@ -1300,8 +1342,8 @@ const creditNoteBaseSchema = z.object({
   taxAccountId: z.string().trim().nullish(),
   settlementAccountId: z.string().trim().nullish(),
   applyTax: z.boolean().optional(),
-  amount: decimalNumber,
-  taxAmount: decimalNumber.optional(),
+  amount: exactDecimalInput,
+  taxAmount: exactDecimalInput.optional(),
   note: z.string().trim().nullish(),
 });
 
@@ -1324,8 +1366,8 @@ const debitNoteBaseSchema = z.object({
   returnAccountId: z.string().trim().nullish(),
   taxAccountId: z.string().trim().nullish(),
   applyTax: z.boolean().optional(),
-  amount: decimalNumber,
-  taxAmount: decimalNumber.optional(),
+  amount: exactDecimalInput,
+  taxAmount: exactDecimalInput.optional(),
   note: z.string().trim().nullish(),
 });
 
@@ -1348,7 +1390,7 @@ const salesReturnLineInputSchema = z.object({
   itemName: z.string().trim().nullish(),
   description: z.string().trim().nullish(),
   qtySold: decimalNumber.optional(),
-  qtyReturn: decimalNumber.min(0).optional(),
+  qtyReturn: ledgerAmountInput.optional(),
   unit: z.string().trim().optional(),
   price: decimalNumber.optional(),
   lineTotal: decimalNumber.optional(),
@@ -1368,6 +1410,7 @@ const salesReturnBaseSchema = z.object({
   subtotal: decimalNumber.optional(),
   taxAmount: decimalNumber.optional(),
   totalAmount: decimalNumber.optional(),
+  expectedValuation: z.object({ totalAmount: exactDecimalInput, taxAmount: exactDecimalInput }).optional(),
   reason: z.string().trim().nullish(),
   notes: z.string().trim().nullish(),
   status: returnStatusEnum.optional(),
@@ -1376,15 +1419,17 @@ const salesReturnBaseSchema = z.object({
 
 export const createSalesReturnInputSchema = salesReturnBaseSchema;
 export const updateSalesReturnInputSchema = salesReturnBaseSchema.partial();
+export const previewSalesReturnInputSchema = salesReturnBaseSchema.pick({ customerId: true, invoiceId: true, lines: true })
+  .extend({ returnId: z.string().trim().min(1).optional() });
 
 const purchaseReturnLineInputSchema = z.object({
   lineKey: z.string().trim().nullish(),
   itemId: z.string().trim().nullish(),
   description: z.string().trim().nullish(),
-  qtyPurchased: decimalNumber.optional(),
-  qtyReturn: decimalNumber.optional(),
+  qtyPurchased: ledgerAmountInput.optional(),
+  qtyReturn: ledgerAmountInput.optional(),
   unit: z.string().trim().optional(),
-  price: decimalNumber.optional(),
+  price: ledgerAmountInput.optional(),
   lineTotal: decimalNumber.optional(),
 });
 
@@ -1398,10 +1443,11 @@ const purchaseReturnBaseSchema = z.object({
   taxAccountId: z.string().trim().nullish(),
   applyTax: z.boolean().optional(),
   taxIncluded: z.boolean().optional(),
-  taxRate: decimalNumber.optional(),
+  taxRate: ledgerAmountInput.optional(),
   subtotal: decimalNumber.optional(),
   taxAmount: decimalNumber.optional(),
   totalAmount: decimalNumber.optional(),
+  expectedValuation: z.object({ totalAmount: exactDecimalInput, taxAmount: exactDecimalInput }).optional(),
   reason: z.string().trim().nullish(),
   notes: z.string().trim().nullish(),
   status: returnStatusEnum.optional(),
@@ -1410,3 +1456,6 @@ const purchaseReturnBaseSchema = z.object({
 
 export const createPurchaseReturnInputSchema = purchaseReturnBaseSchema;
 export const updatePurchaseReturnInputSchema = purchaseReturnBaseSchema.partial();
+export const previewPurchaseReturnInputSchema = purchaseReturnBaseSchema.pick({
+  vendorId: true, billId: true, applyTax: true, taxIncluded: true, taxRate: true, lines: true,
+}).extend({ returnId: z.string().trim().min(1).optional() });

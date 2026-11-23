@@ -18,8 +18,8 @@ export interface MaterializedLine {
  *  - one base line per input line (price = the item base, deltas NOT included);
  *  - one child line per selected option with priceDelta != 0 OR an itemId
  *    (parentLineNo → base lineNo, isModifier true, price = priceDelta, qty = base qty,
- *    discountPct inherited from the base line so a discounted modified line reconciles:
- *    q*base*(1-d) + Σ q*deltaᵢ*(1-d) = q*(base+Σdelta)*(1-d) = the cart's displayed price);
+ *    discountPct inherited from the base line; the pricing helper sums the
+ *    rounded base and child rows for the cart display);
  *  - free options ($0, no item) become a comma-joined modifierNote on the base line.
  * Child-line itemId drives stock+COGS via the existing postInvoiceSend engine.
  * NOTE: caller must pass base line price WITHOUT deltas (strip them first).

@@ -12,6 +12,9 @@ import { GET as closeChecklist } from '@/src/app/api/v1/accounting-periods/[id]/
 import { PUT as applyCredit } from '@/src/app/api/v1/credit-notes/[id]/route';
 import { POST as submitInvoice } from '@/src/app/api/v1/invoices/[id]/submit-approval/route';
 import { closeAccountingPeriod } from '@/lib/period-close';
+import { lockOpenAccountingPeriod } from '@/lib/period-guard';
+import { pendingFinancialInPeriod } from '@/lib/approval/financial-period';
+import { accountingRangeBounds } from '@/lib/accounting-date';
 import { submitInvoiceForApproval } from '@/lib/approval/invoice-submission';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { approveRequest, rejectRequest, routeForApproval } from '@/lib/approval/engine';
@@ -316,6 +319,37 @@ describe('pending financial documents block their posting period close', () => {
       expect((await (await checklist(f)).json()).canClose).toBe(true);
       expect((await close(f)).status).toBe(200);
     } finally { await cleanupOrg(f.org.orgId); await cleanupOrg(other.org.orgId); }
+  });
+  it.each(['Asia/Jakarta', 'Pacific/Honolulu'])('uses inclusive period boundaries with the database session in %s', async (timezone) => {
+    const f = await fixture();
+    const { id, startDate, endDate } = f.period;
+    const { gte: firstInstant, lte: lastInstant } = accountingRangeBounds(startDate, endDate);
+    const before = new Date(firstInstant.getTime() - 1);
+    const after = new Date(lastInstant.getTime() + 1);
+    try {
+      const earlier = await note(f, 'PENDING_APPROVAL', before);
+      const atStart = await note(f, 'PENDING_APPROVAL', firstInstant);
+      const atEnd = await note(f, 'PENDING_APPROVAL', lastInstant);
+      const later = await note(f, 'PENDING_APPROVAL', after);
+      await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT set_config('TimeZone', ${timezone}, true)`;
+        const pending = () => pendingFinancialInPeriod(tx, f.org.orgId, startDate, endDate);
+        expect(await pending()).toContainEqual({ documentType: 'CREDIT_NOTE', count: 2 });
+        await tx.creditNote.updateMany({
+          where: { id: { in: [atStart.id, atEnd.id] } },
+          data: { status: 'VOID' },
+        });
+        expect(await pending()).toContainEqual({ documentType: 'CREDIT_NOTE', count: 0 });
+        await closeAccountingPeriod(tx, f.org.orgId, f.actor.userId, id);
+        for (const inside of [firstInstant, lastInstant]) {
+          await expect(lockOpenAccountingPeriod(tx, f.org.orgId, inside)).rejects.toThrow(/closed\/locked/);
+        }
+        for (const outside of [before, after]) {
+          await expect(lockOpenAccountingPeriod(tx, f.org.orgId, outside)).resolves.toBeUndefined();
+        }
+        expect(await tx.creditNote.count({ where: { id: { in: [earlier.id, later.id] }, status: 'PENDING_APPROVAL' } })).toBe(2);
+      });
+    } finally { await cleanupOrg(f.org.orgId); }
   });
   it('submission wins: close waits, then refuses the newly committed hold', async () => {
     const f = await fixture();

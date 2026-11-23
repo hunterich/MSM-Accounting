@@ -133,12 +133,13 @@ export async function addCostLayer(
   docType: InventoryDocumentType,
   docId: string,
   date: Date,
-  bookedValue?: number,
+  bookedValue?: number | Prisma.Decimal,
   inventoryPostingAccountId?: string | null,
+  poReceipt?: boolean,
 ): Promise<void> {
   await lockInventoryItems(tx, orgId, [itemId])
   // A rounded unit price cannot reconstruct every exact document line value.
-  const initialValue = asMoney(bookedValue ?? qty * unitCost)
+  const initialValue = typeof bookedValue === 'object' ? bookedValue : asMoney(bookedValue ?? qty * unitCost)
   const inbound = await tx.inventoryLedgerEntry.create({ data: {
     organizationId: orgId, itemId, warehouseId: warehouseId ?? null, date,
     documentType: docType, documentId: docId, qtyIn: qty, qtyOut: 0, unitCost, valueChange: initialValue,
@@ -159,6 +160,7 @@ export async function addCostLayer(
       unitCost,
       initialValue,
       carryingValue: initialValue,
+      ...(poReceipt && { poReceipt }),
     },
     select: { id: true, qtyIn: true, initialValue: true },
   })
@@ -192,17 +194,19 @@ export async function reverseAddedLayers(
   documentType: InventoryDocumentType,
   documentId: string,
   date: Date,
+  poReceipt?: boolean,
 ): Promise<number> {
+  const where = { organizationId: orgId, documentType, documentId, poReceipt };
   // Discover identities before waiting, then inspect quantities under the
   // shared item locks. A concurrent sale must not consume a checked layer
   // while this reversal waits to delete it.
   const identities = await tx.inventoryLot.findMany({
-    where: { organizationId: orgId, documentType, documentId },
+    where,
     select: { itemId: true },
   })
   await lockInventoryItems(tx, orgId, identities.map(lot => lot.itemId))
   let lots = await tx.inventoryLot.findMany({
-    where: { organizationId: orgId, documentType, documentId },
+    where,
     include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } },
   })
   if (lots.length === 0) return 0
@@ -211,7 +215,7 @@ export async function reverseAddedLayers(
     // Covered shortage quantity returns to the lots before they can be removed.
     for (const lot of lots) await assertNoLaterStockIssue(tx, orgId, lot)
     await unwindReceiptSettlements(tx, orgId, lots.map(lot => lot.id), { documentId, date })
-    lots = await tx.inventoryLot.findMany({ where: { organizationId: orgId, documentType, documentId }, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } })
+    lots = await tx.inventoryLot.findMany({ where, include: { inboundLedgerEntry: { select: { inventoryPostingAccountId: true } } } })
   }
   for (const lot of lots) {
     if (Math.abs(toNumber(lot.qtyBalance) - toNumber(lot.qtyIn)) > QTY_EPSILON) {

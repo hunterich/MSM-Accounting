@@ -151,6 +151,7 @@ export const POST = withPermission({ module: 'AP_BILLS', action: 'create' }, asy
         notes: reviewData.notes || `Imported from supplier PDF: ${session.sourceFileName}`,
         lines: normalizedLines,
       }, {
+        preserveSupplierTotals: true,
         attachment: session.sourceStorageKey ? {
           fileName: session.sourceFileName,
           fileSizeKb: decimalToNumber(session.sourceFileSizeKb),

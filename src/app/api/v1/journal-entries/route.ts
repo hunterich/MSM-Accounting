@@ -12,7 +12,18 @@ import { assertPeriodOpen } from '@/lib/period-guard';
 import { assertNoDirectControlPosting } from '@/lib/control-account-guard';
 import { allocateJournalEntryNumber } from '@/lib/journal-posting';
 import { toAccountingDate } from '@/lib/accounting-date';
-import { ok, err, logAudit, requireOrg, requireAuth, parsePaginationParams, listResponse, ApiError } from '@/lib/api-utils';
+import { normalizeJournalAmounts } from '@/lib/journal-amounts';
+import {
+  ok,
+  err,
+  logAudit,
+  withHandler,
+  requireOrg,
+  requireAuth,
+  parsePaginationParams,
+  listResponse,
+  ApiError,
+} from '@/lib/api-utils';
 
 export const runtime = 'nodejs';
 
@@ -23,10 +34,6 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const asMoney = (value: number): number => {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-};
-
 const parseIsoDate = (value: string): Date => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -35,25 +42,6 @@ const parseIsoDate = (value: string): Date => {
   return date;
 };
 
-
-const normalizeLines = (payload: any) => {
-  const lines = payload.lines.map((line: any, index: number) => ({
-    lineNo: index + 1,
-    accountId: line.accountId,
-    description: line.description || null,
-    debit: asMoney(toNumber(line.debit)),
-    credit: asMoney(toNumber(line.credit)),
-  }));
-
-  const totalDebit = asMoney(lines.reduce((sum: number, line: { debit: number }) => sum + line.debit, 0));
-  const totalCredit = asMoney(lines.reduce((sum: number, line: { credit: number }) => sum + line.credit, 0));
-
-  return {
-    lines,
-    totalDebit,
-    totalCredit,
-  };
-};
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -167,20 +155,24 @@ export const POST = withPermission({ module: 'GL_JOURNAL', action: 'create' }, a
       await assertPeriodOpen(tx, payload.organizationId, entryDate, dateOverride);
     }
 
-    const { lines, totalDebit, totalCredit } = normalizeLines(payload);
+    const { lines, totalDebit, totalCredit } = normalizeJournalAmounts(payload.lines.map((line, index) => ({
+      ...line,
+      lineNo: index + 1,
+      description: line.description || null,
+    })));
 
-    if (totalDebit <= 0 || totalCredit <= 0) {
+    if (totalDebit.lte(0) || totalCredit.lte(0)) {
       throw new ApiError('Journal totals must be greater than zero', 422);
     }
 
-    if (Math.abs(totalDebit - totalCredit) > 0.0001) {
+    if (!totalDebit.eq(totalCredit)) {
       throw new ApiError(
         `Unbalanced journal entry. totalDebit=${totalDebit} totalCredit=${totalCredit}`,
         422,
       );
     }
 
-    const accountIds: string[] = Array.from(new Set(lines.map((line: any) => line.accountId as string)));
+    const accountIds = [...new Set(lines.map(line => line.accountId))];
     const accounts = await tx.account.findMany({
       where: {
         organizationId: payload.organizationId,
