@@ -12,6 +12,7 @@ import { advisoryLockKey } from '@/lib/advisory-lock';
 import { postStockAdjustmentToLedger } from '@/lib/stock-adjustment-posting';
 import { assertInventoryReconciled } from './harness';
 import { changeInventoryCostingMethod } from '@/lib/inventory-costing-switch';
+import { addItem, cartTotal, emptyCart, setQty, toSaleLines } from '@/src/pos/state/cart';
 
 afterAll(async () => {
   await disconnect();
@@ -69,6 +70,55 @@ function saleInput(itemId: string, registerId: string, shiftId: string, clientSa
 }
 
 describe('postPosSale', () => {
+  it.each([
+    { tender: 'exact cash', amounts: [6.66], change: 0 },
+    { tender: 'split cash', amounts: [3.33, 3.34], change: 0.01 },
+  ])('keeps the Rp6.66 cart, invoice and GL in agreement with $tender', async ({ amounts, change }) => {
+    const { org, registerId, shiftId } = await setup();
+    try {
+      let cart = emptyCart();
+      for (const sku of ['ROUND-A', 'ROUND-B']) {
+        const item = await prisma.item.create({ data: { organizationId: org.orgId, sku, name: sku, type: 'SERVICE', sellingPrice: 10 } });
+        cart = setQty(addItem(cart, { id: item.id, sku, name: item.name, sellingPrice: 10 }), item.id, 0.3333);
+      }
+      expect(cartTotal(cart)).toBe(6.66);
+      const input: PosSaleInput = {
+        clientSaleId: 'fractional-lines', registerId, shiftId, cashierId: 'user-cashier',
+        warehouseId: null, date: new Date('2026-07-03'), lines: toSaleLines(cart),
+        tenders: amounts.map(amount => ({ method: 'CASH', amount })),
+      };
+      const checkout = () => prisma.$transaction(tx => postPosSale(tx, org.orgId, input));
+      const sale = await checkout();
+      expect(sale.totalAmount).toBe(6.66);
+      expect(sale.change).toBe(change);
+      expect(sale.breakdown).toEqual({ subtotal: 6, taxAmount: 0.66, serviceChargeNet: 0 });
+
+      const invoice = await prisma.salesInvoice.findUniqueOrThrow({ where: { id: sale.salesInvoiceId }, include: { lines: true } });
+      expect(invoice.status).toBe('PAID');
+      expect(invoice.lines.map(line => line.lineSubtotal.toFixed(2))).toEqual(['3.33', '3.33']);
+      expect([invoice.subtotal, invoice.taxAmount, invoice.totalAmount].map(amount => amount.toFixed(2))).toEqual(['6.00', '0.66', '6.66']);
+      expect(invoice.postingJournalIds).toHaveLength(1);
+      const journal = await prisma.journalEntry.findUniqueOrThrow({ where: { id: invoice.postingJournalIds[0] }, include: { lines: true } });
+      const outputTax = await prisma.account.findUniqueOrThrow({ where: { organizationId_code: { organizationId: org.orgId, code: '2130' } } });
+      expect([journal.totalDebit.toFixed(2), journal.totalCredit.toFixed(2)]).toEqual(['6.66', '6.66']);
+      expect(Object.fromEntries(journal.lines.map(line => [line.accountId, [line.debit.toFixed(2), line.credit.toFixed(2)]]))).toEqual({
+        [org.accounts.arControl]: ['6.66', '0.00'],
+        [org.accounts.salesRevenue]: ['0.00', '6.00'],
+        [outputTax.id]: ['0.00', '0.66'],
+      });
+      const allocation = await prisma.aRPaymentAllocation.findFirstOrThrow({ where: { invoiceId: invoice.id }, include: { payment: true } });
+      expect(allocation.amountApplied.toFixed(2)).toBe('6.66');
+      const receiptLines = await prisma.journalLine.findMany({ where: { entryId: allocation.payment.journalEntryId! } });
+      expect(receiptLines.find(line => line.accountId === org.accounts.bankAsset)?.debit.toFixed(2)).toBe('6.66');
+      expect(receiptLines.find(line => line.accountId === org.accounts.arControl)?.credit.toFixed(2)).toBe('6.66');
+      const tenders = await prisma.posTender.findMany({ where: { posSaleId: sale.posSaleId } });
+      expect(tenders.reduce((sum, tender) => sum.plus(tender.amount).minus(tender.changeGiven), invoice.totalAmount.minus(invoice.totalAmount)).toFixed(2)).toBe('6.66');
+      expect(await checkout()).toEqual(sale);
+    } finally {
+      await cleanupOrg(org.orgId);
+    }
+  });
+
   it('Weighted Average uses the register warehouse for both batches and inventory cost', async () => {
     const { org, itemId, registerId, shiftId } = await setup();
     try {

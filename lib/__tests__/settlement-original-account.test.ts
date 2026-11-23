@@ -12,22 +12,28 @@ const state = vi.hoisted(() => {
   return { tx, prisma: { ecommerceConnection: { findFirst: vi.fn() }, $transaction: vi.fn(async (fn: any) => fn(tx)) }, post: vi.fn(), guard: vi.fn() };
 });
 vi.mock('@/lib/prisma', () => ({ prisma: state.prisma }));
-vi.mock('@/lib/journal-posting', () => ({ postJournalEntry: state.post, BALANCE_TOLERANCE: 0.005 }));
+vi.mock('@/lib/journal-posting', () => ({ postJournalEntry: state.post }));
 vi.mock('@/lib/period-guard', () => ({ assertPeriodOpen: state.guard }));
 import { importSettlement } from '../settlement-import';
 
 describe('marketplace settlement original account', () => {
+  const receipt = { id: 'receipt', settledAt: null, depositAccountId: 'original-wallet-gl', journalEntryId: 'receipt-journal', totalAmount: 100 };
+
+  function postedAmount(accountId: string, side: 'debit' | 'credit'): number {
+    return Number(state.post.mock.calls[0][1].lines.find((line: { accountId: string }) => line.accountId === accountId)?.[side]);
+  }
+
   beforeEach(() => {
     vi.resetAllMocks();
-    state.prisma.ecommerceConnection.findFirst.mockResolvedValue({ holdingAccountId: 'new-wallet', mappings: { fees: { adjustmentAccountId: 'adjustment' } } });
+    state.prisma.ecommerceConnection.findFirst.mockResolvedValue({ holdingAccountId: 'new-wallet', mappings: { fees: { adjustmentAccountId: 'adjustment', platformFeeAccountId: 'platform-fee' } } });
     state.tx.salesInvoice.findFirst.mockResolvedValue({ id: 'invoice', number: 'INV1', totalAmount: 100 });
-    state.tx.aRPaymentAllocation.findFirst.mockResolvedValue({ paymentId: 'receipt' });
-    state.tx.aRPayment.findFirst.mockResolvedValue({ id: 'receipt', settledAt: null, depositAccountId: 'original-wallet-gl', journalEntryId: 'receipt-journal' });
+    state.tx.aRPaymentAllocation.findFirst.mockResolvedValue({ paymentId: 'receipt', amountApplied: 100 });
+    state.tx.aRPayment.findFirst.mockResolvedValue(receipt);
     state.post.mockResolvedValue({ id: 'settlement-journal' });
     state.tx.creditNote.updateMany.mockResolvedValue({ count: 1 });
   });
   it('posts on the statement calendar date and rejects a closed period', async () => {
-    const input = { orders: [{ orderId: 'order', settlementDate: '2026-01-31', netReleased: 90, charges: {} }] };
+    const input = { orders: [{ orderId: 'order', settlementDate: '2026-01-31', netReleased: 90, charges: { commissionFee: 10 } }] };
     expect((await importSettlement('org', 'user', 'connection', input)).posted).toBe(1);
     const date = new Date('2026-01-31T00:00:00.000Z');
     expect(state.guard).toHaveBeenCalledWith(state.tx, 'org', date);
@@ -40,21 +46,21 @@ describe('marketplace settlement original account', () => {
   });
   it('rejects missing and invalid settlement dates before posting', async () => {
     for (const settlementDate of [undefined, '2026-02-30']) {
-      const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'order', settlementDate, netReleased: 90, charges: {} }] });
+      const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'order', settlementDate, netReleased: 90, charges: { commissionFee: 10 } }] });
       expect(result.failed[0].reason).toContain('actual settlement date');
     }
     expect(state.post).not.toHaveBeenCalled();
   });
   it('credits the receipt account after the connection account changes', async () => {
-    const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'order', settlementDate: '2026-06-15', netReleased: 90, charges: {} }] });
+    const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'order', settlementDate: '2026-06-15', netReleased: 90, charges: { commissionFee: 10 } }] });
     expect(result.posted).toBe(1);
     expect(state.tx.aRPayment.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org', ecommerceConnectionId: 'connection', source: 'MARKETPLACE_IMPORT' }) }));
     const lines = state.post.mock.calls[0][1].lines;
-    expect(lines).toContainEqual(expect.objectContaining({ accountId: 'original-wallet-gl', credit: 10 }));
+    expect(postedAmount('original-wallet-gl', 'credit')).toBe(10);
     expect(lines.some((line: any) => line.accountId === 'new-wallet')).toBe(false);
   });
   it('does not post when the original receipt account is missing', async () => {
-    state.tx.aRPayment.findFirst.mockResolvedValue({ id: 'receipt', settledAt: null, depositAccountId: null, journalEntryId: 'receipt-journal' });
+    state.tx.aRPayment.findFirst.mockResolvedValue({ ...receipt, depositAccountId: null });
     const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'order', settlementDate: '2026-06-15', netReleased: 90, charges: {} }] });
     expect(result.failed).toHaveLength(1);
     expect(state.post).not.toHaveBeenCalled();
@@ -67,7 +73,7 @@ describe('marketplace settlement original account', () => {
     expect(state.post).not.toHaveBeenCalled();
     state.prisma.ecommerceConnection.findFirst.mockResolvedValue({ holdingAccountId: 'wallet', mappings: { fees: { adjustmentAccountId: 'adjustment', growthXtraAccountId: 'growth-expense' } } });
     expect((await importSettlement('org', 'user', 'connection', input)).posted).toBe(1);
-    expect(state.post.mock.calls[0][1].lines).toContainEqual(expect.objectContaining({ accountId: 'growth-expense', debit: 10 }));
+    expect(postedAmount('growth-expense', 'debit')).toBe(10);
   });
   it('requires explicit fee accounts and rejects an unexplained difference for strict imports', async () => {
     const order = { orderId: 'order', settlementDate: '2026-06-15', netReleased: 90, charges: { freeShippingXtraFee: 10 }, requireMappedCharges: true };
@@ -80,7 +86,22 @@ describe('marketplace settlement original account', () => {
     expect(state.post).not.toHaveBeenCalled();
     const valid = await importSettlement('org', 'user', 'connection', { orders: [order] });
     expect(valid.posted).toBe(1);
-    expect(state.post.mock.calls[0][1].lines).toContainEqual(expect.objectContaining({ accountId: 'shipping-fee', debit: 10 }));
+    expect(postedAmount('shipping-fee', 'debit')).toBe(10);
+  });
+  it('permits a legacy adjustment when the caller explicitly opts in', async () => {
+    const order = { orderId: 'order', settlementDate: '2026-06-15', netReleased: '99.99', charges: {} };
+    expect((await importSettlement('org', 'user', 'connection', { orders: [order] })).failed[0].reason).toContain('0.01');
+    const result = await importSettlement('org', 'user', 'connection', { orders: [{ ...order, requireMappedCharges: false }] });
+    expect(result.posted).toBe(1);
+    expect(postedAmount('adjustment', 'debit')).toBe(0.01);
+  });
+  it('keeps an invoice and receipt allocation that differ by Rp0.01 open for review', async () => {
+    state.tx.aRPaymentAllocation.findFirst.mockResolvedValue({ paymentId: 'receipt', amountApplied: '99.99' });
+    const order = { orderId: 'order', settlementDate: '2026-06-15', netReleased: 100, charges: {} };
+    const result = await importSettlement('org', 'user', 'connection', { orders: [order] });
+    expect(result.failed[0].reason).toContain('saved invoice, original marketplace receipt and allocation differ');
+    expect(state.post).not.toHaveBeenCalled();
+    expect(state.tx.aRPayment.update).not.toHaveBeenCalled();
   });
   it('reports an allocated receipt with unverifiable provenance for review', async () => {
     state.tx.aRPayment.findFirst.mockResolvedValue(null);
@@ -107,12 +128,12 @@ describe('marketplace settlement original account', () => {
     expect(result.failed).toEqual([]);
     expect(result.posted).toBe(1);
     const lines = state.post.mock.calls[0][1].lines;
-    expect(lines).toContainEqual(expect.objectContaining({ accountId: 'original-wallet-gl', credit: 10 }));
+    expect(postedAmount('original-wallet-gl', 'credit')).toBe(10);
     expect(lines.some((line: any) => line.description.startsWith('refund'))).toBe(false);
     expect(state.tx.creditNote.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ marketplaceRefundReceiptId: 'receipt' }) }));
   });
   it('links a refund after settlement without another journal, and replay is idempotent', async () => {
-    state.tx.aRPayment.findFirst.mockResolvedValue({ id: 'receipt', settledAt: new Date(), depositAccountId: 'original-wallet-gl', journalEntryId: 'receipt-journal' });
+    state.tx.aRPayment.findFirst.mockResolvedValue({ ...receipt, settledAt: new Date() });
     state.tx.creditNote.findMany.mockResolvedValue([refundNote]);
     const input = { orders: [{ orderId: 'order', settlementDate: '2026-06-15', netReleased: -30, charges: { refund: 30 }, refundOnly: true, refundCreditNoteNumbers: ['CN1'] }] };
     const result = await importSettlement('org', 'user', 'connection', input);
@@ -122,6 +143,17 @@ describe('marketplace settlement original account', () => {
     const replay = await importSettlement('org', 'user', 'connection', input);
     expect(replay.alreadySettled).toBe(1);
     expect(state.tx.creditNote.updateMany).toHaveBeenCalledTimes(1);
+  });
+  it('matches a later refund and its negative payout at the precision of the credit note', async () => {
+    state.tx.aRPayment.findFirst.mockResolvedValue({ ...receipt, settledAt: new Date() });
+    state.tx.creditNote.findMany.mockResolvedValue([{ ...refundNote, amount: '0.01' }]);
+    const order = { orderId: 'order', netReleased: '-0.005', charges: { refund: '0.005' }, refundOnly: true, refundCreditNoteNumbers: ['CN1'] };
+    const mismatch = await importSettlement('org', 'user', 'connection', { orders: [{ ...order, netReleased: '-0.004' }] });
+    expect(mismatch.failed).toHaveLength(1);
+    expect(state.tx.creditNote.updateMany).not.toHaveBeenCalled();
+    expect((await importSettlement('org', 'user', 'connection', { orders: [order] })).posted).toBe(1);
+    expect(state.tx.creditNote.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.post).not.toHaveBeenCalled();
   });
   it.each([
     { notes: [], numbers: ['CN1'], refund: 30 },
@@ -136,7 +168,7 @@ describe('marketplace settlement original account', () => {
     expect(state.tx.creditNote.updateMany).not.toHaveBeenCalled();
   });
   it('rejects a later refund row containing the original payout or other fees', async () => {
-    state.tx.aRPayment.findFirst.mockResolvedValue({ id: 'receipt', settledAt: new Date(), depositAccountId: 'original-wallet-gl', journalEntryId: 'receipt-journal' });
+    state.tx.aRPayment.findFirst.mockResolvedValue({ ...receipt, settledAt: new Date() });
     state.tx.creditNote.findMany.mockResolvedValue([refundNote]);
     const result = await importSettlement('org', 'user', 'connection', { orders: [{ orderId: 'order', settlementDate: '2026-06-15', netReleased: 60, charges: { refund: 30 }, refundOnly: true, refundCreditNoteNumbers: ['CN1'] }] });
     expect(result.failed).toHaveLength(1);

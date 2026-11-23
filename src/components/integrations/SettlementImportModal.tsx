@@ -8,6 +8,8 @@ import { parseShopeeSettlement, type SettlementParseResult } from '../../utils/s
 import { parseTikTokSettlement } from '../../utils/tiktokSettlement';
 import { isShopeeSettlement, isTikTokSettlement } from '../../utils/marketplaceFormat';
 import { formatIDR } from '../../utils/formatters';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
+import { readMarketplaceDecimal } from '../../utils/marketplaceMoney';
 
 type WizardStep = 'upload' | 'preview' | 'importing' | 'done';
 
@@ -96,7 +98,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 orderId: o.orderId,
                 settlementDate: refundOnly ? undefined : (o.settlementDate || settlementDate),
                 netReleased: o.netReleased,
-                charges: o.charges as Record<string, number>,
+                charges: o.charges,
                 refundOnly,
                 refundCreditNoteNumbers: (refundNotes[o.orderId] || '').split(',').map(n => n.trim()).filter(Boolean),
                 requireMappedCharges: o.requireMappedCharges,
@@ -111,13 +113,14 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
     };
 
     const handleManualRefund = async (): Promise<void> => {
-        const amount = Number(manualRefund.amount);
-        if (!manualRefund.orderId.trim() || !Number.isFinite(amount) || amount <= 0 || !manualRefund.notes.trim()) return;
+        if (!manualRefund.orderId.trim() || !(Number(manualRefund.amount) > 0) || !manualRefund.notes.trim()) return;
         setError('');
         setStep('importing');
         try {
+            const amount = roundMoneyDecimal(readMarketplaceDecimal(manualRefund.amount, 'refund amount') ?? 0);
+            if (amount.lte(0)) throw new Error('Enter a refund of at least Rp0.01.');
             const res = await importMutation.mutateAsync({ connectionId, orders: [{
-                orderId: manualRefund.orderId.trim(), netReleased: -amount, charges: { refund: amount }, refundOnly: true,
+                orderId: manualRefund.orderId.trim(), netReleased: amount.negated().toFixed(2), charges: { refund: amount.toFixed(2) }, refundOnly: true,
                 refundCreditNoteNumbers: manualRefund.notes.split(',').map(n => n.trim()).filter(Boolean),
             }] });
             setResult(res);
@@ -203,7 +206,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 Later refunds after the original settlement (refund debits only)
             </label>
             {refundOnly && <p className="text-xs text-neutral-500">Use a statement containing only the later refund debit for each order. Net released must equal minus the refund; fees and other adjustments require separate review.</p>}
-            {parsed?.orders.filter(o => (o.charges.refund ?? 0) > 0).map(o => (
+            {parsed?.orders.filter(o => o.charges.refund != null).map(o => (
                 <label key={o.orderId} className="text-sm">
                     Refund credit note number(s) for {o.orderId} ({formatIDR(o.charges.refund ?? 0)})
                     <input className="w-full h-10 px-3 rounded-md border border-neutral-300" value={refundNotes[o.orderId] || ''}

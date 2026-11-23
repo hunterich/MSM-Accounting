@@ -5,10 +5,10 @@ import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, req
 import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
-import { asMoney, toNumber } from '@/lib/money';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { createSalesReturnInputSchema } from '@/types/api';
-import { prepareSalesReturnLines } from '@/lib/sales-return-lines';
-import { salesReturnAmounts } from '@/lib/note-return-value';
+import { lockSalesReturns, prepareSalesReturnValuation } from '@/lib/sales-return-lines';
+import { assertReturnPreview } from '@/lib/note-return-value';
 
 export const runtime = 'nodejs';
 
@@ -57,9 +57,10 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
   const body = await req.json();
   const parsed = createSalesReturnInputSchema.safeParse(body);
   if (!parsed.success) return err(parsed.error.issues[0]?.message || 'Invalid sales return payload', 400);
-  const { lines, ...header } = parsed.data;
+  const { lines, expectedValuation, ...header } = parsed.data;
 
   const salesReturn = await prisma.$transaction(async (tx) => {
+    await lockSalesReturns(tx, orgId, header.invoiceId);
     await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${header.invoiceId} AND "organizationId" = ${orgId} FOR UPDATE`;
     // Tenant isolation: the customer, the source invoice, and every referenced
     // line item must belong to this org — otherwise they leak back through the
@@ -72,9 +73,8 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
     for (const itemId of returnItemIds) {
       await validateForeignKey(tx.item, { id: itemId, organizationId: orgId }, 'Item not found in organization');
     }
-    const preparedLines = await prepareSalesReturnLines(tx, orgId, header.invoiceId, header.customerId, lines ?? []);
-    const invoice = await tx.salesInvoice.findFirstOrThrow({ where: { id: header.invoiceId, organizationId: orgId } });
-    const amounts = salesReturnAmounts(invoice, preparedLines.map((line, index) => ({ source: line.source, qtyReturn: toNumber(lines?.[index]?.qtyReturn) })));
+    const { invoice, prepared, amounts } = await prepareSalesReturnValuation(tx, orgId, header.invoiceId, header.customerId, lines ?? []);
+    assertReturnPreview(amounts, expectedValuation);
     const number = await nextNumber(tx, 'SalesReturn', 'number', 'SRN');
     const created = await tx.salesReturn.create({
       data: {
@@ -84,27 +84,23 @@ export const POST = withPermission({ module: 'AR_CREDITS', action: 'create' }, a
         returnDate: new Date(header.returnDate),
         subtotal: amounts.subtotal,
         taxAmount: amounts.taxAmount,
-        totalAmount: amounts.total,
+        totalAmount: amounts.totalAmount,
         applyTax: invoice.taxEnabled,
         taxIncluded: invoice.taxInclusive,
         taxRate: invoice.taxRate,
         lines: lines?.length ? {
-          create: lines.map((l: any, idx: number) => {
-            const qtyReturn = toNumber(l.qtyReturn);
-            const price = asMoney(toNumber(l.price));
-            return {
+          create: lines.map((line, idx) => ({
               lineNo:   idx + 1,
-              sourceInvoiceLineId: preparedLines[idx].sourceInvoiceLineId,
-              goodsReceived: preparedLines[idx].goodsReceived,
-              itemId:   preparedLines[idx].itemId,
-              itemName: preparedLines[idx].itemName,
-              qtySold:  preparedLines[idx].qtySold,
-              qtyReturn,
-              unit:     l.unit || 'PCS',
-              price,
-              lineTotal: amounts.lineTotals[idx],
-            };
-          }),
+              sourceInvoiceLineId: prepared[idx].sourceInvoiceLineId,
+              goodsReceived: prepared[idx].goodsReceived,
+              itemId:   prepared[idx].itemId,
+              itemName: prepared[idx].itemName,
+              qtySold:  prepared[idx].qtySold,
+              qtyReturn: prepared[idx].qtyReturn,
+              unit:     line.unit || 'PCS',
+              price: roundMoneyDecimal(line.price ?? 0),
+              ...amounts.lines[idx],
+          })),
         } : undefined,
       },
       include: { lines: true },

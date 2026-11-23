@@ -19,7 +19,7 @@ import { postJournalEntry } from './journal-posting';
 import { addCostLayer, lockInventoryItems } from './inventory-costing';
 import { lockSalesReturns, prepareSalesReturnLines, originalSalesLineCost } from './sales-return-lines';
 import { ApiError } from './errors';
-import { toNumber, asMoney } from './money';
+import { MoneyDecimal, roundMoneyDecimal } from './money-decimal';
 import { assertPeriodOpen } from './period-guard';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 
@@ -79,71 +79,70 @@ export async function postSalesReturnOnApproval(
       id: { not: sr.id }, status: { not: 'VOID' }, postedAt: { not: null },
     } },
   });
-  const postedQty = new Map<string, number>();
-  const postedCost = new Map<string, number>();
+  const postedQty = new Map<string, Prisma.Decimal>();
+  const postedCost = new Map<string, Prisma.Decimal>();
   for (const prior of priorLines) {
-    if (!prior.goodsReceived || toNumber(prior.qtyReturn) <= 0) continue;
+    if (!prior.goodsReceived || new MoneyDecimal(prior.qtyReturn).lte(0)) continue;
     const sourceId = prior.sourceInvoiceLineId ?? prepared.find((l) => l.itemId === prior.itemId)?.source.id;
     if (!sourceId) continue;
-    postedQty.set(sourceId, (postedQty.get(sourceId) ?? 0) + toNumber(prior.qtyReturn));
-    let priorCost = toNumber(prior.inventoryCost);
+    postedQty.set(sourceId, new MoneyDecimal(postedQty.get(sourceId) ?? 0).plus(prior.qtyReturn));
+    let priorCost = new MoneyDecimal(prior.inventoryCost ?? 0);
     if (prior.inventoryCost == null && prior.itemId && inventoryItemIds.has(prior.itemId)) {
       const ledger = await tx.inventoryLedgerEntry.findMany({ where: {
         organizationId: sr.organizationId, documentType: 'SALES_RETURN',
         documentId: prior.salesReturnId, itemId: prior.itemId,
       } });
-      priorCost = ledger.reduce((sum, entry) => sum + toNumber(entry.valueChange), 0);
+      priorCost = ledger.reduce((sum, entry) => sum.plus(entry.valueChange), new MoneyDecimal(0));
     }
-    postedCost.set(sourceId, (postedCost.get(sourceId) ?? 0) + priorCost);
+    postedCost.set(sourceId, new MoneyDecimal(postedCost.get(sourceId) ?? 0).plus(priorCost));
   }
 
-  let totalRestockValue = 0;
-  const inventoryByAccount = new Map<string, number>();
-  const cogsByAccount = new Map<string, number>();
+  let totalRestockValue = new MoneyDecimal(0);
+  const inventoryByAccount = new Map<string, Prisma.Decimal>();
+  const cogsByAccount = new Map<string, Prisma.Decimal>();
   for (const [index, line] of sr.lines.entries()) {
-    const qty = toNumber(line.qtyReturn);
+    const qty = new MoneyDecimal(line.qtyReturn);
     const { source } = prepared[index];
-    const previousQty = postedQty.get(source.id) ?? 0;
+    const cumulativeQty = qty.plus(postedQty.get(source.id) ?? 0);
     await tx.salesReturnLine.update({
       where: { id: line.id },
       data: { sourceInvoiceLineId: source.id, inventoryCost: 0 },
     });
-    if (qty <= 0 || !line.goodsReceived || !line.itemId || !inventoryItemIds.has(line.itemId)) continue;
+    if (qty.lte(0) || !line.goodsReceived || !line.itemId || !inventoryItemIds.has(line.itemId)) continue;
     const saleCost = await originalSalesLineCost(tx, sr.organizationId, source);
     // Cumulative rounding makes successive partial returns add to the sale cost.
-    const soldQty = toNumber(source.quantity);
-    const cost = asMoney(asMoney(saleCost * (previousQty + qty) / soldQty) - (postedCost.get(source.id) ?? 0));
-    if (cost < 0) throw new ApiError('Earlier returns exceed the original sale cost. Review their inventory postings before receiving more goods.', 422);
-    if (cost > 0 && (!source.inventoryPostingAccountId || !source.cogsPostingAccountId)) {
+    const previousCost = new MoneyDecimal(postedCost.get(source.id) ?? 0);
+    if (previousCost.gt(saleCost)) throw new ApiError('Earlier returns exceed the original sale cost. Review their inventory postings before receiving more goods.', 422);
+    const cost = MoneyDecimal.max(0, roundMoneyDecimal(saleCost.mul(cumulativeQty).div(source.quantity)).minus(previousCost));
+    if (cost.gt(0) && (!source.inventoryPostingAccountId || !source.cogsPostingAccountId)) {
       throw new ApiError('Original sale account history is unavailable. Review the historical invoice before receiving its return.', 422);
     }
-    if (cost > 0) {
+    if (cost.gt(0)) {
       const inventoryId = source.inventoryPostingAccountId!;
       const cogsId = source.cogsPostingAccountId!;
-      inventoryByAccount.set(inventoryId, asMoney((inventoryByAccount.get(inventoryId) ?? 0) + cost));
-      cogsByAccount.set(cogsId, asMoney((cogsByAccount.get(cogsId) ?? 0) + cost));
+      inventoryByAccount.set(inventoryId, cost.plus(inventoryByAccount.get(inventoryId) ?? 0));
+      cogsByAccount.set(cogsId, cost.plus(cogsByAccount.get(cogsId) ?? 0));
     }
-    postedQty.set(source.id, previousQty + qty);
-    postedCost.set(source.id, (postedCost.get(source.id) ?? 0) + cost);
-    const unitCost = cost / qty;
+    postedQty.set(source.id, cumulativeQty);
+    postedCost.set(source.id, previousCost.plus(cost));
     await addCostLayer(
       tx,
       sr.organizationId,
       line.itemId,
       sr.warehouseId ?? null,
-      qty,
-      unitCost,
+      qty.toNumber(),
+      cost.div(qty).toNumber(),
       InventoryDocumentType.SALES_RETURN,
       sr.id,
       sr.returnDate,
-      cost,
-      cost > 0 ? source.inventoryPostingAccountId : undefined,
+      cost.toNumber(),
+      cost.gt(0) ? source.inventoryPostingAccountId : undefined,
     );
     await tx.salesReturnLine.update({ where: { id: line.id }, data: { inventoryCost: cost } });
-    totalRestockValue += cost;
+    totalRestockValue = totalRestockValue.plus(cost);
   }
 
-  if (totalRestockValue <= 0) {
+  if (totalRestockValue.lte(0)) {
     // Services, goods kept by the customer, or zero-cost stock.
     // Mark posted but skip JE — nothing to debit/credit.
     await tx.salesReturn.update({

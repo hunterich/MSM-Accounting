@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@/src/components/UI/Button';
 import { useAuthStore } from '@/src/stores/useAuthStore';
-import { computeSaleTotals } from '@/lib/pos/pricing';
-import { computeServiceCharge } from '@/lib/pos/sales-type-charge';
+import { posSaleBreakdown, pricePosSale, type PosSaleBreakdown } from '@/lib/pos/pricing';
+import { validateCashTender } from '@/lib/pos/tender';
 import { useCatalog, useRegisters, usePostSale, type CatalogRow, type SalesTypeRow, type PostSaleResult } from '../hooks/usePos';
 import { useOfflineSync, cacheCatalog, readCachedCatalog, cacheSalesTypes, readCachedSalesTypes } from '../hooks/useOfflinePos';
 import { db } from '../offline/db';
@@ -34,7 +34,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
   const [term, setTerm] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('ALL');
   const [payOpen, setPayOpen] = useState(false);
-  const [receipt, setReceipt] = useState<{ result: PostSaleResult; lines: Cart } | null>(null);
+  const [receipt, setReceipt] = useState<{ result: PostSaleResult; lines: Cart; lineTotals: number[]; breakdown: PosSaleBreakdown } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saleId, setSaleId] = useState(uuid());
   const [pendingItem, setPendingItem] = useState<CatalogRow | null>(null);
@@ -80,7 +80,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
     return <div className="flex h-screen items-center justify-center text-red-600">{t('auth.forbidden')}</div>;
   }
   if (receipt) {
-    return <ReceiptView result={receipt.result} cart={receipt.lines} onNew={() => { setReceipt(null); setCart(emptyCart()); setTerm(''); setSaleId(uuid()); }} />;
+    return <ReceiptView result={receipt.result} cart={receipt.lines} lineTotals={receipt.lineTotals} breakdown={receipt.breakdown} onNew={() => { setReceipt(null); setCart(emptyCart()); setTerm(''); setSaleId(uuid()); }} />;
   }
 
   const pick = (item: CatalogRow) => {
@@ -90,21 +90,21 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
     if (item.modifierGroups && item.modifierGroups.length > 0) { setPendingItem(item); return; }
     setCart((c) => addItem(c, item));
   };
-  const totals = computeSaleTotals(toSaleLines(cart), 11);
-  const registerName = (registers.data ?? []).find((r) => r.id === registerId)?.name ?? t('shift.register');
+  const register = (registers.data ?? []).find((r) => r.id === registerId);
+  const registerName = register?.name ?? t('shift.register');
 
   // Prefer the live catalog; fall back to the cached rows whenever there's no live data.
   // (React Query pauses — not errors — offline, so don't gate the fallback on isError.)
   const catalogRows = catalog.data?.items ?? cachedCatalog;
 
-  // The selected sales type drives the client-side service-charge preview. The server
-  // recomputes authoritatively on post; this is display-only so the cashier sees the
-  // amount the customer will pay.
-  const selectedSalesType = availableSalesTypes.find((s) => s.id === salesTypeId) ?? null;
-  const serviceCharge = selectedSalesType
-    ? computeServiceCharge({ goodsTotal: totals.totalAmount, pct: selectedSalesType.serviceChargePct, taxable: selectedSalesType.taxable, rate: 11 })
-    : { chargeAmt: 0, taxAddon: 0 };
-  const displayTotal = totals.totalAmount + serviceCharge.chargeAmt;
+  const selectedSalesType = availableSalesTypes.find(s => s.id === (salesTypeId ?? register?.defaultSalesTypeId))
+    ?? availableSalesTypes[0] ?? null;
+  const saleLines = toSaleLines(cart);
+  const pricing = pricePosSale(saleLines, selectedSalesType);
+  const breakdown = posSaleBreakdown(pricing);
+  const displayTotal = pricing.totalAmount.toNumber();
+  const lineTotals = pricing.cartLineTotals.map(amount => amount.toNumber());
+  const selectedTypeId = selectedSalesType?.id ?? null;
 
   const items = catalogRows.filter((it) => {
     if (!matchesCategory(category, it.drugClass)) return false;
@@ -115,6 +115,8 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
 
   // Enqueue the sale locally and show a receipt built from local data (used when offline or on a network failure).
   async function payOffline(cash: number) {
+    const tender = validateCashTender(displayTotal, cash);
+    if (!tender.ok) return;
     const current = await db.shiftState.get('current');
     const currentServerShiftId = current?.serverShiftId; // set for online-opened shifts; undefined for offline-opened
     await enqueueOp({
@@ -127,15 +129,15 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
         clientShiftId: shiftId,
         registerId,
         shiftId: currentServerShiftId,
-        salesTypeId,
-        lines: toSaleLines(cart),
+        salesTypeId: selectedTypeId,
+        lines: saleLines,
+        quotedTotal: displayTotal,
         tenders: [{ method: 'CASH', amount: cash }],
       },
     });
-    const total = displayTotal;
-    const result: PostSaleResult = { posSaleId: saleId, salesInvoiceId: saleId, totalAmount: total, change: cash - total };
+    const result: PostSaleResult = { posSaleId: saleId, salesInvoiceId: saleId, totalAmount: displayTotal, change: tender.change };
     setPayOpen(false);
-    setReceipt({ result, lines: cart });
+    setReceipt({ result, lines: cart, lineTotals, breakdown });
   }
 
   async function pay(cash: number) {
@@ -143,9 +145,9 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
     // Offline up-front: skip the network entirely and queue the sale.
     if (!online) { await payOffline(cash); return; }
     try {
-      const result = await postSale.mutateAsync({ clientSaleId: saleId, registerId, shiftId, salesTypeId, lines: toSaleLines(cart), tenders: [{ method: 'CASH', amount: cash }] });
+      const result = await postSale.mutateAsync({ clientSaleId: saleId, registerId, shiftId, salesTypeId: selectedTypeId, lines: saleLines, tenders: [{ method: 'CASH', amount: cash }] });
       setPayOpen(false);
-      setReceipt({ result, lines: cart });
+      setReceipt({ result, lines: cart, lineTotals, breakdown: result.breakdown ?? breakdown });
     } catch (err) {
       // A network error (no HTTP status) means the server was unreachable → fall back to the offline queue.
       if ((err as { status?: number }).status === undefined) { await payOffline(cash); return; }
@@ -177,7 +179,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
             <span className="text-sm text-gray-500">{cart.lines.length} {t('checkout.items')}</span>
           </div>
           <div className="min-h-0 flex-1 overflow-auto px-4">
-            <CartLines cart={cart} onQty={(key, q) => setCart((c) => setQty(c, key, q))} onRemove={(key) => setCart((c) => removeLine(c, key))} />
+            <CartLines cart={cart} lineTotals={lineTotals} onQty={(key, q) => setCart((c) => setQty(c, key, q))} onRemove={(key) => setCart((c) => removeLine(c, key))} />
           </div>
           <div className="border-t px-4 py-3">
             {availableSalesTypes.length > 0 && (
@@ -185,7 +187,7 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
                 <span className="mb-1 block text-xs font-medium text-gray-500">{t('checkout.salesType')}</span>
                 <select
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
-                  value={salesTypeId ?? ''}
+                  value={selectedTypeId ?? ''}
                   onChange={(e) => setSalesTypeId(e.target.value || null)}
                 >
                   {availableSalesTypes.map((s) => (
@@ -194,11 +196,11 @@ export default function CheckoutView({ shiftId, registerId, onCloseShift }: { sh
                 </select>
               </label>
             )}
-            <div className="mb-1 flex justify-between text-sm text-gray-500"><span>{t('checkout.subtotal')}</span><span className="tabular-nums">{totals.subtotal.toLocaleString('id-ID')}</span></div>
-            <div className="mb-2 flex justify-between text-sm text-gray-500"><span>{t('checkout.ppn')}</span><span className="tabular-nums">{totals.taxAmount.toLocaleString('id-ID')}</span></div>
-            {serviceCharge.chargeAmt > 0 && (
-              <div className="mb-2 flex justify-between text-sm text-gray-500"><span>{t('checkout.serviceCharge')}</span><span className="tabular-nums">{serviceCharge.chargeAmt.toLocaleString('id-ID')}</span></div>
+            <div className="mb-1 flex justify-between text-sm text-gray-500"><span>{t('checkout.subtotal')}</span><span className="tabular-nums">{breakdown.subtotal.toLocaleString('id-ID')}</span></div>
+            {breakdown.serviceChargeNet > 0 && (
+              <div className="mb-2 flex justify-between text-sm text-gray-500"><span>{t('checkout.serviceCharge')}</span><span className="tabular-nums">{breakdown.serviceChargeNet.toLocaleString('id-ID')}</span></div>
             )}
+            <div className="mb-2 flex justify-between text-sm text-gray-500"><span>{t('checkout.ppn')}</span><span className="tabular-nums">{breakdown.taxAmount.toLocaleString('id-ID')}</span></div>
             <div className="mb-3 flex items-baseline justify-between">
               <span className="font-medium text-gray-800">{t('checkout.total')}</span>
               <span className="text-2xl font-semibold tabular-nums">Rp {displayTotal.toLocaleString('id-ID')}</span>

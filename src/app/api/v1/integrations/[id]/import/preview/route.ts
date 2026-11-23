@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { corsPreflightResponse } from '@/lib/cors';
 import { requireAuth, ok, err } from '@/lib/api-utils';
 import { withPermission } from '@/lib/authz';
-import { marketplaceImportInputSchema, marketplaceImportLineSchema, marketplaceImportOrderSchema, decimalNumber } from '@/types/api';
+import { marketplaceImportInputSchema, marketplaceImportLineSchema, marketplaceImportOrderSchema, exactDecimalInput } from '@/types/api';
 import { previewMarketplaceOrders } from '@/lib/marketplace-import-preview';
 
 export const runtime = 'nodejs';
@@ -13,10 +13,11 @@ const previewInputSchema = marketplaceImportInputSchema.extend({
     lines: z.array(marketplaceImportLineSchema.extend({
       itemId: z.string().trim(),
       description: z.string(),
-      quantity: decimalNumber,
-      unitPrice: decimalNumber,
+      quantity: exactDecimalInput,
+      unitPrice: exactDecimalInput,
+      sourceLineAmount: exactDecimalInput.optional(),
     })).min(1),
-    sourceTotal: decimalNumber,
+    sourceTotal: exactDecimalInput,
     missingDate: z.boolean().default(false),
   })).min(1),
 });

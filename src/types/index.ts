@@ -35,6 +35,7 @@ export interface RawCustomer {
 }
 
 export interface RawInvoiceLine {
+  taxable?: boolean | null;
   id?: string | null;
   itemId?: string | null;
   code?: string | null;
@@ -199,6 +200,7 @@ export interface RawBillAttachment {
 }
 
 export interface RawBill {
+  receiptPostingJournalId?: string | null;
   charges?: Record<string, unknown>[];
   vendorInvoiceNo?: string | null;
   taxable?: boolean;
@@ -564,6 +566,7 @@ export interface Customer {
 }
 
 export interface InvoiceLine {
+  taxable?: boolean | null;
   id?: string;
   itemId?: string;
   code?: string;
@@ -694,6 +697,7 @@ export interface VendorCategory {
 }
 
 export interface BillLine {
+  taxable?: boolean | null;
   id?: string;
   itemId?: string;
   accountId?: string;
@@ -715,6 +719,7 @@ export interface BillAttachment {
 }
 
 export interface Bill {
+  receiptPostingJournalId?: string | null;
   charges?: Record<string, unknown>[];
   vendorInvoiceNo?: string;
   taxable?: boolean;
@@ -998,6 +1003,7 @@ export interface RawBankTransaction {
   date?: string | null;
   description?: string | null;
   amount?: number | string | null;
+  cashAmount?: number | string | null;
   type?: string | null;
   bankAccountId?: string | null;
   accountId?: string | null;
@@ -1021,6 +1027,7 @@ export interface BankTransaction {
   date: string;
   description: string;
   amount: number;
+  baseAmount?: string;
   type: TxnType;
   accountId: string;
   reference: string;

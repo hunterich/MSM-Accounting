@@ -38,8 +38,8 @@ describe('GR/IR roundtrip — each VAT case the bill GR/IR debit equals the rece
     const je = (postJournalEntry as any).mock.calls[0][1];
     const grir = je.lines.find((l: any) => l.accountId === 'acc-grir');
     expect(grir.debit).toBeCloseTo(expectedNet, 1);
-    const dr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
-    const cr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
+    const dr = je.lines.reduce((s: number, l: any) => s + Number(l.debit), 0);
+    const cr = je.lines.reduce((s: number, l: any) => s + Number(l.credit), 0);
     expect(Math.abs(dr - cr)).toBeLessThan(0.01);
   });
 });

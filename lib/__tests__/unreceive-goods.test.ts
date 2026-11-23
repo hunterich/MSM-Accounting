@@ -28,6 +28,7 @@ function makeTx(bill: any, poLinesAfter: any[] = [{ quantity: 10, receivedQty: 0
     },
     purchaseOrderLine: { update: vi.fn(async () => ({})), findMany: vi.fn(async () => poLinesAfter) },
     purchaseOrder: { update: vi.fn(async () => ({})) },
+    inventoryLot: { count: vi.fn(async () => 1) },
     account: { findMany: vi.fn(async () => ACCOUNTS) },
     journalEntry: { findFirst: vi.fn(async () => ({ totalDebit: 11000, totalCredit: 11000, lines: [
       { accountId: 'acc-inv', debit: 11000, credit: 0 }, { accountId: 'acc-grir', debit: 0, credit: 11000 },
@@ -85,6 +86,13 @@ describe('unreceiveGoodsReceipt', () => {
     const tx = makeTx(receiptBill({ receiptPostingJournalId: null }));
     await expect(unreceiveGoodsReceipt(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/original receipt account history is unavailable/i);
     expect(postJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('does not decrement the PO for an unposted direct bill', async () => {
+    const tx = makeTx(receiptBill({ receiptPostingJournalId: null }));
+    tx.inventoryLot.count.mockResolvedValue(0);
+    await expect(unreceiveGoodsReceipt(tx as never, 'org-a', 'bill-1', { date: DATE })).rejects.toThrow(/no booked goods receipt/i);
+    expect(tx.purchaseOrderLine.update).not.toHaveBeenCalled();
   });
 
   it('sets the PO back to PARTIAL_RECEIVED when other receipts remain', async () => {

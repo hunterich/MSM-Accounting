@@ -220,6 +220,24 @@ export function useSalesReturn(id: string | undefined) {
   });
 }
 
+interface SalesReturnPreviewInput {
+  invoiceId: string;
+  customerId: string;
+  returnId?: string;
+  lines: Array<{ sourceInvoiceLineId?: string; itemId: string; qtyReturn: number; itemName: string }>;
+}
+
+export function useSalesReturnPreview(input: SalesReturnPreviewInput, enabled: boolean) {
+  return useQuery({
+    queryKey: ['salesReturns', 'preview', input],
+    queryFn: () => api.post<{
+      subtotal: string; taxAmount: string; totalAmount: string; lines: Array<{ lineTotal: string; taxAmount: string }>;
+    }>('/api/v1/sales-returns/preview', input),
+    enabled,
+    retry: false,
+  });
+}
+
 export function useCreateSalesReturn() {
   const qc = useQueryClient();
   return useMutation({
@@ -274,10 +292,32 @@ export function usePurchaseReturn(id: string | undefined) {
   });
 }
 
+type PurchaseReturnPreviewLine = {
+  lineKey: string; description: string; qtyPurchased: number; qtyReturn: number; unit: string; price: number; itemId?: string;
+};
+type PurchaseReturnPreview = {
+  subtotal: string; taxAmount: string; totalAmount: string; lines: Array<{ lineTotal: string; taxAmount: string }>;
+};
+type PurchaseReturnPreviewInput = Pick<PurchaseReturn, 'billId' | 'vendorId' | 'applyTax' | 'taxIncluded' | 'taxRate'>
+  & { returnId?: string; lines: PurchaseReturnPreviewLine[] };
+type PurchaseReturnWrite = Omit<Partial<PurchaseReturn>, 'lines'> & {
+  lines?: PurchaseReturnPreviewLine[];
+  expectedValuation?: Pick<PurchaseReturnPreview, 'totalAmount' | 'taxAmount'>;
+};
+
+export function usePurchaseReturnPreview(input: PurchaseReturnPreviewInput, enabled: boolean) {
+  return useQuery({
+    queryKey: ['purchaseReturns', 'preview', input],
+    queryFn: () => api.post<PurchaseReturnPreview>('/api/v1/purchase-returns/preview', input),
+    enabled,
+    retry: false,
+  });
+}
+
 export function useCreatePurchaseReturn() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<PurchaseReturn>) => api.post('/api/v1/purchase-returns', {
+    mutationFn: (body: PurchaseReturnWrite) => api.post<RawPurchaseReturn>('/api/v1/purchase-returns', {
       ...body,
       status: RETURN_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
     }),
@@ -288,8 +328,8 @@ export function useCreatePurchaseReturn() {
 export function useUpdatePurchaseReturn() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: Partial<PurchaseReturn> & { id: string }) =>
-      api.put(`/api/v1/purchase-returns/${id}`, {
+    mutationFn: ({ id, ...body }: PurchaseReturnWrite & { id: string }) =>
+      api.put<RawPurchaseReturn>(`/api/v1/purchase-returns/${id}`, {
         ...body,
         ...(body.status && { status: RETURN_STATUS_UP[body.status] ?? body.status }),
       }),
@@ -351,7 +391,12 @@ function creditNoteToApi(body: Partial<CreditNote>) {
   });
 }
 
-function debitNoteToApi(body: Partial<DebitNote>) {
+export type DebitNoteInput = Omit<Partial<DebitNote>, 'amount' | 'taxAmount'> & {
+  amount?: string | number;
+  taxAmount?: string | number;
+};
+
+function debitNoteToApi(body: DebitNoteInput) {
   return definedOnly({
     vendorId:            fk(body.vendorId),
     purchaseReturnId:    fk(body.purchaseReturnId ?? body.returnId),
@@ -457,7 +502,7 @@ export function useDebitNote(id: string | undefined) {
 export function useCreateDebitNote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<DebitNote>) => api.post('/api/v1/debit-notes', {
+    mutationFn: (body: DebitNoteInput) => api.post('/api/v1/debit-notes', {
       ...debitNoteToApi(body),
       status:         DN_STATUS_UP[body.status ?? ''] ?? body.status ?? 'DRAFT',
       settlementType: body.settlementType === 'Refund from Vendor' ? 'REFUND_FROM_VENDOR' : 'APPLY_TO_BILL',
@@ -469,7 +514,7 @@ export function useCreateDebitNote() {
 export function useUpdateDebitNote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: Partial<DebitNote> & { id: string }) =>
+    mutationFn: ({ id, ...body }: DebitNoteInput & { id: string }) =>
       api.put(`/api/v1/debit-notes/${id}`, {
         ...debitNoteToApi(body),
         ...(body.status         && { status:         DN_STATUS_UP[body.status] ?? body.status }),

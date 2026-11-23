@@ -17,21 +17,23 @@
  */
 import { prisma } from './prisma';
 import { calculateInvoiceTotals } from './invoice-totals';
+import { MoneyDecimal, roundMoneyDecimal } from './money-decimal';
 import { nextInvoiceNumber } from './invoice-number';
 import { postInvoiceSend } from './invoice-send-posting';
 import { postArPaymentIfNeeded } from './payment-posting';
 import { nextNumber } from './api-utils';
 import { loadBankPostingContext } from './bank-transaction-posting';
 import { resolveBankLinkedAssetAccountId } from './account-defaults';
-import { toNumber } from './money';
 import { isMarketplaceReversalStatus, isMarketplaceShippedStatus } from '@/src/utils/marketplaceLifecycle';
 
 export interface ImportOrderLine {
   itemId: string;
   description: string;
   sku: string;
-  quantity: number;
-  unitPrice: number;
+  quantity: string | number;
+  unitPrice: string | number;
+  /** Seller-side line total from the export, before the connection's PPN treatment. */
+  sourceLineAmount?: string | number;
 }
 
 export interface ImportOrder {
@@ -62,7 +64,7 @@ export interface ImportResult {
 
 export function calculateMarketplaceOrderTotals(
   order: ImportOrder,
-  org: { taxEnabled: boolean; taxDefaultRate: unknown; taxInclusiveByDefault: boolean },
+  org: Parameters<typeof calculateInvoiceTotals>[1],
   taxInclusive: boolean,
 ) {
   return calculateInvoiceTotals(
@@ -75,6 +77,9 @@ export function calculateMarketplaceOrderTotals(
         unit: 'PCS',
         price: line.unitPrice,
         discountPct: 0,
+        // Unit price can be a rounded display value or derived by dividing the
+        // source total by quantity. Prefer the seller-side amount when available.
+        lineSubtotal: roundMoneyDecimal(line.sourceLineAmount ?? new MoneyDecimal(line.quantity).mul(line.unitPrice)),
       })),
       tax: { inclusive: taxInclusive },
     },
@@ -256,8 +261,8 @@ export async function importMarketplaceOrders(
 
         // 5. Settlement receipt — record the marketplace payout against the
         // invoice and mark it PAID. Uses the batch-resolved settlement GL account.
-        const invoiceTotal = toNumber(invoice.totalAmount);
-        if (options.recordPayment && conn.holdingAccountId && invoiceTotal > 0) {
+        const invoiceTotal = invoice.totalAmount;
+        if (options.recordPayment && conn.holdingAccountId && invoiceTotal.gt(0)) {
           const paymentNumber = await nextNumber(tx, 'ARPayment', 'number', 'ARP');
           const payment = await tx.aRPayment.create({
             data: {

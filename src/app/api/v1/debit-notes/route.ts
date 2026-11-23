@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { err, listResponse, logAudit, nextNumber, ok, parsePaginationParams, requireOrg, validateForeignKey } from '@/lib/api-utils';
-import { asMoney, toNumber } from '@/lib/money';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { withPermission } from '@/lib/authz';
 import { createDebitNoteInputSchema } from '@/types/api';
 import { validateNoteRefundAccount } from '@/lib/note-refund-account';
@@ -75,8 +75,8 @@ export const POST = withPermission({ module: 'AP_DEBITS', action: 'create' }, as
         ...d,
         number,
         organizationId: orgId,
-        amount: asMoney(toNumber(d.amount)),
-        taxAmount: asMoney(toNumber(d.taxAmount ?? 0)),
+        amount: roundMoneyDecimal(d.amount),
+        taxAmount: roundMoneyDecimal(d.applyTax === false ? 0 : (d.taxAmount ?? 0)),
         date: new Date(d.date),
         status: 'DRAFT',
       },

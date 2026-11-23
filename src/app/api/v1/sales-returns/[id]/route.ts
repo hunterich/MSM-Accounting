@@ -6,10 +6,11 @@ import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { routeForApproval } from '@/lib/approval/engine';
 import { updateSalesReturnInputSchema } from '@/types/api';
-import { prepareSalesReturnLines, lockSalesReturns } from '@/lib/sales-return-lines';
+import { prepareSalesReturnValuation, lockSalesReturns } from '@/lib/sales-return-lines';
 import { ApiError } from '@/lib/errors';
 import { lockReturnForDeletion, assertNoLinkedNotes } from '@/lib/return-deletion-guard';
-import { salesReturnAmounts } from '@/lib/note-return-value';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
+import { assertReturnPreview } from '@/lib/note-return-value';
 
 export const runtime = 'nodejs';
 
@@ -54,7 +55,7 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid sales return payload' }, { status: 400 }));
     }
-    const { lines, ...header } = parsed.data;
+    const { lines, expectedValuation, ...header } = parsed.data;
 
     // Voiding a posted return must reverse its inventory journal entry and unwind
     // the stock — only the dedicated endpoint does that. A bare status flip here
@@ -69,14 +70,17 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
     const sr = await prisma.$transaction(async (tx) => {
       const initial = await tx.salesReturn.findFirst({ where: { id, organizationId: orgId } });
       if (!initial) throw new ApiError('Sales return not found', 404);
-      await lockSalesReturns(tx, orgId, initial.invoiceId);
+      for (const invoiceId of [...new Set([initial.invoiceId, header.invoiceId ?? initial.invoiceId])].sort()) {
+        await lockSalesReturns(tx, orgId, invoiceId);
+      }
       const prior = await tx.salesReturn.findFirst({
         where: { id, organizationId: orgId },
-        include: { lines: true },
+        include: { lines: { orderBy: { lineNo: 'asc' } } },
       });
       if (!prior) {
         throw new Error('Sales return not found');
       }
+      if (prior.invoiceId !== initial.invoiceId) throw new ApiError('Sales return source invoice changed. Reload the return and retry.', 409);
 
       const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1 && lines === undefined;
       if (prior.status !== 'DRAFT' && !isStatusOnlyUpdate) {
@@ -85,22 +89,19 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
       if (prior.status !== 'DRAFT' && header.status !== prior.status) {
         throw new ApiError('Finalized sales returns cannot change status here; use the void action', 422);
       }
-      const preparedLines = await prepareSalesReturnLines(
+      const valuation = prior.status === 'DRAFT' ? await prepareSalesReturnValuation(
         tx, orgId, header.invoiceId ?? prior.invoiceId, header.customerId ?? prior.customerId,
         lines ?? prior.lines, id,
-      );
-
-      const invoice = await tx.salesInvoice.findFirstOrThrow({ where: { id: header.invoiceId ?? prior.invoiceId, organizationId: orgId } });
-      const effectiveLines = lines ?? prior.lines;
-      const amounts = prior.status === 'DRAFT' ? salesReturnAmounts(invoice, preparedLines.map((line, index) => ({
-        source: line.source, qtyReturn: Number(effectiveLines[index]?.qtyReturn ?? 0),
-      }))) : null;
+      ) : null;
+      if (valuation) assertReturnPreview(valuation.amounts, expectedValuation);
 
       if (lines) {
         await tx.salesReturnLine.deleteMany({ where: { salesReturnId: id } });
-      } else if (amounts) {
+      } else if (valuation) {
         for (let i = 0; i < prior.lines.length; i++) {
-          await tx.salesReturnLine.update({ where: { id: prior.lines[i].id }, data: { lineTotal: amounts.lineTotals[i] } });
+          await tx.salesReturnLine.update({ where: { id: prior.lines[i].id }, data: {
+            ...valuation.amounts.lines[i], sourceInvoiceLineId: valuation.prepared[i].sourceInvoiceLineId,
+          } });
         }
       }
 
@@ -109,22 +110,22 @@ export const PUT = withPermission({ module: 'AR_CREDITS', action: 'edit' }, asyn
         data: {
           ...header,
           ...(header.returnDate && { returnDate: new Date(header.returnDate) }),
-          ...(amounts && { subtotal: amounts.subtotal, taxAmount: amounts.taxAmount, totalAmount: amounts.total,
-            applyTax: invoice.taxEnabled, taxIncluded: invoice.taxInclusive, taxRate: invoice.taxRate }),
+          ...(valuation && { subtotal: valuation.amounts.subtotal, taxAmount: valuation.amounts.taxAmount, totalAmount: valuation.amounts.totalAmount,
+            applyTax: valuation.invoice.taxEnabled, taxIncluded: valuation.invoice.taxInclusive, taxRate: valuation.invoice.taxRate }),
           updatedAt: new Date(),
-          ...(lines ? {
+          ...(lines && valuation ? {
             lines: {
               create: lines.map((l, idx) => ({
                 lineNo:    idx + 1,
-                sourceInvoiceLineId: preparedLines[idx].sourceInvoiceLineId,
-                goodsReceived: preparedLines[idx].goodsReceived,
-                itemId:    preparedLines[idx].itemId,
-                itemName:  preparedLines[idx].itemName,
-                qtySold:   preparedLines[idx].qtySold,
-                qtyReturn: Number(l.qtyReturn ?? 0),
+                sourceInvoiceLineId: valuation.prepared[idx].sourceInvoiceLineId,
+                goodsReceived: valuation.prepared[idx].goodsReceived,
+                itemId:    valuation.prepared[idx].itemId,
+                itemName:  valuation.prepared[idx].itemName,
+                qtySold:   valuation.prepared[idx].qtySold,
+                qtyReturn: valuation.prepared[idx].qtyReturn,
                 unit:      l.unit || 'PCS',
-                price:     Number(l.price ?? 0),
-                lineTotal: amounts!.lineTotals[idx],
+                price:     roundMoneyDecimal(l.price ?? 0),
+                ...valuation.amounts.lines[idx],
               })),
             },
           } : {}),

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import type { BillInput } from '@/types/api';
+import { calculateBillAmounts, normalizeBillLineAmounts } from './bill-totals';
 
 type Tx = Prisma.TransactionClient;
 export async function lockAssetPurchases(tx: Tx, orgId: string) {
@@ -15,12 +16,11 @@ export async function nextAssetNumber(tx: Tx, orgId: string) {
   return `ASSET-${String(Number(rows[0]?.max ?? 0) + 1).padStart(6, '0')}`;
 }
 
-export function assetLineCost(line: { quantity: unknown; price: unknown; discountPct?: unknown }, tax: { taxable?: boolean; taxInclusive?: boolean; taxRate?: unknown }) {
-  const gross = new Prisma.Decimal(String(line.quantity)).mul(new Prisma.Decimal(String(line.price)).toDecimalPlaces(2))
-    .mul(new Prisma.Decimal(1).minus(new Prisma.Decimal(String(line.discountPct ?? 0)).div(100))).toDecimalPlaces(2);
-  return tax.taxable && tax.taxInclusive
-    ? gross.div(new Prisma.Decimal(1).plus(new Prisma.Decimal(String(tax.taxRate ?? 0)).div(100))).toDecimalPlaces(2)
-    : gross;
+export function assetLineCost(line: { quantity: unknown; price: unknown; discountPct?: unknown; taxable?: boolean | null }, tax: { taxable?: boolean; taxInclusive?: boolean; taxRate?: unknown }) {
+  const { quantity, price, discountPct } = line;
+  return calculateBillAmounts({ ...tax, lines: [{
+    ...normalizeBillLineAmounts({ quantity, price, discountPct }), taxable: line.taxable,
+  }] }).goodsNet;
 }
 
 /** Runs in the bill transaction. The bill owns cost and the only acquisition journal. */

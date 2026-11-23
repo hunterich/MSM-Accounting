@@ -14,6 +14,8 @@ import { withPermission, canOverrideTransactionDate } from '@/lib/authz';
 import { readScope } from '@/lib/authz-read-scopes';
 import { assertItemsActive } from '@/lib/item-availability';
 import { prepareAssetLines, lockAssetPurchases } from '@/lib/asset-purchases';
+import { calculateBillAmounts, normalizeBillLineAmounts } from '@/lib/bill-totals';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 
 function isFakturDuplicate(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
@@ -62,7 +64,9 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
     if (!parsed.success) {
       return withCors(NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid bill payload', issues: parsed.error.issues }, { status: 400 }));
     }
-    const { lines, charges, ...header } = parsed.data;
+    const { lines, charges, subtotal, taxAmount, withholdingAmount, totalAmount, ...header } = parsed.data;
+    const recalculateAmounts = lines !== undefined || charges !== undefined
+      || [subtotal, taxAmount, withholdingAmount, totalAmount, header.taxRate, header.taxable, header.taxInclusive, header.withholdingRate].some(value => value !== undefined);
 
     // Captured inside the transaction for the audit trail of an edit-after-post.
     let postedEditBefore: unknown = null;
@@ -70,15 +74,39 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
     const updated = await prisma.$transaction(async (tx) => {
       await lockAssetPurchases(tx, orgId);
       const existing = await tx.bill.findFirst({
-        where: { id, organizationId: orgId },
+        where: { id, organizationId: orgId, deletedAt: null },
         select: {
           id: true, status: true, vendorInvoiceNo: true, poId: true,
-          number: true, issueDate: true, journalEntryId: true,
-          lines: { select: { itemId: true, assetId: true } },
+          number: true, issueDate: true, journalEntryId: true, receiptPostingJournalId: true,
+          vendorId: true, taxable: true, taxInclusive: true, taxRate: true,
+          lines: true,
           _count: { select: { paymentAllocations: true, purchaseReturns: true, debitNotes: true } },
         },
       });
       if (!existing) return null;
+      const receivedLines = (existing.lines ?? []).filter(line =>
+        line.poReceiptTaxAmount != null || (existing.receiptPostingJournalId && line.purchaseOrderLineId));
+      const receiptLineById = new Map(receivedLines.map(line => [line.purchaseOrderLineId, line]));
+      if (receivedLines.length) {
+        const error = () => new ApiError('This receipt is already booked. Un-receive the goods before changing the PO lines or tax treatment.', 422);
+        if ((header.taxable !== undefined && header.taxable !== existing.taxable)
+          || (header.taxInclusive !== undefined && header.taxInclusive !== existing.taxInclusive)
+          || (header.taxRate !== undefined && !roundMoneyDecimal(header.taxRate).eq(existing.taxRate))
+          || (header.vendorId !== undefined && header.vendorId !== existing.vendorId)
+          || (header.poId !== undefined && header.poId !== existing.poId)) throw error();
+        if (lines) {
+          const submittedPoLines = lines.filter(line => line.purchaseOrderLineId);
+          if (submittedPoLines.length !== receivedLines.length
+            || new Set(submittedPoLines.map(line => line.purchaseOrderLineId)).size !== receivedLines.length) throw error();
+          for (const line of submittedPoLines) {
+            const saved = receiptLineById.get(line.purchaseOrderLineId!);
+            const amounts = normalizeBillLineAmounts(line);
+            if (!saved || (line.itemId || null) !== saved.itemId || line.unit !== saved.unit
+              || !amounts.quantity.eq(saved.quantity) || !amounts.price.eq(saved.price) || !amounts.discountPct.eq(saved.discountPct)
+              || (line.taxable !== false) !== (saved.taxable !== false)) throw error();
+          }
+        }
+      }
       const linkedAssetIds = (existing.lines ?? []).flatMap(l => l.assetId ? [l.assetId] : []);
       if (linkedAssetIds.length && existing.status !== 'DRAFT') {
         throw new ApiError('Posted asset-purchase bills cannot be edited. Void the bill while its assets are still draft, then replace it.', 422);
@@ -118,7 +146,7 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
         // Inventory bills ARE supported: reverseBillPosting deletes the cost layers
         // (and throws a clear 422 if the stock has already been consumed/sold) and
         // the re-post re-books them, so GL + ledger + lots stay reconciled.
-        if (existing.poId) {
+        if (existing.poId || receivedLines.length) {
           throw new ApiError('This bill came from a purchase order — void it to change (its receipt must be unwound first).', 422);
         }
         if (existing._count.paymentAllocations > 0) {
@@ -152,7 +180,7 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
         }
       }
       await tx.bill.update({
-        where: { id, organizationId: orgId },
+        where: { id, organizationId: orgId, deletedAt: null },
         data: {
           ...header,
           ...(header.issueDate && { issueDate: new Date(header.issueDate) }),
@@ -170,20 +198,22 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
         const preparedLines = await prepareAssetLines(tx, orgId, id, lines, billHeader);
         await tx.billLine.deleteMany({ where: { billId: id } });
         await tx.billLine.createMany({
-          data: preparedLines.map((l, idx: number) => ({
-            billId: id,
-            itemId: l.itemId || null,
-            accountId: l.accountId || null,
-            assetId: 'assetId' in l ? l.assetId as string : null,
-            purchaseOrderLineId: l.purchaseOrderLineId || null,
-            lineNo: l.lineNo ?? idx + 1,
-            description: l.description,
-            quantity: l.quantity,
-            unit: l.unit,
-            price: l.price,
-            discountPct: l.discountPct ?? 0,
-            lineTotal: l.lineTotal ?? (Number(l.quantity) * Number(l.price)),
-          })),
+          data: preparedLines.map((line, index) => {
+            const receipt = receiptLineById.get(line.purchaseOrderLineId ?? null);
+            return {
+              billId: id,
+              itemId: line.itemId || null,
+              accountId: line.accountId || null,
+              assetId: 'assetId' in line ? line.assetId as string : null,
+              purchaseOrderLineId: line.purchaseOrderLineId || null,
+              lineNo: line.lineNo ?? index + 1,
+              description: line.description,
+              unit: line.unit,
+              taxable: line.taxable,
+              ...normalizeBillLineAmounts(line),
+              ...(receipt && { lineTotal: receipt.lineTotal, poReceiptTaxAmount: receipt.poReceiptTaxAmount }),
+            };
+          }),
         });
       }
       if (charges) {
@@ -195,11 +225,16 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
               lineNo: c.lineNo ?? idx + 1,
               label: c.label,
               accountId: c.accountId || null,
-              amount: c.amount,
-              taxRate: c.taxRate ?? 0,
+              amount: roundMoneyDecimal(c.amount),
+              taxRate: roundMoneyDecimal(c.taxRate ?? 0),
             })),
           });
         }
+      }
+      if (recalculateAmounts) {
+        const bill = await tx.bill.findUniqueOrThrow({ where: { id }, include: { lines: true, charges: true } });
+        const { subtotal, taxAmount, withholdingAmount, totalAmount } = calculateBillAmounts(bill);
+        await tx.bill.update({ where: { id }, data: { subtotal, taxAmount, withholdingAmount, totalAmount } });
       }
       await assertStoredDocumentOffsets(tx, orgId, 'BILL', id);
       // Edit-after-post: re-post the bill's GL + inventory from the freshly-edited
@@ -238,15 +273,8 @@ export const PUT = withPermission({ module: 'AP_BILLS', action: 'edit' }, async 
             // Refuse to post into a closed/locked accounting period (mirrors the
             // create-as-OPEN path in bills/route.ts).
             await assertPeriodOpen(tx, orgId, finalized.issueDate ? new Date(finalized.issueDate) : new Date(), dateOverride);
-            // Apply the PO receipt on this DRAFT -> OPEN finalize, exactly once.
-            // For a direct-bill-from-PO created as DRAFT the receivedQty increment
-            // was deferred to finalize and lands here. For a goods-receipt bill
-            // (receivedQty already incremented + inventory lots booked at receipt)
-            // applyBillPoReceipt detects the existing lots and no-ops, so the
-            // receipt never double-counts. Runs BEFORE postBillToLedger books
-            // this finalize's lots.
-            await applyBillPoReceipt(tx, orgId, id);
-            await postBillToLedger(tx, orgId, finalized as any);
+            const receiptBill = await applyBillPoReceipt(tx, orgId, finalized);
+            await postBillToLedger(tx, orgId, receiptBill ?? finalized);
           }
         }
       }
@@ -281,9 +309,12 @@ export const DELETE = withPermission({ module: 'AP_BILLS', action: 'delete' }, a
   try {
     await prisma.$transaction(async tx => {
       await lockAssetPurchases(tx, orgId);
-      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId, deletedAt: null }, select: { id: true, status: true, lines: { select: { assetId: true } } } });
+      const existing = await tx.bill.findFirst({ where: { id, organizationId: orgId, deletedAt: null }, select: { id: true, status: true, receiptPostingJournalId: true, lines: { select: { assetId: true, poReceiptTaxAmount: true } } } });
       if (!existing) throw new ApiError('Not found', 404);
       if (existing.status !== 'DRAFT') throw new ApiError('Only DRAFT bills can be deleted', 403);
+      if (existing.receiptPostingJournalId || existing.lines.some(line => line.poReceiptTaxAmount != null)) {
+        throw new ApiError('Un-receive the goods to remove this draft bill and reverse its receipt.', 422);
+      }
       const deletedAt = new Date();
       const assetIds = existing.lines.flatMap(l => l.assetId ? [l.assetId] : []);
       if (assetIds.length) await tx.asset.updateMany({ where: { id: { in: assetIds }, organizationId: orgId, status: 'DRAFT' }, data: { deletedAt } });

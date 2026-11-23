@@ -10,17 +10,17 @@
  * Use this from route handlers — never directly from React components.
  */
 import type { Prisma } from '@prisma/client';
-import { asMoney } from './money';
+import { normalizeJournalAmounts } from './journal-amounts';
 import { advisoryLockKey } from './advisory-lock';
 import { toAccountingDate } from './accounting-date';
 
 type Tx = Prisma.TransactionClient;
 
-export interface JournalLineInput {
+export interface JournalLineInput<Amount extends Prisma.Decimal.Value = number> {
   accountId: string;
   description: string;
-  debit: number;
-  credit: number;
+  debit: Amount;
+  credit: Amount;
 }
 
 export interface PostJournalEntryArgs {
@@ -28,12 +28,11 @@ export interface PostJournalEntryArgs {
   date: Date;
   memo: string;
   source?: 'SYSTEM' | 'MANUAL' | 'REVERSAL' | 'CLOSING';
-  lines: JournalLineInput[];
+  lines: JournalLineInput<Prisma.Decimal.Value>[];
 }
 
 const ENTRY_NO_PREFIX = 'JE-';
 const ENTRY_NO_PAD = 6;
-export const BALANCE_TOLERANCE = 0.005; // half a cent — covers Decimal rounding edge cases
 
 /**
  * Allocate the next sequential `JE-NNNNNN` entry number for the org. Uses a
@@ -81,7 +80,7 @@ export async function allocateJournalEntryNumber(tx: Tx, organizationId: string)
 
 /**
  * Create a balanced journal entry inside an existing transaction. Throws if
- * total debits != total credits (within half-a-cent tolerance) or if the line
+ * the rounded lines do not balance exactly or if the line
  * list is empty. Posts with status POSTED and `postedAt = now`.
  */
 export async function postJournalEntry(
@@ -92,10 +91,9 @@ export async function postJournalEntry(
     throw new Error('postJournalEntry: lines[] is empty');
   }
 
-  const totalDebit = asMoney(args.lines.reduce((s, l) => s + l.debit, 0));
-  const totalCredit = asMoney(args.lines.reduce((s, l) => s + l.credit, 0));
+  const { lines, totalDebit, totalCredit } = normalizeJournalAmounts(args.lines);
 
-  if (Math.abs(totalDebit - totalCredit) > BALANCE_TOLERANCE) {
+  if (!totalDebit.isFinite() || !totalDebit.eq(totalCredit)) {
     throw new Error(
       `postJournalEntry: unbalanced — debit=${totalDebit} credit=${totalCredit} (memo: ${args.memo})`,
     );
@@ -118,13 +116,7 @@ export async function postJournalEntry(
       totalDebit,
       totalCredit,
       lines: {
-        create: args.lines.map((line, idx) => ({
-          lineNo: idx + 1,
-          accountId: line.accountId,
-          description: line.description,
-          debit: asMoney(line.debit),
-          credit: asMoney(line.credit),
-        })),
+        create: lines.map(({ accountId, description, debit, credit }, idx) => ({ lineNo: idx + 1, accountId, description, debit, credit })),
       },
     },
     select: { id: true, entryNo: true },

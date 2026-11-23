@@ -1,6 +1,8 @@
 import { Prisma, type ApprovalDocumentType } from '@prisma/client';
 import { ApiError } from '../errors';
 import { lockOpenAccountingPeriod } from '../period-guard';
+import { sqlUtcTimestamp } from '../sql-timestamp';
+import { accountingRangeBounds } from '../accounting-date';
 
 // These finalizers post money or valued stock. Orders alone post neither.
 // Identifiers below are a static whitelist, never request-supplied SQL.
@@ -36,9 +38,12 @@ export async function lockFinancialApprovalPeriod(tx: Prisma.TransactionClient, 
  * documents and excludes other periods/companies and non-posting order holds.
  */
 export async function pendingFinancialInPeriod(tx: Prisma.TransactionClient, orgId: string, start: Date, end: Date): Promise<Array<{ documentType: string; count: number }>> {
+  const bounds = accountingRangeBounds(start, end);
+  const from = sqlUtcTimestamp(bounds.gte);
+  const through = sqlUtcTimestamp(bounds.lte);
   const queries = Object.entries(FINANCIAL_DOCUMENTS).map(([kind, descriptor]) => Prisma.sql`
     SELECT ${kind} AS "documentType", count(*)::int AS count FROM ${identifier(descriptor.table)}
     WHERE "organizationId" = ${orgId} AND "status"::text = 'PENDING_APPROVAL'
-      AND ${identifier(descriptor.dateColumn)} >= ${start} AND ${identifier(descriptor.dateColumn)} <= ${end}`);
+      AND ${identifier(descriptor.dateColumn)} BETWEEN ${from} AND ${through}`);
   return tx.$queryRaw(Prisma.join(queries, ' UNION ALL '));
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { calculateInvoiceTotals } from '../invoice-totals';
+import { computeInvoiceFormTotals, invoiceFormLineTotal } from '../../src/views/ar/invoiceFormTotals';
 
 describe('calculateInvoiceTotals', () => {
   const orgDefaults = {
@@ -8,20 +9,29 @@ describe('calculateInvoiceTotals', () => {
     taxInclusiveByDefault: false,
   };
 
+  it('shows Rp6.66 in the invoice preview by summing two rounded Rp3.33 lines', () => {
+    const formLines = ['First', 'Second'].map(description => ({ description, quantity: 0.3333, price: 10 }));
+    const tax = { enabled: false, inclusive: false, rate: 0 };
+    expect(formLines.map(invoiceFormLineTotal)).toEqual([3.33, 3.33]);
+    const preview = computeInvoiceFormTotals(formLines, [], 0, tax);
+    expect(preview.subtotal.toFixed(2)).toBe('6.66');
+    expect(preview.totalAmount.toFixed(2)).toBe('6.66');
+  });
+
   it('computes subtotal/tax/total for a simple 1-line invoice (exclusive tax)', () => {
     const payload = {
       lines: [{ quantity: 2, price: 50000, description: 'Widget' }],
     };
     const t = calculateInvoiceTotals(payload, orgDefaults);
 
-    expect(t.subtotal).toBe(100000);
-    expect(t.discountPct).toBe(0);
-    expect(t.discountAmount).toBe(0);
+    expect(t.subtotal.toNumber()).toBe(100000);
+    expect(t.discountPct.toNumber()).toBe(0);
+    expect(t.discountAmount.toNumber()).toBe(0);
     expect(t.taxEnabled).toBe(true);
     expect(t.taxInclusive).toBe(false);
-    expect(t.taxRate).toBe(11);
-    expect(t.taxAmount).toBe(11000);
-    expect(t.totalAmount).toBe(111000);
+    expect(t.taxRate.toNumber()).toBe(11);
+    expect(t.taxAmount.toNumber()).toBe(11000);
+    expect(t.totalAmount.toNumber()).toBe(111000);
   });
 
   it('normalizes line fields and assigns lineNo', () => {
@@ -34,11 +44,12 @@ describe('calculateInvoiceTotals', () => {
     const t = calculateInvoiceTotals(payload, { ...orgDefaults, taxEnabled: false });
 
     expect(t.lines).toHaveLength(2);
-    expect(t.lines[0]).toMatchObject({ lineNo: 1, itemId: 'item-1', code: 'C1', unit: 'BOX', lineSubtotal: 10000 });
-    expect(t.lines[1]).toMatchObject({ lineNo: 2, itemId: null, code: null, unit: 'PCS', lineSubtotal: 15000 });
-    expect(t.subtotal).toBe(25000);
-    expect(t.taxAmount).toBe(0);
-    expect(t.totalAmount).toBe(25000);
+    expect(t.lines.map(line => line.lineSubtotal.toFixed(2))).toEqual(['10000.00', '15000.00']);
+    expect(t.lines[0]).toMatchObject({ lineNo: 1, itemId: 'item-1', code: 'C1', unit: 'BOX' });
+    expect(t.lines[1]).toMatchObject({ lineNo: 2, itemId: null, code: null, unit: 'PCS' });
+    expect(t.subtotal.toNumber()).toBe(25000);
+    expect(t.taxAmount.toNumber()).toBe(0);
+    expect(t.totalAmount.toNumber()).toBe(25000);
   });
 
   it('applies line-level discount correctly', () => {
@@ -48,9 +59,9 @@ describe('calculateInvoiceTotals', () => {
     };
     const t = calculateInvoiceTotals(payload, { ...orgDefaults, taxEnabled: false });
 
-    expect(t.lines[0].lineSubtotal).toBe(9000);
-    expect(t.subtotal).toBe(9000);
-    expect(t.totalAmount).toBe(9000);
+    expect(t.lines[0].lineSubtotal.toNumber()).toBe(9000);
+    expect(t.subtotal.toNumber()).toBe(9000);
+    expect(t.totalAmount.toNumber()).toBe(9000);
   });
 
   it('applies invoice-level discount', () => {
@@ -62,11 +73,25 @@ describe('calculateInvoiceTotals', () => {
     };
     const t = calculateInvoiceTotals(payload, orgDefaults);
 
-    expect(t.subtotal).toBe(10000);
-    expect(t.discountPct).toBe(20);
-    expect(t.discountAmount).toBe(2000);
-    expect(t.taxAmount).toBe(880);
-    expect(t.totalAmount).toBe(8880);
+    expect(t.subtotal.toNumber()).toBe(10000);
+    expect(t.discountPct.toNumber()).toBe(20);
+    expect(t.discountAmount.toNumber()).toBe(2000);
+    expect(t.taxAmount.toNumber()).toBe(880);
+    expect(t.totalAmount.toNumber()).toBe(8880);
+  });
+
+  it('reduces the PPN base only by the taxable share of a mixed invoice discount', () => {
+    const amounts = calculateInvoiceTotals({
+      lines: [
+        { quantity: 1, price: 100, description: 'Taxable item', taxable: true },
+        { quantity: 1, price: 100, description: 'Exempt item', taxable: false },
+      ],
+      discountPct: 10,
+    }, orgDefaults);
+    expect(amounts.discountAmount.toFixed(2)).toBe('20.00');
+    expect(amounts.taxableBase.toFixed(2)).toBe('90.00');
+    expect(amounts.taxAmount.toFixed(2)).toBe('9.90');
+    expect(amounts.totalAmount.toFixed(2)).toBe('189.90');
   });
 
   it('handles inclusive tax (tax already inside price)', () => {
@@ -80,10 +105,10 @@ describe('calculateInvoiceTotals', () => {
     const t = calculateInvoiceTotals(payload, orgDefaults);
 
     expect(t.taxInclusive).toBe(true);
-    expect(t.totalAmount).toBe(11000);
+    expect(t.totalAmount.toNumber()).toBe(11000);
     // taxAmount = asMoney(11000 - 11000/1.11)
     const expectedTax = Math.round((11000 - 11000 / 1.11 + Number.EPSILON) * 100) / 100;
-    expect(t.taxAmount).toBe(expectedTax);
+    expect(t.taxAmount.toNumber()).toBe(expectedTax);
   });
 
   it('payload tax fields override orgDefaults', () => {
@@ -94,8 +119,8 @@ describe('calculateInvoiceTotals', () => {
     const t = calculateInvoiceTotals(payload, orgDefaults);
 
     expect(t.taxEnabled).toBe(false);
-    expect(t.taxAmount).toBe(0);
-    expect(t.totalAmount).toBe(10000);
+    expect(t.taxAmount.toNumber()).toBe(0);
+    expect(t.totalAmount.toNumber()).toBe(10000);
   });
 
   it('includes non-taxable charges in total but not in taxable base', () => {
@@ -108,9 +133,10 @@ describe('calculateInvoiceTotals', () => {
     const t = calculateInvoiceTotals(payload, orgDefaults);
 
     expect(t.charges).toHaveLength(1);
-    expect(t.charges[0]).toMatchObject({ lineNo: 1, label: 'Shipping', amount: 500, taxRate: 0 });
-    expect(t.taxAmount).toBe(1100);
-    expect(t.totalAmount).toBe(11600);
+    expect([t.charges[0].amount.toFixed(2), t.charges[0].taxRate.toFixed(2)]).toEqual(['500.00', '0.00']);
+    expect(t.charges[0]).toMatchObject({ lineNo: 1, label: 'Shipping' });
+    expect(t.taxAmount.toNumber()).toBe(1100);
+    expect(t.totalAmount.toNumber()).toBe(11600);
   });
 
   it('includes taxable charges in taxable base', () => {
@@ -122,8 +148,8 @@ describe('calculateInvoiceTotals', () => {
     };
     const t = calculateInvoiceTotals(payload, orgDefaults);
 
-    expect(t.taxAmount).toBe(1155);
-    expect(t.totalAmount).toBe(11655);
+    expect(t.taxAmount.toNumber()).toBe(1155);
+    expect(t.totalAmount.toNumber()).toBe(11655);
   });
 
   it('returns zero tax when taxEnabled is false from orgDefaults', () => {
@@ -132,7 +158,7 @@ describe('calculateInvoiceTotals', () => {
     };
     const t = calculateInvoiceTotals(payload, { taxEnabled: false, taxDefaultRate: 11, taxInclusiveByDefault: false });
 
-    expect(t.taxAmount).toBe(0);
-    expect(t.totalAmount).toBe(100000);
+    expect(t.taxAmount.toNumber()).toBe(0);
+    expect(t.totalAmount.toNumber()).toBe(100000);
   });
 });

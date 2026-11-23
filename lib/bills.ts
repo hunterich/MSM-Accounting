@@ -1,10 +1,13 @@
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { nextNumber, validateForeignKey } from '@/lib/api-utils';
 import type { BillInput } from '@/types/api';
 import { prepareAssetLines } from './asset-purchases';
 import { assertDocumentOffsetAccounts } from './document-offset-accounts';
+import { calculateBillAmounts, normalizeBillLineAmounts } from './bill-totals';
+import { roundMoneyDecimal } from './money-decimal';
 
 type CreateBillOptions = {
+  preserveSupplierTotals?: boolean;
   attachment?: {
     fileName: string;
     fileSizeKb?: number | null;
@@ -14,34 +17,6 @@ type CreateBillOptions = {
 };
 
 type BillTransactionClient = Prisma.TransactionClient;
-
-const ZERO = new Prisma.Decimal(0);
-
-// Coerce a zod-validated input value (number, numeric string, or already a
-// Decimal) into a Prisma.Decimal. Returns ZERO for null/undefined/empty so
-// the caller doesn't have to guard each field.
-function toDecimal(value: unknown): Prisma.Decimal {
-  if (value instanceof Prisma.Decimal) return value;
-  if (value === null || value === undefined || value === '') return ZERO;
-  try {
-    const d = new Prisma.Decimal(value as Prisma.Decimal.Value);
-    return d.isFinite() ? d : ZERO;
-  } catch {
-    return ZERO;
-  }
-}
-
-// Compute lineTotal as a Decimal, net of any per-line discount percent.
-// Quantity is stored at 4dp in the DB and price at 2dp; the result is rounded
-// to 2dp to match BillLine.lineTotal's column precision. lineTotal is the
-// net-of-discount value the GR/IR posting uses as the inventory cost basis.
-function computeLineTotal(quantity: unknown, price: unknown, discountPct: unknown = 0): Prisma.Decimal {
-  const factor = new Prisma.Decimal(1).minus(toDecimal(discountPct).dividedBy(100));
-  return toDecimal(quantity)
-    .mul(toDecimal(price))
-    .mul(factor)
-    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-}
 
 export async function createBillRecord(
   tx: BillTransactionClient,
@@ -78,9 +53,25 @@ export async function createBillRecord(
     }
   }
 
+  // Resolve inherited charges before calculating the payable.
+  let effectiveCharges: Array<{ lineNo?: number; label: string; accountId?: string | null; amount: Prisma.Decimal.Value; taxRate?: Prisma.Decimal.Value }> = charges ?? [];
+  if (effectiveCharges.length === 0 && header.poId) {
+    const poCharges = await tx.purchaseOrderCharge.findMany({ where: { purchaseOrderId: header.poId }, orderBy: { lineNo: 'asc' } });
+    effectiveCharges = poCharges.map(({ label, accountId, amount, taxRate }) => ({ label, accountId, amount, taxRate }));
+  }
+  const amounts = calculateBillAmounts({
+    ...header,
+    lines: lines.map(line => ({
+      ...normalizeBillLineAmounts(line.assetPurchase ? { ...line, lineTotal: undefined } : line),
+      taxable: line.taxable,
+    })),
+    charges: effectiveCharges,
+  });
+  const { subtotal, taxAmount, withholdingAmount, totalAmount } = amounts;
   const created = await tx.bill.create({
     data: {
       ...header,
+      ...(options.preserveSupplierTotals ? {} : { subtotal, taxAmount, withholdingAmount, totalAmount }),
       // zod validates YYYY-MM-DD strings; Prisma DateTime columns need Date objects.
       issueDate: new Date(header.issueDate),
       dueDate: header.dueDate ? new Date(header.dueDate) : null,
@@ -107,28 +98,12 @@ export async function createBillRecord(
         purchaseOrderLineId: line.purchaseOrderLineId || null,
         description: line.description,
         unit: line.unit || 'PCS',
-        quantity: toDecimal(line.quantity),
-        price: toDecimal(line.price).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
-        discountPct: toDecimal(line.discountPct).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
-        lineTotal: line.lineTotal != null
-          ? toDecimal(line.lineTotal).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
-          : computeLineTotal(line.quantity, line.price, line.discountPct),
+        taxable: line.taxable,
+        ...normalizeBillLineAmounts(line),
       })),
     });
   }
 
-  // A bill raised against a PO with no charges of its own inherits the PO's
-  // additional costs (which never journaled on the PO) — they post here on the
-  // bill. Explicit bill charges always win.
-  let effectiveCharges: Array<{ lineNo?: number; label: string; accountId?: string | null; amount: unknown; taxRate?: unknown }> =
-    charges ?? [];
-  if (effectiveCharges.length === 0 && header.poId) {
-    const poCharges = await tx.purchaseOrderCharge.findMany({
-      where: { purchaseOrderId: header.poId },
-      orderBy: { lineNo: 'asc' },
-    });
-    effectiveCharges = poCharges.map((c) => ({ label: c.label, accountId: c.accountId, amount: c.amount, taxRate: c.taxRate }));
-  }
   if (effectiveCharges.length > 0) {
     await assertDocumentOffsetAccounts(tx, orgId, effectiveCharges.map(charge => charge.accountId));
     await tx.billCharge.createMany({
@@ -137,8 +112,8 @@ export async function createBillRecord(
         lineNo: charge.lineNo ?? index + 1,
         label: charge.label,
         accountId: charge.accountId || null,
-        amount: toDecimal(charge.amount).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
-        taxRate: toDecimal(charge.taxRate ?? 0).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
+        amount: roundMoneyDecimal(charge.amount),
+        taxRate: roundMoneyDecimal(charge.taxRate ?? 0),
       })),
     });
   }

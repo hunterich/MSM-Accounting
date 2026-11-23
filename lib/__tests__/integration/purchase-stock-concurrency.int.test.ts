@@ -74,7 +74,8 @@ async function receipt(org: TestOrg, itemId: string) {
   const po = await prisma.purchaseOrder.create({ data: { organizationId: org.orgId, vendorId, number: 'PO-RACE', date: DATE,
     status: 'PARTIAL_RECEIVED', lines: { create: { itemId, lineNo: 1, description: 'Stock', quantity: 20, receivedQty: 10, price: 100, lineTotal: 2000 } } }, include: { lines: true } });
   const received = await prisma.bill.create({ data: { organizationId: org.orgId, vendorId, poId: po.id, number: 'GR-RACE', issueDate: DATE,
-    status: 'DRAFT', lines: { create: { itemId, lineNo: 1, description: 'Stock', quantity: 10, price: 100, lineTotal: 1000, purchaseOrderLineId: po.lines[0].id } } } });
+    status: 'DRAFT', subtotal: 1000, totalAmount: 1000,
+    lines: { create: { itemId, lineNo: 1, description: 'Stock', quantity: 10, price: 100, lineTotal: 1000, purchaseOrderLineId: po.lines[0].id } } } });
   await prisma.$transaction(tx => postGoodsReceiptToLedger(tx, org.orgId, { billId: received.id, poNumber: po.number,
     date: DATE, taxInclusive: false, taxRate: 0, lines: [{ itemId, quantity: 10, lineTotal: 1000 }] }));
   return { po, received };

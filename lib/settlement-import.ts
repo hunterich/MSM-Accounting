@@ -18,8 +18,8 @@
  *      (one line per non-zero charge), routing each canonical fee key to its
  *      GL account; income-type keys credit, fee/cost keys debit.
  *   4. Credit the wallet by (X − N − linked refunds), avoiding a second refund.
- *   5. If the entry does not balance, plug the residue into the configured
- *      adjustment account; if none is configured, throw.
+ *   5. Compare the payout with the same rounded amounts used by the GL.
+ *      Report discrepancies unless an explicit legacy adjustment was requested.
  *   6. Post the balanced entry and stamp `settledAt` + `settlementJournalId` on
  *      the receipt.
  *
@@ -27,7 +27,10 @@
  * of its own beyond assembling the lines.
  */
 import { prisma } from '@/lib/prisma';
-import { postJournalEntry, JournalLineInput, BALANCE_TOLERANCE } from '@/lib/journal-posting';
+import type { Prisma } from '@prisma/client';
+import { postJournalEntry, type JournalLineInput } from '@/lib/journal-posting';
+import { MoneyDecimal, roundMoneyDecimal } from './money-decimal';
+import { normalizeJournalAmounts } from './journal-amounts';
 import { KEY_TO_SLOT, SettlementFeeKey } from '@/src/utils/settlementMapping';
 import { assertPeriodOpen } from './period-guard';
 import { matchMarketplaceRefund } from './marketplace-refund';
@@ -43,12 +46,13 @@ export interface SettlementOrderInput {
   orderId: string;
   /** Calendar date on which this order's settlement was released, YYYY-MM-DD. */
   settlementDate?: string;
-  netReleased: number;
+  netReleased: string | number;
   /** Canonical fee key → magnitude (always positive). */
-  charges: Record<string, number>;
+  charges: Record<string, string | number>;
   /** A later refund debit only; it must not contain the original payout again. */
   refundOnly?: boolean;
   refundCreditNoteNumbers?: string[];
+  /** Only an explicit false permits the legacy adjustment-account fallback. */
   requireMappedCharges?: boolean;
 }
 
@@ -85,6 +89,8 @@ export async function importSettlement(
 
   for (const order of input.orders) {
     try {
+      const netReleased = roundMoneyDecimal(order.netReleased);
+      const strict = order.requireMappedCharges !== false;
       const outcome = await prisma.$transaction(
         async (tx): Promise<'posted' | 'skipped' | 'already'> => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([orgId, order.orderId])}, 0))`;
@@ -98,7 +104,7 @@ export async function importSettlement(
           // 2. Find ②'s settlement receipt via its allocation.
           const alloc = await tx.aRPaymentAllocation.findFirst({
             where: { invoiceId: invoice.id, payment: { organizationId: orgId, ecommerceConnectionId: connectionId, source: 'MARKETPLACE_IMPORT', status: 'COMPLETED' } },
-            select: { paymentId: true },
+            select: { paymentId: true, amountApplied: true },
           });
           if (!alloc) {
             const unverified = await tx.aRPaymentAllocation.findFirst({
@@ -109,22 +115,28 @@ export async function importSettlement(
           }
           const receipt = await tx.aRPayment.findFirst({
             where: { id: alloc.paymentId, organizationId: orgId, ecommerceConnectionId: connectionId, source: 'MARKETPLACE_IMPORT', status: 'COMPLETED' },
-            select: { id: true, settledAt: true, depositAccountId: true, journalEntryId: true },
+            select: { id: true, settledAt: true, depositAccountId: true, journalEntryId: true, totalAmount: true },
           });
           if (!receipt) throw new Error('The allocated receipt cannot be verified as a completed import for this shop. It may be a legacy receipt; review its provenance before settlement.');
           if (!receipt.depositAccountId || !receipt.journalEntryId) throw new Error('The original settlement account is missing from this receipt; review it before settlement.');
 
-          const refund = order.charges.refund ?? 0;
-          if (refund < 0) throw new Error('Refund must be a positive magnitude.');
-          if ((order.refundOnly || order.refundCreditNoteNumbers?.length) && refund <= 0) throw new Error('Enter a positive refund amount.');
-          const matched = refund > 0 ? await matchMarketplaceRefund(tx, {
+          const gross = new MoneyDecimal(invoice.totalAmount);
+          if (!gross.eq(alloc.amountApplied) || !gross.eq(receipt.totalAmount)) {
+            throw new Error('The saved invoice, original marketplace receipt and allocation differ. Review the clearing balance before settlement.');
+          }
+
+          const rawRefund = new MoneyDecimal(order.charges.refund ?? 0);
+          if (rawRefund.lt(0)) throw new Error('Refund must be a positive magnitude.');
+          const refund = roundMoneyDecimal(rawRefund);
+          if ((order.refundOnly || order.refundCreditNoteNumbers?.length || rawRefund.gt(0)) && refund.lte(0)) throw new Error('Enter a positive refund amount at posting precision.');
+          const matched = refund.gt(0) ? await matchMarketplaceRefund(tx, {
             orgId, invoiceId: invoice.id, receiptId: receipt.id, walletAccountId: receipt.depositAccountId,
             amount: refund, noteNumbers: order.refundCreditNoteNumbers ?? [],
           }) : null;
           if (order.refundOnly) {
             if (!receipt.settledAt) throw new Error('Reconcile the original payout before importing a later refund.');
-            if (Math.abs(order.netReleased + refund) > BALANCE_TOLERANCE ||
-                Object.entries(order.charges).some(([key, amount]) => key !== 'refund' && amount !== 0)) {
+            if (!netReleased.plus(refund).isZero() ||
+                Object.entries(order.charges).some(([key, amount]) => key !== 'refund' && !new MoneyDecimal(amount).isZero())) {
               throw new Error('A later refund row must contain only the refund debit (net released = minus refund). Review fees and other adjustments separately.');
             }
             if (matched!.alreadyReconciled) return 'already';
@@ -140,26 +152,26 @@ export async function importSettlement(
           }
           if (matched?.alreadyReconciled) throw new Error('This refund was already reconciled; review the original settlement.');
 
-          const X = Number(invoice.totalAmount);
-          const N = order.netReleased;
-
           // 3. One GL line per non-zero charge, routed to its configured account.
-          const lines: JournalLineInput[] = [];
-          for (const [k, mag] of Object.entries(order.charges)) {
+          const lines: JournalLineInput<Prisma.Decimal.Value>[] = [];
+          for (const [k, value] of Object.entries(order.charges)) {
             const key = k as SettlementFeeKey;
             if (key === 'refund') continue; // already posted by the linked credit note
-            if (!mag) continue;
-            if (order.requireMappedCharges && mag < 0) throw new Error(`Invalid negative magnitude for ${key}; review before posting.`);
-            if (!KEY_TO_SLOT[key]) {
-              if (order.requireMappedCharges) throw new Error(`Unrecognised settlement charge ${key}; review before posting.`);
+            const rawAmount = new MoneyDecimal(value);
+            if (rawAmount.isZero()) continue;
+            if (rawAmount.lt(0)) throw new Error(`Invalid negative magnitude for ${key}; review before posting.`);
+            if (!Object.hasOwn(KEY_TO_SLOT, key)) {
+              if (strict) throw new Error(`Unrecognised settlement charge ${key}; review before posting.`);
               continue;
             }
-            if (order.requireMappedCharges) {
-              const [group, field] = KEY_TO_SLOT[key];
-              if (!m[group]?.[field]) throw new Error(`Configure the account for ${key} in the shop connection before importing this settlement.`);
-            }
+            const mag = roundMoneyDecimal(rawAmount);
+            if (mag.isZero()) continue;
             if (key === 'growthXtraFee' && !m.fees?.growthXtraAccountId) {
               throw new Error('Select a Growth Xtra fee account in the shop connection before importing this settlement.');
+            }
+            if (strict) {
+              const [group, field] = KEY_TO_SLOT[key];
+              if (!m[group]?.[field]) throw new Error(`Configure the account for ${key} in the shop connection before importing this settlement.`);
             }
             const acct = accountFor(key);
             if (!acct) continue;
@@ -173,19 +185,22 @@ export async function importSettlement(
           }
 
           // 4. Credit the difference still unbooked after linked refund notes.
+          const walletCredit = gross.minus(netReleased).minus(refund);
           lines.push({
             accountId: receipt.depositAccountId,
             description: `Wallet settlement - ${invoice.number}`,
-            debit: X - N - refund < 0 ? N + refund - X : 0,
-            credit: X - N - refund > 0 ? X - N - refund : 0,
+            debit: walletCredit.lt(0) ? walletCredit.negated() : 0,
+            credit: walletCredit.gt(0) ? walletCredit : 0,
           });
 
-          // 5. Plug any residue (statement vs. our derived fees) into adjustment.
-          const totDebit = lines.reduce((s, l) => s + l.debit, 0);
-          const totCredit = lines.reduce((s, l) => s + l.credit, 0);
-          const plug = totCredit - totDebit;
-          if (Math.abs(plug) > BALANCE_TOLERANCE) {
-            if (order.requireMappedCharges) throw new Error(`Settlement for ${order.orderId} differs from the invoice and mapped charges by ${plug.toFixed(2)}; review the source documents before posting.`);
+          // 5. Validate at the precision the journal actually stores.
+          const { totalDebit, totalCredit } = normalizeJournalAmounts(lines);
+          const plug = totalCredit.minus(totalDebit);
+          if (!plug.isZero()) {
+            if (strict) {
+              const expected = netReleased.plus(plug);
+              throw new Error(`Payout for ${order.orderId} differs by Rp${plug.abs().toFixed(2)} (statement Rp${netReleased.toFixed(2)}, expected Rp${expected.toFixed(2)} from the invoice and mapped charges). Please review the source documents before posting.`);
+            }
             if (!adjustmentAccountId) {
               throw new Error(
                 `Settlement for ${order.orderId} does not balance and no adjustment account is configured`,
@@ -194,8 +209,8 @@ export async function importSettlement(
             lines.push({
               accountId: adjustmentAccountId,
               description: `Settlement adjustment - ${invoice.number}`,
-              debit: plug > 0 ? plug : 0,
-              credit: plug < 0 ? -plug : 0,
+              debit: plug.gt(0) ? plug : 0,
+              credit: plug.lt(0) ? plug.negated() : 0,
             });
           }
 
@@ -231,7 +246,7 @@ export async function importSettlement(
 
       if (outcome === 'posted') result.posted += 1;
       else if (outcome === 'already') result.alreadySettled += 1;
-      else result.skipped.push({ orderId: order.orderId, netReleased: order.netReleased });
+      else result.skipped.push({ orderId: order.orderId, netReleased: netReleased.toNumber() });
     } catch (error) {
       result.failed.push({
         orderId: order.orderId,

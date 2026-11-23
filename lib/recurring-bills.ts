@@ -1,3 +1,4 @@
+import { recurringBillAmounts } from './recurring-document-totals';
 import { nextNumber } from '@/lib/api-utils';
 import { billingDay, nextRecurringDate } from './billing-calendar';
 import { advisoryLockKey } from './advisory-lock';
@@ -43,41 +44,6 @@ async function generateFromTemplate(
 
       const billNumber = await nextNumber(tx, 'Bill', 'number', 'BILL');
 
-      // Compute totals
-      const taxRate = Number(template.taxRate);
-      const subtotal = Math.round(
-        template.lines.reduce((sum, line) => {
-          const qty = Number(line.quantity);
-          const price = Number(line.price);
-          const discountPct = Number(line.discountPct);
-          return sum + qty * price * (1 - discountPct / 100);
-        }, 0) * 100,
-      ) / 100;
-
-      const taxableSubtotal = Math.round(
-        template.lines.reduce((sum, line) => {
-          if (!line.taxable) return sum;
-          const qty = Number(line.quantity);
-          const price = Number(line.price);
-          const discountPct = Number(line.discountPct);
-          return sum + qty * price * (1 - discountPct / 100);
-        }, 0) * 100,
-      ) / 100;
-
-      const taxAmount = Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100;
-      const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
-
-      // PPN classification: carry the template's tax flag onto the Bill so
-      // postBillToLedger books a separate DR Input Tax (apTax) line instead of
-      // burying the PPN inside the expense/inventory debit. postBillToLedger
-      // applies the *bill-level* taxable flag uniformly to every line (no
-      // per-line tax support), so we only mark the bill taxable when there is
-      // positive tax AND every line is taxable — that keeps the booked input
-      // tax equal to taxAmount and the AP credit equal to totalAmount. Mixed
-      // taxable/non-taxable templates fall back to taxable=false (no over-tax).
-      const allLinesTaxable = template.lines.every((line) => line.taxable);
-      const billTaxable = taxRate > 0 && taxAmount > 0 && allLinesTaxable;
-
       const issueDate = new Date(template.nextRunDate);
       const dueDate = new Date(template.nextRunDate);
       dueDate.setDate(dueDate.getDate() + 30);
@@ -93,32 +59,10 @@ async function generateFromTemplate(
           // DRAFT for review before it enters AP aging.
           status: template.autoPost ? 'OPEN' : 'DRAFT',
           recurringBillId: template.id,
-          taxRate,
-          taxable: billTaxable,
-          // Recurring templates compute tax exclusively (taxAmount on top of
-          // subtotal), so the generated bill is tax-EXCLUSIVE — mirrors the
-          // normal bill create default.
-          taxInclusive: false,
-          taxAmount,
-          subtotal,
-          totalAmount,
           notes: template.notes || null,
-          lines: {
-            create: template.lines.map((line) => ({
-              lineNo: line.lineNo,
-              itemId: line.itemId || null,
-              accountId: line.accountId || null,
-              description: line.description,
-              quantity: Number(line.quantity),
-              unit: line.unit || 'PCS',
-              price: Number(line.price),
-              lineTotal: Math.round(
-                Number(line.quantity) * Number(line.price) * (1 - Number(line.discountPct) / 100) * 100,
-              ) / 100,
-            })),
-          },
+          ...recurringBillAmounts(template),
         },
-        select: { id: true, number: true },
+        include: { lines: true, charges: true },
       });
 
       // Gate the auto-posted bill through the approval engine. An autoPost
@@ -141,14 +85,9 @@ async function generateFromTemplate(
           // Approval off / not required → the OPEN bill is live (in AP aging),
           // so its GL must actually post. Mirrors the BILL finalizer: assert the
           // period, then post inventory/expense/AP. postBillToLedger needs the
-          // bill WITH its lines (PostableBill shape). A locked-period throw is
-          // caught per-doc, isolating the failure to this one template.
-          const billWithLines = await tx.bill.findFirst({
-            where: { id: bill.id, organizationId: orgId },
-            include: { lines: true },
-          });
+          // bill with its saved lines. A locked period aborts this template.
           await assertPeriodOpen(tx, orgId, new Date(issueDate));
-          await postBillToLedger(tx, orgId, billWithLines as never);
+          await postBillToLedger(tx, orgId, bill);
         }
       }
 

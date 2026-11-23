@@ -40,8 +40,8 @@ describe('postGoodsReceiptToLedger', () => {
     await postGoodsReceiptToLedger(tx as any, 'org-a', args());
     expect(addCostLayer).toHaveBeenCalledTimes(1);
     const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-inv').debit).toBe(10000);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-grir').credit).toBe(10000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-inv').debit.toFixed(2)).toBe('10000.00');
+    expect(je.lines.find((l: any) => l.accountId === 'acc-grir').credit.toFixed(2)).toBe('10000.00');
     expect(tx.bill.update).toHaveBeenCalledWith(expect.objectContaining({ data: { receiptPostingJournalId: 'je-1' } }));
   });
 
@@ -49,7 +49,7 @@ describe('postGoodsReceiptToLedger', () => {
     const tx = makeTx();
     await postGoodsReceiptToLedger(tx as any, 'org-a', args({ taxInclusive: true, taxRate: 11 }));
     const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-inv').debit).toBeCloseTo(9009.01, 1);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-inv').debit.toFixed(2)).toBe('9009.01');
   });
 
   it('fails loud and writes NO cost layer when the inventory account is unconfigured', async () => {

@@ -4,20 +4,21 @@ import Input from '@/src/components/UI/Input';
 import { useCloseShift, type CloseShiftResult } from '../hooks/usePos';
 import { useOfflineSync, uuid } from '../hooks/useOfflinePos';
 import { db, type SalePayload } from '../offline/db';
-import { computeSaleTotals } from '@/lib/pos/pricing';
+import { pricePosSale } from '@/lib/pos/pricing';
+import { MoneyDecimal } from '@/lib/money-decimal';
 import { t } from '../i18n/strings';
 
 /** Build a local Z-report from the queued sale ops for this shift (used when closing offline). */
 async function localZReport(clientShiftId: string): Promise<{ totalSales: number; saleCount: number; cashCollected: number }> {
   const ops = await db.outbox.where('clientShiftId').equals(clientShiftId).toArray();
   const sales = ops.filter((o) => o.type === 'sale').map((o) => o.payload as SalePayload);
-  let totalSales = 0;
-  let cashCollected = 0;
+  let totalSales = new MoneyDecimal(0);
+  let cashCollected = new MoneyDecimal(0);
   for (const s of sales) {
-    totalSales += computeSaleTotals(s.lines, 11).totalAmount;
-    cashCollected += s.tenders.reduce((sum, tn) => sum + tn.amount, 0);
+    totalSales = totalSales.plus(s.quotedTotal ?? pricePosSale(s.lines).totalAmount);
+    cashCollected = cashCollected.plus(s.quotedTotal ?? s.tenders.reduce((sum, tn) => sum.plus(tn.amount), new MoneyDecimal(0)));
   }
-  return { totalSales, saleCount: sales.length, cashCollected };
+  return { totalSales: totalSales.toNumber(), saleCount: sales.length, cashCollected: cashCollected.toNumber() };
 }
 
 export default function ShiftCloseView({ shiftId, onClosed, onCancel }: { shiftId: string; onClosed: () => void; onCancel: () => void }): React.ReactElement {

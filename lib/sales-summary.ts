@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { sqlUtcTimestamp } from './sql-timestamp';
 
 type Reader = Pick<Prisma.TransactionClient, '$queryRaw'>;
 export interface SalesSummaryFilter {
@@ -14,8 +15,8 @@ export interface SalesSummaryFilter {
 function salesWhere(filter: SalesSummaryFilter) {
   return Prisma.sql`i."organizationId" = ${filter.organizationId} AND c."organizationId" = ${filter.organizationId}
     ${filter.excludeTax ? Prisma.empty : Prisma.sql`AND i."status" IN ('SENT', 'OVERDUE', 'PAID')`}
-    ${filter.dateFrom ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`i."issueDate"`} >= ${filter.dateFrom}` : Prisma.empty}
-    ${filter.dateTo ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`i."issueDate"`} <= ${filter.dateTo}` : Prisma.empty}
+    ${filter.dateFrom ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`i."issueDate"`} >= ${sqlUtcTimestamp(filter.dateFrom)}` : Prisma.empty}
+    ${filter.dateTo ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`i."issueDate"`} <= ${sqlUtcTimestamp(filter.dateTo)}` : Prisma.empty}
     ${filter.customerSearch ? Prisma.sql`AND strpos(lower(c."name"), lower(${filter.customerSearch})) > 0` : Prisma.empty}`;
 }
 
@@ -37,8 +38,8 @@ function customerSalesMovements(filter: SalesSummaryFilter) {
     ${filter.excludeTax ? creditEvents() : Prisma.empty}
     WHERE n."organizationId" = ${filter.organizationId} AND c."organizationId" = ${filter.organizationId}
       ${filter.excludeTax ? Prisma.empty : Prisma.sql`AND n.status = 'APPLIED'`}
-      ${filter.dateFrom ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`n.date`} >= ${filter.dateFrom}` : Prisma.empty}
-      ${filter.dateTo ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`n.date`} <= ${filter.dateTo}` : Prisma.empty}
+      ${filter.dateFrom ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`n.date`} >= ${sqlUtcTimestamp(filter.dateFrom)}` : Prisma.empty}
+      ${filter.dateTo ? Prisma.sql`AND ${filter.excludeTax ? Prisma.sql`event.date` : Prisma.sql`n.date`} <= ${sqlUtcTimestamp(filter.dateTo)}` : Prisma.empty}
       ${filter.customerSearch ? Prisma.sql`AND strpos(lower(c.name), lower(${filter.customerSearch})) > 0` : Prisma.empty}
       AND (n."sourceInvoiceId" IS NULL OR EXISTS (
         SELECT 1 FROM "SalesInvoice" source WHERE source.id = n."sourceInvoiceId"
@@ -144,8 +145,8 @@ export async function readItemSales(db: Reader, filter: SalesSummaryFilter) {
  * credit notes: one return may be settled by several partial notes. */
 async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCustomer: boolean) {
   const date = (column: Prisma.Sql) => Prisma.sql`
-    ${filter.dateFrom ? Prisma.sql`AND ${column} >= ${filter.dateFrom}` : Prisma.empty}
-    ${filter.dateTo ? Prisma.sql`AND ${column} <= ${filter.dateTo}` : Prisma.empty}`;
+    ${filter.dateFrom ? Prisma.sql`AND ${column} >= ${sqlUtcTimestamp(filter.dateFrom)}` : Prisma.empty}
+    ${filter.dateTo ? Prisma.sql`AND ${column} <= ${sqlUtcTimestamp(filter.dateTo)}` : Prisma.empty}`;
   // Lines without a master item are one "No item" row, not one row per
   // free-text description (#240).
   const lineLabel = Prisma.sql`CASE WHEN l."itemId" IS NULL THEN ${NO_ITEM_LABEL}::text ELSE l.description END AS description,

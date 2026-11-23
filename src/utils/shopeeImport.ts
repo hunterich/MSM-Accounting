@@ -2,6 +2,8 @@ import * as XLSX from 'xlsx';
 import { normalizeHeader as _normalizeHeader } from './headerUtils';
 import { preferredSheetFor } from './marketplaceFormat';
 import { isMarketplaceCancelledStatus, isMarketplaceReversalStatus, isMarketplaceShippedStatus } from './marketplaceLifecycle';
+import { MoneyDecimal, roundMoneyDecimal } from '@/lib/money-decimal';
+import { readMarketplaceDecimal } from './marketplaceMoney';
 
 // ── Raw XLSX row (after sheet_to_json) ────────────────────────────────────────
 
@@ -83,6 +85,7 @@ export interface ShopeeLineItem {
     priceAfterDiscount: number;
     quantity: number;
     productTotal: number;
+    sourceLineAmount: string;
     parentSKU: string;
     skuReference: string;
     sellerDiscount: number;
@@ -108,6 +111,7 @@ export interface ParsedShopeeOrder {
     shippingCarrier?: string;
     totalPayment: number;
     totalProductAmount: number;
+    sourceTotal: string;
     items: ShopeeLineItem[];
 }
 
@@ -564,25 +568,35 @@ export async function parseShopeeExcel(
     const parsedOrders: ParsedShopeeOrder[] = [];
     const productKeySet = new Map<string, UniqueProduct>();
 
+    const isTikTok = platform?.toLowerCase() === 'tiktok';
     for (const [orderNumber, rows] of orderMap) {
         const first = rows[0];
         const items: ShopeeLineItem[] = rows.map((row) => {
-            const quantity = parseNum(row.quantity) || 1;
+            const sourceQuantity = readMarketplaceDecimal(row.quantity, `quantity for order ${orderNumber}`, !isTikTok);
+            const quantity = !sourceQuantity || sourceQuantity.isZero() ? new MoneyDecimal(1) : sourceQuantity;
             // TikTok's after-discount subtotal includes the platform-funded
             // discount. Add it back to obtain the seller-side sale amount.
-            const isTikTok = platform?.toLowerCase() === 'tiktok';
-            const productTotal = parseNum(row.productTotal) + (isTikTok ? parseNum(row.shopeeDiscount) : 0);
-            const priceAfterDiscount = isTikTok ? productTotal / quantity : (parseNum(row.priceAfterDiscount) || productTotal / quantity);
+            const subtotal = readMarketplaceDecimal(row.productTotal, `product total for order ${orderNumber}`, !isTikTok);
+            const platformDiscount = isTikTok
+                ? readMarketplaceDecimal(row.shopeeDiscount, `platform discount for order ${orderNumber}`)
+                : null;
+            const unitPrice = readMarketplaceDecimal(row.priceAfterDiscount, `unit price for order ${orderNumber}`, !isTikTok);
+            const gross = subtotal?.plus(platformDiscount ?? 0) ?? unitPrice?.times(quantity) ?? 0;
+            const productTotal = roundMoneyDecimal(gross);
+            const priceAfterDiscount = isTikTok || !unitPrice || unitPrice.isZero()
+                ? productTotal.dividedBy(quantity)
+                : unitPrice;
             const item: ShopeeLineItem = {
                 productName: String(row.productName).trim(),
                 variationName: String(row.variationName ?? '').trim(),
-                priceAfterDiscount,
-                quantity,
-                productTotal,
+                priceAfterDiscount: priceAfterDiscount.toNumber(),
+                quantity: quantity.toNumber(),
+                productTotal: productTotal.toNumber(),
+                sourceLineAmount: productTotal.toFixed(2),
                 parentSKU: String(row.parentSKU ?? '').trim(),
                 skuReference: String(row.skuReference ?? '').trim(),
                 sellerDiscount: parseNum(row.sellerDiscount),
-                shopeeDiscount: parseNum(row.shopeeDiscount),
+                shopeeDiscount: isTikTok ? (platformDiscount?.toNumber() ?? 0) : parseNum(row.shopeeDiscount),
             };
 
             // Track unique products
@@ -600,7 +614,7 @@ export async function parseShopeeExcel(
             return item;
         });
 
-        const totalProductAmount = items.reduce((sum, it) => sum + it.productTotal, 0);
+        const totalProductAmount = items.reduce((sum, it) => sum.plus(it.sourceLineAmount), new MoneyDecimal(0));
 
         parsedOrders.push({
             orderNumber,
@@ -619,12 +633,13 @@ export async function parseShopeeExcel(
             trackingNumber: String(first.trackingNumber ?? '').trim(),
             shippingCarrier: String(first.shippingCarrier ?? '').trim(),
             totalPayment: parseNum(first.totalPayment),
-            totalProductAmount,
+            totalProductAmount: totalProductAmount.toNumber(),
+            sourceTotal: totalProductAmount.toFixed(2),
             items,
         });
     }
 
-    const totalAmount = parsedOrders.reduce((sum, o) => sum + o.totalProductAmount, 0);
+    const totalAmount = parsedOrders.reduce((sum, order) => sum.plus(order.sourceTotal), new MoneyDecimal(0)).toNumber();
     const uniqueProducts = Array.from(productKeySet.values());
 
     return {

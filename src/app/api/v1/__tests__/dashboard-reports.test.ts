@@ -36,8 +36,8 @@ describe('dashboard financial reports', () => {
     expect(data).toEqual({ sales: 100.25, grossSales: 100.25, returns: 0, paid: 80.15, unpaid: 20.1, current: 20.1, overdue: 40.2, outstanding: 60.3 });
     const sql = vi.mocked(prisma.$queryRaw).mock.calls[0][0] as unknown as { values: unknown[] };
     expect(sql.values).toContain('org-test');
-    expect(sql.values).toContainEqual(new Date('2026-09-30T17:00:00Z'));
-    expect(sql.values).toContainEqual(new Date('2026-10-08T16:59:59.999Z'));
+    expect(sql.values).toContain('2026-09-30T17:00:00.000Z');
+    expect(sql.values).toContain('2026-10-08T16:59:59.999Z');
   });
   it('splits configured and item COGS from expenditure without double counting', async () => {
     vi.mocked(prisma.account.findMany).mockResolvedValue([

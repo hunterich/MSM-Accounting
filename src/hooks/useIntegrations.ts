@@ -153,6 +153,7 @@ export interface MarketplaceImportPayload {
       sku: string;
       quantity: number;
       unitPrice: number;
+      sourceLineAmount?: string | number;
     }>;
   }>;
   options: { customerId?: string; recordPayment: boolean };
@@ -167,7 +168,7 @@ export interface MarketplaceImportResult {
 
 export interface MarketplaceImportPreviewPayload extends MarketplaceImportPayload {
   orders: Array<MarketplaceImportPayload['orders'][number] & {
-    sourceTotal: number;
+    sourceTotal: string | number;
     missingDate: boolean;
   }>;
 }
@@ -214,7 +215,7 @@ export function useImportMarketplaceOrders() {
 }
 
 export interface SettlementImportPayload {
-  orders: Array<{ orderId: string; settlementDate?: string; netReleased: number; charges: Record<string, number>; refundOnly?: boolean; refundCreditNoteNumbers?: string[]; requireMappedCharges?: boolean }>;
+  orders: Array<{ orderId: string; settlementDate?: string; netReleased: string | number; charges: Record<string, string | number>; refundOnly?: boolean; refundCreditNoteNumbers?: string[]; requireMappedCharges?: boolean }>;
 }
 export interface SettlementImportResult {
   posted: number;

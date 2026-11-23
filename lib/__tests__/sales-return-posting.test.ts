@@ -33,10 +33,8 @@ describe('sales return posting', () => {
     const { tx } = fixture();
     await postSalesReturnOnApproval(tx as any, 'sr-1');
     expect(addCostLayer).toHaveBeenCalledWith(tx, 'org-1', 'item-1', null, 1, 33.33, 'SALES_RETURN', 'sr-1', expect.any(Date), 33.33, 'inventoryAsset');
-    expect(postJournalEntry).toHaveBeenCalledWith(tx, expect.objectContaining({ lines: [
-      expect.objectContaining({ accountId: 'inventoryAsset', debit: 33.33, credit: 0 }),
-      expect.objectContaining({ accountId: 'cogsExpense', debit: 0, credit: 33.33 }),
-    ] }));
+    expect(vi.mocked(postJournalEntry).mock.calls[0][1].lines.map(line => [line.accountId, Number(line.debit), Number(line.credit)]))
+      .toEqual([['inventoryAsset', 33.33, 0], ['cogsExpense', 0, 33.33]]);
   });
   it('kept goods leave stock and COGS unchanged and still receive a posting token', async () => {
     const { tx } = fixture({ received: false });

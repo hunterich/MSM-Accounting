@@ -33,6 +33,10 @@ vi.mock('../account-defaults', () => ({
 
 const postJE = vi.mocked(postJournalEntry);
 
+const postedAmounts = () => postJE.mock.calls[0][1].lines.map(line => ({
+  ...line, debit: Number(line.debit), credit: Number(line.credit),
+}));
+
 type AnyRecord = Record<string, unknown>;
 
 function makeTx(note: AnyRecord, kind: 'creditNote' | 'debitNote') {
@@ -101,7 +105,7 @@ describe('postCreditNoteOnApply tax split', () => {
       { id: 'ACC-CASH', type: 'ASSET', isActive: true, isPostable: true },
     ]);
     await postCreditNoteOnApply(tx as never, 'CN-1');
-    const lines = postJE.mock.calls[0][1].lines;
+    const lines = postJE.mock.calls[0][1].lines.map(line => ({ ...line, debit: Number(line.debit), credit: Number(line.credit) }));
     expect(lines).toEqual([
       expect.objectContaining({ accountId: 'ACC-RETURN', debit: 100000, credit: 0 }),
       expect.objectContaining({ accountId: 'ACC-OUTPUT-TAX', debit: 11000, credit: 0 }),
@@ -120,7 +124,7 @@ describe('postCreditNoteOnApply tax split', () => {
     const tx = makeTx({ ...baseCN }, 'creditNote');
     await postCreditNoteOnApply(tx as never, 'CN-1');
 
-    const lines = postJE.mock.calls[0][1].lines;
+    const lines = postJE.mock.calls[0][1].lines.map(line => ({ ...line, debit: Number(line.debit), credit: Number(line.credit) }));
     expect(lines).toEqual([
       expect.objectContaining({ accountId: 'ACC-RETURN', debit: 100000, credit: 0 }),
       expect.objectContaining({ accountId: 'ACC-OUTPUT-TAX', debit: 11000, credit: 0 }),
@@ -133,7 +137,7 @@ describe('postCreditNoteOnApply tax split', () => {
     const tx = makeTx({ ...baseCN, taxAmount: 0 }, 'creditNote');
     await postCreditNoteOnApply(tx as never, 'CN-1');
 
-    const lines = postJE.mock.calls[0][1].lines;
+    const lines = postJE.mock.calls[0][1].lines.map(line => ({ ...line, debit: Number(line.debit), credit: Number(line.credit) }));
     expect(lines).toHaveLength(2);
     expect(lines[0]).toEqual(expect.objectContaining({ accountId: 'ACC-RETURN', debit: 111000 }));
     expect(lines[1]).toEqual(expect.objectContaining({ accountId: 'ACC-AR', credit: 111000 }));
@@ -143,7 +147,7 @@ describe('postCreditNoteOnApply tax split', () => {
     const tx = makeTx({ ...baseCN, applyTax: false }, 'creditNote');
     await postCreditNoteOnApply(tx as never, 'CN-1');
 
-    const lines = postJE.mock.calls[0][1].lines;
+    const lines = postJE.mock.calls[0][1].lines.map(line => ({ ...line, debit: Number(line.debit), credit: Number(line.credit) }));
     expect(lines).toHaveLength(2);
     expect(lines[0]).toEqual(expect.objectContaining({ debit: 111000 }));
   });
@@ -158,7 +162,7 @@ describe('postCreditNoteOnApply tax split', () => {
     const tx = makeTx({ ...baseCN, taxAccountId: 'ACC-CUSTOM-TAX' }, 'creditNote');
     await postCreditNoteOnApply(tx as never, 'CN-1');
 
-    const lines = postJE.mock.calls[0][1].lines;
+    const lines = postJE.mock.calls[0][1].lines.map(line => ({ ...line, debit: Number(line.debit), credit: Number(line.credit) }));
     expect(lines[1]).toEqual(expect.objectContaining({ accountId: 'ACC-CUSTOM-TAX', debit: 11000 }));
   });
 });
@@ -168,7 +172,7 @@ describe('postDebitNoteOnApply tax split', () => {
     const tx = makeTx({ ...baseDN }, 'debitNote');
     await postDebitNoteOnApply(tx as never, 'DN-1');
 
-    const lines = postJE.mock.calls[0][1].lines;
+    const lines = postedAmounts();
     expect(lines).toEqual([
       expect.objectContaining({ accountId: 'ACC-AP', debit: 222000, credit: 0 }),
       expect.objectContaining({ accountId: 'ACC-PRETURN', debit: 0, credit: 200000 }),
@@ -181,7 +185,7 @@ describe('postDebitNoteOnApply tax split', () => {
     const tx = makeTx({ ...baseDN, taxAmount: 0 }, 'debitNote');
     await postDebitNoteOnApply(tx as never, 'DN-1');
 
-    const lines = postJE.mock.calls[0][1].lines;
+    const lines = postedAmounts();
     expect(lines).toHaveLength(2);
     expect(lines[1]).toEqual(expect.objectContaining({ accountId: 'ACC-PRETURN', credit: 222000 }));
   });

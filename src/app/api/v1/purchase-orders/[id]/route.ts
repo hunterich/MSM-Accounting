@@ -9,6 +9,7 @@ import { assertItemsActive } from '@/lib/item-availability';
 import { normalizePurchasePolicy } from '@/lib/organization/settings-config';
 import { resolveAutoCloseOptions } from '@/lib/purchase-order-auto-close-config';
 import { lockPurchaseOrder } from '@/lib/purchase-order-auto-close';
+import { calculateBillAmounts, normalizeBillLineAmounts } from '@/lib/bill-totals';
 
 export const runtime = 'nodejs';
 
@@ -53,7 +54,7 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
       await lockPurchaseOrder(tx, id);
       const existing = await tx.purchaseOrder.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, status: true, autoCloseEnabled: true, autoCloseDays: true, lines: { select: { itemId: true, receivedQty: true } } },
+        include: { lines: true, charges: true },
       });
       if (!existing) return null;
       if (['CLOSED', 'CANCELLED'].includes(existing.status)) throw new ApiError('Closed or cancelled purchase orders cannot be modified', 422);
@@ -72,10 +73,25 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
       if (header.vendorId) {
         await validateForeignKey(tx.vendor, { id: header.vendorId, organizationId: orgId }, 'Vendor not found in organization');
       }
+      const orderLines = lines?.map(({ quantity, price, discountPct, taxable, ...line }, index) => ({
+        lineNo: line.lineNo ?? index + 1,
+        itemId: line.itemId || null,
+        accountId: line.accountId || null,
+        description: line.description,
+        unit: line.unit,
+        taxable,
+        ...normalizeBillLineAmounts({ quantity, price, discountPct }),
+      }));
+      const recalculate = orderLines || charges
+        || [header.taxRate, header.taxable, header.taxInclusive, header.subtotal, header.taxAmount, header.totalAmount].some(value => value !== undefined);
+      const totals = recalculate
+        ? calculateBillAmounts({ ...existing, ...header, lines: orderLines ?? existing.lines, charges: charges ?? existing.charges })
+        : undefined;
       await tx.purchaseOrder.update({
         where: { id, organizationId: orgId },
         data: {
           ...header,
+          ...(totals && { subtotal: totals.subtotal, taxAmount: totals.taxAmount, totalAmount: totals.totalAmount }),
           ...autoClose,
           // The schema validates YYYY-MM-DD strings; Prisma's DateTime needs a Date.
           ...(header.date && { date: new Date(header.date) }),
@@ -106,20 +122,10 @@ export const PUT = withPermission({ module: 'AP_POS', action: 'edit' }, async (r
         }
         // else: not required / already approved — keep APPROVED (POs post no GL).
       }
-      if (lines) {
+      if (orderLines) {
         await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId: id } });
         await tx.purchaseOrderLine.createMany({
-          data: lines.map((l, idx: number) => ({
-            purchaseOrderId: id,
-            itemId: l.itemId || null,
-            accountId: l.accountId || null,
-            lineNo: l.lineNo ?? idx + 1,
-            description: l.description,
-            quantity: l.quantity,
-            unit: l.unit,
-            price: l.price,
-            lineTotal: l.lineTotal ?? (Number(l.quantity) * Number(l.price)),
-          })),
+          data: orderLines.map(line => ({ purchaseOrderId: id, ...line })),
         });
       }
       if (charges) {

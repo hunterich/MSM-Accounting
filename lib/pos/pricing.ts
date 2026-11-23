@@ -1,3 +1,9 @@
+import type { Decimal } from '@prisma/client/runtime/index-browser.js';
+import { calculateInvoiceLineAmounts } from '../invoice-totals';
+import { MoneyDecimal, roundMoneyDecimal } from '../money-decimal';
+import { flattenSaleLines } from './modifier-lines';
+import { computeServiceCharge } from './sales-type-charge';
+
 export interface SelectedModifier {
   groupId: string;
   groupName: string;
@@ -19,30 +25,46 @@ export interface SaleLineInput {
   modifiers?: SelectedModifier[]; // NEW — selected options for this line
 }
 
-export interface SaleTotals {
-  subtotal: number;    // total net of embedded tax
-  taxAmount: number;   // embedded PPN
-  totalAmount: number; // what the customer pays (tax-inclusive)
+const POS_TAX_RATE = 11;
+
+export interface PosSaleBreakdown {
+  subtotal: number;
+  taxAmount: number;
+  serviceChargeNet: number;
 }
 
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}
+const ZERO = new MoneyDecimal(0);
 
-/** Line shape needed to price a cart. Both `SaleLineInput` (base cart lines)
- *  and the materialized/flattened invoice lines satisfy it. */
-export type PriceableLine = { quantity: number; price: number; discountPct?: number };
+/** Price the rows checkout will save. Each cart row includes its priced modifiers. */
+export function pricePosSale(cart: readonly SaleLineInput[], salesType?: { taxable: boolean; serviceChargePct: Decimal.Value } | null) {
+  const lines = flattenSaleLines(cart.map(line => {
+    const modifiers = line.modifiers?.map(mod => ({ ...mod, priceDelta: roundMoneyDecimal(mod.priceDelta).toNumber() }));
+    const extras = (modifiers ?? []).reduce((sum, mod) => sum.plus(mod.priceDelta), ZERO);
+    return { ...line, modifiers, price: roundMoneyDecimal(line.price).minus(extras).toNumber() };
+  })).map(line => ({ ...line, ...calculateInvoiceLineAmounts(line) }));
 
-/** Compute tax-inclusive totals for a POS cart. */
-export function computeSaleTotals(lines: ReadonlyArray<PriceableLine>, taxRatePct: number): SaleTotals {
-  const totalAmount = round2(
-    lines.reduce((sum, l) => sum + l.quantity * l.price * (1 - (l.discountPct || 0) / 100), 0),
-  );
-  if (totalAmount <= 0) {
-    return { subtotal: 0, taxAmount: 0, totalAmount: 0 };
+  const totalsByCartLine = new Map<number, Decimal>();
+  let goodsTotal = ZERO;
+  for (const line of lines) {
+    const parent = line.parentLineNo ?? line.lineNo;
+    totalsByCartLine.set(parent, (totalsByCartLine.get(parent) ?? ZERO).plus(line.lineSubtotal));
+    goodsTotal = goodsTotal.plus(line.lineSubtotal);
   }
-  const divisor = 1 + taxRatePct / 100;
-  const subtotal = round2(totalAmount / divisor);
-  const taxAmount = round2(totalAmount - subtotal);
-  return { subtotal, taxAmount, totalAmount };
+  const cartLineTotals = [...totalsByCartLine.values()];
+  const taxRate = salesType?.taxable === false ? 0 : POS_TAX_RATE;
+  const subtotal = roundMoneyDecimal(goodsTotal.div(new MoneyDecimal(taxRate).div(100).plus(1)));
+  const { chargeAmt, taxAddon } = computeServiceCharge({ goodsTotal, pct: salesType?.serviceChargePct ?? 0, rate: taxRate });
+  return {
+    lines, cartLineTotals, taxRate, subtotal, taxAmount: goodsTotal.minus(subtotal).plus(taxAddon), chargeAmt,
+    serviceChargeNet: chargeAmt.minus(taxAddon),
+    totalAmount: goodsTotal.plus(chargeAmt),
+  };
+}
+
+export function posSaleBreakdown(amounts: Pick<ReturnType<typeof pricePosSale>, 'subtotal' | 'taxAmount' | 'serviceChargeNet'>): PosSaleBreakdown {
+  return {
+    subtotal: amounts.subtotal.toNumber(),
+    taxAmount: amounts.taxAmount.toNumber(),
+    serviceChargeNet: amounts.serviceChargeNet.toNumber(),
+  };
 }

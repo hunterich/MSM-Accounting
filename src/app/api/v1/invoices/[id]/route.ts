@@ -12,6 +12,8 @@ import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 import { assertItemsActive } from '@/lib/item-availability';
 import { lockInventoryItems, assertCorrectedSalesValue } from '@/lib/inventory-costing';
+import { calculateInvoiceTotals } from '@/lib/invoice-totals';
+import { updateInvoiceAmountsSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
 
@@ -64,7 +66,11 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
     }
 
     const body = await req.json();
-    const { lines, charges, ...header } = body;
+    const {
+      lines: _lines, charges: _charges, discountPct: _discountPct,
+      taxEnabled: _taxEnabled, taxInclusive: _taxInclusive, taxRate: _taxRate,
+      subtotal, discountAmount, taxAmount, totalAmount, ...header
+    } = body;
     delete header.organizationId;
     delete header.createdById;
     delete header.postingTracked;
@@ -81,8 +87,13 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       ));
     }
 
+    const parsed = updateInvoiceAmountsSchema.safeParse(body);
+    if (!parsed.success) throw new ApiError(parsed.error.issues[0]?.message || 'Invalid invoice amounts', 400);
+    const { lines, charges, discountPct, taxEnabled, taxInclusive, taxRate } = parsed.data;
+    const recalculateAmounts = Object.values(parsed.data).some(value => value !== undefined)
+      || [subtotal, discountAmount, taxAmount, totalAmount].some(value => value !== undefined);
     const access = await getInvoiceAccessContext(orgId, userId);
-    const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1 && !lines && !charges;
+    const isStatusOnlyUpdate = header.status && Object.keys(header).length === 1 && !recalculateAmounts;
 
     // Captured inside the transaction for the audit trail of an edit-after-post.
     let postedEditBefore: unknown = null;
@@ -94,7 +105,12 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         select: {
           id: true, status: true, number: true, issueDate: true, organizationId: true, totalAmount: true,
           postingTracked: true, postingJournalIds: true,
-          lines: { select: { itemId: true } },
+          discountPct: true, taxEnabled: true, taxInclusive: true, taxRate: true,
+          lines: {
+            select: { itemId: true, code: true, description: true, quantity: true, unit: true, price: true, discountPct: true, lineSubtotal: true, taxable: true },
+            orderBy: { lineNo: 'asc' },
+          },
+          charges: { select: { label: true, accountId: true, amount: true, taxRate: true }, orderBy: { lineNo: 'asc' } },
           _count: { select: { paymentAllocations: true, salesReturns: true,
             creditNotes: { where: { status: { not: 'VOID' } } } } },
         },
@@ -112,10 +128,21 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       }
 
       if (lines) {
-        await assertItemsActive(tx, orgId, lines.map((line: any) => line.itemId), {
+        await assertItemsActive(tx, orgId, lines.map(line => line.itemId), {
           allowItemIds: existing.lines.flatMap((line) => line.itemId ? [line.itemId] : []),
         });
       }
+
+      const amounts = recalculateAmounts ? calculateInvoiceTotals({
+        lines: lines ?? existing.lines,
+        charges: charges ?? existing.charges,
+        discountPct: discountPct ?? existing.discountPct,
+        tax: { enabled: taxEnabled, inclusive: taxInclusive, rate: taxRate },
+      }, {
+        taxEnabled: existing.taxEnabled,
+        taxInclusiveByDefault: existing.taxInclusive,
+        taxDefaultRate: existing.taxRate,
+      }) : null;
 
       // DRAFT → edit freely. SENT/OVERDUE field edit → edit-after-post: reverse the
       // posting, apply the edit, re-post — bounded by the open period. A status-only
@@ -146,7 +173,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         const newDate = header.issueDate ? new Date(header.issueDate) : new Date(existing.issueDate);
         await assertPeriodOpen(tx, existing.organizationId, new Date(existing.issueDate)); // posted period
         await assertPeriodOpen(tx, existing.organizationId, newDate);                       // re-post period
-        await lockInventoryItems(tx, orgId, [...existing.lines, ...(lines ?? [])].flatMap((line: any) => line.itemId ? [line.itemId] : []));
+        await lockInventoryItems(tx, orgId, [...existing.lines, ...(lines ?? [])].flatMap(line => line.itemId ? [line.itemId] : []));
         postedEditBefore = await tx.salesInvoice.findFirst({ where: { id }, include: { lines: true, charges: true } });
         await reverseInvoicePosting(tx, existing.organizationId, existing, { date: newDate });
       }
@@ -169,6 +196,11 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         where: { id },
         data: {
           ...header,
+          ...(amounts && {
+            subtotal: amounts.subtotal, discountPct: amounts.discountPct, discountAmount: amounts.discountAmount,
+            taxEnabled: amounts.taxEnabled, taxInclusive: amounts.taxInclusive, taxRate: amounts.taxRate,
+            taxAmount: amounts.taxAmount, totalAmount: amounts.totalAmount,
+          }),
           // The claim above is the sole authority for the DRAFT → SENT status flip —
           // don't let the blind header spread re-write it (that would revert the
           // claimed SENT, or clobber a concurrent PENDING_APPROVAL hold).
@@ -179,29 +211,18 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         },
       });
 
-      if (lines) {
+      if (lines && amounts) {
         await tx.salesInvoiceLine.deleteMany({ where: { invoiceId: id } });
         await tx.salesInvoiceLine.createMany({
-          data: lines.map((l: any, idx: number) => ({
-            ...l,
-            invoiceId: id,
-            lineNo: l.lineNo ?? idx + 1,
-          })),
+          data: amounts.lines.map(line => ({ ...line, invoiceId: id })),
         });
       }
 
-      if (charges) {
+      if (charges && amounts) {
         await tx.salesInvoiceCharge.deleteMany({ where: { invoiceId: id } });
-        if (charges.length > 0) {
+        if (amounts.charges.length > 0) {
           await tx.salesInvoiceCharge.createMany({
-            data: charges.map((c: any, idx: number) => ({
-              invoiceId: id,
-              lineNo: c.lineNo ?? idx + 1,
-              label: c.label,
-              accountId: c.accountId || null,
-              amount: c.amount ?? 0,
-              taxRate: c.taxRate ?? 0,
-            })),
+            data: amounts.charges.map(charge => ({ ...charge, invoiceId: id })),
           });
         }
       }

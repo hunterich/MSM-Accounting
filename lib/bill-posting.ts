@@ -1,9 +1,11 @@
 import type { Prisma } from '@prisma/client';
 import { assertDocumentOffsetAccounts } from './document-offset-accounts';
 import { InventoryDocumentType } from '@prisma/client';
-import { toNumber, asMoney } from './money';
+import { toNumber } from './money';
+import { MoneyDecimal } from './money-decimal';
+import { calculateBillAmounts } from './bill-totals';
 import { addCostLayer, lockInventoryItems } from './inventory-costing';
-import { postJournalEntry } from './journal-posting';
+import { postJournalEntry, type JournalLineInput } from './journal-posting';
 import { ensureGrIrAccount } from './grir';
 import { ensurePphPayableAccount } from './withholding';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
@@ -20,6 +22,8 @@ interface PostableBillLine {
   quantity: unknown;
   price: unknown;
   lineTotal: unknown;
+  taxable?: boolean | null;
+  poReceiptTaxAmount?: unknown;
   purchaseOrderLineId: string | null;
 }
 interface PostableBillCharge {
@@ -38,6 +42,7 @@ interface PostableBill {
   taxRate: unknown;
   /** PPh withholding rate (%) on the pre-tax net; 0/absent → no withholding. */
   withholdingRate?: unknown;
+  totalAmount?: unknown;
   lines: PostableBillLine[];
   /** additional costs (freight/insurance/handling); each posts to its own account. */
   charges?: PostableBillCharge[];
@@ -58,13 +63,18 @@ interface PostableBill {
 export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill): Promise<void> {
   const lines = bill.lines ?? [];
   await assertDocumentOffsetAccounts(tx, orgId, [...lines, ...(bill.charges ?? [])].map(line => line.accountId));
-  if (lines.length === 0) return;
-  for (const line of lines.filter(l => l.assetId)) {
+  const amounts = calculateBillAmounts({ ...bill, lines });
+  const { taxAmount, withholdingAmount, totalAmount } = amounts;
+  if (bill.totalAmount != null && !totalAmount.eq(String(bill.totalAmount))) {
+    throw new ApiError(`Bill ${bill.number} has a saved payable of ${bill.totalAmount} but its lines and tax calculate to ${totalAmount.toFixed(2)}. Review and save the bill before posting.`, 422);
+  }
+  if (!lines.length && !bill.charges?.length) return;
+  for (const [index, line] of lines.entries()) {
+    if (!line.assetId) continue;
     const asset = await tx.asset.findFirst({ where: { id: line.assetId!, organizationId: orgId, deletedAt: null }, include: { category: true, purchaseLine: true } });
     const account = asset?.category.assetAccountId ? await tx.account.findFirst({ where: { id: asset.category.assetAccountId, organizationId: orgId, isActive: true, isPostable: true } }) : null;
-    const gross = asMoney(toNumber(line.lineTotal));
-    const net = bill.taxable && bill.taxInclusive ? asMoney(gross / (1 + toNumber(bill.taxRate) / 100)) : gross;
-    if (!asset || asset.status !== 'DRAFT' || asset.purchaseLine?.billId !== bill.id || line.itemId || line.purchaseOrderLineId || Number(line.quantity) !== 1 || !account || !['ASSET', 'Asset'].includes(account.type) || line.accountId !== account.id || asMoney(Number(asset.acquisitionCost)) !== net) {
+    const net = amounts.lines[index].net;
+    if (!asset || asset.status !== 'DRAFT' || asset.purchaseLine?.billId !== bill.id || line.itemId || line.purchaseOrderLineId || Number(line.quantity) !== 1 || !account || !['ASSET', 'Asset'].includes(account.type) || line.accountId !== account.id || !net.eq(String(asset.acquisitionCost))) {
       throw new ApiError('Asset purchase link, category account, or cost has changed. Review the draft bill before posting.', 422);
     }
   }
@@ -75,13 +85,13 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   // GR/IR, never re-book inventory, even if the per-line PO link was dropped on
   // an edit (the frontend can omit purchaseOrderLineId). Guards against a
   // double-count of inventory and a stranded GR/IR balance.
-  const receiptAlreadyBooked =
+  const legacyReceiptWithoutLinks = !lines.some(line => line.poReceiptTaxAmount != null) &&
     (await tx.inventoryLot.count({
       where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId: bill.id },
     })) > 0;
 
   // Lock before reading the mapping so an account change cannot race posting.
-  const directItemIds = receiptAlreadyBooked ? [] : lines.filter(l => l.itemId && !l.purchaseOrderLineId).map(l => l.itemId!);
+  const directItemIds = legacyReceiptWithoutLinks ? [] : lines.filter(l => l.itemId && !l.purchaseOrderLineId).map(l => l.itemId!);
   if (directItemIds.length) await lockInventoryItems(tx, orgId, directItemIds);
   const inventoryItems = itemIds.length
     ? await tx.item.findMany({
@@ -102,94 +112,51 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
   const inputTaxAccountId = resolveAccountDefaultId(accounts, settings, 'apTax');
   const expenseAccountId = resolveAccountDefaultId(accounts, settings, 'cogsExpense');
 
-  const taxable = Boolean(bill.taxable);
-  const taxInclusive = Boolean(bill.taxInclusive);
-  const rate = taxable ? toNumber(bill.taxRate) / 100 : 0;
   const billDate = bill.issueDate ? new Date(bill.issueDate) : new Date();
 
   // Postable accounts the user may code a line to directly (active + postable).
   const postableById = new Map(accounts.filter((a) => a.isPostable).map((a) => [a.id, a]));
 
-  let grirNet = 0;
-  let inventoryNet = 0;
-  let taxTotal = 0;
+  const zero = new MoneyDecimal(0);
+  let grirNet = zero;
   // Non-inventory lines are debited to the account chosen on the line
   // (expense, prepaid, fixed asset, …). Lines that carry no/invalid account
   // fall back to the org's cogsExpense default. Keyed by accountId so multiple
   // lines hitting the same account collapse into one balanced debit.
-  const expenseByAccount = new Map<string, number>();
-  const inventoryByAccount = new Map<string, number>();
+  const expenseByAccount = new Map<string, Prisma.Decimal>();
+  const inventoryByAccount = new Map<string, Prisma.Decimal>();
+  function addAmount(map: Map<string, Prisma.Decimal>, accountId: string | null, amount: Prisma.Decimal) {
+    if (amount.isZero()) return;
+    if (!accountId) throw new ApiError('Configure an account for every bill line and charge before posting.', 422);
+    map.set(accountId, (map.get(accountId) ?? zero).plus(amount));
+  }
   const manualInventoryLines: Array<{ itemId: string; qty: number; unitCost: number; value: number; accountId: string | null }> = [];
 
-  for (const line of lines) {
-    const gross = toNumber(line.lineTotal);
-    const net = taxInclusive ? asMoney(gross / (1 + rate)) : gross;
-    const lineTax = !taxable ? 0 : taxInclusive ? asMoney(gross - net) : asMoney(net * rate);
-    taxTotal += lineTax;
+  for (const [index, line] of lines.entries()) {
+    const { net } = amounts.lines[index];
 
     const isInventory = line.itemId != null && inventoryItemIds.has(line.itemId);
-    if (isInventory && (line.purchaseOrderLineId || receiptAlreadyBooked)) {
-      grirNet += net;
+    if (isInventory && (line.purchaseOrderLineId || legacyReceiptWithoutLinks)) {
+      grirNet = grirNet.plus(net);
     } else if (isInventory) {
-      inventoryNet += net;
       const accountId = itemPostingAccount(accounts, inventoryItemById.get(line.itemId!)?.inventoryAccountId, inventoryAccountId, 'ASSET', 'inventory');
-      if (net > 0 && !accountId) throw new ApiError('No inventory account is configured for this item.', 422);
-      if (accountId) inventoryByAccount.set(accountId, (inventoryByAccount.get(accountId) ?? 0) + net);
+      if (net.gt(0) && !accountId) throw new ApiError('No inventory account is configured for this item.', 422);
+      addAmount(inventoryByAccount, accountId, net);
       const qty = toNumber(line.quantity);
-      if (qty > 0) manualInventoryLines.push({ itemId: line.itemId as string, qty, unitCost: net / qty, value: asMoney(net), accountId });
+      if (qty > 0) manualInventoryLines.push({ itemId: line.itemId as string, qty, unitCost: net.div(qty).toNumber(), value: net.toNumber(), accountId });
     } else {
       const codedId = line.accountId && postableById.has(line.accountId) ? line.accountId : expenseAccountId;
-      if (codedId) expenseByAccount.set(codedId, (expenseByAccount.get(codedId) ?? 0) + net);
+      addAmount(expenseByAccount, codedId, net);
     }
   }
 
-  grirNet = asMoney(grirNet);
-  inventoryNet = asMoney(inventoryNet);
-  taxTotal = asMoney(taxTotal);
-  let expenseTotal = 0;
-  for (const [accountId, amount] of expenseByAccount) {
-    const rounded = asMoney(amount);
-    expenseByAccount.set(accountId, rounded);
-    expenseTotal += rounded;
-  }
-  expenseTotal = asMoney(expenseTotal);
-
-  // PPh withholding: a slice of the pre-tax net is withheld from the vendor and
-  // owed to the tax office instead. Base is the goods/services net (excludes
-  // PPN), matching computeTotals on the client. The withheld amount reduces the
-  // AP credit (vendor is paid less) and is credited to PPh-payable.
-  const withholdingRate = toNumber(bill.withholdingRate);
-  const withholdingBase = asMoney(grirNet + inventoryNet + expenseTotal);
-  const withholding = withholdingRate > 0 ? asMoney(withholdingBase * (withholdingRate / 100)) : 0;
-
-  // Additional costs (charges): each posts to its own account, like an expense
-  // line, and is folded into AP. Tax follows the same inclusive/exclusive rule as
-  // lines. Charges are NOT part of the withholding base (PPh is on the
-  // goods/services lines only — matches computeTotals on the client), so they are
-  // computed AFTER `withholding` above and kept in a separate bucket.
-  const chargesByAccount = new Map<string, number>();
-  let chargesTax = 0;
-  for (const charge of bill.charges ?? []) {
-    const gross = toNumber(charge.amount);
-    if (gross === 0) continue;
-    const chargeTaxable = taxable && toNumber(charge.taxRate) > 0;
-    const cnet = chargeTaxable && taxInclusive ? asMoney(gross / (1 + rate)) : gross;
-    const ctax = !chargeTaxable ? 0 : taxInclusive ? asMoney(gross - cnet) : asMoney(cnet * rate);
-    chargesTax += ctax;
+  const chargesByAccount = new Map<string, Prisma.Decimal>();
+  for (const [index, charge] of (bill.charges ?? []).entries()) {
     const codedId = charge.accountId && postableById.has(charge.accountId) ? charge.accountId : expenseAccountId;
-    if (codedId) chargesByAccount.set(codedId, (chargesByAccount.get(codedId) ?? 0) + cnet);
+    addAmount(chargesByAccount, codedId, amounts.charges[index].net);
   }
-  chargesTax = asMoney(chargesTax);
-  let chargesTotal = 0;
-  for (const [accountId, amount] of chargesByAccount) {
-    const rounded = asMoney(amount);
-    chargesByAccount.set(accountId, rounded);
-    chargesTotal += rounded;
-  }
-  chargesTotal = asMoney(chargesTotal);
-  const inputTaxTotal = asMoney(taxTotal + chargesTax);
-
-  const apTotal = asMoney(grirNet + inventoryNet + expenseTotal + chargesTotal + inputTaxTotal - withholding);
+  if (taxAmount.gt(0) && !inputTaxAccountId) throw new ApiError('Configure an input tax account before posting a taxable bill.', 422);
+  if (totalAmount.gt(0) && !apAccountId) throw new ApiError('Configure an accounts payable account before posting the bill.', 422);
 
   // GR/IR-only bills never change stock. In particular, a PO re-post may
   // already hold journal numbering: it must not acquire unrelated item locks.
@@ -197,41 +164,39 @@ export async function postBillToLedger(tx: Tx, orgId: string, bill: PostableBill
     await addCostLayer(tx, orgId, m.itemId, null, m.qty, m.unitCost, InventoryDocumentType.PURCHASE, bill.id, billDate, m.value, m.value > 0 ? m.accountId : undefined);
   }
 
-  const journalLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [];
-  if (grirNet > 0) {
+  const journalLines: JournalLineInput<Prisma.Decimal.Value>[] = [];
+  if (grirNet.gt(0)) {
     const grirAccountId = await ensureGrIrAccount(tx, orgId);
     journalLines.push({ accountId: grirAccountId, description: `GR/IR clearing - ${bill.number}`, debit: grirNet, credit: 0 });
   }
   for (const [accountId, amount] of inventoryByAccount) {
-    if (amount > 0) journalLines.push({ accountId, description: `Inventory - ${bill.number}`, debit: asMoney(amount), credit: 0 });
+    if (amount.gt(0)) journalLines.push({ accountId, description: `Inventory - ${bill.number}`, debit: amount, credit: 0 });
   }
   for (const [accountId, amount] of expenseByAccount) {
-    if (amount > 0) {
+    if (amount.gt(0)) {
       const label = lines.some(l => l.assetId && l.accountId === accountId) ? 'Asset purchase' : 'Expense';
       journalLines.push({ accountId, description: `${label} - ${bill.number}`, debit: amount, credit: 0 });
     }
   }
   for (const [accountId, amount] of chargesByAccount) {
-    if (amount > 0) {
+    if (amount.gt(0)) {
       journalLines.push({ accountId, description: `Additional cost - ${bill.number}`, debit: amount, credit: 0 });
     }
   }
-  if (inputTaxTotal > 0 && inputTaxAccountId) {
-    journalLines.push({ accountId: inputTaxAccountId, description: `Input tax - ${bill.number}`, debit: inputTaxTotal, credit: 0 });
+  if (taxAmount.gt(0)) {
+    journalLines.push({ accountId: inputTaxAccountId, description: `Input tax - ${bill.number}`, debit: taxAmount, credit: 0 });
   }
-  if (withholding > 0) {
+  if (withholdingAmount.gt(0)) {
     const pphAccountId = await ensurePphPayableAccount(tx, orgId);
-    journalLines.push({ accountId: pphAccountId, description: `PPh withholding - ${bill.number}`, debit: 0, credit: withholding });
+    journalLines.push({ accountId: pphAccountId, description: `PPh withholding - ${bill.number}`, debit: 0, credit: withholdingAmount });
   }
   // Validate actual resolved offsets too: omitted accounts use configurable defaults.
   await assertDocumentOffsetAccounts(tx, orgId, journalLines.map(line => line.accountId));
-  if (apTotal > 0 && apAccountId) {
-    journalLines.push({ accountId: apAccountId, description: `AP - ${bill.number}`, debit: 0, credit: apTotal });
+  if (totalAmount.gt(0)) {
+    journalLines.push({ accountId: apAccountId, description: `AP - ${bill.number}`, debit: 0, credit: totalAmount });
   }
 
-  const hasDebit = journalLines.some((l) => l.debit > 0);
-  const hasCredit = journalLines.some((l) => l.credit > 0);
-  if (hasDebit && hasCredit) {
+  if (journalLines.length) {
     const je = await postJournalEntry(tx, { organizationId: orgId, date: billDate, memo: `Bill: ${bill.number}`, lines: journalLines });
     // Remember the posting entry so the bill can be voided (reversed) later.
     await tx.bill.update({ where: { id: bill.id }, data: { journalEntryId: je.id } });

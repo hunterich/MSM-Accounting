@@ -1,79 +1,85 @@
 import type { Prisma } from '@prisma/client';
-import { InventoryDocumentType } from '@prisma/client';
+import { calculateBillAmounts } from './bill-totals';
+import { ApiError } from './errors';
+import { postGoodsReceiptToLedger } from './goods-receipt-posting';
+import { lockInventoryItems } from './inventory-costing';
+import { allocatePoReceiptLine, updatePoReceiptStatus } from './po-receipt-amounts';
+import { lockPurchaseOrder } from './purchase-order-auto-close';
 
 type Tx = Prisma.TransactionClient;
+type BillWithLines = Prisma.BillGetPayload<{ include: { lines: true; charges: true } }>;
 
-/**
- * Apply a bill's PO receipt: increment PurchaseOrderLine.receivedQty for each
- * bill line linked to a PO line, then recompute + flip the affected PurchaseOrder
- * status (PARTIAL_RECEIVED / CLOSED).
- *
- * MUST run EXACTLY ONCE, when the bill is FINALIZED to OPEN — whether finalized
- * directly (approval off) or via approval (held -> approved). It must NOT run
- * while the bill is held (PENDING_APPROVAL) and must NOT run if the bill is
- * rejected. The single-finalize status transition (DRAFT/PENDING_APPROVAL ->
- * OPEN happens once) is what guarantees once-only application — every caller is
- * gated on that transition.
- *
- * Self-contained: operates purely from persisted data given (tx, orgId, billId)
- * so the approval finalizer can call it the same way the create/PUT paths do.
- * The bill-line -> PO-line linking (purchaseOrderLineId) is persisted at create
- * time, so this only reads it back.
- *
- * Already-received lines: a bill produced by the goods-receipt workflow
- * (POST /purchase-orders/[id]/receive) already incremented receivedQty AT
- * RECEIPT TIME and booked inventory cost layers against the bill. Re-applying
- * here would double-count the receipt. We detect that case the same way
- * postBillToLedger does — an InventoryLot already exists for this bill
- * (documentType=PURCHASE, documentId=billId) — and no-op. Direct bills pulled
- * from a PO have no such lots yet, so they apply the receipt here.
- */
-export async function applyBillPoReceipt(tx: Tx, orgId: string, billId: string): Promise<void> {
-  // Goods-receipt bills already booked their receipt (receivedQty + cost layers)
-  // at receipt time — re-applying would double-count. Same signal as
-  // postBillToLedger's `receiptAlreadyBooked`.
-  const receiptAlreadyBooked =
-    (await tx.inventoryLot.count({
-      where: { organizationId: orgId, documentType: InventoryDocumentType.PURCHASE, documentId: billId },
-    })) > 0;
-  if (receiptAlreadyBooked) return;
-
-  const lines = await tx.billLine.findMany({
-    where: { billId, purchaseOrderLineId: { not: null } },
-    select: { quantity: true, purchaseOrderLineId: true },
+export async function lockPurchaseOrdersForBill(tx: Tx, orgId: string, lineIds: string[]) {
+  if (!lineIds.length) return;
+  const poLines = await tx.purchaseOrderLine.findMany({
+    where: { id: { in: lineIds }, purchaseOrder: { organizationId: orgId } },
+    select: { purchaseOrderId: true },
   });
-  if (lines.length === 0) return;
+  for (const poId of [...new Set(poLines.map(line => line.purchaseOrderId))].sort()) {
+    await lockPurchaseOrder(tx, poId);
+  }
+}
 
-  // Increment receivedQty on each linked PO line; collect affected POs.
-  const affectedPoIds = new Set<string>();
+/** Receive goods on a direct PO bill when it becomes payable. A goods-receipt
+ * draft already owns its stock and its allocated value. */
+export async function applyBillPoReceipt(tx: Tx, orgId: string, bill: BillWithLines) {
+  const lines = bill.lines.filter(line => line.purchaseOrderLineId);
+  if (!lines.length || bill.receiptPostingJournalId || lines.some(line => line.poReceiptTaxAmount != null)) return;
+  if (await tx.inventoryLot.count({
+    where: { organizationId: orgId, documentType: 'PURCHASE', documentId: bill.id },
+  })) return;
+
+  const poLineIds = lines.map(line => line.purchaseOrderLineId!);
+  if (new Set(poLineIds).size !== poLineIds.length) {
+    throw new ApiError('Each purchase order line may only appear once in a receipt', 422);
+  }
+  await lockPurchaseOrdersForBill(tx, orgId, poLineIds);
+  const poLines = await tx.purchaseOrderLine.findMany({
+    where: { id: { in: poLineIds }, purchaseOrder: { organizationId: orgId } },
+    include: { purchaseOrder: true },
+  });
+  const byId = new Map(poLines.map(line => [line.id, line]));
+  const receiptLines: BillWithLines['lines'] = [];
+  const poNumbers = new Map<string, string>();
   for (const line of lines) {
-    const poLineId = line.purchaseOrderLineId as string;
-    // Scope the write through the parent PO's org so it can NEVER touch another
-    // org's row — even if a cross-org poLineId somehow got persisted. A no-match
-    // (wrong org) raises P2025 and aborts the finalize, rather than mutating
-    // a victim org's PO line.
-    const updated = await tx.purchaseOrderLine.update({
-      where: { id: poLineId, purchaseOrder: { organizationId: orgId } },
-      data: { receivedQty: { increment: Number(line.quantity) } },
-      select: { purchaseOrderId: true },
+    const poLine = byId.get(line.purchaseOrderLineId!);
+    if (!poLine || (bill.poId && bill.poId !== poLine.purchaseOrderId) || poLine.purchaseOrder.vendorId !== bill.vendorId) {
+      throw new ApiError('Purchase order line does not belong to this vendor or bill', 422);
+    }
+    const po = poLine.purchaseOrder;
+    if (!['APPROVED', 'PARTIAL_RECEIVED'].includes(po.status)) {
+      throw new ApiError('PO must be APPROVED or PARTIAL_RECEIVED to receive goods', 422);
+    }
+    const taxable = po.taxable && poLine.taxable !== false;
+    if (line.itemId !== poLine.itemId || line.unit !== poLine.unit || !line.price.eq(poLine.price)
+      || !line.discountPct.eq(poLine.discountPct)
+      || taxable !== (bill.taxable && line.taxable !== false)
+      || (taxable && (bill.taxInclusive !== po.taxInclusive || !bill.taxRate.eq(po.taxRate)))) {
+      throw new ApiError('The bill item, unit, price, discount, and tax treatment must match the purchase order before receiving goods.', 422);
+    }
+    const allocated = await allocatePoReceiptLine(tx, orgId, po, poLine, line.quantity, bill.id);
+    receiptLines.push(await tx.billLine.update({ where: { id: line.id }, data: allocated }));
+    await tx.purchaseOrderLine.update({
+      where: { id: poLine.id },
+      data: { receivedQty: { increment: allocated.quantity } },
     });
-    affectedPoIds.add(updated.purchaseOrderId);
+    poNumbers.set(po.id, po.number);
   }
 
-  // Recompute + flip each affected PO's status from its (now updated) lines.
-  for (const purchaseOrderId of affectedPoIds) {
-    const poLines = await tx.purchaseOrderLine.findMany({
-      where: { purchaseOrderId, purchaseOrder: { organizationId: orgId } },
-      select: { quantity: true, receivedQty: true },
-    });
-    const allFull = poLines.every((pl) => Number(pl.receivedQty) >= Number(pl.quantity) - 0.0001);
-    const anyReceived = poLines.some((pl) => Number(pl.receivedQty) > 0.0001);
-    const newPoStatus = allFull ? 'CLOSED' : anyReceived ? 'PARTIAL_RECEIVED' : undefined;
-    if (newPoStatus) {
-      await tx.purchaseOrder.update({
-        where: { id: purchaseOrderId, organizationId: orgId },
-        data: { status: newPoStatus as never },
-      });
-    }
-  }
+  for (const poId of poNumbers.keys()) await updatePoReceiptStatus(tx, orgId, poId);
+  const receiptById = new Map(receiptLines.map(line => [line.id, line]));
+  const updatedLines = bill.lines.map(line => receiptById.get(line.id) ?? line);
+  const { subtotal, taxAmount, withholdingAmount, totalAmount } = calculateBillAmounts({ ...bill, lines: updatedLines });
+  const updated = await tx.bill.update({
+    where: { id: bill.id, organizationId: orgId },
+    data: { subtotal, taxAmount, withholdingAmount, totalAmount },
+  });
+  // Both receipt stock and any separate bill stock must be locked before
+  // journal numbering, in the same order used by other stock postings.
+  await lockInventoryItems(tx, orgId, updatedLines.flatMap(line => line.itemId ? [line.itemId] : []));
+  await postGoodsReceiptToLedger(tx, orgId, {
+    billId: bill.id, poNumber: [...poNumbers.values()].join(', '), date: bill.issueDate,
+    taxInclusive: bill.taxable && bill.taxInclusive, taxRate: bill.taxRate, lines: receiptLines,
+  });
+  return { ...bill, ...updated, lines: updatedLines };
 }

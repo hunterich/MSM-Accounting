@@ -1,12 +1,13 @@
 import type { Prisma } from '@prisma/client';
 import { assertDocumentOffsetAccounts } from './document-offset-accounts';
-import { InventoryDocumentType, Prisma as PrismaRuntime } from '@prisma/client';
+import { InventoryDocumentType } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { calculateAndPostCOGS, lockInventoryItems } from './inventory-costing';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from './account-defaults';
-import { toNumber, asMoney } from './money';
-import { postJournalEntry } from './journal-posting';
+import { toNumber } from './money';
+import { MoneyDecimal, roundMoneyDecimal } from './money-decimal';
+import { postJournalEntry, type JournalLineInput } from './journal-posting';
 import type { TransactionDateGuardOptions } from './transaction-date-policy';
 import { itemPostingAccount, lotsWithBookValue } from './item-posting-accounts';
 
@@ -27,7 +28,6 @@ export async function postInvoiceSend(
     select: {
       number: true,
       issueDate: true,
-      subtotal: true,
       discountAmount: true,
       totalAmount: true,
       taxAmount: true,
@@ -64,30 +64,27 @@ export async function postInvoiceSend(
   const postingItemById = new Map(postingItems.map(item => [item.id, item]));
   if (itemIdsForPosting.some(id => !postingItemById.has(id))) throw new ApiError('An invoice item is unavailable in this company.', 422);
 
-  const totalAmount = toNumber(invoice.totalAmount);
-  const taxAmount = toNumber(invoice.taxAmount);
-  const discountAmount = toNumber(invoice.discountAmount);
+  const totalAmount = new MoneyDecimal(invoice.totalAmount ?? 0);
+  const taxAmount = new MoneyDecimal(invoice.taxAmount ?? 0);
+  const discountAmount = new MoneyDecimal(invoice.discountAmount ?? 0);
   // Revenue is gross of any discount line we post separately below;
   // when we post a contra-revenue discount line, salesRevenue is
   // credited at the larger pre-discount amount.
-  const baseRevenue = totalAmount - taxAmount;
+  const baseRevenue = totalAmount.minus(taxAmount);
   const arAccountId = resolveAccountDefaultId(accounts, settings, 'arControl');
   const salesAccountId = resolveAccountDefaultId(accounts, settings, 'salesRevenue');
   const revenueByLine = new Map(invoiceLines.map(line => {
     const item = line.itemId ? postingItemById.get(line.itemId) : undefined;
     return [line.id, itemPostingAccount(accounts, item?.revenueAccountId, salesAccountId, 'REVENUE', 'revenue')] as const;
   }));
-  const taxAccountId = taxAmount > 0
+  const taxAccountId = taxAmount.gt(0)
     ? resolveAccountDefaultId(accounts, settings, 'arTax')
     : null;
   const salesDiscountAccountId =
-    discountAmount > 0
+    discountAmount.gt(0)
       ? (resolveAccountDefaultId(accounts, settings, 'salesDiscount')
         || resolveAccountDefaultId(accounts, settings, 'arDiscount'))
       : null;
-  const roundingAccountId =
-    resolveAccountDefaultId(accounts, settings, 'roundingAccount')
-    || resolveAccountDefaultId(accounts, settings, 'cogsExpense');
   const arInvoiceDate = new Date(invoice.issueDate);
 
   // Additional costs (charges) on a sale are income/recovery: each credits its
@@ -95,30 +92,30 @@ export async function postInvoiceSend(
   // inflating sales revenue. The charge amount is already inside totalAmount
   // (and its tax inside taxAmount), so we split the charge net OUT of the sales
   // credit. A charge with no/invalid account (or coded to sales) stays folded
-  // into sales revenue. NET extraction mirrors computeTotals for tax-inclusive.
+  // into sales revenue. Inclusive amounts are split at posting precision.
   const taxInclusive = Boolean(invoice.taxInclusive);
-  const rate = toNumber(invoice.taxRate) / 100;
+  const rate = new MoneyDecimal(invoice.taxRate ?? 0).div(100);
   const postableById = new Set(accounts.filter((a) => a.isPostable).map((a) => a.id));
-  const chargesByAccount = new Map<string, number>();
-  let chargesCreditTotal = 0;
+  const chargesByAccount = new Map<string, Prisma.Decimal>();
+  const zero = new MoneyDecimal(0);
+  let chargesCreditTotal = zero;
   for (const charge of invoice.charges ?? []) {
-    const amt = toNumber(charge.amount);
-    if (amt === 0) continue;
-    const chargeTaxable = taxAmount > 0 && toNumber(charge.taxRate) > 0;
-    const cnet = chargeTaxable && taxInclusive && rate > 0 ? asMoney(amt / (1 + rate)) : amt;
+    const amt = new MoneyDecimal(charge.amount);
+    if (amt.isZero()) continue;
+    const chargeTaxable = taxAmount.gt(0) && new MoneyDecimal(charge.taxRate ?? 0).gt(0);
+    const cnet = chargeTaxable && taxInclusive && rate.gt(0) ? roundMoneyDecimal(amt.div(rate.plus(1))) : amt;
     const acc = charge.accountId;
     if (!acc || !postableById.has(acc) || acc === salesAccountId) continue; // folds into sales
-    chargesByAccount.set(acc, (chargesByAccount.get(acc) ?? 0) + cnet);
-    chargesCreditTotal += cnet;
+    chargesByAccount.set(acc, (chargesByAccount.get(acc) ?? zero).plus(cnet));
+    chargesCreditTotal = chargesCreditTotal.plus(cnet);
   }
-  chargesCreditTotal = asMoney(chargesCreditTotal);
-
-  if (totalAmount > 0 && arAccountId && salesAccountId && (taxAmount === 0 || taxAccountId)) {
-    const splitDiscount = discountAmount > 0 && Boolean(salesDiscountAccountId);
-    const revenueCredit = asMoney(
-      (splitDiscount ? asMoney(baseRevenue + discountAmount) : baseRevenue) - chargesCreditTotal,
-    );
-    const arLines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [
+  if (totalAmount.gt(0)) {
+    if (!arAccountId || !salesAccountId || (taxAmount.gt(0) && !taxAccountId)) {
+      throw new ApiError(`Cannot post ${invoiceNumber}: configure accounts receivable, sales revenue and any required output tax account.`, 422);
+    }
+    const splitDiscount = discountAmount.gt(0) && Boolean(salesDiscountAccountId);
+    const revenueCredit = (splitDiscount ? baseRevenue.plus(discountAmount) : baseRevenue).minus(chargesCreditTotal);
+    const arLines: JournalLineInput<Prisma.Decimal.Value>[] = [
       {
         accountId: arAccountId,
         description: `AR - ${invoice.number}`,
@@ -131,28 +128,28 @@ export async function postInvoiceSend(
       // Preserve the exact existing journal shape for blank/default mappings.
       arLines.push({ accountId: salesAccountId, description: `Sales - ${invoice.number}`, debit: 0, credit: revenueCredit });
     } else {
-      const weights = invoiceLines.map(line => new PrismaRuntime.Decimal(line.lineSubtotal ?? 0));
+      const weights = invoiceLines.map(line => new MoneyDecimal(line.lineSubtotal ?? 0));
       if (weights.some(weight => weight.isNegative())) throw new ApiError('Cannot allocate sales revenue across negative invoice lines.', 422);
-      const sum = weights.reduce((total, weight) => total.plus(weight), new PrismaRuntime.Decimal(0));
-      if (sum.isZero() || revenueCredit < 0) throw new ApiError('Cannot allocate sales revenue across these invoice lines.', 422);
-      let cumulative = new PrismaRuntime.Decimal(0), assigned = new PrismaRuntime.Decimal(0);
-      const totals = new Map<string, PrismaRuntime.Decimal>();
+      const sum = weights.reduce((total, weight) => total.plus(weight), zero);
+      if (sum.isZero() || revenueCredit.lt(0)) throw new ApiError('Cannot allocate sales revenue across these invoice lines.', 422);
+      let cumulative = zero, assigned = zero;
+      const totals = new Map<string, Prisma.Decimal>();
       for (const [index, line] of invoiceLines.entries()) {
         cumulative = cumulative.plus(weights[index]);
-        const rounded = new PrismaRuntime.Decimal(revenueCredit).mul(cumulative).div(sum).toDecimalPlaces(2, PrismaRuntime.Decimal.ROUND_HALF_UP);
+        const rounded = roundMoneyDecimal(revenueCredit.mul(cumulative).div(sum));
         const amount = rounded.minus(assigned); assigned = rounded;
         const accountId = revenueByLine.get(line.id);
         if (!accountId) throw new ApiError('An invoice line has no sales revenue account.', 422);
-        totals.set(accountId, (totals.get(accountId) ?? new PrismaRuntime.Decimal(0)).plus(amount));
+        totals.set(accountId, (totals.get(accountId) ?? zero).plus(amount));
       }
       for (const [accountId, amount] of totals) if (!amount.isZero()) {
-        arLines.push({ accountId, description: `Sales - ${invoice.number}`, debit: 0, credit: amount.toNumber() });
+        arLines.push({ accountId, description: `Sales - ${invoice.number}`, debit: 0, credit: amount });
       }
     }
     for (const line of invoiceLines) await tx.salesInvoiceLine.update({ where: { id: line.id }, data: { revenuePostingAccountId: revenueByLine.get(line.id) ?? null } });
     for (const [accountId, amount] of chargesByAccount) {
-      if (amount > 0) {
-        arLines.push({ accountId, description: `Additional cost - ${invoice.number}`, debit: 0, credit: asMoney(amount) });
+      if (!amount.isZero()) {
+        arLines.push({ accountId, description: `Additional cost - ${invoice.number}`, debit: 0, credit: amount });
       }
     }
     if (splitDiscount && salesDiscountAccountId) {
@@ -163,27 +160,12 @@ export async function postInvoiceSend(
         credit: 0,
       });
     }
-    if (taxAmount > 0 && taxAccountId) {
+    if (taxAmount.gt(0) && taxAccountId) {
       arLines.push({
         accountId: taxAccountId,
         description: `Output tax - ${invoice.number}`,
         debit: 0,
         credit: taxAmount,
-      });
-    }
-
-    // Tax-inclusive math frequently leaves a sub-rupiah residual
-    // between totalAmount and (revenue - discount + tax). Book it to
-    // the rounding account so the entry balances exactly.
-    const sumDebits  = arLines.reduce((s, l) => s + l.debit, 0);
-    const sumCredits = arLines.reduce((s, l) => s + l.credit, 0);
-    const rounding = asMoney(sumDebits - sumCredits);
-    if (Math.abs(rounding) > 0 && roundingAccountId) {
-      arLines.push({
-        accountId: roundingAccountId,
-        description: `Rounding - ${invoice.number}`,
-        debit:  rounding < 0 ? -rounding : 0,
-        credit: rounding > 0 ?  rounding : 0,
       });
     }
 

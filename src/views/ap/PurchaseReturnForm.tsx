@@ -6,6 +6,7 @@ import SearchableSelect from '../../components/UI/SearchableSelect';
 
 interface PurchaseReturnLine {
     lineKey:       string;
+    itemId?:       string;
     description:   string;
     qtyPurchased:  number;
     qtyReturn:     number;
@@ -42,13 +43,14 @@ import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { useVendors, useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
-import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn } from '../../hooks/useReturns';
+import { useWarehouses, usePurchaseReturns, useCreatePurchaseReturn, useUpdatePurchaseReturn, usePurchaseReturnPreview } from '../../hooks/useReturns';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { resolveAccountDefaults } from '../../../lib/account-defaults';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { makeTabId } from '../../stores/workspace/types';
 import { pendingNoteRecordId, pendingNotePath } from '../../stores/workspace/modules';
+import { MoneyDecimal } from '../../../lib/money-decimal';
 
 const buildReturnNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -59,6 +61,7 @@ const buildReturnNo = (dateStr: string, seq = 1) => {
 
 const normalizeLine = (line: PurchaseReturnLineInput): PurchaseReturnLine => ({
     lineKey: line.lineKey || '',
+    itemId: line.itemId || undefined,
     description: line.description || '',
     qtyPurchased: Number(line.qtyPurchased || line.qty || 0),
     qtyReturn: Number(line.qtyReturn || 0),
@@ -104,7 +107,9 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
     const billItemTemplates = useMemo<Record<string, PurchaseReturnLineInput[]>>(() => {
         const map: Record<string, PurchaseReturnLineInput[]> = {};
         bills.forEach(bill => {
-            if (bill.lines?.length) map[bill.id] = bill.lines.map(l => ({
+            if (bill.lines?.length) map[bill._id || bill.id] = bill.lines.map((l, index) => ({
+                lineKey: l.id || `${bill.id}-${index + 1}`,
+                itemId: l.itemId,
                 description: String(l.description || ''),
                 qty: Number(l.quantity || l.qty || 0),
                 unit: String(l.unit || 'PCS'),
@@ -154,17 +159,15 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Asset');
     }, [chartOfAccounts]);
 
-    const toLineIdentity = (line: PurchaseReturnLineInput) =>
-        line.lineKey || `${line.description || ''}|${line.unit || 'PCS'}|${Number(line.price || 0)}`;
-
-    const getAlreadyReturnedQty = (billId: string, lineIdentity: string, excludeReturnId = state.returnId) => {
+    const getAlreadyReturnedQty = (billId: string, lineKey: string) => {
+        const bill = bills.find(item => (item._id || item.id) === billId);
+        const aliases = bill?.lines.map((line, index) => [line.id, `${bill.id}-${index + 1}`, `${billId}-${index + 1}`])
+            .find(keys => keys.includes(lineKey)) ?? [lineKey];
         return purchaseReturns
-            .filter((ret) => ret.billId === billId)
-            .filter((ret) => !excludeReturnId || ret.id !== excludeReturnId)
-            .reduce((sum, ret) => {
-                const matched = (ret.lines || []).find((line: PurchaseReturnLineInput) => toLineIdentity(line) === lineIdentity);
-                return sum + Number(matched?.qtyReturn || 0);
-            }, 0);
+            .filter(ret => ret.billId === billId && ret.id !== state.returnId && ret.status !== 'Void')
+            .flatMap(ret => ret.lines)
+            .filter(line => aliases.includes(line.lineKey))
+            .reduce((qty, line) => qty.plus(line.qtyReturn), new MoneyDecimal(0));
     };
 
     useEffect(() => {
@@ -226,35 +229,31 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
     const billOptions = useMemo(() => {
         const filteredBills = bills.filter((bill) => !returnData.vendorId || bill.vendorId === returnData.vendorId);
         return filteredBills.map((bill) => ({
-            value: bill.id,
+            value: bill._id || bill.id,
             label: `${bill.id} • ${bill.vendor} • ${formatDateID(bill.date)}`
         }));
     }, [returnData.vendorId, bills]);
 
-    const totals = useMemo(() => {
-        const subtotal = returnData.lines.reduce((sum, line) => sum + line.qtyReturn * line.price, 0);
-        const rate = Number(returnData.taxRate || 0) / 100;
-        let taxAmount = 0;
-        let total = subtotal;
-
-        if (returnData.applyTax) {
-            if (returnData.taxIncluded) {
-                const base = subtotal / (1 + rate);
-                taxAmount = subtotal - base;
-                total = subtotal;
-            } else {
-                taxAmount = subtotal * rate;
-                total = subtotal + taxAmount;
-            }
-        }
-
-        return { subtotal, taxAmount, total };
-    }, [returnData.lines, returnData.applyTax, returnData.taxIncluded, returnData.taxRate]);
+    const previewEnabled = !isView && Boolean(returnData.billId && returnData.vendorId)
+        && returnData.lines.some(line => line.qtyReturn > 0);
+    const preview = usePurchaseReturnPreview({
+        billId: returnData.billId, vendorId: returnData.vendorId, returnId: state.returnId,
+        applyTax: returnData.applyTax, taxIncluded: returnData.taxIncluded, taxRate: returnData.taxRate, lines: returnData.lines,
+    }, previewEnabled);
+    const valuation = isView ? purchaseReturns.find(item => item.id === state.returnId) : preview.data;
+    const totals = {
+        subtotal: Number(valuation?.subtotal ?? 0),
+        taxAmount: Number(valuation?.taxAmount ?? 0),
+        total: Number(valuation?.totalAmount ?? 0),
+        net: new MoneyDecimal(valuation?.totalAmount ?? 0).minus(valuation?.taxAmount ?? 0).toNumber(),
+    };
+    const previewUnavailable = previewEnabled && (!preview.data || preview.isError);
 
     const hydrateLinesFromBill = (billId: string): PurchaseReturnLine[] => {
         const template = billItemTemplates[billId] || [];
-        return template.map((line: PurchaseReturnLineInput, index: number) => normalizeLine({
-            lineKey: `${billId}-${index + 1}`,
+        return template.map((line: PurchaseReturnLineInput) => normalizeLine({
+            lineKey: line.lineKey,
+            itemId: line.itemId,
             description: line.description || '',
             qtyPurchased: line.qty,
             qtyReturn: 0,
@@ -264,13 +263,16 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
     };
 
     const handleBillChange = (billId: string) => {
-        const foundBill = bills.find((item) => item.id === billId);
+        const foundBill = bills.find(item => (item._id || item.id) === billId);
         const vendor = vendors.find((item) => item.id === foundBill?.vendorId);
         setReturnData((prev) => ({
             ...prev,
             billId,
             vendorId: foundBill?.vendorId || prev.vendorId,
             apAccountId: vendor?.defaultApAccountId || prev.apAccountId,
+            applyTax: foundBill?.taxable ?? false,
+            taxIncluded: foundBill?.taxInclusive ?? false,
+            taxRate: foundBill?.taxRate ?? 0,
             lines: hydrateLinesFromBill(billId)
         }));
     };
@@ -281,10 +283,8 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             const line: PurchaseReturnLine = { ...nextLines[index] };
             if (field === 'qtyReturn') {
                 const parsed = Number(value || 0);
-                const lineIdentity = toLineIdentity(line);
-                const alreadyReturned = getAlreadyReturnedQty(prev.billId, lineIdentity, state.returnId);
-                const maxReturnableQty = Math.max(0, Number(line.qtyPurchased || 0) - alreadyReturned);
-                line.qtyReturn = Math.max(0, Math.min(parsed, maxReturnableQty));
+                const maxReturnableQty = new MoneyDecimal(line.qtyPurchased).minus(getAlreadyReturnedQty(prev.billId, line.lineKey));
+                line.qtyReturn = MoneyDecimal.max(0, MoneyDecimal.min(new MoneyDecimal(parsed).toDecimalPlaces(4), maxReturnableQty)).toNumber();
             } else {
                 (line as any)[field] = value;
             }
@@ -306,7 +306,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
     const postingPreview = useMemo(() => {
         const lines = [
             { side: 'DR', accountId: returnData.apAccountId, amount: totals.total },
-            { side: 'CR', accountId: returnData.returnAccountId, amount: totals.subtotal }
+            { side: 'CR', accountId: returnData.returnAccountId, amount: totals.net }
         ];
 
         if (returnData.applyTax && totals.taxAmount > 0) {
@@ -314,7 +314,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         }
 
         return lines;
-    }, [returnData.apAccountId, returnData.returnAccountId, returnData.taxAccountId, returnData.applyTax, totals.subtotal, totals.taxAmount, totals.total]);
+    }, [returnData.apAccountId, returnData.returnAccountId, returnData.taxAccountId, returnData.applyTax, totals.net, totals.taxAmount, totals.total]);
 
     const fcBase = 'w-full h-10 px-3 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed';
 
@@ -366,6 +366,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             window.alert('Set Qty Return for at least one line before creating debit note.');
             return;
         }
+        if (previewUnavailable) return;
 
         const invalidPostingAccounts = postingPreview
             .filter((line) => Number(line.amount || 0) > 0 && isAccountLegacy(line.accountId))
@@ -376,34 +377,30 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         }
 
         const returnNumber = returnNumberingMode === 'manual' ? returnData.returnNumber : undefined;
-        // `Bill.id` is the bill NUMBER on the client (see normalizeBill); the DB
-        // primary key lives on `_id`. The API foreign-keys the return — and the
-        // debit note's sourceBillId — to Bill, so send the real key or every save
-        // fails with "Bill not found in organization".
-        const billDbId = bills.find((item) => item.id === returnData.billId)?._id || returnData.billId;
         const payload = {
             ...returnData,
-            billId: billDbId,
             ...(returnNumber && { returnNumber }),
-            lines: selectedLines
+            lines: selectedLines,
+            expectedValuation: preview.data && { totalAmount: preview.data.totalAmount, taxAmount: preview.data.taxAmount },
         };
 
         // Persist the return via API
         const returnRecord = {
             ...(returnNumber && { id: returnNumber }),
             ...payload,
-            status: saveAsDraft ? 'Draft' : 'Pending Debit Note',
+            status: saveAsDraft ? 'Draft' as const : 'Pending Debit Note' as const,
         };
         // Await the write rather than firing and forgetting: the debit note has to
         // link to the SAVED return, and only the response carries the id and the
         // server-assigned number. It also means a failed save is reported instead
         // of silently swallowed while we navigate away.
-        let saved: { id?: string; number?: string } | null = null;
+        let saved;
         try {
-            saved = (state.returnId
-                ? await updatePurchaseReturnMutation.mutateAsync({ id: state.returnId, ...returnRecord } as any)
-                : await createPurchaseReturnMutation.mutateAsync(returnRecord as any)) as { id?: string; number?: string } | null;
+            saved = state.returnId
+                ? await updatePurchaseReturnMutation.mutateAsync({ ...returnRecord, id: state.returnId })
+                : await createPurchaseReturnMutation.mutateAsync(returnRecord);
         } catch (err) {
+            void preview.refetch();
             window.alert(`Failed to save purchase return: ${err instanceof Error ? err.message : 'Unknown error'}`);
             return;
         }
@@ -418,7 +415,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
         const savedNumber = saved?.number || payload.returnNumber || '';
         // Seed with the canonical PurchaseReturn field names so the debit note can
         // read `id`/`number` straight off the draft.
-        const returnSeed = { ...payload, id: savedId, number: savedNumber };
+        const returnSeed = { ...saved, returnDate: String(saved.returnDate ?? payload.returnDate).slice(0, 10), id: savedId, number: savedNumber };
 
         // Hand the prefilled debit note over through the new tab's draft. In the
         // workspace a route carries only a path string, so router `state` never
@@ -471,11 +468,12 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
             isLoading={isPageLoading}
             actions={
                 <>
-                    <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0} onClick={() => setIsPrintOpen(true)} />
-                    {!isView && <Button text="Save Draft" variant="secondary" onClick={() => { void handleSaveReturn(true); }} />}
+                    <Button text="Print" variant="secondary" disabled={returnData.lines.length === 0 || previewUnavailable} onClick={() => setIsPrintOpen(true)} />
+                    {!isView && <Button text="Save Draft" variant="secondary" disabled={previewUnavailable} onClick={() => { void handleSaveReturn(true); }} />}
                     <Button
                         text={isView ? 'Close' : 'Save & Create Debit Note'}
                         variant="primary"
+                        disabled={previewUnavailable}
                         onClick={isView ? () => navigate('/ap/debits') : () => { void handleSaveReturn(false); }}
                     />
                 </>
@@ -486,10 +484,12 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
                     <div className="module-status-number">{returnData.returnNumber || 'Otomatis'}</div>
                     <StatusTag status={isView ? 'Completed' : 'Draft'} label={isView ? 'Approved' : 'Draft'} />
                 </div>
-                <div className="module-status-total">{formatIDR(totals.total)}</div>
+                <div className="module-status-total">{previewUnavailable ? '—' : formatIDR(totals.total)}</div>
             </div>
 
             {!isView && <ClosedPeriodBanner date={returnData.returnDate} className="mb-4" />}
+            {previewEnabled && preview.isError && <p role="alert" className="text-danger-600">{preview.error.message}</p>}
+            {previewUnavailable && !preview.isError && <p role="status">Calculating return totals…</p>}
 
             <div className="invoice-panel panel-primary-top no-top-margin">
                 <div className="grid-12 form-grid-tight">
@@ -590,7 +590,8 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
                                         type="number"
                                         className="w-full h-8 px-2 rounded border border-neutral-300 bg-neutral-0 text-sm text-right focus:border-primary-500 focus:outline-0 disabled:bg-neutral-100 disabled:cursor-not-allowed"
                                         min={0}
-                                        max={Math.max(0, Number(line.qtyPurchased || 0) - getAlreadyReturnedQty(returnData.billId, toLineIdentity(line), state.returnId))}
+                                        step="0.0001"
+                                        max={MoneyDecimal.max(0, new MoneyDecimal(line.qtyPurchased).minus(getAlreadyReturnedQty(returnData.billId, line.lineKey))).toNumber()}
                                         value={line.qtyReturn}
                                         onChange={(event) => updateLine(idx, 'qtyReturn', event.target.value)}
                                         disabled={isView}
@@ -598,7 +599,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
                                 </td>
                                 <td>{line.unit}</td>
                                 <td className="text-right">{formatIDR(line.price)}</td>
-                                <td className="text-right text-strong">{formatIDR(line.qtyReturn * line.price)}</td>
+                                <td className="text-right text-strong">{previewUnavailable ? '—' : formatIDR(valuation?.lines[idx]?.lineTotal ?? 0)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -612,9 +613,9 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
                         <textarea className="w-full px-3 py-2 rounded-md border border-neutral-300 bg-neutral-0 text-sm text-neutral-900 focus:border-primary-500 focus:outline-0 focus:shadow-[0_0_0_3px_var(--color-primary-100)] disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed resize-y" rows={4} value={returnData.notes} onChange={(event) => setReturnData((prev) => ({ ...prev, notes: event.target.value }))} disabled={isView} />
                     </div>
                     <div className="col-span-4 panel-box panel-box-tight">
-                        <div className="panel-summary-row"><span>Subtotal</span><strong>{formatIDR(totals.subtotal)}</strong></div>
-                        <div className="panel-summary-row"><span>Tax ({returnData.applyTax ? `${returnData.taxRate}%` : '0%'})</span><strong>{formatIDR(returnData.applyTax ? totals.taxAmount : 0)}</strong></div>
-                        <div className="panel-summary-total"><span className="label">Total Debit Basis</span><span className="value">{formatIDR(totals.total)}</span></div>
+                        <div className="panel-summary-row"><span>Subtotal</span><strong>{previewUnavailable ? '—' : formatIDR(totals.subtotal)}</strong></div>
+                        <div className="panel-summary-row"><span>Tax ({returnData.applyTax ? `${returnData.taxRate}%` : '0%'})</span><strong>{previewUnavailable ? '—' : formatIDR(totals.taxAmount)}</strong></div>
+                        <div className="panel-summary-total"><span className="label">Total Debit Basis</span><span className="value">{previewUnavailable ? '—' : formatIDR(totals.total)}</span></div>
                     </div>
                     <div className="col-span-12">
                         <div className="panel-box">
@@ -663,7 +664,7 @@ const PurchaseReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: Purcha
                         reference: returnData.billId,
                         notes: returnData.reason,
                     }}
-                    lineItems={returnData.lines}
+                    lineItems={returnData.lines.map((line, index) => ({ ...line, lineTotal: valuation?.lines[index]?.lineTotal ?? 0 }))}
                     subtotal={totals.subtotal}
                     taxAmount={totals.taxAmount}
                     total={totals.total}

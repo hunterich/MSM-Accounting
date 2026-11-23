@@ -33,6 +33,7 @@ interface RawLineItem {
     price?: number | string;
     discount?: number | string;
     discountPct?: number | string;
+    lineSubtotal?: number | string;
     [key: string]: unknown;
 }
 
@@ -55,7 +56,7 @@ const normalizeLine = (line: RawLineItem, index: number): NormalizedLine => {
     const discount = toNumber(line.discount ?? line.discountPct);
     const gross = qty * price;
     const discountAmount = gross * (discount / 100);
-    const total = gross - discountAmount;
+    const total = line.lineSubtotal == null ? gross - discountAmount : toNumber(line.lineSubtotal);
 
     return {
         id: line.id || `${description}-${index + 1}`,

@@ -1,7 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { advisoryLockKey } from './advisory-lock';
-import { toNumber } from './money';
+import { MoneyDecimal } from './money-decimal';
+import { calculateSalesReturnAmounts } from './sales-return-amounts';
 
 type Tx = Prisma.TransactionClient;
 interface ReturnLineInput {
@@ -19,14 +20,14 @@ export async function lockSalesReturns(tx: Tx, orgId: string, invoiceId: string)
 }
 
 /** Bind return lines to the actual sale and enforce cumulative return quantities. */
-export async function prepareSalesReturnLines(
+async function loadSalesReturnLines(
   tx: Tx, orgId: string, invoiceId: string, customerId: string,
   lines: ReturnLineInput[], excludeReturnId?: string,
 ) {
   await lockSalesReturns(tx, orgId, invoiceId);
   const invoice = await tx.salesInvoice.findFirst({
     where: { id: invoiceId, organizationId: orgId },
-    include: { lines: true },
+    include: { lines: { orderBy: { lineNo: 'asc' } }, charges: true },
   });
   if (!invoice || invoice.customerId !== customerId) {
     throw new ApiError('Source invoice must belong to the selected customer and organization', 422);
@@ -54,18 +55,20 @@ export async function prepareSalesReturnLines(
       organizationId: orgId, invoiceId, status: { not: 'VOID' },
       ...(excludeReturnId ? { id: { not: excludeReturnId } } : {}),
     } },
+    orderBy: [{ salesReturnId: 'asc' }, { lineNo: 'asc' }],
+    include: { salesReturn: { select: { status: true, taxAmount: true, taxIncluded: true, applyTax: true } } },
   });
-  const quantities = new Map<string, number>();
-  for (const line of prior) {
-    if (toNumber(line.qtyReturn) <= 0) continue;
-    const source = resolve(line);
-    quantities.set(source.id, (quantities.get(source.id) ?? 0) + toNumber(line.qtyReturn));
+  const quantities = new Map<string, Prisma.Decimal>();
+  const priorLines = prior.filter(line => new MoneyDecimal(line.qtyReturn).gt(0))
+    .map(line => ({ ...line, sourceId: resolve(line).id }));
+  for (const line of priorLines) {
+    quantities.set(line.sourceId, new MoneyDecimal(quantities.get(line.sourceId) ?? 0).plus(line.qtyReturn));
   }
-  return lines.map((line) => {
+  const prepared = lines.map((line) => {
     const source = resolve(line);
-    const qty = toNumber(line.qtyReturn);
-    const totalQty = (quantities.get(source.id) ?? 0) + qty;
-    if (!Number.isFinite(qty) || qty < 0 || totalQty > toNumber(source.quantity) + 0.00001) {
+    const qtyReturn = new MoneyDecimal(line.qtyReturn == null ? 0 : line.qtyReturn as Prisma.Decimal.Value).toDecimalPlaces(4);
+    const totalQty = new MoneyDecimal(quantities.get(source.id) ?? 0).plus(qtyReturn);
+    if (!qtyReturn.isFinite() || qtyReturn.lt(0) || totalQty.gt(source.quantity)) {
       throw new ApiError(`Return quantity exceeds the remaining sold quantity for ${source.description}`, 422);
     }
     quantities.set(source.id, totalQty);
@@ -74,17 +77,34 @@ export async function prepareSalesReturnLines(
       goodsReceived: line.goodsReceived ?? true,
       itemId: source.itemId,
       itemName: source.description,
-      qtySold: toNumber(source.quantity),
+      qtySold: source.quantity,
+      qtyReturn,
       source,
     };
   });
+  return { invoice, prepared, priorLines };
+}
+
+export async function prepareSalesReturnLines(
+  tx: Tx, orgId: string, invoiceId: string, customerId: string, lines: ReturnLineInput[], excludeReturnId?: string,
+) {
+  return (await loadSalesReturnLines(tx, orgId, invoiceId, customerId, lines, excludeReturnId)).prepared;
+}
+
+export async function prepareSalesReturnValuation(
+  tx: Tx, orgId: string, invoiceId: string, customerId: string, lines: ReturnLineInput[], excludeReturnId?: string,
+) {
+  const { invoice, prepared, priorLines } = await loadSalesReturnLines(tx, orgId, invoiceId, customerId, lines, excludeReturnId);
+  // Drafts reserve quantity, while their final monetary amount is assigned on submission.
+  const amounts = calculateSalesReturnAmounts(invoice, prepared, priorLines.filter(line => line.salesReturn.status !== 'DRAFT'));
+  return { invoice, prepared, amounts };
 }
 
 /** Recover old costs only when the historical outbound ledger is unambiguous. */
 export async function originalSalesLineCost(tx: Tx, orgId: string, source: {
-  id: string; invoiceId: string; itemId: string | null; quantity: unknown; cogsAmount: unknown;
-}): Promise<number> {
-  if (source.cogsAmount != null) return toNumber(source.cogsAmount);
+  id: string; invoiceId: string; itemId: string | null; quantity: Prisma.Decimal.Value; cogsAmount: Prisma.Decimal.Value | null;
+}): Promise<Prisma.Decimal> {
+  if (source.cogsAmount != null) return new MoneyDecimal(source.cogsAmount);
   const siblings = await tx.salesInvoiceLine.count({
     where: { invoiceId: source.invoiceId, itemId: source.itemId },
   });
@@ -94,12 +114,12 @@ export async function originalSalesLineCost(tx: Tx, orgId: string, source: {
       itemId: source.itemId!, qtyOut: { gt: 0 },
     },
   });
-  const qty = ledger.reduce((sum, l) => sum + toNumber(l.qtyOut), 0);
-  if (siblings !== 1 || !ledger.length || Math.abs(qty - toNumber(source.quantity)) > 0.00001) {
+  const qty = ledger.reduce((sum, line) => sum.plus(line.qtyOut), new MoneyDecimal(0));
+  if (siblings !== 1 || !ledger.length || !qty.eq(source.quantity)) {
     throw new ApiError('Original sale cost is unavailable for this item. Review the historical invoice cost before receiving its return.', 422);
   }
-  const cost = -ledger.reduce((sum, l) => sum + toNumber(l.valueChange), 0);
-  if (cost < 0) throw new ApiError('Invalid original sale cost', 422);
+  const cost = ledger.reduce((sum, line) => sum.minus(line.valueChange), new MoneyDecimal(0));
+  if (cost.lt(0)) throw new ApiError('Invalid original sale cost', 422);
   await tx.salesInvoiceLine.update({ where: { id: source.id }, data: { cogsAmount: cost } });
   return cost;
 }

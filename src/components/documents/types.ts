@@ -25,6 +25,9 @@ export interface DocLine {
     discount: number;
     /** percentage tax rate, e.g. 11 for PPN 11% */
     taxRate?: number;
+    taxable?: boolean | null;
+    purchaseOrderLineId?: string;
+    receivedAmounts?: { lineTotal: number; tax?: number };
     /** optional stock-on-hand for the low-stock badge */
     stock?: number;
     /**

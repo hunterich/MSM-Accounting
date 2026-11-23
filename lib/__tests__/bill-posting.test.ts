@@ -13,6 +13,11 @@ vi.mock('../withholding', () => ({ ensurePphPayableAccount: vi.fn(async () => 'a
 import { addCostLayer, lockInventoryItems } from '../inventory-costing';
 import { postJournalEntry } from '../journal-posting';
 
+function postedJournal() {
+  const { lines } = vi.mocked(postJournalEntry).mock.calls[0][1];
+  return { lines: lines.map(line => ({ ...line, debit: Number(line.debit), credit: Number(line.credit) })) };
+}
+
 const ACCOUNTS = [
   { id: 'acc-inv', code: '131', name: 'Persediaan', type: 'Asset', isActive: true, isPostable: true },
   { id: 'acc-ap', code: '21', name: 'Hutang Usaha', type: 'Liability', isActive: true, isPostable: true },
@@ -48,7 +53,7 @@ describe('postBillToLedger', () => {
     await postBillToLedger(tx as any, 'org-a', bill({ taxable: true, taxInclusive: true, taxRate: 11, lines: [{ id: 'bl', assetId: 'asset', accountId: 'acc-prepaid', itemId: null, quantity: 1, price: 1110, lineTotal: 1110, purchaseOrderLineId: null }] }));
     expect(addCostLayer).not.toHaveBeenCalled();
     expect(postJournalEntry).toHaveBeenCalledTimes(1);
-    const je = (postJournalEntry as any).mock.calls[0][1];
+    const je = postedJournal();
     expect(je.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ accountId: 'acc-prepaid', debit: 1000, description: 'Asset purchase - BILL-0001' }),
       expect.objectContaining({ accountId: 'acc-tax', debit: 110 }),
@@ -66,11 +71,11 @@ describe('postBillToLedger', () => {
     await postBillToLedger(tx as any, 'org-a', bill());
     expect(addCostLayer).not.toHaveBeenCalled();
     expect(lockInventoryItems).not.toHaveBeenCalled();
-    const je = (postJournalEntry as any).mock.calls[0][1];
+    const je = postedJournal();
     const grir = je.lines.find((l: any) => l.accountId === 'acc-grir');
-    expect(grir.debit).toBe(10000);
+    expect(grir?.debit).toBe(10000);
     const ap = je.lines.find((l: any) => l.accountId === 'acc-ap');
-    expect(ap.credit).toBe(10000);
+    expect(ap?.credit).toBe(10000);
   });
 
   it('inventory line whose PO link was stripped on edit still clears GR/IR (no double-count) when a receipt layer already exists', async () => {
@@ -80,8 +85,8 @@ describe('postBillToLedger', () => {
     // Must NOT re-book inventory or add a second cost layer.
     expect(addCostLayer).not.toHaveBeenCalled();
     expect(lockInventoryItems).not.toHaveBeenCalled();
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-grir').debit).toBe(10000);
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-grir')?.debit).toBe(10000);
     expect(je.lines.some((l: any) => l.accountId === 'acc-inv')).toBe(false);
   });
 
@@ -99,8 +104,8 @@ describe('postBillToLedger', () => {
     const b = bill({ lines: [{ id: 'bl-1', itemId: 'item-1', quantity: 10, price: 1000, lineTotal: 10000, purchaseOrderLineId: null }] });
     await postBillToLedger(tx as any, 'org-a', b);
     expect(addCostLayer).toHaveBeenCalledTimes(1);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-inv').debit).toBe(10000);
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-inv')?.debit).toBe(10000);
   });
 
   it('expense lines post to their own per-line accountId, not one COGS bucket', async () => {
@@ -110,10 +115,10 @@ describe('postBillToLedger', () => {
       { id: 'e2', itemId: null, accountId: 'acc-exp', quantity: 1, price: 3000, lineTotal: 3000, purchaseOrderLineId: null },
     ] });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(5000);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(3000);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(8000);
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent')?.debit).toBe(5000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp')?.debit).toBe(3000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap')?.credit).toBe(8000);
   });
 
   it('honors a per-line asset account (capex / prepaid), not COGS', async () => {
@@ -122,8 +127,8 @@ describe('postBillToLedger', () => {
       { id: 'e1', itemId: null, accountId: 'acc-prepaid', quantity: 1, price: 12000, lineTotal: 12000, purchaseOrderLineId: null },
     ] });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-prepaid').debit).toBe(12000);
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-prepaid')?.debit).toBe(12000);
     expect(je.lines.some((l: any) => l.accountId === 'acc-exp')).toBe(false);
   });
 
@@ -134,7 +139,7 @@ describe('postBillToLedger', () => {
       { id: 'e2', itemId: null, accountId: 'acc-rent', quantity: 1, price: 2000, lineTotal: 2000, purchaseOrderLineId: null },
     ] });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
+    const je = postedJournal();
     const rentLines = je.lines.filter((l: any) => l.accountId === 'acc-rent');
     expect(rentLines).toHaveLength(1);
     expect(rentLines[0].debit).toBe(7000);
@@ -146,8 +151,8 @@ describe('postBillToLedger', () => {
       { id: 'e1', itemId: null, accountId: null, quantity: 1, price: 5000, lineTotal: 5000, purchaseOrderLineId: null },
     ] });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(5000);
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp')?.debit).toBe(5000);
   });
 
   it('expense line coded to an unknown account falls back to the default (safety)', async () => {
@@ -156,8 +161,8 @@ describe('postBillToLedger', () => {
       { id: 'e1', itemId: null, accountId: 'acc-bogus', quantity: 1, price: 5000, lineTotal: 5000, purchaseOrderLineId: null },
     ] });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(5000);
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp')?.debit).toBe(5000);
   });
 
   it('PPh withholding -> Cr PPh payable for the withheld amount, AP reduced to the net payable', async () => {
@@ -168,13 +173,13 @@ describe('postBillToLedger', () => {
       lines: [{ id: 'e1', itemId: null, accountId: 'acc-rent', quantity: 1, price: 100000, lineTotal: 100000, purchaseOrderLineId: null }],
     });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
+    const je = postedJournal();
     // Expense debited at the full (pre-withholding) value.
-    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(100000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent')?.debit).toBe(100000);
     // The withheld 2% becomes a liability owed to the tax office.
-    expect(je.lines.find((l: any) => l.accountId === 'acc-pph').credit).toBe(2000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-pph')?.credit).toBe(2000);
     // The vendor is only owed the net: 100000 - 2000.
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(98000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap')?.credit).toBe(98000);
     const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
     const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
@@ -188,11 +193,11 @@ describe('postBillToLedger', () => {
       lines: [{ id: 'e1', itemId: null, accountId: 'acc-rent', quantity: 1, price: 100000, lineTotal: 100000, purchaseOrderLineId: null }],
     });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(100000);   // expense net
-    expect(je.lines.find((l: any) => l.accountId === 'acc-tax').debit).toBe(11000);      // PPN 11% (exclusive)
-    expect(je.lines.find((l: any) => l.accountId === 'acc-pph').credit).toBe(2000);       // PPh 2% on net, not on net+PPN
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(109000);      // 100000 + 11000 - 2000
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent')?.debit).toBe(100000);   // expense net
+    expect(je.lines.find((l: any) => l.accountId === 'acc-tax')?.debit).toBe(11000);      // PPN 11% (exclusive)
+    expect(je.lines.find((l: any) => l.accountId === 'acc-pph')?.credit).toBe(2000);       // PPh 2% on net, not on net+PPN
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap')?.credit).toBe(109000);      // 100000 + 11000 - 2000
     const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
     const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
@@ -205,10 +210,10 @@ describe('postBillToLedger', () => {
       charges: [{ id: 'c1', label: 'Freight in', accountId: 'acc-exp', amount: 10000, taxRate: 0 }],
     });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(50000);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(10000); // the freight charge
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(60000);  // line + charge
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent')?.debit).toBe(50000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp')?.debit).toBe(10000); // the freight charge
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap')?.credit).toBe(60000);  // line + charge
     const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
     const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
@@ -221,8 +226,8 @@ describe('postBillToLedger', () => {
       charges: [{ id: 'c1', label: 'Handling', accountId: null, amount: 3000, taxRate: 0 }],
     });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(3000);
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp')?.debit).toBe(3000);
   });
 
   it('a taxable charge adds input tax on top and into AP', async () => {
@@ -233,11 +238,11 @@ describe('postBillToLedger', () => {
       charges: [{ id: 'c1', label: 'Freight in', accountId: 'acc-exp', amount: 10000, taxRate: 11 }],
     });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-rent').debit).toBe(100000);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-exp').debit).toBe(10000);   // freight net
-    expect(je.lines.find((l: any) => l.accountId === 'acc-tax').debit).toBe(12100);    // 11% of (100000 + 10000)
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(122100);   // 110000 + 12100
+    const je = postedJournal();
+    expect(je.lines.find((l: any) => l.accountId === 'acc-rent')?.debit).toBe(100000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-exp')?.debit).toBe(10000);   // freight net
+    expect(je.lines.find((l: any) => l.accountId === 'acc-tax')?.debit).toBe(12100);    // 11% of (100000 + 10000)
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap')?.credit).toBe(122100);   // 110000 + 12100
     const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
     const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
@@ -251,23 +256,23 @@ describe('postBillToLedger', () => {
       charges: [{ id: 'c1', label: 'Freight in', accountId: 'acc-exp', amount: 50000, taxRate: 0 }],
     });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
+    const je = postedJournal();
     // PPh = 2% of the 100000 line only, NOT of the 50000 charge.
-    expect(je.lines.find((l: any) => l.accountId === 'acc-pph').credit).toBe(2000);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ap').credit).toBe(148000); // 100000 + 50000 - 2000
+    expect(je.lines.find((l: any) => l.accountId === 'acc-pph')?.credit).toBe(2000);
+    expect(je.lines.find((l: any) => l.accountId === 'acc-ap')?.credit).toBe(148000); // 100000 + 50000 - 2000
   });
 
   it('VAT-inclusive received line values GR/IR at net and adds input tax', async () => {
     const tx = makeTx();
     const b = bill({ taxable: true, taxInclusive: true, taxRate: 11 });
     await postBillToLedger(tx as any, 'org-a', b);
-    const je = (postJournalEntry as any).mock.calls[0][1];
+    const je = postedJournal();
     const grir = je.lines.find((l: any) => l.accountId === 'acc-grir');
     const tax = je.lines.find((l: any) => l.accountId === 'acc-tax');
     const ap = je.lines.find((l: any) => l.accountId === 'acc-ap');
-    expect(grir.debit).toBeCloseTo(9009.01, 1);   // 10000 / 1.11
-    expect(tax.debit).toBeCloseTo(990.99, 1);      // 10000 - net
-    expect(ap.credit).toBe(10000);                 // gross
+    expect(grir?.debit).toBeCloseTo(9009.01, 1);   // 10000 / 1.11
+    expect(tax?.debit).toBeCloseTo(990.99, 1);      // 10000 - net
+    expect(ap?.credit).toBe(10000);                 // gross
     const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
     const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);

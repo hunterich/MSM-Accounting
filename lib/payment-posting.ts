@@ -99,6 +99,9 @@ export async function postArPaymentIfNeeded(
   if (discount > 0) assertPaymentPostingAccount(accounts, discountAccountId!, 'arDiscount');
   if (penalty > 0) assertPaymentPostingAccount(accounts, penaltyAccountId!, 'arPenalty');
 
+  // Checkout and marketplace receipts settle the exact saved allocation.
+  const importedAmount = configuredDeposit?.source === 'POS_REGISTER' || payment.source === 'MARKETPLACE_IMPORT'
+    ? payment.totalAmount : null;
   const je = await postJournalEntry(tx, {
     organizationId: orgId,
     date: new Date(payment.date),
@@ -107,14 +110,14 @@ export async function postArPaymentIfNeeded(
       {
         accountId: bankAccountId,
         description: `Bank deposit - ${payment.number}`,
-        debit: amount,
+        debit: importedAmount ?? amount,
         credit: 0,
       },
       {
         accountId: arAccountId,
         description: `AR settlement - ${payment.number}`,
         debit: 0,
-        credit: amount + discount - penalty,
+        credit: importedAmount != null && discount === 0 && penalty === 0 ? importedAmount : amount + discount - penalty,
       },
       ...(discount > 0 && discountAccountId ? [{ accountId: discountAccountId, description: `Payment discount - ${payment.number}`, debit: discount, credit: 0 }] : []),
       ...(penalty > 0 && penaltyAccountId ? [{ accountId: penaltyAccountId, description: `Late fee - ${payment.number}`, debit: 0, credit: penalty }] : []),

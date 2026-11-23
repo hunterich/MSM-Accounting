@@ -72,6 +72,7 @@ type LegacyDocumentLine = {
     discount?: number | string | null;
     discountPct?: number | string | null;
     lineTotal?: number | string | null;
+    taxable?: boolean | null;
 };
 
 type LegacyDocumentPayload = Record<string, unknown> & {
@@ -109,6 +110,7 @@ const serializeDocumentLines = (payload: LegacyDocumentPayload) => {
                 unit: line.unit || 'PCS',
                 price,
                 ...(discountPct != null && discountPct !== '' && { discountPct: toFiniteNumber(discountPct) }),
+                ...(line.taxable != null && { taxable: line.taxable }),
                 lineTotal: line.lineTotal != null ? toFiniteNumber(line.lineTotal) : quantity * price,
             };
         });
@@ -162,6 +164,7 @@ function normalizeVendorCategory(raw: RawVendorCategory): VendorCategory {
 
 function normalizeBill(raw: RawBill): Bill {
     return {
+        receiptPostingJournalId: raw.receiptPostingJournalId,
         charges: (raw.charges ?? []).map(c => ({ ...c, amount: Number(c.amount ?? 0), taxRate: Number(c.taxRate ?? 0) })),
         vendorInvoiceNo: raw.vendorInvoiceNo || '',
         taxable: raw.taxable ?? false,

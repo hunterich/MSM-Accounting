@@ -5,15 +5,17 @@ import Input from '../../components/UI/Input';
 import { translate } from '../../i18n/language';
 import { useLanguageStore } from '../../stores/useLanguageStore';
 import StatusTag from '../../components/UI/StatusTag';
-import type { Account, DebitNote, PurchaseReturn } from '../../types';
+import type { Account, RawPurchaseReturn } from '../../types';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { MoneyDecimal, roundMoneyDecimal } from '../../../lib/money-decimal';
 
 interface DebitNoteLine {
     lineKey?:    string;
     description: string;
-    qtyReturn:   number;
+    qtyReturn:   number | string;
     unit:        string;
-    price:       number;
+    price:       number | string;
+    lineTotal?:  number | string;
 }
 
 interface DebitNoteFormData {
@@ -38,7 +40,8 @@ interface DebitNoteFormData {
     returnAccountId:     string;
     taxAccountId:        string;
     note:                string;
-    amount:              number;
+    amount:              number | string;
+    recordedTaxAmount:   number | string;
     lines:               DebitNoteLine[];
     applyTax:            boolean;
     taxIncluded:         boolean;
@@ -47,7 +50,7 @@ interface DebitNoteFormData {
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useBills } from '../../hooks/useAP';
 import { useChartOfAccounts } from '../../hooks/useGL';
-import { useDebitNotes, usePurchaseReturns, useCreateDebitNote, useUpdateDebitNote } from '../../hooks/useReturns';
+import { useDebitNotes, usePurchaseReturns, useCreateDebitNote, useUpdateDebitNote, type DebitNoteInput } from '../../hooks/useReturns';
 import { formatDateID, formatIDR } from '../../utils/formatters';
 import FormPage from '../../components/Layout/FormPage';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -57,15 +60,9 @@ import NotePrintTemplate from '../../components/print/NotePrintTemplate';
 import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 
 interface DebitNoteLocationState {
-    returnDraft?: PurchaseReturn;
+    returnDraft?: RawPurchaseReturn;
     debitId?: string;
     mode?: 'create' | 'edit' | 'view';
-}
-
-interface ReturnTotals {
-    subtotal: number;
-    taxAmount: number;
-    total: number;
 }
 
 interface PostingPreviewLine {
@@ -88,20 +85,13 @@ const buildDebitNo = (dateStr?: string, seq = 1) => {
     return `DBN/${yyyy}/${mm}/${String(seq).padStart(5, '0')}`;
 };
 
-const toReturnTotals = (purchaseReturn?: PurchaseReturn | null): ReturnTotals => {
-    if (!purchaseReturn) return { subtotal: 0, taxAmount: 0, total: 0 };
-    const subtotal = (purchaseReturn.lines || []).reduce((sum, line) => {
-        return sum + Number(line.qtyReturn || 0) * Number(line.price || 0);
-    }, 0);
-    if (!purchaseReturn.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
-    const rate = Number(purchaseReturn.taxRate || 0) / 100;
-    if (purchaseReturn.taxIncluded) {
-        const base = subtotal / (1 + rate);
-        return { subtotal, taxAmount: subtotal - base, total: subtotal };
-    }
-    const taxAmount = subtotal * rate;
-    return { subtotal, taxAmount, total: subtotal + taxAmount };
-};
+function legacyReturnTotals(draft: RawPurchaseReturn) {
+    const subtotal = (draft.lines ?? []).reduce((sum, line) => sum.plus(line.lineTotal ??
+        roundMoneyDecimal(new MoneyDecimal(line.qtyReturn ?? 0).mul(line.price ?? 0))), new MoneyDecimal(0));
+    const rate = new MoneyDecimal(draft.taxRate ?? 0).div(100);
+    const taxAmount = draft.applyTax ? roundMoneyDecimal(subtotal.mul(rate).div(draft.taxIncluded ? rate.plus(1) : 1)) : new MoneyDecimal(0);
+    return { totalAmount: (draft.taxIncluded ? subtotal : subtotal.plus(taxAmount)).toFixed(2), taxAmount: taxAmount.toFixed(2) };
+}
 
 interface DebitNoteFormProps { recordId?: string; mode?: string; workspaceTabId?: string }
 
@@ -130,7 +120,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     // the prefill is a whole payload that cannot ride in the URL.
     const draftSeed = useWorkspaceStore((s) =>
         (workspaceTabId ? s.tabs.find((t) => t.id === workspaceTabId)?.draft : undefined) as
-            | { returnDraft?: PurchaseReturn }
+            | { returnDraft?: RawPurchaseReturn }
             | undefined,
     );
     const state = (inWorkspace
@@ -163,6 +153,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
         taxAccountId: '',
         note: '',
         amount: 0,
+        recordedTaxAmount: 0,
         lines: [],
         applyTax: true,
         taxIncluded: false,
@@ -199,27 +190,33 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     useEffect(() => {
         if (state.returnDraft) {
             const draft = state.returnDraft;
+            const legacy = draft.totalAmount == null || draft.taxAmount == null ? legacyReturnTotals(draft) : null;
             // The seed carries the bill's DB key; `Bill.id` on the client is the
             // bill number, so match on either.
             const sourceBill = bills.find((item) => item.id === draft.billId || item._id === draft.billId);
             setNumberingMode('auto');
             setFormData((prev) => ({
                 ...prev,
-                debitDate: draft.returnDate || prev.debitDate,
+                debitDate: draft.returnDate?.slice(0, 10) || prev.debitDate,
                 linkedReturnId: draft.id || '',
                 linkedReturnNumber: draft.number || '',
-                vendorId: draft.vendorId,
+                vendorId: draft.vendorId || '',
                 vendorName: sourceBill?.vendor || '',
-                sourceBillId: draft.billId,
+                sourceBillId: draft.billId || '',
                 settlementRef: '',
                 apAccountId: draft.apAccountId || prev.apAccountId || resolvedAccountDefaults.apControl,
                 returnAccountId: draft.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.apReturn,
                 taxAccountId: draft.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.apTax,
-                amount: toReturnTotals(draft).total,
-                lines: draft.lines || [],
-                applyTax: draft.applyTax,
-                taxIncluded: draft.taxIncluded,
-                taxRate: draft.taxRate
+                amount: draft.totalAmount ?? legacy?.totalAmount ?? 0,
+                recordedTaxAmount: draft.taxAmount ?? legacy?.taxAmount ?? 0,
+                lines: (draft.lines ?? []).map(line => ({
+                    description: line.description ?? '', qtyReturn: line.qtyReturn ?? 0,
+                    unit: line.unit || 'PCS', price: line.price ?? 0, lineKey: line.lineKey ?? undefined,
+                    lineTotal: line.lineTotal ?? undefined,
+                })),
+                applyTax: draft.applyTax ?? false,
+                taxIncluded: draft.taxIncluded ?? false,
+                taxRate: Number(draft.taxRate ?? 0),
             }));
             return;
         }
@@ -246,6 +243,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                 returnAccountId: found.returnAccountId || prev.returnAccountId || resolvedAccountDefaults.apReturn,
                 taxAccountId: found.taxAccountId || prev.taxAccountId || resolvedAccountDefaults.apTax,
                 amount: found.amount,
+                recordedTaxAmount: found.taxAmount,
                 lines: linkedReturn?.lines || [],
                 applyTax: found.applyTax,
                 taxIncluded: linkedReturn?.taxIncluded ?? false,
@@ -306,16 +304,10 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
     }, [bills, formData.vendorId]);
 
     const totals = useMemo(() => {
-        const subtotal = formData.lines.reduce((sum, line) => sum + Number(line.qtyReturn || 0) * Number(line.price || 0), 0);
-        if (!formData.applyTax) return { subtotal, taxAmount: 0, total: subtotal };
-        const rate = Number(formData.taxRate || 0) / 100;
-        if (formData.taxIncluded) {
-            const base = subtotal / (1 + rate);
-            return { subtotal, taxAmount: subtotal - base, total: subtotal };
-        }
-        const taxAmount = subtotal * rate;
-        return { subtotal, taxAmount, total: subtotal + taxAmount };
-    }, [formData.lines, formData.applyTax, formData.taxIncluded, formData.taxRate]);
+        const total = roundMoneyDecimal(formData.amount);
+        const taxAmount = roundMoneyDecimal(formData.applyTax ? formData.recordedTaxAmount : 0);
+        return { subtotal: total.minus(taxAmount).toNumber(), taxAmount: taxAmount.toNumber(), total: total.toNumber() };
+    }, [formData.amount, formData.applyTax, formData.recordedTaxAmount]);
 
     const formatAccountOption = (accountId: string) => {
         const account = accountMap[accountId];
@@ -416,7 +408,7 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
             return;
         }
 
-        const notePayload: Partial<DebitNote> = {
+        const notePayload: DebitNoteInput = {
             date: formData.debitDate,
             returnId: formData.linkedReturnId,
             vendorId: formData.vendorId,
@@ -428,9 +420,6 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
             apAccountId: formData.apAccountId,
             returnAccountId: formData.returnAccountId,
             taxAccountId: formData.taxAccountId,
-            amount: totals.total || formData.amount,
-            taxAmount: formData.applyTax ? totals.taxAmount : 0,
-            applyTax: formData.applyTax,
             status: saveAsDraft ? 'Draft' : 'Applied',
         };
 
@@ -441,7 +430,12 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                 // POST always creates a DRAFT (the API ignores client status);
                 // applying is a separate DRAFT -> APPLIED transition that
                 // triggers the GL posting.
-                const created = await createDebitNote.mutateAsync(notePayload) as { id?: string };
+                const created = await createDebitNote.mutateAsync({
+                    ...notePayload,
+                    amount: roundMoneyDecimal(formData.amount).toFixed(2),
+                    taxAmount: roundMoneyDecimal(formData.applyTax ? formData.recordedTaxAmount : 0).toFixed(2),
+                    applyTax: formData.applyTax,
+                }) as { id?: string };
                 if (!saveAsDraft && created?.id) {
                     await updateDebitNoteMutation.mutateAsync({ id: created.id, status: 'Applied' });
                 }
@@ -537,7 +531,8 @@ const DebitNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: DebitNoteFo
                                 <td className="text-right">{line.qtyReturn}</td>
                                 <td>{line.unit}</td>
                                 <td className="text-right">{formatIDR(line.price)}</td>
-                                <td className="text-right text-strong">{formatIDR(Number(line.qtyReturn || 0) * Number(line.price || 0))}</td>
+                                <td className="text-right text-strong">{formatIDR(line.lineTotal ??
+                                    roundMoneyDecimal(new MoneyDecimal(line.qtyReturn).mul(line.price)).toFixed(2))}</td>
                             </tr>
                         ))}
                     </tbody>

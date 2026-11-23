@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from './errors';
 import { assertPeriodOpen } from './period-guard';
 import { reverseJournalEntry } from './reverse-journal-entry';
-import { reversePurchaseLayers } from './inventory-costing';
+import { reverseAddedLayers, reversePurchaseLayers } from './inventory-costing';
 import { lockAssetPurchases } from './asset-purchases';
 
 type Tx = Prisma.TransactionClient;
@@ -39,6 +39,7 @@ export async function voidBill(
       journalEntryId: true,
       voidedAt: true,
       deletedAt: true,
+      lines: { where: { poReceiptTaxAmount: { not: null } }, select: { id: true }, take: 1 },
       paymentAllocations: { where: { payment: { status: { not: 'VOID' } } }, select: { id: true } },
       debitNotes: { where: { status: 'APPLIED', settlementType: 'APPLY_TO_BILL' }, select: { id: true } },
     },
@@ -94,7 +95,9 @@ export async function voidBill(
 
   // Only bills that booked inventory directly own their cost layers. PO-sourced
   // bills cleared GR/IR without creating layers, so leave inventory alone.
-  if (!bill.poId) {
+  if (bill.lines?.length) {
+    await reverseAddedLayers(tx, orgId, 'PURCHASE', bill.id, opts.date, false);
+  } else if (!bill.poId) {
     await reversePurchaseLayers(tx, orgId, bill.id, opts.date);
   }
   // Inventory locks precede journal numbering, matching purchase/sale posting.

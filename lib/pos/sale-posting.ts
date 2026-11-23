@@ -6,9 +6,8 @@ import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { postArPaymentIfNeeded } from '@/lib/payment-posting';
 import { syncArPaymentSettlement } from '../settlement-status';
 import { resolveAccountDefaultId, loadOrgAccountDefaults } from '@/lib/account-defaults';
-import { computeSaleTotals, type SaleLineInput } from './pricing';
-import { computeServiceCharge } from './sales-type-charge';
-import { flattenSaleLines, type MaterializedLine } from './modifier-lines';
+import { posSaleBreakdown, pricePosSale, type PosSaleBreakdown, type SaleLineInput } from './pricing';
+import { MoneyDecimal, roundMoneyDecimal } from '../money-decimal';
 import { pickFefo, type BatchAvailability } from './fefo-picker';
 import { assertItemsActive } from '@/lib/item-availability';
 import { toAccountingDate } from '@/lib/accounting-date';
@@ -38,10 +37,8 @@ export interface PosSaleResult {
   salesInvoiceId: string;
   totalAmount: number;
   change: number;
+  breakdown: PosSaleBreakdown;
 }
-
-const TAX_RATE = 11;
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /**
  * Generate the next `POS-####` SalesInvoice number.
@@ -81,18 +78,20 @@ export async function postPosSale(
   // 1. Idempotency — replaying the same clientSaleId returns the original sale.
   const existing = await tx.posSale.findFirst({
     where: { organizationId: orgId, clientSaleId: input.clientSaleId },
-    select: { id: true, salesInvoiceId: true },
+    select: {
+      id: true, salesInvoiceId: true,
+      salesInvoice: { select: { subtotal: true, taxAmount: true, totalAmount: true } },
+      tenders: { select: { changeGiven: true } },
+    },
   });
   if (existing) {
-    const inv = await tx.salesInvoice.findUnique({
-      where: { id: existing.salesInvoiceId },
-      select: { totalAmount: true },
-    });
+    const { subtotal, taxAmount, totalAmount } = existing.salesInvoice;
     return {
       posSaleId: existing.id,
       salesInvoiceId: existing.salesInvoiceId,
-      totalAmount: Number(inv?.totalAmount ?? 0),
-      change: 0,
+      totalAmount: totalAmount.toNumber(),
+      change: existing.tenders.reduce((sum, tender) => sum.plus(tender.changeGiven), new MoneyDecimal(0)).toNumber(),
+      breakdown: posSaleBreakdown({ subtotal, taxAmount, serviceChargeNet: totalAmount.minus(subtotal).minus(taxAmount) }),
     };
   }
 
@@ -110,61 +109,22 @@ export async function postPosSale(
   if (shift.registerId !== input.registerId) throw new ApiError('Shift does not belong to this register', 400);
   const warehouseId = input.warehouseId ?? register.warehouseId ?? null;
 
-  // Normalize configured lines: cart line.price = base + Σ priceDelta.
-  // Strip deltas so the base line carries the item base and each option is its own line.
-  const normalized: SaleLineInput[] = input.lines.map((l) => {
-    const delta = (l.modifiers ?? []).reduce((s, m) => s + m.priceDelta, 0);
-    return { ...l, price: round2(l.price - delta) };
-  });
-  const materialized = flattenSaleLines(normalized);
-  // The catalog hides inactive products, but a stale/offline POS cart must be
-  // rejected at posting time as well. Modifier-linked inventory items are
-  // included because `materialized` contains them too.
-  await assertItemsActive(tx, orgId, materialized.map((line) => line.itemId));
-
-  // 3. Totals + cash validation.
-  const totals = computeSaleTotals(materialized, TAX_RATE);
-  if (totals.totalAmount <= 0) throw new ApiError('Sale total must be greater than zero', 400);
-
-  // 3b. Resolve the sales type (explicit id wins, else the register default) and
-  //     apply its tax flag + optional service charge. The charge is tax-inclusive
-  //     (the customer pays goods + charge); taxAddon is the PPN already embedded
-  //     in it, which invoice-send-posting splits back out into taxAmount.
+  // 3. Resolve the sales type and price the rows we will save and post.
   const salesTypeId = input.salesTypeId ?? register.defaultSalesTypeId ?? null;
-  let salesType:
-    | { id: string; taxable: boolean; serviceChargePct: number; chargeAccountId: string | null; name: string }
-    | null = null;
-  if (salesTypeId) {
-    const st = await tx.salesType.findFirst({
-      where: { id: salesTypeId, organizationId: orgId },
-      select: { id: true, taxable: true, serviceChargePct: true, chargeAccountId: true, name: true },
-    });
-    if (st)
-      salesType = {
-        id: st.id,
-        taxable: st.taxable,
-        serviceChargePct: Number(st.serviceChargePct),
-        chargeAccountId: st.chargeAccountId,
-        name: st.name,
-      };
-  }
-  const taxable = salesType ? salesType.taxable : true;
-
-  const { chargeAmt, taxAddon } = salesType
-    ? computeServiceCharge({ goodsTotal: totals.totalAmount, pct: salesType.serviceChargePct, taxable, rate: TAX_RATE })
-    : { chargeAmt: 0, taxAddon: 0 };
-  // No dedicated service-charge income key exists in account-defaults; fall back
-  // to null so a charge without its own account folds into sales revenue (a safe,
-  // balanced GL outcome) rather than mis-booking to an unrelated income account.
-  const chargeAccountId = salesType?.chargeAccountId ?? null;
-
-  const finalTotal = round2(totals.totalAmount + chargeAmt);
-  const finalTax = taxable ? round2(totals.taxAmount + taxAddon) : totals.taxAmount;
+  const salesType = salesTypeId ? await tx.salesType.findFirst({
+    where: { id: salesTypeId, organizationId: orgId },
+    select: { id: true, taxable: true, serviceChargePct: true, chargeAccountId: true, name: true },
+  }) : null;
+  const pricing = pricePosSale(input.lines, salesType);
+  const { lines: materialized, chargeAmt, taxAmount, taxRate, totalAmount } = pricing;
+  await assertItemsActive(tx, orgId, materialized.map(line => line.itemId));
+  if (totalAmount.lte(0)) throw new ApiError('Sale total must be greater than zero', 400);
 
   if (input.tenders.some((t) => t.method !== 'CASH')) throw new ApiError('Only cash tenders are supported', 400);
-  const cash = input.tenders.filter((t) => t.method === 'CASH').reduce((s, t) => s + t.amount, 0);
-  if (cash < finalTotal) throw new ApiError('Insufficient cash tendered', 400);
-  const change = round2(cash - finalTotal);
+  const tenders = input.tenders.map(tender => ({ ...tender, amount: roundMoneyDecimal(tender.amount) }));
+  const cash = tenders.reduce((sum, tender) => sum.plus(tender.amount), new MoneyDecimal(0));
+  if (cash.lt(totalAmount)) throw new ApiError('Insufficient cash tendered', 400);
+  const change = cash.minus(totalAmount);
 
   // 4. FEFO allocation for batch-tracked lines.
   // Include ordinary items and inventory-linked modifiers before any batch
@@ -187,7 +147,7 @@ export async function postPosSale(
       expiryDate: b.expiryDate,
       qtyOnHand: Number(b.qtyOnHand),
     }));
-    const picked = pickFefo(availability, line.quantity);
+    const picked = pickFefo(availability, line.quantity.toNumber());
     if (!picked.ok) {
       throw new ApiError(`Insufficient batch stock for item ${line.itemId} (short by ${picked.shortBy})`, 400);
     }
@@ -228,8 +188,8 @@ export async function postPosSale(
     });
     for (const e of emps) validPerformerIds.add(e.id);
   }
-  const performerForMaterialized = (l: MaterializedLine): string | null =>
-    l.performedById && validPerformerIds.has(l.performedById) ? l.performedById : defaultPerformerId;
+  const performerForMaterialized = (performedById: string | null): string | null =>
+    performedById && validPerformerIds.has(performedById) ? performedById : defaultPerformerId;
 
   // 6. Create SalesInvoice (DRAFT) with tax-inclusive totals.
   //    NOTE: no createdById — it is a nullable FK to User and the POS cashier
@@ -246,19 +206,19 @@ export async function postPosSale(
       customerId,
       issueDate: toAccountingDate(input.date),
       status: 'DRAFT',
-      taxEnabled: taxable,
+      taxEnabled: taxRate > 0,
       taxInclusive: true,
-      taxRate: TAX_RATE,
-      subtotal: totals.subtotal,
-      taxAmount: finalTax,
-      totalAmount: finalTotal,
+      taxRate,
+      subtotal: pricing.subtotal,
+      taxAmount,
+      totalAmount,
       salesTypeId: salesType?.id ?? null,
-      charges: chargeAmt > 0 ? { create: [{
+      charges: salesType && chargeAmt.gt(0) ? { create: [{
         lineNo: 1,
-        label: `Service Charge (${salesType!.name})`,
-        accountId: chargeAccountId,
+        label: `Service Charge (${salesType.name})`,
+        accountId: salesType.chargeAccountId,
         amount: chargeAmt,
-        taxRate: taxable ? TAX_RATE : 0,
+        taxRate,
       }] } : undefined,
       lines: {
         create: materialized.map((l) => ({
@@ -268,8 +228,8 @@ export async function postPosSale(
           quantity: l.quantity,
           price: l.price,
           discountPct: l.discountPct,
-          lineSubtotal: round2(l.quantity * l.price * (1 - l.discountPct / 100)),
-          performedById: performerForMaterialized(l),
+          lineSubtotal: l.lineSubtotal,
+          performedById: performerForMaterialized(l.performedById),
           parentLineNo: l.parentLineNo,
           isModifier: l.isModifier,
           modifierNote: l.modifierNote,
@@ -305,8 +265,8 @@ export async function postPosSale(
       depositAccountId: cashAccountId,
       arAccountId,
       status: 'COMPLETED',
-      totalAmount: finalTotal,
-      allocations: { create: [{ invoiceId: invoice.id, amountApplied: finalTotal }] },
+      totalAmount,
+      allocations: { create: [{ invoiceId: invoice.id, amountApplied: totalAmount }] },
     },
     select: { id: true },
   });
@@ -318,6 +278,12 @@ export async function postPosSale(
   await syncArPaymentSettlement(tx, orgId, payment.id);
 
   // 10. Record POS sale, tenders, and batch allocations.
+  let changeRemaining = change;
+  const recordedTenders = tenders.map(tender => {
+    const changeGiven = MoneyDecimal.min(changeRemaining, tender.amount);
+    changeRemaining = changeRemaining.minus(changeGiven);
+    return { ...tender, changeGiven };
+  });
   const posSale = await tx.posSale.create({
     data: {
       organizationId: orgId,
@@ -328,14 +294,7 @@ export async function postPosSale(
       clientSaleId: input.clientSaleId,
       syncStatus: 'SYNCED',
       soldAt: input.date,
-      tenders: {
-        create: input.tenders.map((t) => ({
-          method: t.method,
-          amount: t.amount,
-          reference: t.reference ?? null,
-          changeGiven: t.method === 'CASH' ? change : 0,
-        })),
-      },
+      tenders: { create: recordedTenders },
       batchAllocations: {
         create: allocationsByLine.flatMap((line) =>
           line.allocations.map((a) => ({ itemId: line.itemId, stockBatchId: a.stockBatchId, qty: a.qty })),
@@ -345,5 +304,8 @@ export async function postPosSale(
     select: { id: true },
   });
 
-  return { posSaleId: posSale.id, salesInvoiceId: invoice.id, totalAmount: finalTotal, change };
+  return {
+    posSaleId: posSale.id, salesInvoiceId: invoice.id, totalAmount: totalAmount.toNumber(),
+    change: change.toNumber(), breakdown: posSaleBreakdown(pricing),
+  };
 }

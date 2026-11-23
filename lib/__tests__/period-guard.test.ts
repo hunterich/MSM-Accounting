@@ -3,6 +3,7 @@
  * accounting period, and allows it otherwise (open period, or no period at all).
  */
 import { describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { assertPeriodOpen } from '../period-guard';
 
 // assertPeriodOpen now resolves + FOR SHARE-locks the period row via a raw
@@ -49,9 +50,10 @@ describe('assertPeriodOpen', () => {
     // so the lock must look up April too, not the (closed) March period.
     const tx = makeTx(null) as unknown as { $queryRaw: ReturnType<typeof vi.fn> };
     await assertPeriodOpen(tx as never, 'org-1', new Date('2026-03-31T19:00:00.000Z'));
-    const params = tx.$queryRaw.mock.calls[0].slice(1) as unknown[];
-    expect(params).toContainEqual(new Date('2026-04-01T00:00:00.000Z'));
-    expect(params).not.toContainEqual(new Date('2026-03-31T19:00:00.000Z'));
+    for (const [strings, ...params] of tx.$queryRaw.mock.calls) {
+      const query = Prisma.sql(strings, ...params);
+      expect(query.values).toEqual(['org-1', '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z']);
+    }
   });
 
   it('refuses a date inside a closed fiscal year even with no period row (#170)', async () => {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { logAudit, logAuditTx, validateForeignKey } from '@/lib/api-utils';
-import { asMoney, toNumber } from '@/lib/money';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { updateDebitNoteInputSchema } from '@/types/api';
 import { postDebitNoteOnApply } from '@/lib/debit-note-posting';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -82,7 +82,7 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
       await tx.$queryRaw`SELECT "id" FROM "DebitNote" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const prior = await tx.debitNote.findFirst({
         where: { id, organizationId: orgId },
-        select: { id: true, amount: true, status: true, journalEntryId: true, postedAt: true, vendorId: true, sourceBillId: true, purchaseReturnId: true },
+        select: { id: true, amount: true, taxAmount: true, applyTax: true, status: true, journalEntryId: true, postedAt: true, vendorId: true, sourceBillId: true, purchaseReturnId: true },
       });
       if (!prior) {
         throw Object.assign(new Error('Not found'), { status: 404 });
@@ -113,7 +113,8 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
 
       if (prior.status === 'DRAFT' && nextStatus === 'APPLIED') {
         await lockEligibleNoteReturn(tx, 'debit', {
-          id, amount: d.amount !== undefined ? asMoney(toNumber(d.amount)) : prior.amount,
+          id, amount: d.amount !== undefined ? roundMoneyDecimal(d.amount) : prior.amount,
+          taxAmount: (d.applyTax ?? prior.applyTax) ? (d.taxAmount ?? prior.taxAmount) : 0,
           organizationId: orgId, partyId: d.vendorId ?? prior.vendorId,
           sourceId: d.sourceBillId !== undefined ? d.sourceBillId : prior.sourceBillId,
           returnId: d.purchaseReturnId !== undefined ? d.purchaseReturnId : prior.purchaseReturnId,
@@ -126,8 +127,10 @@ export const PUT = withPermission({ module: 'AP_DEBITS', action: 'edit' }, async
         where: { id, organizationId: orgId },
         data: {
           ...d,
-          ...(d.amount !== undefined && { amount: asMoney(toNumber(d.amount)) }),
-          ...(d.taxAmount !== undefined && { taxAmount: asMoney(toNumber(d.taxAmount)) }),
+          ...(d.amount !== undefined && { amount: roundMoneyDecimal(d.amount) }),
+          ...((d.taxAmount !== undefined || d.applyTax === false) && {
+            taxAmount: roundMoneyDecimal((d.applyTax ?? prior.applyTax) === false ? 0 : (d.taxAmount ?? 0)),
+          }),
           ...(d.date !== undefined && { date: new Date(d.date) }),
           updatedAt: new Date(),
         },

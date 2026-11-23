@@ -1,10 +1,10 @@
 import { prisma } from './prisma';
-import { asMoney } from './money';
+import { MoneyDecimal, roundMoneyDecimal } from './money-decimal';
 import { calculateMarketplaceOrderTotals, type ImportOrder } from './marketplace-import';
 import { isMarketplaceReversalStatus, isMarketplaceShippedStatus } from '@/src/utils/marketplaceLifecycle';
 
 export interface PreviewOrder extends ImportOrder {
-  sourceTotal: number;
+  sourceTotal: string | number;
   missingDate: boolean;
 }
 
@@ -91,11 +91,15 @@ export async function previewMarketplaceOrders(
     orders: [],
   };
 
+  let sourceTotal = new MoneyDecimal(0);
+  let invoiceTotal = new MoneyDecimal(0);
+  let taxAmount = new MoneyDecimal(0);
   for (const order of orders) {
+    const sourceAmount = roundMoneyDecimal(order.sourceTotal);
     const row: PreviewOrderResult = {
       orderNo: order.orderNo,
       status: 'create',
-      sourceTotal: order.sourceTotal,
+      sourceTotal: sourceAmount.toNumber(),
       invoiceTotal: null,
       taxAmount: null,
       difference: null,
@@ -130,8 +134,9 @@ export async function previewMarketplaceOrders(
       row.status = 'blocked';
       row.reason = 'No usable order date; enter a date for orders missing one';
       result.blocked++;
-    } else if (order.sourceTotal < 0 || order.lines.some((line) =>
-      line.quantity < 0 || line.unitPrice < 0 || !line.description.trim())) {
+    } else if (new MoneyDecimal(order.sourceTotal).lt(0) || order.lines.some((line) =>
+      new MoneyDecimal(line.quantity).lt(0) || new MoneyDecimal(line.unitPrice).lt(0) ||
+      new MoneyDecimal(line.sourceLineAmount ?? 0).lt(0) || !line.description.trim())) {
       row.status = 'blocked';
       row.reason = 'Invalid product amount, quantity, price, or description in the export';
       result.blocked++;
@@ -147,19 +152,20 @@ export async function previewMarketplaceOrders(
         result.blocked++;
       } else {
         const totals = calculateMarketplaceOrderTotals(order, org, taxInclusive);
-        row.invoiceTotal = totals.totalAmount;
-        row.taxAmount = totals.taxAmount;
-        row.difference = asMoney(totals.totalAmount - order.sourceTotal);
+        row.invoiceTotal = totals.totalAmount.toNumber();
+        row.taxAmount = totals.taxAmount.toNumber();
+        const difference = totals.totalAmount.minus(sourceAmount);
+        row.difference = difference.toNumber();
         result.create++;
-        result.sourceTotal = asMoney(result.sourceTotal + order.sourceTotal);
-        result.invoiceTotal = asMoney(result.invoiceTotal + totals.totalAmount);
-        result.taxAmount = asMoney(result.taxAmount + totals.taxAmount);
-        if (row.difference !== 0) result.amountDifferences++;
+        sourceTotal = sourceTotal.plus(sourceAmount);
+        invoiceTotal = invoiceTotal.plus(totals.totalAmount);
+        taxAmount = taxAmount.plus(totals.taxAmount);
+        if (!difference.isZero()) result.amountDifferences++;
       }
     }
     result.orders.push(row);
     seenOrderNos.add(order.orderNo);
   }
 
-  return result;
+  return { ...result, sourceTotal: sourceTotal.toNumber(), invoiceTotal: invoiceTotal.toNumber(), taxAmount: taxAmount.toNumber() };
 }

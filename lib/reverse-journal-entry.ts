@@ -1,5 +1,4 @@
 import type { Prisma } from '@prisma/client';
-import { toNumber } from './money';
 import { ApiError } from './errors';
 import { postJournalEntry } from './journal-posting';
 
@@ -32,8 +31,8 @@ export async function reverseJournalEntry(
   const lines = original.lines.map((l) => ({
     accountId: l.accountId,
     description: `Reversal: ${l.description ?? ''}`.trim(),
-    debit: toNumber(l.credit),
-    credit: toNumber(l.debit),
+    debit: l.credit,
+    credit: l.debit,
   }));
 
   return postJournalEntry(tx, {

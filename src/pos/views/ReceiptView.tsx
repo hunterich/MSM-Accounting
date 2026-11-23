@@ -3,8 +3,8 @@ import Button from '@/src/components/UI/Button';
 import { useAuthStore } from '@/src/stores/useAuthStore';
 import type { Cart } from '../state/cart';
 import type { PostSaleResult } from '../hooks/usePos';
-import { computeSaleTotals } from '@/lib/pos/pricing';
-import { toSaleLines } from '../state/cart';
+import type { PosSaleBreakdown } from '@/lib/pos/pricing';
+import { MoneyDecimal } from '@/lib/money-decimal';
 import { t } from '../i18n/strings';
 
 const fmt = (n: number) => n.toLocaleString('id-ID');
@@ -32,22 +32,23 @@ function printReceiptHtml(html: string): void {
   }, 150);
 }
 
-export default function ReceiptView({ result, cart, onNew }: { result: PostSaleResult; cart: Cart; onNew: () => void }): React.ReactElement {
+export default function ReceiptView({ result, cart, lineTotals, breakdown, onNew }: {
+  result: PostSaleResult; cart: Cart; lineTotals: readonly number[]; breakdown: PosSaleBreakdown; onNew: () => void;
+}): React.ReactElement {
   const org = useAuthStore((s) => s.org) as { name?: string; legalName?: string; displayName?: string } | null;
   const user = useAuthStore((s) => s.user);
   const [soldAt] = useState(() => new Date());
 
-  const totals = computeSaleTotals(toSaleLines(cart), 11);
   const storeName = org?.displayName ?? org?.legalName ?? org?.name ?? 'Apotek';
   const cashier = user?.fullName ?? user?.email ?? '';
   const invoiceNo = result.salesInvoiceId.slice(-8).toUpperCase();
-  const cash = result.totalAmount + result.change;
+  const cash = new MoneyDecimal(result.totalAmount).plus(result.change).toNumber();
   const dateStr = soldAt.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
 
-  const lines = cart.lines.map((l) => ({
+  const lines = cart.lines.map((l, index) => ({
     qty: l.quantity,
     name: l.name,
-    total: l.price * l.quantity * (1 - l.discountPct / 100),
+    total: lineTotals[index],
     modifiers: l.modifiers,
     note: l.modifierNote,
   }));
@@ -78,8 +79,9 @@ export default function ReceiptView({ result, cart, onNew }: { result: PostSaleR
       <hr/>
       ${rows}
       <hr/>
-      <div class="row"><span>Subtotal</span><span>${fmt(totals.subtotal)}</span></div>
-      <div class="row"><span>PPN 11%</span><span>${fmt(totals.taxAmount)}</span></div>
+      <div class="row"><span>Subtotal</span><span>${fmt(breakdown.subtotal)}</span></div>
+      ${breakdown.serviceChargeNet > 0 ? `<div class="row"><span>Biaya layanan</span><span>${fmt(breakdown.serviceChargeNet)}</span></div>` : ''}
+      <div class="row"><span>PPN</span><span>${fmt(breakdown.taxAmount)}</span></div>
       <div class="row b"><span>Total</span><span>${fmt(result.totalAmount)}</span></div>
       <div class="row"><span>Tunai</span><span>${fmt(cash)}</span></div>
       <div class="row"><span>Kembalian</span><span>${fmt(result.change)}</span></div>
@@ -112,8 +114,11 @@ export default function ReceiptView({ result, cart, onNew }: { result: PostSaleR
           </div>
         ))}
         <hr className="my-2" />
-        <div className="flex justify-between text-gray-600"><span>{t('checkout.subtotal')}</span><span className="tabular-nums">{fmt(totals.subtotal)}</span></div>
-        <div className="flex justify-between text-gray-600"><span>{t('checkout.ppn')}</span><span className="tabular-nums">{fmt(totals.taxAmount)}</span></div>
+        <div className="flex justify-between text-gray-600"><span>{t('checkout.subtotal')}</span><span className="tabular-nums">{fmt(breakdown.subtotal)}</span></div>
+        {breakdown.serviceChargeNet > 0 && (
+          <div className="flex justify-between text-gray-600"><span>{t('checkout.serviceCharge')}</span><span className="tabular-nums">{fmt(breakdown.serviceChargeNet)}</span></div>
+        )}
+        <div className="flex justify-between text-gray-600"><span>{t('checkout.ppn')}</span><span className="tabular-nums">{fmt(breakdown.taxAmount)}</span></div>
         <div className="flex justify-between font-bold"><span>{t('checkout.total')}</span><span className="tabular-nums">{fmt(result.totalAmount)}</span></div>
         <div className="flex justify-between"><span>{t('tender.cash')}</span><span className="tabular-nums">{fmt(cash)}</span></div>
         <div className="flex justify-between"><span>{t('tender.change')}</span><span className="tabular-nums">{fmt(result.change)}</span></div>

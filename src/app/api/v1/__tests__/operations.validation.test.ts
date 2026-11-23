@@ -39,6 +39,7 @@ vi.mock('@/lib/prisma', () => {
       findFirst: vi.fn(),
       update: vi.fn(),
     },
+    bankStatementLine: { count: vi.fn(async () => 0) },
     $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
   };
 
@@ -89,6 +90,7 @@ import { POST as createStockAdjustment } from '../stock-adjustments/route';
 import { DELETE as deleteBankTransaction } from '../bank-transactions/[id]/route';
 import { PUT as updateBankTransaction } from '../bank-transactions/[id]/route';
 import { reverseBankTransactionPosting, postBankTransactionIfNeeded } from '@/lib/bank-transaction-posting';
+import { MoneyDecimal } from '@/lib/money-decimal';
 
 function makeReq(path: string, orgId: string, method = 'GET', body?: unknown) {
   const init = { method, headers: { 'x-org-id': orgId, 'x-user-id': 'u1', 'x-role-type': 'ADMIN' } } as any;
@@ -100,6 +102,7 @@ function makeReq(path: string, orgId: string, method = 'GET', body?: unknown) {
 }
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
+const money = (amount: number) => new MoneyDecimal(amount);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -142,10 +145,11 @@ describe('operational route validation', () => {
     vi.mocked(prisma.bankTransaction.update).mockResolvedValue({ id: 'txn-1' } as never);
     vi.mocked(prisma.bankAccount.update).mockResolvedValue({ id: 'bank-1' } as never);
     // Reverse undoes the original −100 expense; the re-post applies the new −150.
-    vi.mocked(reverseBankTransactionPosting).mockResolvedValue([{ bankAccountId: 'bank-1', delta: 100 }]);
+    vi.mocked(reverseBankTransactionPosting).mockResolvedValue([{ bankAccountId: 'bank-1', delta: money(100) }]);
     vi.mocked(postBankTransactionIfNeeded).mockResolvedValue({
       journalEntryId: 'je-2',
-      moves: [{ bankAccountId: 'bank-1', delta: -150 }],
+      moves: [{ bankAccountId: 'bank-1', delta: money(-150) }],
+      cashAmount: money(150),
     });
 
     const res = await updateBankTransaction(makeReq('/api/v1/bank-transactions/txn-1', 'org-a', 'PUT', {
@@ -162,11 +166,11 @@ describe('operational route validation', () => {
     // Back out the old cached effect (+100), then apply the re-posted one (−150).
     expect(prisma.bankAccount.update).toHaveBeenNthCalledWith(1, {
       where: { id: 'bank-1' },
-      data: { currentBalance: { increment: 100 } },
+      data: { currentBalance: { increment: money(100) } },
     });
     expect(prisma.bankAccount.update).toHaveBeenNthCalledWith(2, {
       where: { id: 'bank-1' },
-      data: { currentBalance: { increment: -150 } },
+      data: { currentBalance: { increment: money(-150) } },
     });
   });
 
@@ -183,10 +187,11 @@ describe('operational route validation', () => {
     vi.mocked(prisma.bankAccount.update).mockResolvedValue({ id: 'bank-1' } as never);
     // Reverse backs the +100 income out of the old account; the re-post lands it
     // on the reassigned account.
-    vi.mocked(reverseBankTransactionPosting).mockResolvedValue([{ bankAccountId: 'bank-1', delta: -100 }]);
+    vi.mocked(reverseBankTransactionPosting).mockResolvedValue([{ bankAccountId: 'bank-1', delta: money(-100) }]);
     vi.mocked(postBankTransactionIfNeeded).mockResolvedValue({
       journalEntryId: 'je-2',
-      moves: [{ bankAccountId: 'bank-2', delta: 100 }],
+      moves: [{ bankAccountId: 'bank-2', delta: money(100) }],
+      cashAmount: money(100),
     });
 
     const res = await updateBankTransaction(makeReq('/api/v1/bank-transactions/txn-1', 'org-a', 'PUT', {
@@ -198,11 +203,11 @@ describe('operational route validation', () => {
     expect(res.status).toBe(200);
     expect(prisma.bankAccount.update).toHaveBeenNthCalledWith(1, {
       where: { id: 'bank-1' },
-      data: { currentBalance: { increment: -100 } },
+      data: { currentBalance: { increment: money(-100) } },
     });
     expect(prisma.bankAccount.update).toHaveBeenNthCalledWith(2, {
       where: { id: 'bank-2' },
-      data: { currentBalance: { increment: 100 } },
+      data: { currentBalance: { increment: money(100) } },
     });
   });
 
@@ -218,6 +223,7 @@ describe('operational route validation', () => {
     // double-delete cannot double-increment the balance.
     vi.mocked(prisma.bankTransaction.deleteMany).mockResolvedValue({ count: 1 } as never);
     vi.mocked(prisma.bankAccount.update).mockResolvedValue({ id: 'bank-1' } as never);
+    vi.mocked(reverseBankTransactionPosting).mockResolvedValue([{ bankAccountId: 'bank-1', delta: money(100) }]);
 
     const res = await deleteBankTransaction(
       makeReq('/api/v1/bank-transactions/txn-1', 'org-a', 'DELETE'),
@@ -230,7 +236,7 @@ describe('operational route validation', () => {
     });
     expect(prisma.bankAccount.update).toHaveBeenCalledWith({
       where: { id: 'bank-1' },
-      data: { currentBalance: { increment: 100 } },
+      data: { currentBalance: { increment: money(100) } },
     });
   });
 });

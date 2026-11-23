@@ -14,7 +14,7 @@ export interface CloseShiftResult {
   status: 'CLOSED'; expectedCash: number; cashVariance: number;
   zReport: { totalSales: number; saleCount: number; cashCollected: number };
 }
-export interface PostSaleResult { posSaleId: string; salesInvoiceId: string; totalAmount: number; change: number }
+export interface PostSaleResult { posSaleId: string; salesInvoiceId: string; totalAmount: number; change: number; breakdown?: import('@/lib/pos/pricing').PosSaleBreakdown }
 export interface OpenShiftRow { id: string; registerId: string; openedAt: string; openingFloat: number }
 
 export function useRegisters() {

@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
 import { ok, err, logAudit, ApiError } from '@/lib/api-utils';
@@ -10,20 +9,7 @@ import { createJournalEntryInputSchema } from '@/types/api';
 import { syncAccountPostingFlags } from '@/lib/account-postings';
 import { canOverrideTransactionDate } from '@/lib/authz';
 import { toAccountingDate } from '@/lib/accounting-date';
-
-const ZERO = new Prisma.Decimal(0);
-const TOLERANCE = new Prisma.Decimal('0.005');
-
-function toDecimal(value: unknown): Prisma.Decimal {
-  if (value instanceof Prisma.Decimal) return value;
-  if (value === null || value === undefined || value === '') return ZERO;
-  try {
-    const d = new Prisma.Decimal(value as Prisma.Decimal.Value);
-    return d.isFinite() ? d : ZERO;
-  } catch {
-    return ZERO;
-  }
-}
+import { normalizeJournalAmounts } from '@/lib/journal-amounts';
 
 export const runtime = 'nodejs';
 
@@ -69,19 +55,17 @@ export const PUT = withPermission({ module: 'GL_JOURNAL', action: 'edit' }, asyn
   }
 
   const payload = parsedPayload.data;
-  const lines = payload.lines.map((line, index) => ({
+  const { lines, totalDebit, totalCredit } = normalizeJournalAmounts(payload.lines.map((line, index) => ({
     accountId: line.accountId,
     description: line.description || null,
-    debit: toDecimal(line.debit),
-    credit: toDecimal(line.credit),
+    debit: line.debit,
+    credit: line.credit,
     lineNo: index + 1,
-  }));
-  const totalDebit = lines.reduce<Prisma.Decimal>((sum, line) => sum.plus(line.debit), ZERO);
-  const totalCredit = lines.reduce<Prisma.Decimal>((sum, line) => sum.plus(line.credit), ZERO);
+  })));
   if (totalDebit.lte(0) || totalCredit.lte(0)) {
     return err('Journal totals must be greater than zero', 422);
   }
-  if (totalDebit.minus(totalCredit).abs().gt(TOLERANCE)) {
+  if (!totalDebit.eq(totalCredit)) {
     return err(`Unbalanced journal entry. totalDebit=${totalDebit.toString()} totalCredit=${totalCredit.toString()}`, 422);
   }
 

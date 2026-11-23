@@ -45,11 +45,11 @@ describe('postInvoiceSend — additional charges', () => {
     });
     await postInvoiceSend(tx as any, 'org-a', 'inv-1');
     const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ar').debit).toBe(120000);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-sales').credit).toBe(100000);   // goods revenue only
-    expect(je.lines.find((l: any) => l.accountId === 'acc-freight').credit).toBe(20000);   // the delivery charge
-    const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
-    const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-ar').debit)).toBe(120000);
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-sales').credit)).toBe(100000);   // goods revenue only
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-freight').credit)).toBe(20000);   // the delivery charge
+    const totDr = je.lines.reduce((s: number, l: any) => s + Number(l.debit), 0);
+    const totCr = je.lines.reduce((s: number, l: any) => s + Number(l.credit), 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
   });
 
@@ -60,7 +60,7 @@ describe('postInvoiceSend — additional charges', () => {
     });
     await postInvoiceSend(tx as any, 'org-a', 'inv-1');
     const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-sales').credit).toBe(120000);
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-sales').credit)).toBe(120000);
     expect(je.lines.some((l: any) => l.accountId === 'acc-freight')).toBe(false);
   });
 
@@ -72,12 +72,12 @@ describe('postInvoiceSend — additional charges', () => {
     });
     await postInvoiceSend(tx as any, 'org-a', 'inv-1');
     const je = (postJournalEntry as any).mock.calls[0][1];
-    expect(je.lines.find((l: any) => l.accountId === 'acc-ar').debit).toBe(122100);
-    expect(je.lines.find((l: any) => l.accountId === 'acc-sales').credit).toBe(100000);   // goods
-    expect(je.lines.find((l: any) => l.accountId === 'acc-freight').credit).toBe(10000);   // charge net
-    expect(je.lines.find((l: any) => l.accountId === 'acc-outtax').credit).toBe(12100);    // PPN on goods + charge
-    const totDr = je.lines.reduce((s: number, l: any) => s + l.debit, 0);
-    const totCr = je.lines.reduce((s: number, l: any) => s + l.credit, 0);
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-ar').debit)).toBe(122100);
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-sales').credit)).toBe(100000);   // goods
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-freight').credit)).toBe(10000);   // charge net
+    expect(Number(je.lines.find((l: any) => l.accountId === 'acc-outtax').credit)).toBe(12100);    // PPN on goods + charge
+    const totDr = je.lines.reduce((s: number, l: any) => s + Number(l.debit), 0);
+    const totCr = je.lines.reduce((s: number, l: any) => s + Number(l.credit), 0);
     expect(Math.abs(totDr - totCr)).toBeLessThan(0.01);
   });
 });

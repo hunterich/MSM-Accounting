@@ -36,12 +36,12 @@ describe('reverseJournalEntry', () => {
     expect(data.memo).toBe('Void bill: BILL-0001');
     const grir = data.lines.create.find((l: any) => l.accountId === 'acc-grir');
     const ap = data.lines.create.find((l: any) => l.accountId === 'acc-ap');
-    expect(grir.debit).toBe(0);
-    expect(grir.credit).toBe(10000);
-    expect(ap.debit).toBe(10000);
-    expect(ap.credit).toBe(0);
-    expect(data.totalDebit).toBe(10000);
-    expect(data.totalCredit).toBe(10000);
+    expect(String(grir.debit)).toBe('0');
+    expect(String(grir.credit)).toBe('10000');
+    expect(String(ap.debit)).toBe('10000');
+    expect(String(ap.credit)).toBe('0');
+    expect(String(data.totalDebit)).toBe('10000');
+    expect(String(data.totalCredit)).toBe('10000');
   });
 
   it('throws when the original entry does not exist', async () => {
