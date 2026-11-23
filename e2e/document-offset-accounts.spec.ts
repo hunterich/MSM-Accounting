@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { formatIDR } from '../src/utils/formatters';
 
 let writes: Array<{ path: string; body: Record<string, unknown> }>;
 let inclusive: boolean | null;
@@ -92,10 +93,20 @@ for (const taxInclusive of [false, true]) test(`invoice charge account repair re
   await expect(picker).toHaveValue('ar');
   await expect(picker.locator('option[value="ar"]')).toBeDisabled();
   await picker.selectOption('holding');
+  await expect(page.getByText('Grand total', { exact: true }).filter({ visible: true }).locator('..'))
+    .toContainText(formatIDR(taxInclusive ? 125 : 138.75));
+  await expect(page.getByText('PPN 11%', { exact: true }).filter({ visible: true }).locator('..'))
+    .toContainText(formatIDR(taxInclusive ? 12.39 : 13.75));
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
-  expect(writes[0].body.totalAmount).toBe(taxInclusive ? 125 : 138.75);
-  expect(writes[0].body.charges).toEqual([expect.objectContaining({ accountId: 'holding', amount: 25, taxRate: 11 })]);
+  expect(writes[0]).toMatchObject({
+    path: '/api/v1/invoices/invoice',
+    body: {
+      taxEnabled: true, taxInclusive, taxRate: 11,
+      lines: [expect.objectContaining({ description: 'Service', quantity: 1, price: 100 })],
+      charges: [expect.objectContaining({ accountId: 'holding', amount: 25, taxRate: 11 })],
+    },
+  });
 });
 
 test('an older recovered invoice draft keeps its notes and hydrates saved charges', async ({ page }) => {
