@@ -152,3 +152,23 @@ trial balance. The route cases can only hold the *other* side open, so they cove
 ## Remaining gates
 
 The finance, legacy-data, rehearsal and release gates listed above are unchanged.
+
+# Closure — 2026-11-23
+
+#170 is closed. The app is still in development and no organisation uses it, so
+go-live starts from a fresh database: opening balances and opening stock are
+entered through the current code, which records lot carrying values as it posts.
+The legacy gates above therefore do not apply:
+
+- Finance-reviewed historical Inventory account set and read-only production runs:
+  there is no historical data to review.
+- Legacy pool / NULL carrying-value initialization: lots without a carrying value
+  only exist in databases created before migration
+  `20261014060000_inventory_carrying_values`, and none will be carried into go-live.
+
+The remaining release work is not INV-02-specific and is tracked in OPS-03 (#187):
+exact release CI, isolated staging upgrade, backup/restore with attachments, and
+deployment smoke. If data from an existing install is ever carried into go-live,
+run `scripts/audit-inventory-books.ts`, `scripts/audit-weighted-average-pools.sql`
+and `scripts/preview-inventory-carrying.ts` read-only on a restored copy first
+(see `docs/INV-02-CARRYING-VALUES.md`) and plan any initialization with finance.
