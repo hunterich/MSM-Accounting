@@ -7,6 +7,7 @@ import { readScope } from '@/lib/authz-read-scopes';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { assertStoredDocumentOffsets } from '@/lib/document-offset-accounts';
+import { assertInvoiceSalesPosting, findInvoicePostingEntries } from '@/lib/invoice-posting-entries';
 import { reverseInvoicePosting } from '@/lib/repost';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
@@ -178,12 +179,11 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         taxDefaultRate: existing.taxRate,
       }) : null;
 
-      // DRAFT → edit freely. SENT/OVERDUE field edit → edit-after-post: reverse the
-      // posting, apply the edit, re-post — bounded by the open period. A status-only
-      // update (e.g. marking paid) is NOT an edit and skips this. Everything else
-      // (PAID/VOID/PENDING_APPROVAL) → must be voided to change.
+      // DRAFT invoices can be edited freely. SENT/OVERDUE edits require an open
+      // period and a valid sales posting. Notes alone leave that posting intact.
+      // Status-only updates skip the edit path.
       const isDraft = existing.status === 'DRAFT';
-      const isPostedEdit = canEditPosted && !isStatusOnlyUpdate && !isNotesOnlyUpdate;
+      const isPostedEdit = canEditPosted && !isStatusOnlyUpdate;
       if (!isDraft && !canEditPosted && !isStatusOnlyUpdate) {
         throw new AccessError(`Cannot edit a ${existing.status} invoice — void it to change.`, 403);
       }
@@ -206,9 +206,14 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         const newDate = header.issueDate ? new Date(header.issueDate) : new Date(existing.issueDate);
         await assertPeriodOpen(tx, existing.organizationId, new Date(existing.issueDate)); // posted period
         await assertPeriodOpen(tx, existing.organizationId, newDate);                       // re-post period
-        await lockInventoryItems(tx, orgId, [...existing.lines, ...(lines ?? [])].flatMap(line => line.itemId ? [line.itemId] : []));
-        postedEditBefore = await tx.salesInvoice.findFirst({ where: { id }, include: { lines: true, charges: true } });
-        await reverseInvoicePosting(tx, existing.organizationId, existing, { date: newDate });
+        if (isNotesOnlyUpdate) {
+          const entries = await findInvoicePostingEntries(tx, orgId, existing);
+          assertInvoiceSalesPosting(existing, entries, 'edit notes');
+        } else {
+          await lockInventoryItems(tx, orgId, [...existing.lines, ...(lines ?? [])].flatMap(line => line.itemId ? [line.itemId] : []));
+          postedEditBefore = await tx.salesInvoice.findFirst({ where: { id }, include: { lines: true, charges: true } });
+          await reverseInvoicePosting(tx, existing.organizationId, existing, { date: newDate });
+        }
       }
 
       // Atomically claim the DRAFT → SENT transition before any GL side effect:
@@ -260,10 +265,10 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         }
       }
 
-      if (!isNotesOnlyUpdate) await assertStoredDocumentOffsets(tx, orgId, 'INVOICE', id);
+      await assertStoredDocumentOffsets(tx, orgId, 'INVOICE', id);
       // Edit-after-post: re-post AR (+ charges) from the freshly-edited invoice
       // (its prior entries and exact inventory draws were reversed above).
-      if (isPostedEdit) {
+      if (isPostedEdit && !isNotesOnlyUpdate) {
         await postInvoiceSend(tx, existing.organizationId, existing.id, dateOverride);
         await assertCorrectedSalesValue(tx, existing.organizationId, existing.id);
       }
