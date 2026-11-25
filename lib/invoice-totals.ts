@@ -29,6 +29,14 @@ export function calculateInvoiceLineAmounts(line: Pick<InvoiceLine, 'quantity' |
   return { quantity, price, discountPct, lineSubtotal };
 }
 
+type InvoiceLinePricing = Pick<InvoiceLine, 'itemId' | 'unit' | 'quantity' | 'price' | 'discountPct'>;
+
+export function sameInvoiceLinePricing(line: InvoiceLinePricing, saved: InvoiceLinePricing) {
+  const amounts = calculateInvoiceLineAmounts(line);
+  return (line.itemId || null) === (saved.itemId || null) && (line.unit || 'PCS') === (saved.unit || 'PCS')
+    && amounts.quantity.eq(saved.quantity) && amounts.price.eq(saved.price) && amounts.discountPct.eq(saved.discountPct ?? 0);
+}
+
 export function calculateInvoiceTotals(
   payload: {
     lines: readonly InvoiceLine[];

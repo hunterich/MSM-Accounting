@@ -94,6 +94,7 @@ export const createInvoiceInputSchema = z.object({
 
 export const updateInvoiceAmountsSchema = z.object({
   lines: z.array(invoiceLineInputSchema.extend({
+    id: z.string().trim().min(1).optional(),
     itemId: invoiceLineInputSchema.shape.itemId.nullable(),
     code: invoiceLineInputSchema.shape.code.nullable(),
   })).min(1, 'At least one invoice line is required').optional(),

@@ -88,6 +88,7 @@ function normalizeInvoice(raw: RawInvoice): Invoice {
         customerCode: raw.customer?.code || '',
         customerEmail: raw.customer?.email || '',
         invoiceType:  raw.invoiceType || 'Sales Invoice',
+        salesTypeId:  raw.salesTypeId ?? null,
         issueDate:    raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
         date:         raw.issueDate ? String(raw.issueDate).slice(0, 10) : '',
         dueDate:      raw.dueDate   ? String(raw.dueDate).slice(0, 10)   : '',

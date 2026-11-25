@@ -36,6 +36,7 @@ import { POST as autoMatchStatement } from '@/src/app/api/v1/bank-statements/mat
 import { POST as previewImport } from '@/src/app/api/v1/integrations/[id]/import/preview/route';
 import { POST as submitImport } from '@/src/app/api/v1/integrations/[id]/import/route';
 import { POST as submitSettlement } from '@/src/app/api/v1/integrations/[id]/settlement-import/route';
+import { PUT as updateInvoice } from '@/src/app/api/v1/invoices/[id]/route';
 
 const SEED_DATE = new Date('2026-01-01T00:00:00.000Z');
 
@@ -143,6 +144,7 @@ interface ImportedOrder {
 async function seedImportedOrder(options: {
   tax?: boolean;
   shipmentDate?: string;
+  recordPayment?: boolean;
   line?: Pick<ImportOrder['lines'][number], 'quantity' | 'unitPrice' | 'sourceLineAmount'>;
 } = {}): Promise<ImportedOrder> {
   const org = await createTestOrg();
@@ -189,7 +191,7 @@ async function seedImportedOrder(options: {
       { itemId, description: 'Stocked Product', sku: 'SKU-STK', ...(options.line ?? { quantity: 5, unitPrice: 100_000 }) },
     ],
   };
-  const importOptions = { recordPayment: true };
+  const importOptions = { recordPayment: options.recordPayment ?? true };
   let preview: MarketplaceImportPreview | undefined;
   if (options.line?.sourceLineAmount != null) {
     const context = { params: Promise.resolve({ id: conn.id }) };
@@ -270,6 +272,48 @@ function laterRefund(noteNumber: string, amount: number) {
 }
 
 describe('settlement reconciliation service', () => {
+  it('keeps a posted Rp6.67 marketplace invoice and its journals unchanged when editing notes', async () => {
+    const s = await seedImportedOrder({ recordPayment: false, line: { quantity: '3', unitPrice: '2.22', sourceLineAmount: '6.67' } });
+    try {
+      const role = await prisma.role.create({ data: { organizationId: s.orgId, name: 'Admin', roleType: 'ADMIN' } });
+      await prisma.userOrganization.create({ data: { organizationId: s.orgId, userId: s.userId, roleId: role.id } });
+      const invoice = await prisma.salesInvoice.findFirstOrThrow({
+        where: { organizationId: s.orgId, poNumber: 'ORD1' }, include: { lines: true },
+      });
+      const arAccount = await prisma.account.findFirstOrThrow({ where: { organizationId: s.orgId, code: '1210' } });
+      const initialJournalCount = await prisma.journalEntry.count({ where: { organizationId: s.orgId } });
+      const line = invoice.lines[0];
+      expect(invoice.status).toBe('SENT');
+      expect(invoice.totalAmount.toFixed(2)).toBe('6.67');
+      const { id, itemId, code, description, unit, taxable } = line;
+      const inputLine = { itemId, code, description, unit, taxable, quantity: 3, price: 2.22, discountPct: 0 };
+      const save = (notes: string, lines: unknown[]) => updateInvoice(new NextRequest(`http://localhost/api/v1/invoices/${invoice.id}`, {
+        method: 'PUT',
+        headers: { 'x-org-id': s.orgId, 'x-user-id': s.userId, 'x-role-type': 'ADMIN', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          notes, lines, customerId: invoice.customerId, issueDate: invoice.issueDate,
+          salesTypeId: invoice.salesTypeId, taxEnabled: false, taxRate: invoice.taxRate, taxInclusive: invoice.taxInclusive, discountPct: 0,
+        }),
+      }), { params: Promise.resolve({ id: invoice.id }) });
+      for (const [index, lines] of [[{ ...inputLine, id }], [inputLine]].entries()) {
+        const notes = `Delivery reference ${index + 1}`;
+        const edited = await save(notes, lines);
+        expect(edited.status, await edited.clone().text()).toBe(200);
+        expect(await edited.json()).toMatchObject({
+          notes, totalAmount: '6.67', postingJournalIds: invoice.postingJournalIds,
+          lines: [{ id, lineSubtotal: '6.67' }],
+        });
+        expect(await prisma.journalEntry.count({ where: { organizationId: s.orgId } })).toBe(initialJournalCount);
+        expect(await accountBalance(s.orgId, arAccount.id)).toBe(6.67);
+      }
+      const repriced = await save('Confirmed price change', [{ ...inputLine, id, price: 2.23 }]);
+      expect(repriced.status, await repriced.clone().text()).toBe(200);
+      expect(await repriced.json()).toMatchObject({ totalAmount: '6.69', lines: [{ lineSubtotal: '6.69' }] });
+      expect(await accountBalance(s.orgId, arAccount.id)).toBe(6.69);
+      await assertTrialBalanced(s.orgId);
+    } finally { await cleanupOrg(s.orgId); }
+  });
+
   it('keeps a Rp6.67 exported amount in the preview, invoice and GL, then posts the rounded fees against the payout', async () => {
     const s = await seedImportedOrder({ line: { quantity: '3', unitPrice: '2.22', sourceLineAmount: '6.67' } });
     try {

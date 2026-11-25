@@ -12,10 +12,20 @@ describe('calculateInvoiceTotals', () => {
   it('shows Rp6.66 in the invoice preview by summing two rounded Rp3.33 lines', () => {
     const formLines = ['First', 'Second'].map(description => ({ description, quantity: 0.3333, price: 10 }));
     const tax = { enabled: false, inclusive: false, rate: 0 };
-    expect(formLines.map(invoiceFormLineTotal)).toEqual([3.33, 3.33]);
+    expect(formLines.map(line => invoiceFormLineTotal(line))).toEqual([3.33, 3.33]);
     const preview = computeInvoiceFormTotals(formLines, [], 0, tax);
     expect(preview.subtotal.toFixed(2)).toBe('6.66');
     expect(preview.totalAmount.toFixed(2)).toBe('6.66');
+  });
+
+  it('keeps an imported Rp6.67 in the editor until the line pricing changes', () => {
+    const line = { id: 'line', description: 'Marketplace item', quantity: 3, price: 2.22 };
+    const saved = { ...line, discountPct: 0, lineSubtotal: 6.67 };
+    const savedLines = new Map([[line.id, saved]]);
+    const tax = { enabled: false, inclusive: false, rate: 0 };
+    expect(invoiceFormLineTotal(line, saved)).toBe(6.67);
+    expect(computeInvoiceFormTotals([line], [], 0, tax, savedLines).totalAmount.toFixed(2)).toBe('6.67');
+    expect(computeInvoiceFormTotals([{ ...line, price: 2.23 }], [], 0, tax, savedLines).totalAmount.toFixed(2)).toBe('6.69');
   });
 
   it('computes subtotal/tax/total for a simple 1-line invoice (exclusive tax)', () => {
