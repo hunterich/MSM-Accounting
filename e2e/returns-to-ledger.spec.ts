@@ -244,15 +244,23 @@ test('return-only confirmation can cancel without a write or save without a cred
   await choose(page, 'Select Customer...', 'Acme Corp')
   await choose(page, 'Select Invoice...', /INV-0004/)
   await page.getByRole('row').filter({ hasText: 'Widget A x5' }).locator('input[type="number"]').fill('1')
-  let writes = 0
-  page.on('request', req => { if (/\/api\/v1\/(sales-returns|credit-notes)(\/|$)/.test(req.url()) && ['POST', 'PUT'].includes(req.method())) writes++ })
+  const writes: string[] = []
+  page.on('request', req => {
+    const { pathname } = new URL(req.url())
+    const method = req.method()
+    // The valuation preview uses POST and leaves saved documents untouched.
+    if (pathname === '/api/v1/sales-returns/preview') return
+    if (/^\/api\/v1\/(sales-returns|credit-notes)(\/|$)/.test(pathname) && ['POST', 'PUT', 'DELETE'].includes(method)) {
+      writes.push(`${method} ${pathname}`)
+    }
+  })
   const cancelDialog = page.waitForEvent('dialog').then(async dialog => {
     expect(dialog.type()).toBe('confirm')
     expect(dialog.message()).toContain('no refund or credit is recorded')
     await dialog.dismiss()
   })
   await Promise.all([cancelDialog, page.getByRole('button', { name: 'Save Return (no credit note)' }).click()])
-  expect(writes).toBe(0)
+  expect(writes).toEqual([])
   expect(await idsOf(page.request, '/api/v1/sales-returns?limit=100')).toEqual(returnsBefore)
   const confirmDialog = page.waitForEvent('dialog').then(dialog => dialog.accept())
   const saved = page.waitForResponse(res => res.url().endsWith('/api/v1/sales-returns') && res.request().method() === 'POST')
@@ -262,5 +270,6 @@ test('return-only confirmation can cancel without a write or save without a cred
   expect(response.request().postDataJSON().status).toBe('APPROVED')
   expect(theNewOne<{ id: string; status: string }>(await apiJson(page.request, '/api/v1/sales-returns?limit=100'), returnsBefore, 'return').status).toBe('APPROVED')
   expect(await idsOf(page.request, '/api/v1/credit-notes?limit=100')).toEqual(notesBefore)
+  expect(writes).toEqual(['POST /api/v1/sales-returns'])
 })
 
