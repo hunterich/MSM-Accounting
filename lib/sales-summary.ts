@@ -54,10 +54,11 @@ function invoiceEvents() {
     SELECT i."issueDate" AS date, 1 AS factor WHERE i.status IN ('SENT', 'OVERDUE', 'PAID') OR
       (i.status = 'VOID' AND (SELECT COUNT(DISTINCT j.date) FROM "JournalEntry" j
         WHERE j."organizationId" = i."organizationId" AND j.status = 'POSTED' AND j.source = 'REVERSAL'
-          AND j.memo = 'Void invoice: ' || i.number) = 1)
+          AND md5(j.memo) = md5('Void invoice: ' || i.number) AND j.memo = 'Void invoice: ' || i.number) = 1)
     UNION ALL
     SELECT MIN(j.date), -1 FROM "JournalEntry" j WHERE i.status = 'VOID' AND j."organizationId" = i."organizationId"
-      AND j.status = 'POSTED' AND j.source = 'REVERSAL' AND j.memo = 'Void invoice: ' || i.number
+      AND j.status = 'POSTED' AND j.source = 'REVERSAL'
+      AND md5(j.memo) = md5('Void invoice: ' || i.number) AND j.memo = 'Void invoice: ' || i.number
       HAVING COUNT(DISTINCT j.date) = 1
   ) event ON true`;
 }
@@ -68,12 +69,14 @@ function creditEvents() {
   return Prisma.sql`JOIN LATERAL (
     SELECT n.date, 1 AS factor WHERE n.status = 'APPLIED' OR (n.status = 'VOID' AND
       (SELECT count(*) FROM "JournalEntry" j WHERE j."organizationId" = n."organizationId"
-        AND j.status = 'POSTED' AND j.source = 'REVERSAL' AND j.memo = 'Void credit note: ' || n.number) = 1)
+        AND j.status = 'POSTED' AND j.source = 'REVERSAL'
+        AND md5(j.memo) = md5('Void credit note: ' || n.number) AND j.memo = 'Void credit note: ' || n.number) = 1)
     UNION ALL
     SELECT j.date, -1 FROM "JournalEntry" j WHERE n.status = 'VOID' AND j."organizationId" = n."organizationId"
-      AND j.status = 'POSTED' AND j.source = 'REVERSAL' AND j.memo = 'Void credit note: ' || n.number
+      AND j.status = 'POSTED' AND j.source = 'REVERSAL'
+      AND md5(j.memo) = md5('Void credit note: ' || n.number) AND j.memo = 'Void credit note: ' || n.number
       AND (SELECT count(*) FROM "JournalEntry" x WHERE x."organizationId" = n."organizationId"
-        AND x.status = 'POSTED' AND x.source = 'REVERSAL' AND x.memo = j.memo) = 1
+        AND x.status = 'POSTED' AND x.source = 'REVERSAL' AND md5(x.memo) = md5(j.memo) AND x.memo = j.memo) = 1
   ) event ON true`;
 }
 
@@ -108,12 +111,14 @@ export async function readSalesWarnings(db: Reader, organizationId: string) {
     SELECT 'invoice' AS kind, i.number FROM "SalesInvoice" i
     WHERE i."organizationId" = ${organizationId} AND i.status = 'VOID' AND
       (SELECT COUNT(DISTINCT j.date) FROM "JournalEntry" j WHERE j."organizationId" = i."organizationId"
-        AND j.status = 'POSTED' AND j.source = 'REVERSAL' AND j.memo = 'Void invoice: ' || i.number) <> 1
+        AND j.status = 'POSTED' AND j.source = 'REVERSAL'
+        AND md5(j.memo) = md5('Void invoice: ' || i.number) AND j.memo = 'Void invoice: ' || i.number) <> 1
     UNION ALL
     SELECT 'credit note', n.number FROM "CreditNote" n
     WHERE n."organizationId" = ${organizationId} AND n.status = 'VOID' AND
       (SELECT COUNT(*) FROM "JournalEntry" j WHERE j."organizationId" = n."organizationId"
-        AND j.status = 'POSTED' AND j.source = 'REVERSAL' AND j.memo = 'Void credit note: ' || n.number) <> 1
+        AND j.status = 'POSTED' AND j.source = 'REVERSAL'
+        AND md5(j.memo) = md5('Void credit note: ' || n.number) AND j.memo = 'Void credit note: ' || n.number) <> 1
     UNION ALL
     SELECT 'sales return', r.number FROM "SalesReturn" r
     WHERE r."organizationId" = ${organizationId} AND r.status = 'VOID' AND r."postedAt" IS NOT NULL
@@ -143,29 +148,47 @@ export async function readItemSales(db: Reader, filter: SalesSummaryFilter) {
  * Standalone credits and invoice charges remain visible in an unallocated row
  * rather than being attributed to arbitrary products. Quantities come from physical return documents, not
  * credit notes: one return may be settled by several partial notes. */
-async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCustomer: boolean) {
+async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCustomer: boolean, onlyProducts = false) {
   const date = (column: Prisma.Sql) => Prisma.sql`
     ${filter.dateFrom ? Prisma.sql`AND ${column} >= ${sqlUtcTimestamp(filter.dateFrom)}` : Prisma.empty}
     ${filter.dateTo ? Prisma.sql`AND ${column} <= ${sqlUtcTimestamp(filter.dateTo)}` : Prisma.empty}`;
+  // When itemBase equals the positive line total, cumulative cent allocation
+  // equals each original two-decimal line subtotal exactly.
+  // The top-products caller uses only item, quantity and net total. It excludes
+  // unallocated rows, so aggregate item movements before joining item metadata.
   // Lines without a master item are one "No item" row, not one row per
   // free-text description (#240).
-  const lineLabel = Prisma.sql`CASE WHEN l."itemId" IS NULL THEN ${NO_ITEM_LABEL}::text ELSE l.description END AS description,
+  const lineLabel = onlyProducts ? Prisma.sql`NULL::text AS description, NULL::text AS code` : Prisma.sql`
+    CASE WHEN l."itemId" IS NULL THEN ${NO_ITEM_LABEL}::text ELSE l.description END AS description,
     CASE WHEN l."itemId" IS NULL THEN NULL ELSE l.code END AS code`;
+  const invoiceRows = (events: Prisma.Sql, status: Prisma.Sql = Prisma.empty) => Prisma.sql`
+    SELECT i.id, ${onlyProducts ? Prisma.sql`NULL::text` : Prisma.sql`i."customerId"`} AS "customerId", event.factor,
+      ${onlyProducts ? Prisma.sql`NULL::text` : Prisma.sql`c.name`} AS "customerName",
+      ROUND((i.subtotal - i."discountAmount") /
+        CASE WHEN i."taxEnabled" AND i."taxInclusive" THEN 1 + i."taxRate" / 100 ELSE 1 END, 2) AS "itemBase",
+      i."totalAmount" - i."taxAmount" AS "netAmount"
+    FROM "SalesInvoice" i JOIN "Customer" c ON c.id = i."customerId"
+    ${events}
+    WHERE ${salesWhere({ ...filter, excludeTax: true })} ${status}`;
   const rows = await db.$queryRaw<Array<{
     itemId: string | null; customerId: string | null; customerName: string | null;
     description: string; code: string | null; grossQty: Prisma.Decimal; returnedQty: Prisma.Decimal;
     gross: Prisma.Decimal; returns: Prisma.Decimal; qty: Prisma.Decimal; total: Prisma.Decimal;
   }>>(Prisma.sql`
     WITH invoices AS (
-      SELECT i.*, event.factor, c.name AS "customerName",
-        ROUND((i.subtotal - i."discountAmount") /
-          CASE WHEN i."taxEnabled" AND i."taxInclusive" THEN 1 + i."taxRate" / 100 ELSE 1 END, 2) AS "itemBase",
-        i."totalAmount" - i."taxAmount" AS "netAmount"
-      FROM "SalesInvoice" i JOIN "Customer" c ON c.id = i."customerId"
-      ${invoiceEvents()}
-      WHERE ${salesWhere({ ...filter, excludeTax: true })}
+      ${onlyProducts ? Prisma.sql`
+        ${invoiceRows(Prisma.sql`JOIN LATERAL (SELECT i."issueDate" AS date, 1 AS factor) event ON true`, Prisma.sql`AND i.status IN ('SENT', 'OVERDUE', 'PAID')`)}
+        UNION ALL
+        ${invoiceRows(Prisma.sql`JOIN (
+          SELECT j."organizationId", j.memo, MIN(j.date) AS "reversalDate"
+          FROM "JournalEntry" j
+          WHERE j."organizationId" = ${filter.organizationId} AND j.status = 'POSTED' AND j.source = 'REVERSAL'
+          GROUP BY j."organizationId", j.memo HAVING COUNT(DISTINCT j.date) = 1
+        ) reversal ON reversal."organizationId" = i."organizationId" AND reversal.memo = 'Void invoice: ' || i.number
+        JOIN LATERAL (VALUES (i."issueDate", 1), (reversal."reversalDate", -1)) event(date, factor) ON true`, Prisma.sql`AND i.status = 'VOID'`)}
+      ` : invoiceRows(invoiceEvents())}
     ), invoice_lines AS (
-      SELECT i.*, l.id AS "lineId", l."itemId", ${lineLabel}, l.quantity,
+      SELECT i.id, i."customerId", i."customerName", i.factor, i."itemBase", l."itemId", ${lineLabel}, l.quantity,
         CASE WHEN MIN(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) < 0 THEN 0
           ELSE SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) END AS weight,
         SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor ORDER BY l."lineNo", l.id) AS cumulative,
@@ -196,18 +219,20 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
       )
     ), movements AS (
       SELECT "customerId", "customerName", "itemId", description, code, factor * quantity AS "grossQty", 0::numeric AS "returnedQty",
-        CASE WHEN weight > 0 THEN factor * (ROUND("itemBase" * cumulative / weight, 2) - ROUND("itemBase" * (cumulative - part) / weight, 2)) ELSE 0 END AS gross,
+        CASE WHEN weight <= 0 THEN 0
+          WHEN "itemBase" = weight THEN factor * part
+          ELSE factor * (ROUND("itemBase" * cumulative / weight, 2) - ROUND("itemBase" * (cumulative - part) / weight, 2)) END AS gross,
         0::numeric AS returns FROM invoice_lines
-      UNION ALL
+      ${onlyProducts ? Prisma.empty : Prisma.sql`UNION ALL
       SELECT i."customerId", i."customerName", NULL, 'Unallocated invoice charges / adjustments', NULL, 0, 0,
         i.factor * (i."netAmount" - CASE WHEN EXISTS (SELECT 1 FROM invoice_lines l WHERE l.id = i.id AND l.factor = i.factor AND l.weight > 0) THEN i."itemBase" ELSE 0 END), 0
-      FROM invoices i
+      FROM invoices i`}
       UNION ALL
       SELECT "customerId", "customerName", "itemId", description, code, 0, 0, 0,
         ROUND(net * cumulative / weight, 2) - ROUND(net * (cumulative - part) / weight, 2) FROM note_lines
-      UNION ALL
+      ${onlyProducts ? Prisma.empty : Prisma.sql`UNION ALL
       SELECT n."customerId", n."customerName", NULL, 'Unallocated credit notes', NULL, 0, 0, 0, n.net
-      FROM notes n WHERE NOT EXISTS (SELECT 1 FROM note_lines l WHERE l."noteId" = n.id AND l.factor = n.factor)
+      FROM notes n WHERE NOT EXISTS (SELECT 1 FROM note_lines l WHERE l."noteId" = n.id AND l.factor = n.factor)`}
       UNION ALL
       SELECT sr."customerId", c.name, l."itemId", ${lineLabel}, 0, r."qtyReturn", 0, 0
       FROM "SalesReturn" sr JOIN "Customer" c ON c.id = sr."customerId" AND c."organizationId" = sr."organizationId"
@@ -217,6 +242,17 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
         AND sr.status IN ('APPROVED', 'PENDING_CREDIT_NOTE', 'APPLIED') ${date(Prisma.sql`sr."returnDate"`)}
         ${filter.customerSearch ? Prisma.sql`AND strpos(lower(c.name), lower(${filter.customerSearch})) > 0` : Prisma.empty}
     )
+    ${onlyProducts ? Prisma.sql`
+    SELECT NULL::text AS "customerId", NULL::text AS "customerName", m.id AS "itemId", m.name AS description,
+      m.sku AS code, 0::numeric AS "grossQty", 0::numeric AS "returnedQty",
+      v.qty, 0::numeric AS gross, 0::numeric AS returns, v.total
+    FROM (
+      SELECT "itemId", SUM("grossQty" - "returnedQty") AS qty, SUM(gross - returns) AS total
+      FROM movements WHERE "itemId" IS NOT NULL
+      GROUP BY "itemId"
+      HAVING BOOL_OR(gross <> 0 OR returns <> 0 OR "grossQty" <> 0 OR "returnedQty" <> 0)
+    ) v JOIN "Item" m ON m.id = v."itemId" AND m."organizationId" = ${filter.organizationId}
+    ORDER BY total DESC, description ASC` : Prisma.sql`
     SELECT ${byCustomer ? Prisma.sql`v."customerId", v."customerName"` : Prisma.sql`NULL::text AS "customerId", NULL::text AS "customerName"`},
       m.id AS "itemId", COALESCE(m.name, CASE WHEN m.id IS NULL THEN v.description END) AS description,
       COALESCE(m.sku, MIN(v.code)) AS code, SUM(v."grossQty") AS "grossQty", SUM(v."returnedQty") AS "returnedQty",
@@ -226,13 +262,13 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
     GROUP BY ${byCustomer ? Prisma.sql`v."customerId", v."customerName",` : Prisma.empty} m.id, m.name, m.sku,
       CASE WHEN m.id IS NULL THEN v.description END, CASE WHEN m.id IS NULL THEN v.code END
     HAVING SUM(ABS(v.gross) + ABS(v.returns) + ABS(v."grossQty") + ABS(v."returnedQty")) <> 0
-    ORDER BY total DESC, description ASC`);
+    ORDER BY total DESC, description ASC`}`);
   return rows.map(row => ({ ...row, grossQty: Number(row.grossQty), returnedQty: Number(row.returnedQty),
     qty: Number(row.qty), gross: Number(row.gross), returns: Number(row.returns), total: Number(row.total) }));
 }
 
 export async function readTopProducts(db: Reader, filter: SalesSummaryFilter) {
-  const rows = await readItemMovements(db, filter, false);
+  const rows = await readItemMovements(db, filter, false, true);
   return rows.filter(row => row.itemId !== null).map(row => ({ itemId: row.itemId, sku: row.code ?? '',
     name: row.description, qty: row.qty, total: row.total }));
 }
