@@ -1,6 +1,7 @@
-import { calculateInvoiceLineAmounts, calculateInvoiceTotals } from '../../../lib/invoice-totals';
+import { calculateInvoiceLineAmounts, calculateInvoiceTotals, sameInvoiceLinePricing } from '../../../lib/invoice-totals';
+import type { InvoiceLine } from '../../types';
 
-type FormLine = { productId?: string; code?: string; description: string; quantity: number; unit?: string; price: number; discount?: number; taxable?: boolean | null };
+type FormLine = { id?: string | number; productId?: string; code?: string; description: string; quantity: number; unit?: string; price: number; discount?: number; taxable?: boolean | null };
 type FormCharge = { label: string; accountId?: string; amount: number; taxRate?: number };
 type FormTax = { enabled: boolean; inclusive: boolean; rate: number };
 
@@ -13,13 +14,21 @@ export function invoiceFormLineInput(line: FormLine) {
     };
 }
 
-export function invoiceFormLineTotal(line: FormLine) {
-    return calculateInvoiceLineAmounts(invoiceFormLineInput(line)).lineSubtotal.toNumber();
+function invoiceFormValuation(line: FormLine, saved?: InvoiceLine) {
+    const input = invoiceFormLineInput(line);
+    return { ...input, lineSubtotal: saved && sameInvoiceLinePricing(input, saved) ? saved.lineSubtotal : undefined };
 }
 
-export function computeInvoiceFormTotals(items: FormLine[], charges: FormCharge[], discountPct: number, tax: FormTax) {
+export function invoiceFormLineTotal(line: FormLine, saved?: InvoiceLine) {
+    return calculateInvoiceLineAmounts(invoiceFormValuation(line, saved)).lineSubtotal.toNumber();
+}
+
+export function computeInvoiceFormTotals(
+    items: FormLine[], charges: FormCharge[], discountPct: number, tax: FormTax,
+    savedLines?: ReadonlyMap<string, InvoiceLine>,
+) {
     return calculateInvoiceTotals({
-        lines: items.filter(line => line.description.trim()).map(invoiceFormLineInput),
+        lines: items.filter(line => line.description.trim()).map(line => invoiceFormValuation(line, savedLines?.get(String(line.id)))),
         charges,
         discountPct,
         tax,
