@@ -161,9 +161,12 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
   const lineLabel = onlyProducts ? Prisma.sql`NULL::text AS description, NULL::text AS code` : Prisma.sql`
     CASE WHEN l."itemId" IS NULL THEN ${NO_ITEM_LABEL}::text ELSE l.description END AS description,
     CASE WHEN l."itemId" IS NULL THEN NULL ELSE l.code END AS code`;
+  // Each line number is unique within its invoice. Bytewise ordering of
+  // internal IDs keeps the allocation sort independent of display collation.
+  const invoiceLineOrder = onlyProducts ? Prisma.sql`l."lineNo", l.id` : Prisma.sql`l."lineNo"`;
+  const invoicePartition = onlyProducts ? Prisma.sql`i.id, i.factor` : Prisma.sql`i.id COLLATE "C", i.factor`;
   const invoiceRows = (events: Prisma.Sql, status: Prisma.Sql = Prisma.empty) => Prisma.sql`
-    SELECT i.id, ${onlyProducts ? Prisma.sql`NULL::text` : Prisma.sql`i."customerId"`} AS "customerId", event.factor,
-      ${onlyProducts ? Prisma.sql`NULL::text` : Prisma.sql`c.name`} AS "customerName",
+    SELECT i.id, ${byCustomer ? Prisma.sql`i."customerId"` : Prisma.sql`NULL::text`} AS "customerId", event.factor,
       ROUND((i.subtotal - i."discountAmount") /
         CASE WHEN i."taxEnabled" AND i."taxInclusive" THEN 1 + i."taxRate" / 100 ELSE 1 END, 2) AS "itemBase",
       i."totalAmount" - i."taxAmount" AS "netAmount"
@@ -186,17 +189,17 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
         ) reversal ON reversal."organizationId" = i."organizationId" AND reversal.memo = 'Void invoice: ' || i.number
         JOIN LATERAL (VALUES (i."issueDate", 1), (reversal."reversalDate", -1)) event(date, factor) ON true`, Prisma.sql`AND i.status = 'VOID'`)}
     ), invoice_lines AS (
-      SELECT i.id, i."customerId", i."customerName", i.factor, i."itemBase",
-        ${onlyProducts ? Prisma.empty : Prisma.sql`i."netAmount", l.id AS "lineId",
-          ROW_NUMBER() OVER (PARTITION BY i.id, i.factor ORDER BY l."lineNo", l.id) AS "lineRank",`}
+      SELECT i.id, i."customerId", i.factor, i."itemBase",
+        ${onlyProducts ? Prisma.empty : Prisma.sql`i."netAmount", l."lineNo" IS NOT NULL AS "hasLine",
+          ROW_NUMBER() OVER (PARTITION BY ${invoicePartition} ORDER BY ${invoiceLineOrder}) AS "lineRank",`}
         l."itemId", ${lineLabel}, l.quantity,
-        CASE WHEN MIN(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) < 0 THEN 0
-          ELSE SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) END AS weight,
-        SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor ORDER BY l."lineNo", l.id) AS cumulative,
+        CASE WHEN MIN(l."lineSubtotal") OVER (PARTITION BY ${invoicePartition}) < 0 THEN 0
+          ELSE SUM(l."lineSubtotal") OVER (PARTITION BY ${invoicePartition}) END AS weight,
+        SUM(l."lineSubtotal") OVER (PARTITION BY ${invoicePartition} ORDER BY ${invoiceLineOrder}) AS cumulative,
         l."lineSubtotal" AS part
       FROM invoices i ${onlyProducts ? Prisma.sql`JOIN` : Prisma.sql`LEFT JOIN`} "SalesInvoiceLine" l ON l."invoiceId" = i.id
     ), notes AS (
-      SELECT n.*, event.factor, c.name AS "customerName", event.factor * (n.amount - CASE WHEN n."applyTax" THEN n."taxAmount" ELSE 0 END) AS net
+      SELECT n.*, event.factor, event.factor * (n.amount - CASE WHEN n."applyTax" THEN n."taxAmount" ELSE 0 END) AS net
       FROM "CreditNote" n JOIN "Customer" c ON c.id = n."customerId" AND c."organizationId" = n."organizationId"
       ${creditEvents()}
       WHERE n."organizationId" = ${filter.organizationId} ${date(Prisma.sql`event.date`)}
@@ -205,7 +208,7 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
           WHERE s.id = n."sourceInvoiceId" AND s."organizationId" = n."organizationId"
             AND s."customerId" = n."customerId" AND s.status IN ('SENT', 'OVERDUE', 'PAID', 'VOID')))
     ), note_lines AS (
-      SELECT n.id AS "noteId", n.factor, n."customerId", n."customerName", n.net, l."itemId", ${lineLabel},
+      SELECT n.id AS "noteId", n.factor, n."customerId", n.net, l."itemId", ${lineLabel},
         r."lineTotal" AS part,
         SUM(r."lineTotal") OVER (PARTITION BY n.id, n.factor) AS weight,
         SUM(r."lineTotal") OVER (PARTITION BY n.id, n.factor ORDER BY r."lineNo", r.id) AS cumulative
@@ -220,12 +223,12 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
       )
     ), movements AS (
       ${onlyProducts ? Prisma.sql`
-      SELECT "customerId", "customerName", "itemId", description, code, factor * quantity AS "grossQty", 0::numeric AS "returnedQty",
+      SELECT "customerId", "itemId", description, code, factor * quantity AS "grossQty", 0::numeric AS "returnedQty",
         CASE WHEN weight <= 0 THEN 0
           WHEN "itemBase" = weight THEN factor * part
           ELSE factor * (ROUND("itemBase" * cumulative / weight, 2) - ROUND("itemBase" * (cumulative - part) / weight, 2)) END AS gross,
         0::numeric AS returns FROM invoice_lines` : Prisma.sql`
-      SELECT i."customerId", i."customerName", CASE WHEN movement.adjustment THEN NULL ELSE i."itemId" END AS "itemId",
+      SELECT i."customerId", CASE WHEN movement.adjustment THEN NULL ELSE i."itemId" END AS "itemId",
         CASE WHEN movement.adjustment THEN 'Unallocated invoice charges / adjustments' ELSE i.description END AS description,
         CASE WHEN movement.adjustment THEN NULL ELSE i.code END AS code,
         CASE WHEN movement.adjustment THEN 0 ELSE i.factor * i.quantity END AS "grossQty", 0::numeric AS "returnedQty",
@@ -235,19 +238,19 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
           ELSE i.factor * (ROUND(i."itemBase" * i.cumulative / i.weight, 2) - ROUND(i."itemBase" * (i.cumulative - i.part) / i.weight, 2)) END AS gross,
         0::numeric AS returns
       FROM invoice_lines i CROSS JOIN LATERAL (
-        SELECT false AS adjustment WHERE i."lineId" IS NOT NULL
+        SELECT false AS adjustment WHERE i."hasLine"
         UNION ALL
         -- Emit each invoice's residual once; the left join also retains invoices without lines.
         SELECT true WHERE i."lineRank" = 1 AND i."netAmount" - CASE WHEN i.weight > 0 THEN i."itemBase" ELSE 0 END <> 0
       ) movement`}
       UNION ALL
-      SELECT "customerId", "customerName", "itemId", description, code, 0, 0, 0,
+      SELECT "customerId", "itemId", description, code, 0, 0, 0,
         ROUND(net * cumulative / weight, 2) - ROUND(net * (cumulative - part) / weight, 2) FROM note_lines
       ${onlyProducts ? Prisma.empty : Prisma.sql`UNION ALL
-      SELECT n."customerId", n."customerName", NULL, 'Unallocated credit notes', NULL, 0, 0, 0, n.net
+      SELECT n."customerId", NULL, 'Unallocated credit notes', NULL, 0, 0, 0, n.net
       FROM notes n WHERE NOT EXISTS (SELECT 1 FROM note_lines l WHERE l."noteId" = n.id AND l.factor = n.factor)`}
       UNION ALL
-      SELECT sr."customerId", c.name, l."itemId", ${lineLabel}, 0, r."qtyReturn", 0, 0
+      SELECT sr."customerId", l."itemId", ${lineLabel}, 0, r."qtyReturn", 0, 0
       FROM "SalesReturn" sr JOIN "Customer" c ON c.id = sr."customerId" AND c."organizationId" = sr."organizationId"
       JOIN "SalesReturnLine" r ON r."salesReturnId" = sr.id
       JOIN "SalesInvoiceLine" l ON l.id = r."sourceInvoiceLineId" AND l."invoiceId" = sr."invoiceId"
@@ -266,15 +269,22 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
       HAVING BOOL_OR(gross <> 0 OR returns <> 0 OR "grossQty" <> 0 OR "returnedQty" <> 0)
     ) v JOIN "Item" m ON m.id = v."itemId" AND m."organizationId" = ${filter.organizationId}
     ORDER BY total DESC, description ASC` : Prisma.sql`
-    SELECT ${byCustomer ? Prisma.sql`v."customerId", v."customerName"` : Prisma.sql`NULL::text AS "customerId", NULL::text AS "customerName"`},
-      m.id AS "itemId", COALESCE(m.name, CASE WHEN m.id IS NULL THEN v.description END) AS description,
-      COALESCE(m.sku, MIN(v.code)) AS code, SUM(v."grossQty") AS "grossQty", SUM(v."returnedQty") AS "returnedQty",
-      SUM(v."grossQty" - v."returnedQty") AS qty, SUM(v.gross) AS gross, SUM(v.returns) AS returns,
-      SUM(v.gross - v.returns) AS total
-    FROM movements v LEFT JOIN "Item" m ON m.id = v."itemId" AND m."organizationId" = ${filter.organizationId}
-    GROUP BY ${byCustomer ? Prisma.sql`v."customerId", v."customerName",` : Prisma.empty} m.id, m.name, m.sku,
-      CASE WHEN m.id IS NULL THEN v.description END, CASE WHEN m.id IS NULL THEN v.code END
-    HAVING SUM(ABS(v.gross) + ABS(v.returns) + ABS(v."grossQty") + ABS(v."returnedQty")) <> 0
+    SELECT ${byCustomer ? Prisma.sql`g."customerId", c.name AS "customerName"` : Prisma.sql`NULL::text AS "customerId", NULL::text AS "customerName"`},
+      g."itemId", COALESCE(m.name, g.description) AS description, COALESCE(m.sku, g.code) AS code,
+      g."grossQty", g."returnedQty", g."grossQty" - g."returnedQty" AS qty,
+      g.gross, g.returns, g.gross - g.returns AS total
+    FROM (
+      SELECT ${byCustomer ? Prisma.sql`v."customerId" COLLATE "C" AS "customerId",` : Prisma.empty} scoped.id COLLATE "C" AS "itemId",
+        CASE WHEN scoped.id IS NULL THEN v.description END AS description,
+        CASE WHEN scoped.id IS NULL THEN v.code END AS code,
+        SUM(v."grossQty") AS "grossQty", SUM(v."returnedQty") AS "returnedQty",
+        SUM(v.gross) AS gross, SUM(v.returns) AS returns
+      FROM movements v LEFT JOIN "Item" scoped ON scoped.id = v."itemId" AND scoped."organizationId" = ${filter.organizationId}
+      GROUP BY ${byCustomer ? Prisma.sql`v."customerId" COLLATE "C",` : Prisma.empty} scoped.id COLLATE "C",
+        CASE WHEN scoped.id IS NULL THEN v.description END, CASE WHEN scoped.id IS NULL THEN v.code END
+      HAVING BOOL_OR(v.gross <> 0 OR v.returns <> 0 OR v."grossQty" <> 0 OR v."returnedQty" <> 0)
+    ) g LEFT JOIN "Item" m ON m.id = g."itemId"
+    ${byCustomer ? Prisma.sql`JOIN "Customer" c ON c.id = g."customerId" AND c."organizationId" = ${filter.organizationId}` : Prisma.empty}
     ORDER BY total DESC, description ASC`}`);
   return rows.map(row => ({ ...row, grossQty: Number(row.grossQty), returnedQty: Number(row.returnedQty),
     qty: Number(row.qty), gross: Number(row.gross), returns: Number(row.returns), total: Number(row.total) }));
