@@ -26,7 +26,7 @@ import {
   cleanupOrg,
   disconnect,
 } from './harness';
-import { resolveActiveOrg, signToken, verifyToken, COOKIE_NAME, type TokenPayload } from '../../auth';
+import { resolveActiveOrg, signToken, verifyToken, credentialStamp, COOKIE_NAME, type TokenPayload } from '../../auth';
 import { GET as listCustomers } from '../../../src/app/api/v1/customers/route';
 import { POST as refreshSession } from '../../../src/app/api/v1/auth/refresh/route';
 
@@ -76,6 +76,7 @@ function tokenPayloadFor(user: { id: string; email: string }, orgAId: string, or
   return {
     userId: user.id,
     email: user.email,
+    credentialStamp: credentialStamp('x'),
     memberships: [
       { orgId: orgAId, roleType: 'ADMIN' },
       { orgId: orgBId, roleType: 'VIEWER' },

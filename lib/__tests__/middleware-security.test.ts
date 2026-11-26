@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { signToken } from '../auth';
+import { credentialStamp, signToken } from '../auth';
 
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique } } }));
 vi.mock('../prisma', () => ({ prisma: { user: { findUnique } } }));
 import { middleware } from '../../src/middleware';
 
-const activeUser = () => ({ status: 'ACTIVE', mustChangePassword: false, memberships: [{ organizationId: 'o1', role: { roleType: 'ADMIN' } }] });
+const activeUser = () => ({ status: 'ACTIVE', passwordHash: 'hash', mustChangePassword: false, memberships: [{ organizationId: 'o1', role: { roleType: 'ADMIN' } }] });
 async function request(path = '/api/v1/users', headers: Record<string, string> = {}) {
-  const token = await signToken({ userId: 'u1', email: 'admin@example.test', memberships: [{ orgId: 'o1', roleType: 'ADMIN' }] });
+  const token = await signToken({ userId: 'u1', email: 'admin@example.test', credentialStamp: credentialStamp('hash'), memberships: [{ orgId: 'o1', roleType: 'ADMIN' }] });
   return new NextRequest(`http://localhost${path}`, { headers: { cookie: `msm_token=${token}`, ...headers } });
 }
 beforeEach(() => {
@@ -18,6 +18,10 @@ beforeEach(() => {
   findUnique.mockResolvedValue(activeUser());
 });
 describe('live session access', () => {
+  it('rejects a session after the password changes', async () => {
+    findUnique.mockResolvedValue({ ...activeUser(), passwordHash: 'new-hash' });
+    expect((await middleware(await request())).status).toBe(401);
+  });
   it('blocks a removed admin with a still-valid signed token', async () => {
     findUnique.mockResolvedValue({ ...activeUser(), memberships: [] });
     const res = await middleware(await request('/api/v1/users', { 'x-active-org': 'o1' }));

@@ -3,8 +3,11 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    userOrganization: { findFirst: vi.fn() },
+    userOrganization: { findFirst: vi.fn(), findMany: vi.fn() },
     user: { update: vi.fn() },
+    auditLog: { create: vi.fn() },
+    $queryRaw: vi.fn(),
+    $transaction: vi.fn(),
   },
 }));
 vi.mock('@/lib/cors', () => ({
@@ -34,10 +37,13 @@ const makeReq = (id: string, body: unknown, headers = adminHeaders) =>
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
 describe('POST /api/v1/users/[id]/reset-password', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (prisma.$transaction as any).mockImplementation((fn: any) => fn(prisma));
+    (prisma.userOrganization.findMany as any).mockResolvedValue([{ organizationId: 'org-a', isActive: true }]);
+  });
 
   it('resets the password and forces change on next login', async () => {
-    (prisma.userOrganization.findFirst as any).mockResolvedValue({ id: 'm1', userId: 'u2' });
     (prisma.user.update as any).mockResolvedValue({ id: 'u2' });
     const res = await POST(makeReq('u2', { newPassword: 'newpass123' }), ctx('u2'));
     expect(res.status).toBe(200);
@@ -45,6 +51,7 @@ describe('POST /api/v1/users/[id]/reset-password', () => {
     expect(call.where).toEqual({ id: 'u2' });
     expect(call.data.passwordHash).toBe('hashed:newpass123');
     expect(call.data.mustChangePassword).toBe(true);
+    expect(prisma.auditLog.create).toHaveBeenCalledOnce();
   });
 
   it('rejects a non-admin with 403', async () => {
@@ -56,10 +63,26 @@ describe('POST /api/v1/users/[id]/reset-password', () => {
   });
 
   it('returns 404 when the target user is not in the caller org', async () => {
-    (prisma.userOrganization.findFirst as any).mockResolvedValue(null);
+    (prisma.userOrganization.findMany as any).mockResolvedValue([]);
     const res = await POST(makeReq('u9', { newPassword: 'newpass123' }), ctx('u9'));
     expect(res.status).toBe(404);
     expect(prisma.user.update as any).not.toHaveBeenCalled();
+  });
+
+  it('rejects an account with another company membership, including inactive memberships', async () => {
+    (prisma.userOrganization.findMany as any).mockResolvedValue([
+      { organizationId: 'org-a', isActive: true }, { organizationId: 'org-b', isActive: false },
+    ]);
+    const res = await POST(makeReq('u2', { newPassword: 'newpass123' }), ctx('u2'));
+    expect(res.status).toBe(403);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a settings editor even with edit permission', async () => {
+    (prisma.userOrganization.findFirst as any).mockResolvedValue({ role: { permissions: [{ canEdit: true }] } });
+    const res = await POST(makeReq('u2', { newPassword: 'newpass123' }, { ...adminHeaders, 'x-role-type': 'CUSTOM' }), ctx('u2'));
+    expect(res.status).toBe(403);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('rejects a weak password with 400', async () => {
