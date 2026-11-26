@@ -8,7 +8,7 @@ import { performance } from 'node:perf_hooks';
 import { writeFileSync } from 'node:fs';
 import { readJournalTotals } from '../lib/journal-totals';
 import { computeLedgerValuation } from '../lib/inventory-valuation';
-import { readCustomerSales, readTopProducts, readSalesCalendar } from '../lib/sales-summary';
+import { readCustomerSales, readItemSales, readItemCustomerSales, readTopProducts, readSalesCalendar } from '../lib/sales-summary';
 import { buildTrialBalanceReport } from '../lib/gl-reporting';
 
 const databaseUrl = process.env.CAPACITY_DATABASE_URL;
@@ -127,6 +127,16 @@ try {
     assert.equal(rows.length, 100);
     assert.equal(rows.reduce((s, r) => s + r.qty, 0), orders * 2);
   });
+  for (const [name, read] of [
+    ['sales by item', readItemSales],
+    ['sales by item and customer', readItemCustomerSales],
+  ] as const) {
+    await measure(name, 5000, async () => {
+      const rows = await read(db, { ...filter, excludeTax: true });
+      assert.equal(rows.reduce((sum, row) => sum + row.qty, 0), orders * 2);
+      assert.equal(rows.reduce((sum, row) => sum + row.total, 0), orders * 2000);
+    });
+  }
   await measure('trial balance', 5000, checkGl);
   await measure('inventory valuation', 5000, async () => {
     const values = await computeLedgerValuation(db, org.id);

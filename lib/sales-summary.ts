@@ -176,24 +176,25 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
     gross: Prisma.Decimal; returns: Prisma.Decimal; qty: Prisma.Decimal; total: Prisma.Decimal;
   }>>(Prisma.sql`
     WITH invoices AS (
-      ${onlyProducts ? Prisma.sql`
-        ${invoiceRows(Prisma.sql`JOIN LATERAL (SELECT i."issueDate" AS date, 1 AS factor) event ON true`, Prisma.sql`AND i.status IN ('SENT', 'OVERDUE', 'PAID')`)}
-        UNION ALL
-        ${invoiceRows(Prisma.sql`JOIN (
+      ${invoiceRows(Prisma.sql`JOIN LATERAL (SELECT i."issueDate" AS date, 1 AS factor) event ON true`, Prisma.sql`AND i.status IN ('SENT', 'OVERDUE', 'PAID')`)}
+      UNION ALL
+      ${invoiceRows(Prisma.sql`JOIN (
           SELECT j."organizationId", j.memo, MIN(j.date) AS "reversalDate"
           FROM "JournalEntry" j
           WHERE j."organizationId" = ${filter.organizationId} AND j.status = 'POSTED' AND j.source = 'REVERSAL'
           GROUP BY j."organizationId", j.memo HAVING COUNT(DISTINCT j.date) = 1
         ) reversal ON reversal."organizationId" = i."organizationId" AND reversal.memo = 'Void invoice: ' || i.number
         JOIN LATERAL (VALUES (i."issueDate", 1), (reversal."reversalDate", -1)) event(date, factor) ON true`, Prisma.sql`AND i.status = 'VOID'`)}
-      ` : invoiceRows(invoiceEvents())}
     ), invoice_lines AS (
-      SELECT i.id, i."customerId", i."customerName", i.factor, i."itemBase", l."itemId", ${lineLabel}, l.quantity,
+      SELECT i.id, i."customerId", i."customerName", i.factor, i."itemBase",
+        ${onlyProducts ? Prisma.empty : Prisma.sql`i."netAmount", l.id AS "lineId",
+          ROW_NUMBER() OVER (PARTITION BY i.id, i.factor ORDER BY l."lineNo", l.id) AS "lineRank",`}
+        l."itemId", ${lineLabel}, l.quantity,
         CASE WHEN MIN(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) < 0 THEN 0
           ELSE SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor) END AS weight,
         SUM(l."lineSubtotal") OVER (PARTITION BY i.id, i.factor ORDER BY l."lineNo", l.id) AS cumulative,
         l."lineSubtotal" AS part
-      FROM invoices i JOIN "SalesInvoiceLine" l ON l."invoiceId" = i.id
+      FROM invoices i ${onlyProducts ? Prisma.sql`JOIN` : Prisma.sql`LEFT JOIN`} "SalesInvoiceLine" l ON l."invoiceId" = i.id
     ), notes AS (
       SELECT n.*, event.factor, c.name AS "customerName", event.factor * (n.amount - CASE WHEN n."applyTax" THEN n."taxAmount" ELSE 0 END) AS net
       FROM "CreditNote" n JOIN "Customer" c ON c.id = n."customerId" AND c."organizationId" = n."organizationId"
@@ -218,15 +219,27 @@ async function readItemMovements(db: Reader, filter: SalesSummaryFilter, byCusto
         WHERE bad."salesReturnId" = sr.id AND (source.id IS NULL OR bad."lineTotal" <= 0)
       )
     ), movements AS (
+      ${onlyProducts ? Prisma.sql`
       SELECT "customerId", "customerName", "itemId", description, code, factor * quantity AS "grossQty", 0::numeric AS "returnedQty",
         CASE WHEN weight <= 0 THEN 0
           WHEN "itemBase" = weight THEN factor * part
           ELSE factor * (ROUND("itemBase" * cumulative / weight, 2) - ROUND("itemBase" * (cumulative - part) / weight, 2)) END AS gross,
-        0::numeric AS returns FROM invoice_lines
-      ${onlyProducts ? Prisma.empty : Prisma.sql`UNION ALL
-      SELECT i."customerId", i."customerName", NULL, 'Unallocated invoice charges / adjustments', NULL, 0, 0,
-        i.factor * (i."netAmount" - CASE WHEN EXISTS (SELECT 1 FROM invoice_lines l WHERE l.id = i.id AND l.factor = i.factor AND l.weight > 0) THEN i."itemBase" ELSE 0 END), 0
-      FROM invoices i`}
+        0::numeric AS returns FROM invoice_lines` : Prisma.sql`
+      SELECT i."customerId", i."customerName", CASE WHEN movement.adjustment THEN NULL ELSE i."itemId" END AS "itemId",
+        CASE WHEN movement.adjustment THEN 'Unallocated invoice charges / adjustments' ELSE i.description END AS description,
+        CASE WHEN movement.adjustment THEN NULL ELSE i.code END AS code,
+        CASE WHEN movement.adjustment THEN 0 ELSE i.factor * i.quantity END AS "grossQty", 0::numeric AS "returnedQty",
+        CASE WHEN movement.adjustment THEN i.factor * (i."netAmount" - CASE WHEN i.weight > 0 THEN i."itemBase" ELSE 0 END)
+          WHEN i.weight <= 0 THEN 0
+          WHEN i."itemBase" = i.weight THEN i.factor * i.part
+          ELSE i.factor * (ROUND(i."itemBase" * i.cumulative / i.weight, 2) - ROUND(i."itemBase" * (i.cumulative - i.part) / i.weight, 2)) END AS gross,
+        0::numeric AS returns
+      FROM invoice_lines i CROSS JOIN LATERAL (
+        SELECT false AS adjustment WHERE i."lineId" IS NOT NULL
+        UNION ALL
+        -- Emit each invoice's residual once; the left join also retains invoices without lines.
+        SELECT true WHERE i."lineRank" = 1 AND i."netAmount" - CASE WHEN i.weight > 0 THEN i."itemBase" ELSE 0 END <> 0
+      ) movement`}
       UNION ALL
       SELECT "customerId", "customerName", "itemId", description, code, 0, 0, 0,
         ROUND(net * cumulative / weight, 2) - ROUND(net * (cumulative - part) / weight, 2) FROM note_lines
