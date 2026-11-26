@@ -2,7 +2,8 @@ import { toNumber, asMoney } from '@/lib/money';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
+import { requireOrg, ok, err, ApiError, parsePaginationParams } from '@/lib/api-utils';
+import { readAgingReport, AGING_EXPORT_LIMIT } from '@/lib/aging-report';
 import { withPermission } from '@/lib/authz';
 import { computeStatement, computeAging, type OpenDocument } from '@/lib/statement-reporting';
 import { readSubledgerHistory, reportDate } from '@/lib/subledger-history';
@@ -55,6 +56,27 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     const asOfDate = endOfDay(searchParams.get('asOfDate'));
     const customerSearch = searchParams.get('customerSearch') || '';
     const status = searchParams.get('status') || '';
+
+    if (type === 'aging') {
+      const { page, limit } = parsePaginationParams(req, { limit: 50 });
+      if (!Number.isSafeInteger(page) || !Number.isSafeInteger((page - 1) * limit)) return err('Invalid page', 400);
+      const exportAll = searchParams.get('export') === 'all';
+      const options = {
+        organizationId: orgId, asOf: asOfDate, partySearch: customerSearch, page, limit, exportAll,
+      };
+      const result = customerSearch
+        ? await readAgingReport(prisma, 'ar', options)
+        : await prisma.$transaction(async (tx) => {
+          // Full-ledger runs spend time compiling the plan and spilling aggregates.
+          // These settings apply only to this report's transaction.
+          await tx.$queryRaw`SELECT set_config('jit', 'off', true) AS jit, set_config('work_mem', '16MB', true) AS work_mem`;
+          return readAgingReport(tx, 'ar', options);
+        }, { timeout: 120_000 });
+      if (exportAll && result.total > AGING_EXPORT_LIMIT) {
+        return err('Aging report exceeds 100,000 open rows. Filter by customer or supplier before exporting.', 400);
+      }
+      return ok({ type, ...result });
+    }
 
     if (type === 'statement') {
       const customerId = searchParams.get('customerId') || '';
@@ -193,28 +215,6 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       });
     }
     const openInvoices = invoiceRows.filter((row) => row.balance > 0);
-
-    if (type === 'aging') {
-      const rows = [...openInvoices].sort(sortByOverdue);
-      const summary = rows.reduce((acc, row) => ({
-        current: asMoney(acc.current + row.current),
-        d1To30: asMoney(acc.d1To30 + row.d1To30),
-        d31To60: asMoney(acc.d31To60 + row.d31To60),
-        d61To90: asMoney(acc.d61To90 + row.d61To90),
-        d90Plus: asMoney(acc.d90Plus + row.d90Plus),
-        totalOutstanding: asMoney(acc.totalOutstanding + row.balance),
-      }), {
-        current: 0,
-        d1To30: 0,
-        d31To60: 0,
-        d61To90: 0,
-        d90Plus: 0,
-        totalOutstanding: 0,
-      });
-
-      const unappliedCredits = asMoney(invoiceRows.reduce((s, r) => s + Math.max(-r.balance, 0), 0));
-      return ok({ type, rows, summary: { ...summary, unappliedCredits, netOutstanding: asMoney(summary.totalOutstanding - unappliedCredits) }, warnings: history.warnings });
-    }
 
     if (type === 'customer-balance') {
       const byCustomer = new Map();

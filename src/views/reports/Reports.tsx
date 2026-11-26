@@ -9,6 +9,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { api } from '../../api/apiClient';
 import Button from '../../components/UI/Button';
+import ListPagination from '../../components/UI/ListPagination';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { useBankAccounts } from '../../hooks/useBanking';
@@ -100,6 +101,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [asOfDate, setAsOfDate] = useState<string>(fmtDate(today));
   const [compareAsOfDate, setCompareAsOfDate] = useState<string>(defaultCompareAsOfDate());
   const [filterCustomer, setFilterCustomer] = useState<string>('');
+  const [filterVendor, setFilterVendor] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [topNCustomer, setTopNCustomer] = useState<boolean>(false);
   const [filterItem, setFilterItem] = useState<string>('');
@@ -120,6 +122,10 @@ const Reports: React.FC<ReportsProps> = ({
   const [activeReportId, setActiveReportId] = useState<ReportType | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [printData, setPrintData] = useState<{ entry: OpenReportEntry; data: Record<string, unknown> } | null>(null);
+  const printReady = useRef<{ resolve: () => void; reject: (cause: Error) => void } | null>(null);
   // `single` variant: bumped to re-fetch when the saved params are unchanged
   // (Refresh, or "Ubah Filter" re-run with the same filters).
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -140,6 +146,24 @@ const Reports: React.FC<ReportsProps> = ({
   const categoryReports: ReportDefinition[] = REPORTS_BY_CATEGORY[activeCategory] || [];
   const activeCategoryMeta = IMPLEMENTED_CATEGORIES.find((category) => category.id === activeCategory);
   const activeReport = openReports.find((entry) => entry.report.id === activeReportId) || null;
+  const isAging = activeReport?.report.id === 'aging' || activeReport?.report.id === 'ap-aging';
+  const agingPage = isAging && Number.isInteger(activeReport.data?.total) ? {
+    page: Number(activeReport.data.page),
+    limit: Number(activeReport.data.limit),
+    total: Number(activeReport.data.total),
+  } : null;
+  const needsFullAging = agingPage && (agingPage.page > 1 || agingPage.total > agingPage.limit);
+  const printableData = printData && printData.entry === activeReport ? printData.data : activeReport?.data;
+  const reportOutputDisabled = exporting || ((isAging || !!controlReconciliationKind(activeReport?.report.id ?? ''))
+    && (isLoading || !!error));
+
+  useEffect(() => {
+    if (!printData || !printReady.current) return;
+    const { resolve, reject } = printReady.current;
+    printReady.current = null;
+    if (printData.entry === activeReport && printRef.current) resolve();
+    else reject(new Error('The report changed while preparing to print. Please try again.'));
+  }, [activeReport, printData]);
   // Reference data is needed only for the corresponding filter or result labels.
   const valuationVisible = paramModal?.id === 'stock-valuation' || activeReport?.report.id === 'stock-valuation';
   const bankVisible = paramModal?.filterMode === 'bank-period' || activeReport?.report.filterMode === 'bank-period';
@@ -168,6 +192,21 @@ const Reports: React.FC<ReportsProps> = ({
     documentTitle: activeReport
       ? `${activeReport.report.id}-${activeReport.asOfDate || activeReport.dateFrom || 'report'}`
       : 'report',
+    onBeforePrint: async () => {
+      if (needsFullAging && activeReport) {
+        const data = await api.get<Record<string, unknown>>(activeReport.report.apiPath, { ...activeReport.params, export: 'all' });
+        await new Promise<void>((resolve, reject) => {
+          printReady.current = { resolve, reject };
+          setPrintData({ entry: activeReport, data });
+        });
+      }
+    },
+    onAfterPrint: () => { setPrintData(null); setExporting(false); },
+    onPrintError: (_location, cause) => {
+      setPrintData(null);
+      setExporting(false);
+      setExportError(cause.message);
+    },
   });
 
   const resetCategoryState = (categoryId: ReportCategoryId) => {
@@ -219,6 +258,7 @@ const Reports: React.FC<ReportsProps> = ({
     if (params.compareDateTo) setCompareDateTo(params.compareDateTo);
     if (params.accountId) setSelectedAccountId(params.accountId);
     syncCustomerFilter(params.customerSearch || '');
+    setFilterVendor(params.vendorSearch || '');
     syncItemFilter(params.itemSearch || '');
     setTopNCustomer(Boolean(params.topN) && report.id === 'by-customer');
     setTopNItem(Boolean(params.topN) && report.id === 'by-item');
@@ -244,6 +284,7 @@ const Reports: React.FC<ReportsProps> = ({
     setCompareDateTo(fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)));
     setSelectedAccountId('');
     setFilterCustomer('');
+    setFilterVendor('');
     setSelectedCustomerId('');
     setTopNCustomer(false);
     setFilterItem('');
@@ -322,7 +363,7 @@ const Reports: React.FC<ReportsProps> = ({
       if (report.id === 'ap-statement') {
         return { type: apiType as ReportType, vendorId: selectedVendorId, dateFrom, dateTo };
       }
-      return { type: apiType as ReportType, asOfDate };
+      return { type: apiType as ReportType, asOfDate, ...(report.id === 'ap-aging' && filterVendor ? { vendorSearch: filterVendor } : {}) };
     }
 
     if (report.category === 'hr') {
@@ -483,6 +524,21 @@ const Reports: React.FC<ReportsProps> = ({
     }
   };
 
+  const loadAgingPage = async (page: number, limit: number) => {
+    if (!activeReport || isLoading) return;
+    const current = activeReport;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.get<Record<string, unknown>>(current.report.apiPath, { ...current.params, page, limit });
+      setOpenReports((prev) => prev.map((entry) => entry === current ? { ...entry, data } : entry));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to load report page.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const buildActiveReportCsv = (report: ReportDefinition, data: Record<string, unknown>): string =>
     controlReconciliationKind(report.id) ? controlReconciliationCsv(data as unknown as ControlReconciliation) : report.category === 'ar'
       ? buildArCsv(report, data)
@@ -498,41 +554,63 @@ const Reports: React.FC<ReportsProps> = ({
                 ? buildHrCsv(report, data)
                 : buildSalesCsv(report, data);
 
-  const handleExportCsv = () => {
-    if (!activeReport) return;
-
-    const { report, data } = activeReport;
-    if (controlReconciliationKind(report.id) && (isLoading || error)) return;
-    const csv = appendReportExportNotes(buildActiveReportCsv(report, data as Record<string, unknown>), report.basis, data);
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${report.id}-${activeReport.asOfDate || activeReport.dateFrom || 'report'}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const loadExportCsv = async (entry: OpenReportEntry) => {
+    const data = needsFullAging
+      ? await api.get<Record<string, unknown>>(entry.report.apiPath, { ...entry.params, export: 'all' })
+      : entry.data as Record<string, unknown>;
+    return appendReportExportNotes(buildActiveReportCsv(entry.report, data), entry.report.basis, data);
   };
 
-  const handleExportPdf = () => {
+  const handleExportCsv = async () => {
     if (!activeReport) return;
 
-    const { report, data } = activeReport;
+    const { report } = activeReport;
     if (controlReconciliationKind(report.id) && (isLoading || error)) return;
-    const csv = appendReportExportNotes(buildActiveReportCsv(report, data as Record<string, unknown>), report.basis, data);
-    if (!csv.trim()) return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const csv = await loadExportCsv(activeReport);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${report.id}-${activeReport.asOfDate || activeReport.dateFrom || 'report'}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : 'Unable to export report.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
-    exportCsvToPdf(
-      `${report.id}-${activeReport.asOfDate || activeReport.dateFrom || 'report'}`,
-      report.name,
-      csv,
-      company ? { name: company.companyName, address: company.address, npwp: company.npwp } : null,
-      periodLabel,
-    );
+  const handleExportPdf = async () => {
+    if (!activeReport) return;
+
+    const { report } = activeReport;
+    if (controlReconciliationKind(report.id) && (isLoading || error)) return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const csv = await loadExportCsv(activeReport);
+      if (!csv.trim()) return;
+      exportCsvToPdf(
+        `${report.id}-${activeReport.asOfDate || activeReport.dateFrom || 'report'}`,
+        report.name,
+        csv,
+        company ? { name: company.companyName, address: company.address, npwp: company.npwp } : null,
+        periodLabel,
+      );
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : 'Unable to export report.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const activeFilterBadges: string[] = activeReport ? [
     activeReport.params.customerSearch ? `Pelanggan: ${activeReport.params.customerSearch}` : null,
+    activeReport.params.vendorSearch ? `Vendor: ${activeReport.params.vendorSearch}` : null,
     activeReport.params.itemSearch ? `Barang: ${activeReport.params.itemSearch}` : null,
     activeReport.params.topN ? `Top ${activeReport.params.topN}` : null,
     activeReport.params.sortBy === 'qty' ? 'Urut: Qty (pcs)' : null,
@@ -706,22 +784,22 @@ const Reports: React.FC<ReportsProps> = ({
                         </button>
                       )}
                       <button
-                        onClick={handlePrint}
-                        disabled={!!controlReconciliationKind(activeReport.report.id) && (isLoading || !!error)}
+                        onClick={() => { setExportError(null); setExporting(true); handlePrint(); }}
+                        disabled={reportOutputDisabled}
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
                       >
                         <Printer size={14} /> Print
                       </button>
                       <button
                         onClick={handleExportCsv}
-                        disabled={!!controlReconciliationKind(activeReport.report.id) && (isLoading || !!error)}
+                        disabled={reportOutputDisabled}
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
                       >
                         <Download size={14} /> Export CSV
                       </button>
                       <button
                         onClick={handleExportPdf}
-                        disabled={!!controlReconciliationKind(activeReport.report.id) && (isLoading || !!error)}
+                        disabled={reportOutputDisabled}
                         className="flex items-center gap-1.5 h-8 px-3 text-sm border border-neutral-300 rounded-md bg-neutral-0 hover:bg-neutral-100"
                       >
                         <FileText size={14} /> Export PDF
@@ -765,21 +843,28 @@ const Reports: React.FC<ReportsProps> = ({
                   </div>
 
                   <div className="overflow-x-auto print:overflow-visible">
-                    {Number(activeReport.data?.summary?.unappliedCredits ?? activeReport.data?.summary?.unallocatedCredit ?? 0) > 0 && (
+                    {Number(printableData?.summary?.unappliedCredits ?? printableData?.summary?.unallocatedCredit ?? 0) > 0 && (
                       <p className="p-3 mb-4 border border-neutral-300">
-                        Unapplied credits / credit balances: {formatIDR(activeReport.data.summary.unappliedCredits ?? activeReport.data.summary.unallocatedCredit)}.
-                        {' '}Net balance: {formatIDR(activeReport.data.summary.netOutstanding)}.
+                        Unapplied credits / credit balances: {formatIDR(printableData.summary.unappliedCredits ?? printableData.summary.unallocatedCredit)}.
+                        {' '}Net balance: {formatIDR(printableData.summary.netOutstanding)}.
                       </p>
                     )}
-                    {Array.isArray(activeReport.data?.warnings) && activeReport.data.warnings.length > 0 && (
+                    {Array.isArray(printableData?.warnings) && printableData.warnings.length > 0 && (
                       <div role="alert" className="p-3 mb-4 border border-warning-300 text-warning-800">
-                        {activeReport.data.warnings.map((warning: string) => <p key={warning}>{warning}</p>)}
+                        {printableData.warnings.map((warning: string) => <p key={warning}>{warning}</p>)}
                       </div>
                     )}
-                    <ReportResult activeReport={activeReport} isLoading={isLoading} error={error} categoryNameById={categoryNameById} />
+                    <ReportResult activeReport={printableData === activeReport.data ? activeReport : { ...activeReport, data: printableData }}
+                      isLoading={isLoading} error={error} categoryNameById={categoryNameById} />
                   </div>
                 </div>
 
+                {exportError && <p role="alert" className="mt-3 text-sm text-danger-700">{exportError}</p>}
+                {agingPage && !printData && (
+                  <ListPagination {...agingPage} busy={isLoading || exporting} label="open documents"
+                    onPageChange={(page) => { void loadAgingPage(page, agingPage.limit); }}
+                    onLimitChange={(limit) => { void loadAgingPage(1, limit); }} />
+                )}
                 {showOtherReports && (
                   <div className="mt-8 pt-6 border-t border-neutral-200 print:hidden">
                     <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
@@ -1033,6 +1118,13 @@ const Reports: React.FC<ReportsProps> = ({
                     className="block w-full px-3 text-sm leading-normal bg-neutral-0 border border-neutral-300 rounded-md h-10 focus:border-primary-500 focus:outline-0"
                   />
                 </div>
+                {paramModal.id === 'ap-aging' && (
+                  <label className="mt-3 block text-sm text-neutral-600">
+                    Nama vendor (opsional)
+                    <input value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)}
+                      className="mt-1 block h-10 w-full rounded-md border border-neutral-300 px-3" />
+                  </label>
+                )}
                 {paramModal.id === 'balance-sheet-multi-period' && (
                   <div className="mt-3">
                     <label className="block text-sm text-neutral-600 mb-1">Compare As of Date</label>

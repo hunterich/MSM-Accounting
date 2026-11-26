@@ -9,8 +9,12 @@ import { NextRequest } from 'next/server';
 
 // ── Prisma mock ──────────────────────────────────────────────────────────────
 
+const queryRaw = vi.hoisted(() => vi.fn());
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $queryRaw: queryRaw,
+    $transaction: vi.fn(run => run({ $queryRaw: queryRaw })),
     salesInvoice: {
       findMany: vi.fn(),
     },
@@ -112,6 +116,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Default: return empty arrays for all prisma calls
+  vi.mocked(prisma.$queryRaw).mockResolvedValue([{ rows: [], summary: {}, warnings: [], total: 0 }]);
   vi.mocked(prisma.salesInvoice.findMany).mockResolvedValue([]);
   vi.mocked(prisma.salesReturn.findMany).mockResolvedValue([]);
   vi.mocked(prisma.aRPaymentAllocation.groupBy).mockResolvedValue([]);
@@ -181,6 +186,7 @@ describe('GET /api/v1/reports/ar', () => {
     expect(body).toHaveProperty('rows');
     expect(body).toHaveProperty('summary');
     expect(Array.isArray(body.rows)).toBe(true);
+    expect(body).toMatchObject({ page: 1, limit: 50, total: 0 });
   });
 
   it('returns 200 with rows and summary for customer-balance type', async () => {

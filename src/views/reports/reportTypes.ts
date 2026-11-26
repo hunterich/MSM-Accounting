@@ -75,6 +75,7 @@ export interface ReportParams {
   compareDateFrom?: string;
   compareDateTo?: string;
   customerSearch?: string;
+  vendorSearch?: string;
   itemSearch?: string;
   topN?: number;
   sortBy?: 'total' | 'qty';
