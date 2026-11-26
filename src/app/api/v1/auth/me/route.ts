@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyToken, resolveActiveOrg, COOKIE_NAME } from '@/lib/auth';
+import { verifyToken, resolveActiveOrg, credentialStamp, COOKIE_NAME } from '@/lib/auth';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 
 export const runtime = 'nodejs';
@@ -50,6 +50,9 @@ export async function GET(req: NextRequest) {
       return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
     }
 
+    if (payload.credentialStamp !== credentialStamp(user.passwordHash)) {
+      return withCors(NextResponse.json({ error: 'Session expired; sign in again' }, { status: 401 }));
+    }
     const membershipsOut = user.memberships.map((m) => ({
       orgId: m.organizationId,
       name: m.organization.displayName,
