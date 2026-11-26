@@ -102,7 +102,7 @@ it('recognizes a void only when all matching reversal journals share one date', 
     const item = await prisma.item.create({ data: { organizationId: org.orgId, sku: 'VOID-ITEM', name: 'Void item' } });
     await prisma.salesInvoice.create({ data: {
       organizationId: org.orgId, customerId, number: 'INV-VOID-MULTI', issueDate: new Date('2026-01-05T00:00:00Z'),
-      status: 'VOID', subtotal: 10, totalAmount: 10,
+      status: 'VOID', subtotal: 10, totalAmount: 12,
       lines: { create: { lineNo: 1, itemId: item.id, description: 'Void item', quantity: 1, lineSubtotal: 10 } },
     } });
     for (const suffix of ['A', 'B']) {
@@ -115,10 +115,48 @@ it('recognizes a void only when all matching reversal journals share one date', 
     const february = { ...january, dateFrom: new Date('2026-02-01T00:00:00Z'), dateTo: new Date('2026-02-28T23:59:59Z') };
     expect(await readTopProducts(prisma, january)).toEqual([expect.objectContaining({ itemId: item.id, qty: 1, total: 10 })]);
     expect(await readTopProducts(prisma, february)).toEqual([expect.objectContaining({ itemId: item.id, qty: -1, total: -10 })]);
+    expect(await readItemSales(prisma, january)).toContainEqual(expect.objectContaining({ description: 'Unallocated invoice charges / adjustments', total: 2 }));
+    expect(await readItemSales(prisma, february)).toContainEqual(expect.objectContaining({ description: 'Unallocated invoice charges / adjustments', total: -2 }));
+    expect(await readItemCustomerSales(prisma, { organizationId: org.orgId })).toContainEqual(expect.objectContaining({
+      customerId, description: 'Unallocated invoice charges / adjustments', total: 0,
+    }));
     await prisma.journalEntry.create({ data: { organizationId: org.orgId, entryNo: 'VOID-C',
       date: new Date('2026-03-05T00:00:00Z'), memo: 'Void invoice: INV-VOID-MULTI', source: 'REVERSAL', status: 'POSTED' } });
     expect(await readTopProducts(prisma, january)).toEqual([]);
     expect(await readTopProducts(prisma, february)).toEqual([]);
     expect(await readSalesWarnings(prisma, org.orgId)).toEqual(expect.arrayContaining([expect.stringContaining('INV-VOID-MULTI')]));
   } finally { await cleanupOrg(otherOrg.orgId); await cleanupOrg(org.orgId); }
+});
+
+it('retains unallocated invoice amounts for missing, zero and negative lines by customer', async () => {
+  const org = await createTestOrg();
+  try {
+    const firstCustomer = await createCustomer(org.orgId);
+    const secondCustomer = await createCustomer(org.orgId);
+    const item = await prisma.item.create({ data: { organizationId: org.orgId, sku: 'ALLOC', name: 'Allocated item' } });
+    const createInvoice = (number: string, customerId: string, subtotal: number, totalAmount: number,
+      lines: Array<{ lineNo: number; itemId: string; description: string; quantity: number; lineSubtotal: number }>) =>
+      prisma.salesInvoice.create({ data: { organizationId: org.orgId, customerId, number,
+        issueDate: new Date('2026-01-01T00:00:00Z'), status: 'SENT', subtotal, totalAmount,
+        lines: { create: lines } } });
+    await createInvoice('EMPTY-A', firstCustomer, 0, 7, []);
+    await createInvoice('EMPTY-B', secondCustomer, 0, 3, []);
+    await createInvoice('ZERO', firstCustomer, 0, 5,
+      [{ lineNo: 1, itemId: item.id, description: 'Allocated item', quantity: 3, lineSubtotal: 0 }]);
+    await createInvoice('NEGATIVE', firstCustomer, 8, 8, [
+      { lineNo: 1, itemId: item.id, description: 'Allocated item', quantity: 1, lineSubtotal: 10 },
+      { lineNo: 2, itemId: item.id, description: 'Allocated item', quantity: 1, lineSubtotal: -2 },
+    ]);
+    await createInvoice('CHARGE', firstCustomer, 10, 12,
+      [{ lineNo: 1, itemId: item.id, description: 'Allocated item', quantity: 1, lineSubtotal: 10 }]);
+    const filter = { organizationId: org.orgId };
+    const rows = await readItemSales(prisma, filter);
+    expect(rows).toContainEqual(expect.objectContaining({ itemId: item.id, qty: 6, total: 10 }));
+    expect(rows).toContainEqual(expect.objectContaining({ description: 'Unallocated invoice charges / adjustments', total: 25 }));
+    expect(rows.reduce((sum, row) => sum + row.total, 0)).toBe(35);
+    const byCustomer = await readItemCustomerSales(prisma, filter);
+    expect(byCustomer).toContainEqual(expect.objectContaining({ customerId: firstCustomer, description: 'Unallocated invoice charges / adjustments', total: 22 }));
+    expect(byCustomer).toContainEqual(expect.objectContaining({ customerId: secondCustomer, description: 'Unallocated invoice charges / adjustments', total: 3 }));
+    expect(byCustomer.reduce((sum, row) => sum + row.total, 0)).toBe(35);
+  } finally { await cleanupOrg(org.orgId); }
 });
