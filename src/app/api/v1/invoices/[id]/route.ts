@@ -7,15 +7,22 @@ import { readScope } from '@/lib/authz-read-scopes';
 import { AccessError, applyInvoiceAccessScope, getInvoiceAccessContext } from '@/lib/document-access';
 import { postInvoiceSend } from '@/lib/invoice-send-posting';
 import { assertStoredDocumentOffsets } from '@/lib/document-offset-accounts';
+import { assertInvoiceSalesPosting, findInvoicePostingEntries } from '@/lib/invoice-posting-entries';
 import { reverseInvoicePosting } from '@/lib/repost';
 import { assertPeriodOpen } from '@/lib/period-guard';
 import { routeForApproval } from '@/lib/approval/engine';
 import { assertItemsActive } from '@/lib/item-availability';
 import { lockInventoryItems, assertCorrectedSalesValue } from '@/lib/inventory-costing';
-import { calculateInvoiceTotals } from '@/lib/invoice-totals';
+import { calculateInvoiceTotals, sameInvoiceLinePricing } from '@/lib/invoice-totals';
+import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { updateInvoiceAmountsSchema } from '@/types/api';
 
 export const runtime = 'nodejs';
+
+function sameInvoiceHeaderValue(submitted: unknown, saved: unknown) {
+  if (saved instanceof Date) return typeof submitted === 'string' && saved.getTime() === new Date(submitted).getTime();
+  return (submitted === '' ? null : submitted ?? null) === (saved === '' ? null : saved ?? null);
+}
 
 export async function OPTIONS() {
   return corsPreflightResponse();
@@ -36,8 +43,8 @@ export const GET = withPermission(readScope('invoices'), async function GET(_req
       include: {
         customer: true,
         createdBy: { select: { id: true, fullName: true, email: true } },
-        lines: true,
-        charges: true,
+        lines: { orderBy: { lineNo: 'asc' } },
+        charges: { orderBy: { lineNo: 'asc' } },
       },
     });
     if (!invoice) return withCors(NextResponse.json({ error: 'Not found' }, { status: 404 }));
@@ -102,12 +109,9 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       await tx.$queryRaw`SELECT "id" FROM "SalesInvoice" WHERE "id" = ${id} AND "organizationId" = ${orgId} FOR UPDATE`;
       const existing = await tx.salesInvoice.findFirst({
         where: applyInvoiceAccessScope({ id, organizationId: orgId }, access),
-        select: {
-          id: true, status: true, number: true, issueDate: true, organizationId: true, totalAmount: true,
-          postingTracked: true, postingJournalIds: true,
-          discountPct: true, taxEnabled: true, taxInclusive: true, taxRate: true,
+        include: {
           lines: {
-            select: { itemId: true, code: true, description: true, quantity: true, unit: true, price: true, discountPct: true, lineSubtotal: true, taxable: true },
+            select: { id: true, itemId: true, code: true, description: true, quantity: true, unit: true, price: true, discountPct: true, lineSubtotal: true, taxable: true },
             orderBy: { lineNo: 'asc' },
           },
           charges: { select: { label: true, accountId: true, amount: true, taxRate: true }, orderBy: { lineNo: 'asc' } },
@@ -133,8 +137,39 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         });
       }
 
-      const amounts = recalculateAmounts ? calculateInvoiceTotals({
-        lines: lines ?? existing.lines,
+      const savedById = new Map(existing.lines.map(line => [line.id, line]));
+      const usedLineIds = new Set<string>();
+      const matchesLegacyOrder = lines?.length === existing.lines.length && !lines.some(line => line.id);
+      let linesUnchanged = !lines || lines.length === existing.lines.length;
+      const submittedLines = lines?.map((line, index) => {
+        const samePosition = existing.lines[index];
+        const sameDescription = samePosition && line.description === samePosition.description && (line.code || null) === (samePosition.code || null);
+        // A legacy payload without line IDs can retain values on an unchanged ordered list.
+        const saved = line.id ? savedById.get(line.id) : matchesLegacyOrder && sameDescription ? samePosition : undefined;
+        if (line.id && !saved) throw new ApiError('The invoice lines have changed. Reload the invoice before saving.', 409);
+        if (saved && usedLineIds.has(saved.id)) throw new ApiError('An invoice line can only appear once in an edit.', 422);
+        if (saved) usedLineIds.add(saved.id);
+        const samePrice = saved && sameInvoiceLinePricing(line, saved);
+        linesUnchanged &&= !!samePrice && saved === samePosition && !!sameDescription
+          && (saved.taxable ?? null) === (line.taxable ?? null);
+        return { ...line, lineSubtotal: samePrice ? saved.lineSubtotal : undefined };
+      });
+      const chargesUnchanged = !charges || (charges.length === existing.charges.length && charges.every((charge, index) => {
+        const saved = existing.charges[index];
+        return charge.label === saved.label && (charge.accountId || null) === (saved.accountId || null)
+          && roundMoneyDecimal(charge.amount).eq(saved.amount) && roundMoneyDecimal(charge.taxRate ?? 0).eq(saved.taxRate);
+      }));
+      const canEditPosted = existing.status === 'SENT' || existing.status === 'OVERDUE';
+      const isNotesOnlyUpdate = canEditPosted && 'notes' in header && linesUnchanged && chargesUnchanged
+        && (taxEnabled === undefined || taxEnabled === existing.taxEnabled)
+        && (taxInclusive === undefined || taxInclusive === existing.taxInclusive)
+        && (taxRate === undefined || roundMoneyDecimal(taxRate).eq(existing.taxRate))
+        && (discountPct === undefined || roundMoneyDecimal(discountPct).eq(existing.discountPct))
+        && Object.entries(header).every(([key, value]) => key === 'notes'
+          || sameInvoiceHeaderValue(value, existing[key as keyof typeof existing]));
+
+      const amounts = recalculateAmounts && !isNotesOnlyUpdate ? calculateInvoiceTotals({
+        lines: submittedLines ?? existing.lines,
         charges: charges ?? existing.charges,
         discountPct: discountPct ?? existing.discountPct,
         tax: { enabled: taxEnabled, inclusive: taxInclusive, rate: taxRate },
@@ -144,14 +179,12 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         taxDefaultRate: existing.taxRate,
       }) : null;
 
-      // DRAFT → edit freely. SENT/OVERDUE field edit → edit-after-post: reverse the
-      // posting, apply the edit, re-post — bounded by the open period. A status-only
-      // update (e.g. marking paid) is NOT an edit and skips this. Everything else
-      // (PAID/VOID/PENDING_APPROVAL) → must be voided to change.
+      // DRAFT invoices can be edited freely. SENT/OVERDUE edits require an open
+      // period and a valid sales posting. Notes alone leave that posting intact.
+      // Status-only updates skip the edit path.
       const isDraft = existing.status === 'DRAFT';
-      const isPostedEdit =
-        !isDraft && !isStatusOnlyUpdate && (existing.status === 'SENT' || existing.status === 'OVERDUE');
-      if (!isDraft && !isPostedEdit && !isStatusOnlyUpdate) {
+      const isPostedEdit = canEditPosted && !isStatusOnlyUpdate;
+      if (!isDraft && !canEditPosted && !isStatusOnlyUpdate) {
         throw new AccessError(`Cannot edit a ${existing.status} invoice — void it to change.`, 403);
       }
 
@@ -173,9 +206,14 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         const newDate = header.issueDate ? new Date(header.issueDate) : new Date(existing.issueDate);
         await assertPeriodOpen(tx, existing.organizationId, new Date(existing.issueDate)); // posted period
         await assertPeriodOpen(tx, existing.organizationId, newDate);                       // re-post period
-        await lockInventoryItems(tx, orgId, [...existing.lines, ...(lines ?? [])].flatMap(line => line.itemId ? [line.itemId] : []));
-        postedEditBefore = await tx.salesInvoice.findFirst({ where: { id }, include: { lines: true, charges: true } });
-        await reverseInvoicePosting(tx, existing.organizationId, existing, { date: newDate });
+        if (isNotesOnlyUpdate) {
+          const entries = await findInvoicePostingEntries(tx, orgId, existing);
+          assertInvoiceSalesPosting(existing, entries, 'edit notes');
+        } else {
+          await lockInventoryItems(tx, orgId, [...existing.lines, ...(lines ?? [])].flatMap(line => line.itemId ? [line.itemId] : []));
+          postedEditBefore = await tx.salesInvoice.findFirst({ where: { id }, include: { lines: true, charges: true } });
+          await reverseInvoicePosting(tx, existing.organizationId, existing, { date: newDate });
+        }
       }
 
       // Atomically claim the DRAFT → SENT transition before any GL side effect:
@@ -195,7 +233,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       await tx.salesInvoice.update({
         where: { id },
         data: {
-          ...header,
+          ...(isNotesOnlyUpdate ? { notes: header.notes } : header),
           ...(amounts && {
             subtotal: amounts.subtotal, discountPct: amounts.discountPct, discountAmount: amounts.discountAmount,
             taxEnabled: amounts.taxEnabled, taxInclusive: amounts.taxInclusive, taxRate: amounts.taxRate,
@@ -230,7 +268,7 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
       await assertStoredDocumentOffsets(tx, orgId, 'INVOICE', id);
       // Edit-after-post: re-post AR (+ charges) from the freshly-edited invoice
       // (its prior entries and exact inventory draws were reversed above).
-      if (isPostedEdit) {
+      if (isPostedEdit && !isNotesOnlyUpdate) {
         await postInvoiceSend(tx, existing.organizationId, existing.id, dateOverride);
         await assertCorrectedSalesValue(tx, existing.organizationId, existing.id);
       }
@@ -268,8 +306,8 @@ export const PUT = withPermission({ module: 'AR_INVOICES', action: 'edit' }, asy
         include: {
           customer: true,
           createdBy: { select: { id: true, fullName: true, email: true } },
-          lines: true,
-          charges: true,
+          lines: { orderBy: { lineNo: 'asc' } },
+          charges: { orderBy: { lineNo: 'asc' } },
         },
       });
     });

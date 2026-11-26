@@ -4,7 +4,7 @@ import { postSalesReturnOnApproval } from '@/lib/sales-return-posting';
 import { postCreditNoteOnApply } from '@/lib/credit-note-posting';
 import { voidCreditNote } from '@/lib/note-void';
 import { voidInvoice } from '@/lib/invoice-void';
-import { readCustomerSales, readItemSales, readItemCustomerSales, readSalesCalendar, readSalesHistory, readSalesWarnings } from '@/lib/sales-summary';
+import { readCustomerSales, readItemSales, readItemCustomerSales, readTopProducts, readSalesCalendar, readSalesHistory, readSalesWarnings } from '@/lib/sales-summary';
 import { buildProfitLossReport } from '@/lib/gl-reporting';
 import { readJournalTotals } from '@/lib/journal-totals';
 import { cleanupOrg, createCustomer, createTestOrg, disconnect, prisma } from './harness';
@@ -65,6 +65,9 @@ it('reconciles tax-exclusive invoice and linked return to the P&L', async () => 
     expect(items).toEqual([expect.objectContaining({
       code: 'SERVICE-1', grossQty: 4, returnedQty: 1, qty: 3, gross: 600000, returns: 150000, total: 450000,
     })]);
+    expect(await readTopProducts(prisma, filter)).toEqual([
+      expect.objectContaining({ itemId: item.id, qty: 3, total: 450000 }),
+    ]);
     expect((await readItemCustomerSales(prisma, filter)).reduce((sum, row) => sum + row.total, 0)).toBe(netSales);
     expect((await readSalesCalendar(prisma, filter, 'month')).reduce((sum, row) => sum + row.total, 0)).toBe(netSales);
     expect((await readSalesHistory(prisma, filter, 100)).reduce((sum, row) => sum + row.totalAmount, 0)).toBe(netSales);
@@ -96,6 +99,7 @@ it('reconciles tax-exclusive invoice and linked return to the P&L', async () => 
     expect((await readItemSales(prisma, february)).reduce((sum, row) => sum + row.total, 0)).toBe(-19900);
     expect((await readCustomerSales(prisma, march)).reduce((sum, row) => sum + row.total, 0)).toBe(19900);
     expect((await readItemSales(prisma, march)).reduce((sum, row) => sum + row.total, 0)).toBe(19900);
+    expect(await readTopProducts(prisma, march)).toContainEqual(expect.objectContaining({ itemId: item.id, qty: -1, total: -100 }));
     for (const [period, expected] of [[february, -19900], [march, 19900]] as const) {
       const ledger = await readJournalTotals(prisma, { entry: { organizationId: org.orgId, status: 'POSTED',
         date: { gte: period.dateFrom, lte: period.dateTo } } });

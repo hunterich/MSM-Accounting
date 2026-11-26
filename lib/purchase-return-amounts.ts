@@ -1,6 +1,6 @@
-import type { Prisma } from '@prisma/client';
+import type { BillLine as SavedBillLine, Prisma } from '@prisma/client';
 import { advisoryLockKey } from './advisory-lock';
-import { splitBillLineTax } from './bill-totals';
+import { calculateBillAmounts, splitBillLineTax } from './bill-totals';
 import { ApiError } from './errors';
 import { allocateRoundedAmount, MoneyDecimal, roundMoneyDecimal } from './money-decimal';
 
@@ -17,7 +17,7 @@ type ReturnLine = {
   qtyReturn?: DecimalValue;
   price?: DecimalValue;
 };
-type BillLine = Pick<Prisma.BillLineGetPayload<object>, 'id' | 'lineNo' | 'itemId' | 'description' | 'unit' | 'quantity' | 'price' | 'taxable'>;
+type BillLine = Pick<SavedBillLine, 'id' | 'lineNo' | 'itemId' | 'description' | 'unit' | 'quantity' | 'price' | 'taxable' | 'lineTotal' | 'poReceiptTaxAmount'>;
 
 const zero = new MoneyDecimal(0);
 
@@ -44,16 +44,17 @@ export async function preparePurchaseReturnValuation(
   const bill = await tx.bill.findFirst({
     where: { id: input.billId, organizationId: orgId },
     select: {
-      id: true, number: true, vendorId: true,
-      lines: { select: { id: true, lineNo: true, itemId: true, description: true, unit: true, quantity: true, price: true, taxable: true } },
+      id: true, number: true, vendorId: true, taxable: true, taxInclusive: true, taxRate: true,
+      lines: { select: { id: true, lineNo: true, itemId: true, description: true, unit: true, quantity: true,
+        price: true, taxable: true, lineTotal: true, poReceiptTaxAmount: true } },
     },
   });
   if (!bill) throw new ApiError('Bill not found in organization', 422);
   if (bill.vendorId !== input.vendorId) throw new ApiError('Source bill must belong to the selected vendor', 422);
   const terms = {
-    applyTax: input.applyTax ?? true,
-    taxIncluded: input.taxIncluded ?? false,
-    taxRate: roundMoneyDecimal(input.taxRate ?? 11),
+    applyTax: input.applyTax ?? bill.taxable,
+    taxIncluded: input.taxIncluded ?? bill.taxInclusive,
+    taxRate: roundMoneyDecimal(input.taxRate ?? bill.taxRate),
   };
   const byKey = new Map<string, BillLine>();
   for (const line of bill.lines) {
@@ -121,7 +122,18 @@ export async function preparePurchaseReturnValuation(
       throw new ApiError('Earlier returns contain invalid supplier amounts. Review the recorded returns before continuing.', 422);
     }
     const qty = before.qty.plus(qtyReturn);
-    const target = splitBillLineTax(roundMoneyDecimal(qty.mul(price)), taxTerms.rate, taxTerms.inclusive);
+    let target = splitBillLineTax(roundMoneyDecimal(qty.mul(price)), taxTerms.rate, taxTerms.inclusive);
+    if (source && price.eq(source.price) && qtyPurchased.gt(0)) {
+      const billedTax = effectiveTax({ applyTax: bill.taxable, taxIncluded: bill.taxInclusive, taxRate: bill.taxRate }, source);
+      const share = qty.div(qtyPurchased);
+      if (taxTerms.rate.eq(billedTax.rate) && taxTerms.inclusive === billedTax.inclusive) {
+        const [billed] = calculateBillAmounts({ ...bill, lines: [source] }).lines;
+        // Carry the booked discount and tax allocation through the last return.
+        target = { net: roundMoneyDecimal(billed.net.mul(share)), tax: roundMoneyDecimal(billed.tax.mul(share)) };
+      } else {
+        target = splitBillLineTax(roundMoneyDecimal(source.lineTotal.mul(share)), taxTerms.rate, taxTerms.inclusive);
+      }
+    }
     // Earlier finalized returns keep their assigned amounts. If one is voided,
     // its replacement credits only what remains under the same terms.
     const net = qtyReturn.isZero() ? zero : MoneyDecimal.max(0, target.net.minus(before.net));

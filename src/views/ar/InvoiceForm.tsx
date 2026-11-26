@@ -280,7 +280,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     discount: Number(exists.discountPct || 0),
                     notes: exists.notes || '',
                     invoiceType: exists.invoiceType || 'Sales Invoice',
-                    salesTypeId: (exists as { salesTypeId?: string | null }).salesTypeId || '',
+                    salesTypeId: exists.salesTypeId || '',
                     charges: (exists.charges ?? []).map(charge => ({ label: charge.label, accountId: charge.accountId || '', amount: Number(charge.amount), taxRate: Number(charge.taxRate) })),
                     items: (exists.items || []).map((line, index) => ({
                         ...line,
@@ -433,9 +433,12 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
         });
     };
 
+    const savedInvoiceLines = useMemo(() => new Map(
+        (invoiceDetail?.lines ?? []).flatMap(line => line.id ? [[line.id, line] as const] : []),
+    ), [invoiceDetail]);
     const invoiceTotals = useMemo(
-        () => computeInvoiceFormTotals(formData.items, formData.charges, formData.discount, taxSettings),
-        [formData.items, formData.charges, formData.discount, taxSettings],
+        () => computeInvoiceFormTotals(formData.items, formData.charges, formData.discount, taxSettings, savedInvoiceLines),
+        [formData.items, formData.charges, formData.discount, taxSettings, savedInvoiceLines],
     );
 
     const isSaving = createInvoice.isPending || updateInvoiceMutation.isPending;
@@ -562,9 +565,9 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     customerId: formData.customerId,
                     invoiceType: formData.invoiceType || 'Sales Invoice',
                     salesTypeId: formData.salesTypeId || null,
-                    issueDate: new Date(formData.issueDate).toISOString(),
-                    dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : null,
-                    shippingDate: formData.shippingDate ? new Date(formData.shippingDate).toISOString() : null,
+                    ...(formData.issueDate !== invoiceDetail?.issueDate && { issueDate: new Date(formData.issueDate).toISOString() }),
+                    ...(formData.dueDate !== invoiceDetail?.dueDate && { dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : null }),
+                    ...(formData.shippingDate !== invoiceDetail?.shippingDate && { shippingDate: formData.shippingDate ? new Date(formData.shippingDate).toISOString() : null }),
                     poNumber: formData.poNumber || null,
                     billingAddress: formData.billingAddress || null,
                     shippingAddress: formData.shippingAddress || null,
@@ -574,7 +577,10 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                     taxRate: taxSettings.rate,
                     discountPct: Number(formData.discount || 0),
                     charges: formData.charges,
-                    lines: cleanedItems.map(invoiceFormLineInput),
+                    lines: cleanedItems.map(line => ({
+                        ...invoiceFormLineInput(line),
+                        ...(savedInvoiceLines.has(String(line.id)) && { id: String(line.id) }),
+                    })),
                     ...(currentStatus === 'Draft' && !saveAsDraft ? { status: 'Sent' } : {}),
                 });
             } else {
@@ -1021,7 +1027,7 @@ const InvoiceForm = ({ workspaceTabId, recordId }: InvoiceFormProps = {}) => {
                                                     />
                                                 </td>
                                                 <td className="p-2 align-top text-right font-bold text-neutral-800 pt-3.5">
-                                                    {formatIDR(invoiceFormLineTotal(item))}
+                                                    {formatIDR(invoiceFormLineTotal(item, savedInvoiceLines.get(String(item.id))))}
                                                 </td>
                                                 <td className="p-2 align-top text-center pt-3">
                                                     <button

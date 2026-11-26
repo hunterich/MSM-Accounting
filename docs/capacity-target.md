@@ -57,7 +57,7 @@ Initial acceptance targets (to validate on deployment hardware):
 
 | Operation | Target |
 | --- | --- |
-| Annual sales, monthly chart, top products, trial balance, valuation | warm p95 ≤ 5 seconds each |
+| Annual sales, monthly chart, top products, sales by item, sales by item/customer, trial balance, valuation | warm p95 ≤ 5 seconds each |
 | First invoice page of 50 with line items and total count | warm p95 ≤ 2 seconds |
 | Eight concurrent sales/GL readers completing as a batch | warm p95 ≤ 10 seconds |
 

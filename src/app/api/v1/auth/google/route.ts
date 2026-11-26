@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OAuth2Client } from 'google-auth-library';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { signToken, COOKIE_NAME } from '@/lib/auth';
+import { signToken, credentialStamp, COOKIE_NAME } from '@/lib/auth';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 
 export const runtime = 'nodejs';
@@ -22,8 +22,8 @@ export async function OPTIONS() {
  * Signed-in-but-companyless session: identity only, no org and no role. The
  * client shows the company picker (create-first-company path) on this shape.
  */
-async function emptySessionResponse(user: { id: string; email: string; fullName: string; mustChangePassword: boolean }) {
-  const token = await signToken({ userId: user.id, email: user.email, memberships: [] });
+async function emptySessionResponse(user: { id: string; email: string; fullName: string; mustChangePassword: boolean; passwordHash: string | null }) {
+  const token = await signToken({ userId: user.id, email: user.email, credentialStamp: credentialStamp(user.passwordHash), memberships: [] });
   const response = NextResponse.json({
     user: { id: user.id, email: user.email, fullName: user.fullName },
     org: null,
@@ -116,6 +116,7 @@ export async function POST(req: NextRequest) {
     const token = await signToken({
       userId: user.id,
       email: user.email,
+      credentialStamp: credentialStamp(user.passwordHash),
       memberships: memberships.map((m) => ({ orgId: m.organizationId, roleType: m.role.roleType })),
     });
 

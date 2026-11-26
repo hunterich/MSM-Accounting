@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — password resets and session invalidation (#235)
+- Only a company administrator can reset another user's password. Resets are refused for accounts with memberships in another company, including inactive memberships; shared-account recovery needs a separate secure process.
+- Password changes and resets invalidate existing sessions, including session refresh. A user changing their own password receives a new session; all users must sign in again when this change is first deployed.
+- Password changes and their audit records are saved together. No schema migration is required.
+
 ### Fixed — one cent-rounding rule across accounting workflows ([PR #267](https://github.com/hunterich/MSM-Accounting/pull/267))
 - Journals, vendor bills, sales invoices, sales-order conversion, recurring invoices/bills and POS now round money to two decimals, half up, using one shared rule (`lib/money-decimal.ts`). Previews, saved documents and GL postings use the same totals, so a form no longer shows Rp6.66 while the ledger posts Rp6.67.
 - Journals must balance exactly at the saved two-decimal amounts. The old half-cent tolerance is removed.

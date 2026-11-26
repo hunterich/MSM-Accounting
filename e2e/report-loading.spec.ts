@@ -36,6 +36,24 @@ test.beforeEach(async ({ page }) => {
       json = { data: [{ id: `${kind}-${search ? 150 : pageNo}`, name: search ? `Archived ${search}` : `First ${kind}`, code: search ? 'LATE150' : 'FIRST' }], total: search ? 1 : 150, page: pageNo, limit: 20 };
     }
     else if (/\/(customers|vendors|items)\/[^/]+$/.test(path)) json = { id: path.split('/').pop(), name: 'Restored vendor', code: 'LATE150' };
+    else if (/\/reports\/(ar|ap)$/.test(path) && url.searchParams.get('type') === 'aging') {
+      const page = Number(url.searchParams.get('page') || 1);
+      const limit = Number(url.searchParams.get('limit') || 50);
+      const rows = Array.from({ length: 51 }, (_, i) => {
+        const number = `AGING-${String(i + 1).padStart(3, '0')}`;
+        return {
+          invoiceId: number, invoiceNumber: number, invoiceDate: '2026-09-01',
+          billId: number, billNumber: number, billDate: '2026-09-01',
+          customerName: 'Customer', vendorName: 'Vendor', dueDate: '2026-09-15',
+          daysOverdue: 15, originalAmount: 100, clearedAmount: 0, balance: 100, d1To30: 100,
+        };
+      });
+      json = {
+        rows: url.searchParams.get('export') === 'all' || !url.searchParams.has('limit')
+          ? rows : rows.slice((page - 1) * limit, page * limit),
+        total: rows.length, page, limit, summary: { totalOutstanding: 5_100, d1To30: 5_100 },
+      };
+    }
     else if (path.endsWith('/reports/ap')) json = {
       party: { id: url.searchParams.get('vendorId'), name: 'Archived Vendor150', code: 'LATE150' },
       period: { dateFrom: '2026-10-01', dateTo: '2026-10-16' }, openingBalance: 0, rows: [],
@@ -64,6 +82,34 @@ for (const kind of ['ar', 'ap'] as const) test(`${kind} control reconciliation r
   await page.getByRole('button', { name: 'Tampilkan', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Control account reconciliation' })).toBeVisible();
   expect(requests.some(url => url.pathname.endsWith('/reports/control-reconciliation') && url.searchParams.get('kind') === kind && url.searchParams.get('asOfDate') === '2026-09-30')).toBe(true);
+});
+
+for (const kind of ['ar', 'ap'] as const) test(`${kind} aging pages details and downloads the full report`, async ({ page }) => {
+  await openReports(page);
+  await page.getByRole('button', { name: kind === 'ar' ? 'Receivables' : 'Payables', exact: true }).click();
+  await page.getByRole('button', { name: new RegExp(`${kind.toUpperCase()} Aging`) }).click();
+  await page.getByLabel('Report as-of date').fill('2026-09-30');
+  if (kind === 'ap') await page.getByRole('textbox', { name: 'Nama vendor (opsional)' }).fill('Vendor');
+  await page.getByRole('button', { name: 'Tampilkan', exact: true }).click();
+
+  const pagination = page.getByRole('navigation', { name: 'open documents pagination' });
+  await expect(pagination.getByText('Showing 1–50 of 51 open documents')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'AGING-051', exact: true })).toHaveCount(0);
+  await pagination.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(pagination.getByText('Showing 51–51 of 51 open documents')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'AGING-051', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'AGING-001', exact: true })).toHaveCount(0);
+
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  const stream = await (await download).createReadStream();
+  let csv = '';
+  for await (const chunk of stream) csv += chunk.toString();
+  expect(csv).toContain('AGING-001');
+  expect(csv).toContain('AGING-051');
+  const exportRequest = requests.find(url => url.pathname.endsWith('/reports/' + kind) && url.searchParams.get('export') === 'all');
+  expect(exportRequest?.searchParams.get('asOfDate')).toBe('2026-09-30');
+  if (kind === 'ap') expect(exportRequest?.searchParams.get('vendorSearch')).toBe('Vendor');
 });
 
 test('report catalog and financial filters do not download unrelated master lists', async ({ page }) => {

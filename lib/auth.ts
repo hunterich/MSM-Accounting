@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify } from 'jose';
+import { createHmac } from 'node:crypto';
 
 export const COOKIE_NAME = 'msm_token';
 const EXPIRY = '8h';
@@ -12,6 +13,14 @@ export interface TokenPayload {
   userId: string;
   email: string;
   memberships: OrgMembershipClaim[];
+  credentialStamp?: string;
+}
+
+// A keyed digest avoids exposing the password hash in the signed (but readable) token.
+export function credentialStamp(passwordHash: string | null): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET environment variable is required');
+  return createHmac('sha256', secret).update('credential-stamp\0').update(passwordHash ?? '').digest('hex');
 }
 
 export type ActiveOrgResolution =
@@ -77,7 +86,7 @@ export async function verifyToken(token: string): Promise<TokenPayload | null> {
   try {
     const { payload } = await jwtVerify(token, secret);
     const candidate = payload as unknown as TokenPayload;
-    if (!Array.isArray(candidate.memberships)) return null; // pre-multi-company token → force re-login
+    if (!Array.isArray(candidate.memberships) || typeof candidate.credentialStamp !== 'string') return null;
     return candidate;
   } catch {
     return null;

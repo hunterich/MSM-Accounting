@@ -6,6 +6,10 @@ import { PUT as updatePo } from '@/src/app/api/v1/purchase-orders/[id]/route';
 import { POST as receivePo } from '@/src/app/api/v1/purchase-orders/[id]/receive/route';
 import { POST as createBill } from '@/src/app/api/v1/bills/route';
 import { PUT as updateBill } from '@/src/app/api/v1/bills/[id]/route';
+import { POST as previewReturn } from '@/src/app/api/v1/purchase-returns/preview/route';
+import { POST as createReturn } from '@/src/app/api/v1/purchase-returns/route';
+import { POST as createDebit } from '@/src/app/api/v1/debit-notes/route';
+import { PUT as applyDebit } from '@/src/app/api/v1/debit-notes/[id]/route';
 import { unreceiveGoodsReceipt } from '@/lib/unreceive-goods';
 import {
   accountBalance, assertTrialBalanced, cleanupOrg, createItem, createTestOrg, createVendor,
@@ -108,6 +112,44 @@ it.each([
     expect(await inventoryLedgerValue(org.orgId)).toBe(net);
     expect((await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: poId } })).status).toBe('CLOSED');
     expect((await prisma.purchaseOrderLine.findUniqueOrThrow({ where: { id: purchaseOrderLineId } })).receivedQty.toString()).toBe('1');
+    await assertTrialBalanced(org.orgId);
+
+    // The final half receipt owns its allocated cent and PPN rounding. A full
+    // return of that receipt must use those amounts, including the PO discount.
+    const source = savedBills.find(bill => bill.id === second)!;
+    const apReturn = await prisma.account.create({ data: {
+      organizationId: org.orgId, code: '5299', name: 'Purchase returns', type: 'EXPENSE', normalSide: 'DEBIT',
+    } });
+    await prisma.organization.update({ where: { id: org.orgId }, data: { accountDefaults: { ...org.accounts, apReturn: apReturn.id } } });
+    const returnInput = { billId: source.id, vendorId, returnDate: today, status: 'APPROVED', lines: [{
+      lineKey: source.lines[0].id, itemId, qtyReturn: '0.5', price: '7.25',
+    }] };
+    const preview = await previewReturn(request('purchase-returns/preview', 'POST', returnInput));
+    expect(preview.status, await preview.clone().text()).toBe(200);
+    const value = await preview.json();
+    expect(value.lines[0].lineTotal).toBe('3.33');
+    expect(Number(value.totalAmount).toFixed(2)).toBe(bills[1]);
+    expect(value.taxAmount).toBe(source.taxAmount.toString());
+
+    const savedReturn = await createReturn(request('purchase-returns', 'POST', {
+      ...returnInput, expectedValuation: { totalAmount: value.totalAmount, taxAmount: value.taxAmount },
+    }));
+    expect(savedReturn.status, await savedReturn.clone().text()).toBe(201);
+    const ret = await savedReturn.json();
+    expect(ret).toMatchObject({ totalAmount: value.totalAmount, taxAmount: value.taxAmount, lines: [{ lineTotal: '3.33' }] });
+    const debit = await createDebit(request('debit-notes', 'POST', {
+      vendorId, sourceBillId: source.id, purchaseReturnId: ret.id, date: today,
+      amount: value.totalAmount, taxAmount: value.taxAmount, applyTax: rate > 0, settlementType: 'APPLY_TO_BILL',
+    }));
+    expect(debit.status, await debit.clone().text()).toBe(201);
+    const noteId = (await debit.json()).id;
+    const applied = await applyDebit(request('debit-notes', 'PUT', { status: 'APPLIED' }), params(noteId));
+    expect(applied.status, await applied.clone().text()).toBe(200);
+    const note = await prisma.debitNote.findUniqueOrThrow({ where: { id: noteId }, include: { journalEntry: { include: { lines: true } } } });
+    expect(note.journalEntry?.lines.find(line => line.accountId === org.accounts.apControl)?.debit.toFixed(2)).toBe(bills[1]);
+    expect(note.journalEntry?.lines.find(line => line.accountId === org.accounts.apTax)?.credit.toFixed(2) ?? '0.00')
+      .toBe(source.taxAmount.toFixed(2));
+    expect(await accountBalance(org.orgId, org.accounts.apControl)).toBe(-Number(bills[0]));
     await assertTrialBalanced(org.orgId);
   } finally {
     await cleanupOrg(org.orgId);
