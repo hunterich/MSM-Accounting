@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, type NextResponse } from 'next/server';
 import { prisma, createTestOrg, createCustomer, cleanupOrg, disconnect, assertTrialBalanced } from './harness';
-import { signToken } from '../../auth';
+import { signToken, credentialStamp } from '../../auth';
 import { middleware } from '../../../src/middleware';
 import { POST as importOrders } from '../../../src/app/api/v1/integrations/[id]/import/route';
 import { POST as createRole } from '../../../src/app/api/v1/roles/route';
@@ -26,7 +26,7 @@ async function fixture() {
   await prisma.userOrganization.create({ data: { userId: user.id, organizationId: orgId, roleId: role.id } });
   fixtures.push({ orgId, userId: user.id });
   process.env.JWT_SECRET = 'isolated-schedule-test-secret';
-  const refreshToken = async () => { token = await signToken({ userId: user.id, email: user.email, memberships: [{ orgId, roleType: 'ADMIN' }] }); };
+  const refreshToken = async () => { token = await signToken({ userId: user.id, email: user.email, credentialStamp: credentialStamp(null), memberships: [{ orgId, roleType: 'ADMIN' }] }); };
   let token = '';
   await refreshToken();
   const request = (path: string, method = 'GET', body?: unknown) => new NextRequest(`http://localhost/api/v1/${path}`, {

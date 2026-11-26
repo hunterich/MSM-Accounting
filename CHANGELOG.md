@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — password resets and session invalidation (#235)
+- Only a company administrator can reset another user's password. Resets are refused for accounts with memberships in another company, including inactive memberships; shared-account recovery needs a separate secure process.
+- Password changes and resets invalidate existing sessions, including session refresh. A user changing their own password receives a new session; all users must sign in again when this change is first deployed.
+- Password changes and their audit records are saved together. No schema migration is required.
+
 ### Fixed — depreciation run could lower book value without posting a journal (#232)
 - The depreciation run now posts every asset to its category's depreciation expense and accumulated depreciation accounts, and always writes the journal. Accounts are no longer guessed from account names.
 - If any asset that depreciates in the run has a missing, inactive, non-postable or wrong-type account, the whole run is refused (422) and nothing is recorded; the message names each asset, its category and the account to fix. Assets with nothing to depreciate that month do not block the run.

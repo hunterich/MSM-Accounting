@@ -24,7 +24,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { prisma, createTestOrg, cleanupOrg, disconnect } from './harness';
-import { signToken, COOKIE_NAME, type TokenPayload } from '../../auth';
+import { signToken, credentialStamp, COOKIE_NAME, type TokenPayload } from '../../auth';
 import { POST as addMembership } from '../../../src/app/api/v1/users/memberships/route';
 import { DELETE as removeMembership } from '../../../src/app/api/v1/users/memberships/[id]/route';
 import { POST as refreshSession } from '../../../src/app/api/v1/auth/refresh/route';
@@ -164,6 +164,7 @@ describe('POST /api/v1/users/memberships', () => {
       const token = await signToken({
         userId: adminB.userId,
         email: adminB.email,
+        credentialStamp: credentialStamp('x'),
         // Cookie still predates the org-A grant — refresh re-reads from the DB.
         memberships: [{ orgId: orgB.orgId, roleType: 'ADMIN' }],
       } as TokenPayload);

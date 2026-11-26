@@ -11,7 +11,7 @@ describe('signToken', () => {
   it('signs a token and verifyToken round-trips the payload', async () => {
     process.env.JWT_SECRET = VALID_SECRET;
     const payload = { userId: 'u1', email: 'a@b.com', memberships: [{ orgId: 'org1', roleType: 'Admin' }] };
-    const token = await signToken(payload);
+    const token = await signToken({ ...payload, credentialStamp: 'test-stamp' });
     expect(typeof token).toBe('string');
     expect(token.split('.')).toHaveLength(3); // JWT structure
 

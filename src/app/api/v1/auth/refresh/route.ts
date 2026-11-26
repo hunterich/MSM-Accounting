@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyToken, signToken, COOKIE_NAME } from '@/lib/auth';
+import { verifyToken, signToken, credentialStamp, COOKIE_NAME } from '@/lib/auth';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 
 export const runtime = 'nodejs';
@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
       return withCors(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }));
     }
 
+    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { status: true, passwordHash: true } });
+    if (!user || user.status !== 'ACTIVE' || payload.credentialStamp !== credentialStamp(user.passwordHash)) {
+      return withCors(NextResponse.json({ error: 'Session expired; sign in again' }, { status: 401 }));
+    }
     const memberships = await prisma.userOrganization.findMany({
       // Active membership AND active user account — a deactivated user must not
       // keep extending their session via refresh.
@@ -34,6 +38,7 @@ export async function POST(req: NextRequest) {
     const fresh = await signToken({
       userId: payload.userId,
       email: payload.email,
+      credentialStamp: payload.credentialStamp,
       memberships: memberships.map((m) => ({ orgId: m.organizationId, roleType: m.role.roleType })),
     });
 

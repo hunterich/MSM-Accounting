@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, resolveActiveOrg, isOrgOptionalPath, COOKIE_NAME } from '../lib/auth';
+import { verifyToken, resolveActiveOrg, isOrgOptionalPath, credentialStamp, COOKIE_NAME } from '../lib/auth';
 import { CORS_HEADERS } from '../lib/cors';
 import { prisma } from '../lib/prisma';
 import { accessScheduleStatus } from '../lib/access-schedule';
@@ -43,6 +43,7 @@ export async function middleware(req: NextRequest) {
     where: { id: payload.userId },
     select: {
       status: true,
+      passwordHash: true,
       mustChangePassword: true,
       memberships: {
         where: { isActive: true },
@@ -56,6 +57,9 @@ export async function middleware(req: NextRequest) {
   });
   if (!user || user.status !== 'ACTIVE') {
     return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+  }
+  if (payload.credentialStamp !== credentialStamp(user.passwordHash)) {
+    return withCors(NextResponse.json({ error: 'Session expired; sign in again' }, { status: 401 }));
   }
   if (user.mustChangePassword && pathname !== '/api/v1/users/me/password') {
     return withCors(NextResponse.json({ error: 'Change your password before continuing', code: 'PASSWORD_CHANGE_REQUIRED' }, { status: 403 }));
