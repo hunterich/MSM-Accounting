@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { signToken, credentialStamp, COOKIE_NAME } from '@/lib/auth';
 import { comparePassword } from '@/lib/password';
+import { demoPasswordsAllowed, isDemoPassword } from '@/lib/demo-credentials';
 import { corsPreflightResponse, withCors } from '@/lib/cors';
 import { clientAddress, loginThrottle } from '@/lib/login-throttle';
 
@@ -97,6 +98,13 @@ export async function POST(req: NextRequest) {
 
     if (user.status !== 'ACTIVE') {
       return withCors(NextResponse.json({ error: 'Account is not active' }, { status: 403 }));
+    }
+
+    // A published demo password (README / seed) must not protect a live install:
+    // force a change before anything else is reachable (#236).
+    if (!user.mustChangePassword && isDemoPassword(password) && !demoPasswordsAllowed()) {
+      await prisma.user.update({ where: { id: user.id }, data: { mustChangePassword: true } });
+      user.mustChangePassword = true;
     }
 
     const memberships = user.memberships; // all active

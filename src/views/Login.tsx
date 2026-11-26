@@ -9,6 +9,10 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useLanguageStore } from '../stores/useLanguageStore';
 import { translate } from '../i18n/language';
 
+// Demo credentials are shown and pre-filled only in development, or in a build
+// made with VITE_DEMO_LOGIN=true for a demo install. Never on a live deployment (#252).
+const DEMO_LOGIN = Boolean(import.meta.env?.DEV) || import.meta.env?.VITE_DEMO_LOGIN === 'true';
+
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -18,8 +22,8 @@ const Login = () => {
   const language = useLanguageStore((s) => s.language) ?? 'en';
   const t = (text: string) => translate(language, text);
 
-  const [email, setEmail] = useState<string>('admin@demo.com');
-  const [password, setPassword] = useState<string>('admin123');
+  const [email, setEmail] = useState<string>(DEMO_LOGIN ? 'admin@demo.com' : '');
+  const [password, setPassword] = useState<string>(DEMO_LOGIN ? 'admin123' : '');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -137,9 +141,11 @@ const Login = () => {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
-              <div className="mt-1 text-xs text-neutral-500">
-                {t('Demo login: `admin@demo.com` / `admin123`')}
-              </div>
+              {DEMO_LOGIN ? (
+                <div className="mt-1 text-xs text-neutral-500">
+                  {t('Demo login: `admin@demo.com` / `admin123`')}
+                </div>
+              ) : null}
             </div>
 
             {error ? (

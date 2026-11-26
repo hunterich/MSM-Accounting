@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — seeded default passwords and the demo login on the sign-in page (#236, #252)
+- Re-running `npm run db:seed` no longer resets the demo admin and cashier passwords, reactivates them or restores their roles. The seed only creates these accounts when they do not exist.
+- In production (`NODE_ENV=production`) the seed creates new demo accounts with a random one-time password printed once (or `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD`), and requires a change at first sign-in.
+- In production, signing in with a published demo password (`admin123`, `cashier123`) forces a password change before anything else is reachable, which covers existing installs. These passwords can no longer be chosen as a new password. `ALLOW_DEMO_PASSWORDS=true` keeps the old behaviour for throwaway benchmark or demo installs.
+- The sign-in page no longer pre-fills or prints the demo login on live deployments; it appears only in development or in a build made with `VITE_DEMO_LOGIN=true`.
+
 ### Fixed — password resets and session invalidation (#235)
 - Only a company administrator can reset another user's password. Resets are refused for accounts with memberships in another company, including inactive memberships; shared-account recovery needs a separate secure process.
 - Password changes and resets invalidate existing sessions, including session refresh. A user changing their own password receives a new session; all users must sign in again when this change is first deployed.
