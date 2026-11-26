@@ -14,6 +14,7 @@ import {
   type AssetCategory,
 } from '../../hooks/useAssets';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { useChartOfAccounts } from '../../hooks/useGL';
 
 const METHOD_LABELS: Record<string, string> = {
   STRAIGHT_LINE: 'Straight Line',
@@ -26,6 +27,8 @@ interface CategoryForm {
   depreciationMethod: string;
   usefulLifeMonths: number;
   salvagePercent: number;
+  depExpenseAccountId: string;
+  accumDepAccountId: string;
 }
 
 const emptyForm: CategoryForm = {
@@ -33,6 +36,8 @@ const emptyForm: CategoryForm = {
   depreciationMethod: 'STRAIGHT_LINE',
   usefulLifeMonths: 60,
   salvagePercent: 0,
+  depExpenseAccountId: '',
+  accumDepAccountId: '',
 };
 
 const AssetCategories = () => {
@@ -41,12 +46,14 @@ const AssetCategories = () => {
   const createMutation = useCreateAssetCategory();
   const updateMutation = useUpdateAssetCategory();
   const deleteMutation = useDeleteAssetCategory();
+  const { data: accounts = [], isLoading: accountsLoading, isError: accountsError } = useChartOfAccounts();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editing, setEditing] = useState<AssetCategory | null>(null);
   const [formData, setFormData] = useState<CategoryForm>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string | null>>({});
+  const [saveError, setSaveError] = useState('');
 
   const filtered = useMemo(
     () =>
@@ -59,6 +66,7 @@ const AssetCategories = () => {
 
   const handleOpenModal = (category: AssetCategory | null = null) => {
     setErrors({});
+    setSaveError('');
     if (category) {
       setEditing(category);
       setFormData({
@@ -66,6 +74,8 @@ const AssetCategories = () => {
         depreciationMethod: category.depreciationMethod,
         usefulLifeMonths: category.usefulLifeMonths,
         salvagePercent: category.salvagePercent,
+        depExpenseAccountId: category.depExpenseAccountId,
+        accumDepAccountId: category.accumDepAccountId,
       });
     } else {
       setEditing(null);
@@ -82,7 +92,7 @@ const AssetCategories = () => {
     return errs;
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length > 0) {
@@ -95,15 +105,25 @@ const AssetCategories = () => {
       depreciationMethod: formData.depreciationMethod,
       usefulLifeMonths: formData.usefulLifeMonths,
       salvagePercent: formData.salvagePercent,
+      depExpenseAccountId: formData.depExpenseAccountId || null,
+      accumDepAccountId: formData.accumDepAccountId || null,
     };
 
-    if (editing) {
-      updateMutation.mutate({ id: editing.id, ...payload });
-    } else {
-      createMutation.mutate(payload);
+    setSaveError('');
+    try {
+      if (editing) {
+        await updateMutation.mutateAsync({ id: editing.id, ...payload });
+      } else {
+        await createMutation.mutateAsync(payload);
+      }
+      setIsModalOpen(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save the category.');
     }
-    setIsModalOpen(false);
   };
+
+  const accountOptions = (type: 'Asset' | 'Expense') =>
+    accounts.filter(account => account.type === type && account.isActive && account.isPostable);
 
   const handleDelete = (id: string) => {
     if (window.confirm('Delete this category? This cannot be undone.')) {
@@ -249,6 +269,30 @@ const AssetCategories = () => {
                 error={errors.salvagePercent}
               />
             </div>
+            {([
+              ['depExpenseAccountId', 'Depreciation expense account', 'Expense'],
+              ['accumDepAccountId', 'Accumulated depreciation account', 'Asset'],
+            ] as const).map(([field, label, type]) => {
+              const options = accountOptions(type);
+              const selected = formData[field];
+              const unavailable = selected && !options.some(account => account.id === selected);
+              return (
+                <div className="col-span-12" key={field}>
+                  <label className="form-label" htmlFor={field}>{label}</label>
+                  <select id={field} value={selected}
+                    disabled={accountsLoading || accountsError}
+                    className="block w-full h-9 px-3 text-sm text-neutral-900 bg-neutral-0 border border-neutral-300 rounded-md"
+                    onChange={e => setFormData(previous => ({ ...previous, [field]: e.target.value }))}>
+                    <option value="">Not set</option>
+                    {unavailable && <option value={selected}>Current account unavailable or not postable</option>}
+                    {options.map(account => <option key={account.id} value={account.id}>{account.code} — {account.name}</option>)}
+                  </select>
+                </div>
+              );
+            })}
+            <p className="col-span-12 text-xs text-neutral-500">Both accounts are required before depreciation can be posted. Choose active, postable accounts.</p>
+            {accountsError && <p className="col-span-12 text-sm text-danger-600" role="alert">Could not load accounts. Reload the page and try again.</p>}
+            {saveError && <p className="col-span-12 text-sm text-danger-600" role="alert">{saveError}</p>}
           </div>
 
           <div className="flex justify-end gap-3 mt-6">
@@ -258,7 +302,7 @@ const AssetCategories = () => {
               variant="primary"
               text={editing ? 'Update Category' : 'Save Category'}
               icon={<Save size={16} />}
-              disabled={editing ? !canEdit : !canCreate}
+              disabled={accountsLoading || accountsError || createMutation.isPending || updateMutation.isPending || (editing ? !canEdit : !canCreate)}
             />
           </div>
         </form>

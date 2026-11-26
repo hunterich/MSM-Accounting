@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — depreciation account settings
+- Asset categories now let users choose the depreciation expense and accumulated depreciation accounts used by the depreciation run. Only active, postable accounts of the appropriate type are offered, and existing unavailable selections remain visible until corrected.
+- Saving a category now keeps the form open and shows the error if the request fails. No migration or historical posting change.
+
 ### Fixed — depreciation run could lower book value without posting a journal (#232)
 - The depreciation run now posts every asset to its category's depreciation expense and accumulated depreciation accounts, and always writes the journal. Accounts are no longer guessed from account names.
 - If any asset that depreciates in the run has a missing, inactive, non-postable or wrong-type account, the whole run is refused (422) and nothing is recorded; the message names each asset, its category and the account to fix. Assets with nothing to depreciate that month do not block the run.
