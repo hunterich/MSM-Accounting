@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — independent code health and security audit (docs only)
+- New `docs/AUDIT-2026-11-26.md`: a plain-language review of login, permissions, company separation, accounting integrity, deployment defaults and the development process, graded against an internal-team, pre-production deployment.
+- Before go-live: the setup script's demo administrator (`admin@demo.com` / `admin123`), which every re-run resets and re-enables (SEC-01); `JWT_SECRET` strength is not enforced (SEC-02); the repository is public (SEC-03, owner decision). No secrets were found in the git history.
+- Medium: asset disposal writes its journal without the central balance check and picks gain/loss accounts by account name (SEC-04); demo customers, vendors and items are seeded into the real company (SEC-05); six moderate dependency advisories (SEC-06). Low-severity hardening is grouped as SEC-07; the review-process recommendation is SEC-08. All are tracked in ROADMAP.md.
+- Verified locally: 1,728 of 1,728 unit tests passed; five spreadsheet-dependent test files could not load because the audit environment blocks the SheetJS download. PostgreSQL integration and browser suites were not run locally; CI passed them on recent `main` merges. No code, schema or stored-data change.
+
 ### Fixed — password resets and session invalidation (#235)
 - Only a company administrator can reset another user's password. Resets are refused for accounts with memberships in another company, including inactive memberships; shared-account recovery needs a separate secure process.
 - Password changes and resets invalidate existing sessions, including session refresh. A user changing their own password receives a new session; all users must sign in again when this change is first deployed.

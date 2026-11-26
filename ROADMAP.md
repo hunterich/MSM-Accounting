@@ -1,6 +1,6 @@
 # MSM Accounting — Delivery Plan and Feature Backlog
 
-> Active delivery plan updated 2026-11-20. The older module inventory below includes historical ERPNext comparisons; it is not evidence of Accurate replacement readiness.
+> Active delivery plan updated 2026-11-26. The older module inventory below includes historical ERPNext comparisons; it is not evidence of Accurate replacement readiness.
 
 ---
 
@@ -60,6 +60,19 @@ payout, with every remaining difference identified and reviewable.
 - [ ] **OPS-02 — finance operations visibility (#186)** — expose recurring/subscription last-run results and errors, then add bounded bulk-payment digests. Email delivery remains disabled until the operator authorizes setup and verifies delivery.
 - [ ] **OPS-03 — release and recovery gate (#187)** — verify final CI, stage the merged changes, run company-scoped smoke/reconciliation checks, validate backup restore with attachments and permissions, and meet the agreed capacity target in `docs/capacity-target.md`. Deployment is a separate authorized step; merging is not deployment.
 - [ ] **OPS-04 — pilot language and document review (#188)** — verify required English/Bahasa forms, errors and printed documents end to end, using the pilot's approved accounting/tax settings.
+
+#### Security and health audit follow-ups (2026-11-26)
+
+From the independent audit in [`docs/AUDIT-2026-11-26.md`](docs/AUDIT-2026-11-26.md). SEC-01–SEC-03 are part of the OPS-03 release gate: do not go live until they are closed.
+
+- [ ] **SEC-01 — no demo logins in production (High)** — `prisma/seed.ts` creates `admin@demo.com` / `admin123` and `cashier@demo.com` / `cashier123`, and every re-run resets those passwords, re-activates the accounts and restores admin rights. The deployment guide tells operators to run it on the server. Production setup must create no demo users; any bootstrap admin gets a random one-time password with `mustChangePassword`, and a re-run never overwrites an existing user's password, status or role. Check the October Windows/homelab installs for these accounts now.
+- [ ] **SEC-02 — enforce a strong `JWT_SECRET` (High)** — only an empty secret is refused today. A copied example value or a short secret lets anyone forge an administrator session. Refuse to start when the secret is shorter than 32 characters or matches a known example value; document the generation command in `deploy/README.md`.
+- [ ] **SEC-03 — decide repository visibility (Owner)** — the repository is public. No secrets were found in its history, but it publishes the default passwords, a personal email address in `deploy/.env.example`, and home-network host/IP/username details in the recovery and deployment docs. Either make it private, or replace those details with placeholders and keep it open-source deliberately.
+- [ ] **SEC-04 — asset disposal journal integrity (Medium, accounting)** — `assets/[id]/dispose` writes its journal without the central balanced-entry check and picks gain/loss accounts by matching account names (the pattern #232 removed from depreciation). Post through `postJournalEntry`, use category-configured gain/loss accounts and refuse when they are missing; add a test where book value ≠ cost − accumulated depreciation.
+- [ ] **SEC-05 — separate demo data from essential setup (Medium)** — the seed adds demo customers, vendors and items to the company it creates. Split essential bootstrap (chart of accounts, roles, defaults, indexes) from demo data that runs on test machines only.
+- [ ] **SEC-06 — clear dependency advisories (Medium)** — `npm audit` reports 6 moderate advisories (Next.js 15.5.28 and the Google sign-in dependency chain). Practical exposure is low, but CI fails only on `high`. Run `npm audit fix`, upgrade Next.js and re-run all CI jobs before release.
+- [ ] **SEC-07 — hardening batch (Low)** — server-side session revocation on logout; generic messages for unexpected 500 errors; size limits on bank-statement and supplier-bill PDF uploads (the `next.config.mjs` 10 MB limit applies to Server Actions only); escape email template variables and preview HTML; case-insensitive sign-in email lookup; constant-time response for unknown emails.
+- [ ] **SEC-08 — review gate on every change (Process)** — require all CI checks via branch protection on `main`; give every PR an independent AI review with a plain-language summary for the owner; finance reviewer signs off on changes that touch posting, tax or reports.
 
 ### Milestone 5 — Prove replacement with a real pilot
 
