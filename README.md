@@ -35,7 +35,7 @@ Required env values:
 ```bash
 npm run prisma:generate
 npx prisma migrate deploy   # apply migrations (creates all tables)
-npm run db:seed             # demo admin + defaults + raw indexes
+npm run db:seed             # demo company + logins (dev) + raw indexes
 ```
 
 > Already have a database from before migrations were adopted (created with
@@ -66,9 +66,13 @@ Backend:
 - Session is stored in `msm_token` httpOnly cookie
 - Access is restricted to users already provisioned in DB
 
-Seed default login:
+Seed default login (development and browser tests only):
 - Email: `admin@demo.com`
 - Password: `admin123`
+
+With `NODE_ENV=production` (the backend Docker image) the seed creates no demo
+company or demo logins; it creates one administrator from `SEED_ADMIN_EMAIL`
+with a one-time password instead. See `deploy/README.md`.
 
 ## Useful Scripts
 

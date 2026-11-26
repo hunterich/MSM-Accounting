@@ -6,6 +6,7 @@ import {
   STANDARD_ROOT_ACCOUNTS,
   buildFiscalYearPeriods,
 } from '../lib/organization/bootstrap';
+import { generateTemporaryPassword } from '../lib/temporary-password';
 
 const prisma = new PrismaClient();
 
@@ -17,7 +18,93 @@ const adminTemplate = ROLE_TEMPLATES.find((t) => t.name === 'Administrator')!;
 const posTemplate = ROLE_TEMPLATES.find((t) => t.name === 'POS Operator')!;
 const cashierTemplate = ROLE_TEMPLATES.find((t) => t.name === 'Cashier')!;
 
+/**
+ * Two modes (SEC-01):
+ *
+ * - Production (`NODE_ENV=production`, which the backend Docker image always
+ *   sets): no demo company, no demo data and no demo logins. Applies the raw
+ *   indexes and, when `SEED_ADMIN_EMAIL` names a user who does not exist yet,
+ *   creates that one administrator with a random one-time password that must be
+ *   changed at first sign-in. That person then creates the real company in the
+ *   app, which writes the standard chart of accounts and roles. Existing users
+ *   are never changed, so re-running the seed cannot reopen an account.
+ *
+ * - Anywhere else (development, the browser-test database): the demo company
+ *   with `admin@demo.com` / `admin123` and `cashier@demo.com` / `cashier123`,
+ *   exactly as before.
+ */
 async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    await seedProduction();
+    return;
+  }
+  await seedDemo();
+}
+
+/** Logins whose passwords are published in this repository. */
+const PUBLISHED_DEMO_LOGINS = [
+  { email: 'admin@demo.com', password: 'admin123' },
+  { email: 'cashier@demo.com', password: 'cashier123' },
+];
+
+async function seedProduction() {
+  await applyRawIndexes();
+
+  // Warn, never fix silently: deactivating these could lock out an install
+  // whose only administrator is still the demo one.
+  for (const demo of PUBLISHED_DEMO_LOGINS) {
+    const user = await prisma.user.findUnique({ where: { email: demo.email }, select: { status: true, passwordHash: true } });
+    if (user?.status === 'ACTIVE' && user.passwordHash && await bcrypt.compare(demo.password, user.passwordHash)) {
+      console.warn(
+        `WARNING: ${demo.email} is active and still uses its published password. ` +
+        'Anyone can sign in with it. Sign in as an administrator and deactivate it or change its password now.',
+      );
+    }
+  }
+
+  const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
+  if (!email) {
+    if (await prisma.user.count() === 0) {
+      throw new Error(
+        'No users exist yet. Run the seed again with SEED_ADMIN_EMAIL=<your email> ' +
+        '(and optionally SEED_ADMIN_NAME) to create the first administrator.',
+      );
+    }
+    console.log('Production seed complete: indexes applied; existing users left unchanged.');
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error(`SEED_ADMIN_EMAIL is not a valid email address: ${email}`);
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (existing) {
+    console.log(`Production seed complete: ${email} already exists; its password, status and companies were left unchanged.`);
+    return;
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  await prisma.user.create({
+    data: {
+      email,
+      fullName: process.env.SEED_ADMIN_NAME?.trim() || 'Administrator',
+      passwordHash: await bcrypt.hash(temporaryPassword, 12),
+      mustChangePassword: true,
+      status: 'ACTIVE',
+    },
+  });
+  console.log([
+    '',
+    'First administrator created. This password is shown once and is not stored anywhere else:',
+    `  Email:              ${email}`,
+    `  One-time password:  ${temporaryPassword}`,
+    '',
+    'Sign in, choose a new password when asked, then create your company.',
+    '',
+  ].join('\n'));
+}
+
+async function seedDemo() {
   const org = await prisma.organization.upsert({
     where: { id: 'org-demo' },
     update: {
@@ -773,7 +860,7 @@ async function main() {
 
   await applyRawIndexes();
 
-  console.log('Seed complete. Login: admin@demo.com / admin123 or cashier@demo.com / cashier123');
+  console.log('Demo seed complete (not for production). Login: admin@demo.com / admin123 or cashier@demo.com / cashier123');
 }
 
 // Indexes Prisma's schema cannot express (partial / filtered uniques). `prisma db push`

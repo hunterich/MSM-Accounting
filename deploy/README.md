@@ -24,7 +24,7 @@ notepad .env
 
 Set at minimum:
 - `POSTGRES_PASSWORD` — strong password
-- `JWT_SECRET` — long random string (the file shows a one-liner to generate one)
+- `JWT_SECRET` — at least 32 random characters; the file shows how to generate one. The backend refuses to start with the example value or a short secret.
 - `SITE_HOST` — the hostname staff will type (default `accounting.msm`; avoid `.local`)
 - `PLATFORM_ADMIN_EMAILS` — your email, to enable Backup & Restore
 - `BACKUP_DIR_HOST` — a real folder, e.g. `D:/msm-backups`
@@ -73,7 +73,7 @@ Then bring it up (start the DB first, create tables, seed, then the rest):
 docker compose pull              # build-from-source mode: use `docker compose build` instead
 docker compose up -d db
 docker compose run --rm backend npx prisma migrate deploy   # create all tables (runs migrations)
-docker compose run --rm backend npm run db:seed             # seed demo admin + defaults + indexes
+docker compose run --rm -e SEED_ADMIN_EMAIL=you@yourcompany.com backend npm run db:seed   # first admin + indexes
 docker compose up -d             # bring up backend + web
 ```
 
@@ -117,15 +117,22 @@ New-NetFirewallRule -DisplayName "MSM Accounting HTTPS" -Direction Inbound -Prot
 New-NetFirewallRule -DisplayName "MSM Accounting HTTP"  -Direction Inbound -Protocol TCP -LocalPort 80  -Action Allow
 ```
 
-## 6. First login — then lock it down
+## 6. First login
 
-Visit **https://accounting.msm**. Seed credentials:
+The seed step printed your email and a **one-time password**. It is shown only
+once. If you lose it, have another administrator reset it, or run the seed
+again with a different `SEED_ADMIN_EMAIL`.
 
-- Email: `admin@demo.com`
-- Password: `admin123`
+Visit **https://accounting.msm**, sign in, choose a new password when asked,
+then create your company. The company gets the standard chart of accounts and
+roles automatically. Create your staff users from Settings, then confirm Backup
+& Restore writes to your `BACKUP_DIR_HOST` folder.
 
-**Immediately** create your real users and change/remove the demo admin. Then
-confirm Backup & Restore writes to your `BACKUP_DIR_HOST` folder.
+On the server, the seed never creates demo data or the published demo logins
+(`admin@demo.com` / `admin123`, `cashier@demo.com` / `cashier123`), and re-running
+it never changes an existing user. If an older install still has those demo
+logins active, the seed prints a warning: deactivate them or change their
+passwords in Settings → Users.
 
 ---
 

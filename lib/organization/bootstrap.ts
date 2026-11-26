@@ -101,11 +101,13 @@ export const STANDARD_CHILD_ACCOUNTS: readonly StandardChildAccount[] = [
   { code: '4-1200', name: 'Sales Discount',                   type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '4-9100', name: 'Late Fee Income',                  type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '4-9200', name: 'Purchase Discount Income',         type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
+  { code: '4-9300', name: 'Gain on Asset Disposal',           type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '5-1900', name: 'Inventory Variance',               type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-2000', name: 'Sales Returns',                    type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-3000', name: 'Sales Discount Expense',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-4000', name: 'Vendor Penalty Expense',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-9000', name: 'Rounding Difference',              type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
+  { code: '5-9100', name: 'Loss on Asset Disposal',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
 ] as const;
 
 /* ------------------------------------------------------------------ */

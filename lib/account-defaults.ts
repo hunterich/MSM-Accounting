@@ -28,6 +28,12 @@ type AccountDefaultSpec = {
   preferredIds?: string[];
   preferredCodes?: string[];
   keywords?: string[];
+  /**
+   * Never take the resolver's last resort ("first account of an allowed type").
+   * For roles where a wrong-but-balanced posting is worse than refusing: with
+   * no configured, preferred-code or keyword match the role resolves to ''.
+   */
+  noFallback?: boolean;
 };
 
 export const ACCOUNT_DEFAULT_SPECS = {
@@ -193,6 +199,22 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredCodes: ['82', '49', '7200'],
     keywords: ['pembulatan', 'rounding', 'selisih pembulatan'],
   },
+  assetDisposalGain: {
+    label: 'Gain on Asset Disposal',
+    description: 'Revenue account credited when a fixed asset is disposed of for more than its book value. Asset disposal is refused until one is found or set.',
+    allowedTypes: ['Revenue'],
+    preferredCodes: ['4-9300'],
+    keywords: ['gain on asset disposal', 'gain on disposal', 'keuntungan pelepasan', 'laba pelepasan'],
+    noFallback: true,
+  },
+  assetDisposalLoss: {
+    label: 'Loss on Asset Disposal',
+    description: 'Expense account debited when a fixed asset is disposed of for less than its book value. Asset disposal is refused until one is found or set.',
+    allowedTypes: ['Expense'],
+    preferredCodes: ['5-9100'],
+    keywords: ['loss on asset disposal', 'loss on disposal', 'kerugian pelepasan', 'rugi pelepasan'],
+    noFallback: true,
+  },
   salesDiscount: {
     label: 'Sales Discount (Contra Revenue)',
     description: 'Contra-revenue or expense for trade/cash discounts on sales invoices.',
@@ -270,6 +292,7 @@ function resolvePreferredMatch(accounts: AccountLike[], key: AccountDefaultKey) 
     if (keywordMatch) return keywordMatch.id;
   }
 
+  if (spec.noFallback) return '';
   return candidates[0]?.id || '';
 }
 

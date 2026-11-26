@@ -64,6 +64,8 @@ const EXPECTED: Record<AccountDefaultKey, string> = {
   arDiscount:           '5-3000',
   apPenalty:            '5-4000',
   roundingAccount:      '5-9000',
+  assetDisposalGain:    '4-9300',
+  assetDisposalLoss:    '5-9100',
 };
 
 describe('standard chart of accounts covers every account-default role', () => {
@@ -104,6 +106,33 @@ describe('standard chart of accounts covers every account-default role', () => {
       const expected = a.type === 'ASSET' || a.type === 'EXPENSE' ? 'DEBIT' : 'CREDIT';
       expect(a.normalSide, `${a.code} ${a.name}`).toBe(expected);
     }
+  });
+});
+
+describe('asset disposal defaults never fall back to an arbitrary account', () => {
+  const account = (id: string, code: string, name: string, type: string) =>
+    ({ id, code, name, type, isActive: true, isPostable: true });
+
+  it('resolves nothing when no disposal account exists, even though other revenue/expense accounts do', () => {
+    // The old disposal route matched "pendapatan lain" / "beban lain" and so
+    // could post a gain or loss to any other-income or other-expense account.
+    const accounts = [
+      account('other-income', '4-9900', 'Pendapatan Lain-lain', 'Revenue'),
+      account('other-expense', '5-9900', 'Beban Lain-lain', 'Expense'),
+    ];
+    expect(resolveAccountDefaultId(accounts, {}, 'assetDisposalGain')).toBe('');
+    expect(resolveAccountDefaultId(accounts, {}, 'assetDisposalLoss')).toBe('');
+  });
+
+  it('honours an explicitly configured account and Indonesian account names', () => {
+    const accounts = [
+      account('other-income', '4-9900', 'Pendapatan Lain-lain', 'Revenue'),
+      account('gain', '7100', 'Keuntungan Pelepasan Aset Tetap', 'Revenue'),
+      account('loss', '8100', 'Kerugian Pelepasan Aset Tetap', 'Expense'),
+    ];
+    expect(resolveAccountDefaultId(accounts, {}, 'assetDisposalGain')).toBe('gain');
+    expect(resolveAccountDefaultId(accounts, {}, 'assetDisposalLoss')).toBe('loss');
+    expect(resolveAccountDefaultId(accounts, { assetDisposalGain: 'other-income' }, 'assetDisposalGain')).toBe('other-income');
   });
 });
 

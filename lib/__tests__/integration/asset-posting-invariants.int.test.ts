@@ -121,12 +121,28 @@ async function seedDisposableAsset(org: TestOrg, opts: {
   accumulatedDepreciation: number;
   bookValue: number;
 }): Promise<string> {
+  // Real fixed-asset accounts: disposal now refuses an accumulated-depreciation
+  // account that is not an Asset (contra-asset) account (SEC-04).
+  const fixedAsset = await prisma.account.create({
+    data: {
+      organizationId: org.orgId, code: `16${Math.floor(Math.random() * 90 + 10)}`, name: 'Equipment',
+      type: 'ASSET', normalSide: 'DEBIT', isActive: true, isPostable: true,
+    },
+    select: { id: true },
+  });
+  const accumDep = await prisma.account.create({
+    data: {
+      organizationId: org.orgId, code: `17${Math.floor(Math.random() * 90 + 10)}`, name: 'Accumulated Depreciation - Equipment',
+      type: 'ASSET', normalSide: 'CREDIT', isActive: true, isPostable: true,
+    },
+    select: { id: true },
+  });
   const category = await prisma.assetCategory.create({
     data: {
       organizationId: org.orgId,
       name: `Cat-${randomUUID().slice(0, 8)}`,
-      assetAccountId: org.accounts.inventoryAsset, // any postable Asset account
-      accumDepAccountId: org.accounts.inventoryAdjustment, // postable; debited to clear accum dep
+      assetAccountId: fixedAsset.id,
+      accumDepAccountId: accumDep.id,
       depExpenseAccountId: org.accounts.cogsExpense,
     },
     select: { id: true },
@@ -235,6 +251,89 @@ describe('asset disposal: non-zero LOSS posts the loss line on an Expense accoun
     });
     expect(lines).toHaveLength(1);
     expect(Number(lines[0].debit)).toBeCloseTo(2500, 2);
+
+    await cleanupOrg(org.orgId);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* SEC-04 — disposal never guesses accounts or posts out of balance    */
+/* ------------------------------------------------------------------ */
+
+async function disposeRequest(org: TestOrg, userId: string, assetId: string, disposalAmount: number) {
+  return disposeAssetRoute(
+    authedRequest(
+      `/api/v1/assets/${assetId}/dispose`,
+      { orgId: org.orgId, userId },
+      { disposalDate: '2026-06-23', disposalAmount, disposalMethod: 'SALE' },
+    ),
+    { params: Promise.resolve({ id: assetId }) },
+  );
+}
+
+describe('asset disposal refuses instead of posting a wrong or unbalanced journal (SEC-04)', () => {
+  it('refuses when book value ≠ cost − accumulated depreciation, and changes nothing', async () => {
+    const org = await createTestOrg();
+    const userId = await seedUser();
+    await seedGainLossAccounts(org.orgId);
+    // 10000 − 6000 = 4000, but the record says 4500. The old route computed the
+    // gain from 4500 and saved a journal 500 out of balance.
+    const assetId = await seedDisposableAsset(org, { acquisitionCost: 10000, accumulatedDepreciation: 6000, bookValue: 4500 });
+
+    const res = await disposeRequest(org, userId, assetId, 7000);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toMatch(/book value \(4500\.00\) does not equal/);
+
+    expect(await journalEntryCount(org.orgId)).toBe(0);
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { id: assetId }, select: { status: true, disposalDate: true } });
+    expect(asset).toEqual({ status: 'ACTIVE', disposalDate: null });
+
+    await cleanupOrg(org.orgId);
+  });
+
+  it('does not post a gain to a generic "Pendapatan Lain-lain" account', async () => {
+    const org = await createTestOrg();
+    const userId = await seedUser();
+    await prisma.account.create({
+      data: {
+        organizationId: org.orgId, code: '4-9900', name: 'Pendapatan Lain-lain',
+        type: 'REVENUE', normalSide: 'CREDIT', isActive: true, isPostable: true,
+      },
+    });
+    const assetId = await seedDisposableAsset(org, { acquisitionCost: 10000, accumulatedDepreciation: 6000, bookValue: 4000 });
+
+    const res = await disposeRequest(org, userId, assetId, 7000);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toMatch(/no Gain on Asset Disposal account/);
+
+    expect(await journalEntryCount(org.orgId)).toBe(0);
+    expect((await prisma.asset.findUniqueOrThrow({ where: { id: assetId }, select: { status: true } })).status).toBe('ACTIVE');
+
+    await cleanupOrg(org.orgId);
+  });
+
+  it('uses the gain account chosen in Settings over any name match', async () => {
+    const org = await createTestOrg();
+    const userId = await seedUser();
+    const { gainId: keywordGainId } = await seedGainLossAccounts(org.orgId);
+    const chosen = await prisma.account.create({
+      data: {
+        organizationId: org.orgId, code: '4-9350', name: 'Laba Penjualan Kendaraan',
+        type: 'REVENUE', normalSide: 'CREDIT', isActive: true, isPostable: true,
+      },
+      select: { id: true },
+    });
+    await prisma.organization.update({
+      where: { id: org.orgId },
+      data: { accountDefaults: { assetDisposalGain: chosen.id } },
+    });
+    const assetId = await seedDisposableAsset(org, { acquisitionCost: 10000, accumulatedDepreciation: 6000, bookValue: 4000 });
+
+    const res = await disposeRequest(org, userId, assetId, 7000);
+    expect(res.status).toBe(200);
+    await assertTrialBalanced(org.orgId, 'configured gain account');
+    expect(await accountBalance(org.orgId, chosen.id)).toBeCloseTo(-3000, 2);
+    expect(await accountBalance(org.orgId, keywordGainId)).toBeCloseTo(0, 2);
 
     await cleanupOrg(org.orgId);
   });

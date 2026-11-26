@@ -16,10 +16,55 @@ export interface TokenPayload {
   credentialStamp?: string;
 }
 
+/**
+ * Session-secret policy (SEC-02). Anyone who knows the secret can sign a
+ * session for any user, including an administrator, without a password, so a
+ * copied example value or a short word is as bad as no secret at all.
+ */
+export const MIN_JWT_SECRET_LENGTH = 32;
+const GENERATE_HINT = 'Generate one with `openssl rand -base64 48` (see deploy/README.md).';
+/** The example values shipped in this repository's env templates. */
+const EXAMPLE_JWT_SECRETS = new Set([
+  'replace-with-a-long-random-string-in-production',
+  'change-me-to-a-long-random-string',
+]);
+const PLACEHOLDER_MARKERS = ['replace-with', 'change-me', 'changeme', 'your-secret', 'example'];
+
+/** Why `secret` is unfit to sign production sessions, or null when it is fine. */
+export function jwtSecretProblem(secret: string | undefined): string | null {
+  if (!secret) return 'JWT_SECRET environment variable is required';
+  const lowered = secret.toLowerCase();
+  if (EXAMPLE_JWT_SECRETS.has(secret) || PLACEHOLDER_MARKERS.some((marker) => lowered.includes(marker))) {
+    return `JWT_SECRET is still an example value. ${GENERATE_HINT}`;
+  }
+  if (secret.length < MIN_JWT_SECRET_LENGTH) {
+    return `JWT_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters long (it is ${secret.length}). ${GENERATE_HINT}`;
+  }
+  if (new Set(secret).size < 8) {
+    return `JWT_SECRET is too repetitive to be secret. ${GENERATE_HINT}`;
+  }
+  return null;
+}
+
+/**
+ * The signing secret. In production a weak secret is refused here as well as
+ * at startup (src/instrumentation.ts), so if a server somehow starts with one,
+ * sign-in and every authenticated request fail closed instead of accepting
+ * forgeable sessions. Development and test runs only need a non-empty value.
+ */
+function readJwtSecret(): string {
+  const raw = process.env.JWT_SECRET;
+  if (!raw) throw new Error('JWT_SECRET environment variable is required');
+  if (process.env.NODE_ENV === 'production') {
+    const problem = jwtSecretProblem(raw);
+    if (problem) throw new Error(problem);
+  }
+  return raw;
+}
+
 // A keyed digest avoids exposing the password hash in the signed (but readable) token.
 export function credentialStamp(passwordHash: string | null): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET environment variable is required');
+  const secret = readJwtSecret();
   return createHmac('sha256', secret).update('credential-stamp\0').update(passwordHash ?? '').digest('hex');
 }
 
@@ -66,11 +111,7 @@ export function isOrgOptionalPath(pathname: string): boolean {
 }
 
 function getSecret(): Uint8Array {
-  const raw = process.env.JWT_SECRET;
-  if (!raw) {
-    throw new Error('JWT_SECRET environment variable is required');
-  }
-  return new TextEncoder().encode(raw);
+  return new TextEncoder().encode(readJwtSecret());
 }
 
 export async function signToken(payload: TokenPayload): Promise<string> {

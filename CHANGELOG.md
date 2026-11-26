@@ -7,6 +7,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — production seed creates no demo logins or demo data (SEC-01, SEC-05)
+- With `NODE_ENV=production` (always set in the backend Docker image) `npm run db:seed` no longer creates the demo company, its customers/vendors/items, or the published logins `admin@demo.com` / `admin123` and `cashier@demo.com` / `cashier123`. Before, every re-run also reset those passwords, re-activated the accounts and restored their roles.
+- Production seed: applies the raw indexes and, given `SEED_ADMIN_EMAIL` (optional `SEED_ADMIN_NAME`) for a user who does not exist, creates that administrator with a one-time password printed once and a forced password change. That person creates the company in the app (standard chart and roles). Existing users are never changed. On an empty database without `SEED_ADMIN_EMAIL` it stops with instructions. It warns when a published demo login is still active with its demo password; it does not deactivate it, so an install whose only admin is the demo one is not locked out.
+- Development and the browser-test database keep the demo seed unchanged. `deploy/README.md` and `README.md` describe the new first-login flow.
+- Operator action on existing installs: deactivate `admin@demo.com` / `cashier@demo.com` or change their passwords. Verified against PostgreSQL: empty database, first admin, re-run, demo seed, and a production re-run on an install with a deactivated demo admin (left deactivated, password untouched).
+
+### Security — weak session secrets are refused in production (SEC-02)
+- In production the backend refuses to start, and refuses sign-in and session checks, when `JWT_SECRET` is an example value from the env templates, contains a placeholder marker, is shorter than 32 characters or is too repetitive. Before, any non-empty value was accepted, and whoever knew it could sign a session for any user. Development and tests still accept any non-empty value.
+- `deploy/.env.example` now generates the secret with a cryptographic random generator (`openssl rand -base64 48`, or `RandomNumberGenerator` in PowerShell); the previous PowerShell one-liner used `Get-Random`, which is not suitable for secrets.
+- Operator action: a server whose secret fails the check will not start after upgrading. Set a new secret; everyone signs in again.
+
+### Fixed — asset disposal can no longer post an unbalanced or misdirected journal (SEC-04)
+- Disposals post through the shared balanced-journal helper and refuse (422, nothing posted, asset unchanged) when the asset's stored book value does not equal cost less accumulated depreciation. Before, the gain/loss was computed from the stored book value and the journal was saved even when debits ≠ credits.
+- The gain/loss account is no longer guessed from names such as "pendapatan lain" / "beban lain". New account defaults **Gain on Asset Disposal** and **Loss on Asset Disposal** (Settings → Accounts) resolve to standard-chart accounts `4-9300` / `5-9100`, a specific disposal account name, or the account chosen in Settings, and never to an arbitrary first account. The fixed-asset and accumulated-depreciation accounts come only from the asset category and must be active, postable Asset accounts. Every missing account is named in one refusal.
+- New companies get `4-9300 Gain on Asset Disposal` and `5-9100 Loss on Asset Disposal`. Existing companies: run `npm run db:backfill-accounts -- --apply`, or choose accounts in Settings, before disposing of an asset at a gain or loss. No migration.
+- New PostgreSQL cases cover the inconsistent book value, a chart with only "Pendapatan Lain-lain", and a Settings-chosen account; all three fail against the previous route. The disposal test now uses real fixed-asset accounts (it had used an Expense account as accumulated depreciation, which the route now refuses).
+
+
 ### Added — independent code health and security audit (docs only)
 - New `docs/AUDIT-2026-11-26.md`: a plain-language review of login, permissions, company separation, accounting integrity, deployment defaults and the development process, graded against an internal-team, pre-production deployment.
 - Before go-live: the setup script's demo administrator (`admin@demo.com` / `admin123`), which every re-run resets and re-enables (SEC-01); `JWT_SECRET` strength is not enforced (SEC-02); the repository is public (SEC-03, owner decision). No secrets were found in the git history.
