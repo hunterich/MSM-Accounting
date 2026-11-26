@@ -69,6 +69,14 @@ const loadReportPresets = (): Record<string, ReportParams> => {
 
 const defaultCompareAsOfDate = (): string => fmtDate(new Date(today.getFullYear(), today.getMonth(), 0));
 
+const isAgingReport = (id: ReportType | undefined) => id === 'aging' || id === 'ap-aging';
+
+const loadInitialReport = (report: ReportDefinition, params: ReportParams) =>
+  api.get<Record<string, unknown>>(report.apiPath, {
+    ...params,
+    ...(isAgingReport(report.id) ? { limit: 50 } : {}),
+  });
+
 export interface ReportsProps {
   /** 'legacy' (default): standalone-route behaviour — internal tab strip + "Laporan Lainnya".
    *  'catalog': render only the category sidebar + cards; running a report calls onRunReport.
@@ -146,8 +154,8 @@ const Reports: React.FC<ReportsProps> = ({
   const categoryReports: ReportDefinition[] = REPORTS_BY_CATEGORY[activeCategory] || [];
   const activeCategoryMeta = IMPLEMENTED_CATEGORIES.find((category) => category.id === activeCategory);
   const activeReport = openReports.find((entry) => entry.report.id === activeReportId) || null;
-  const isAging = activeReport?.report.id === 'aging' || activeReport?.report.id === 'ap-aging';
-  const agingPage = isAging && Number.isInteger(activeReport.data?.total) ? {
+  const isAging = isAgingReport(activeReport?.report.id);
+  const agingPage = isAging && activeReport && Number.isInteger(activeReport.data?.total) ? {
     page: Number(activeReport.data.page),
     limit: Number(activeReport.data.limit),
     total: Number(activeReport.data.total),
@@ -435,9 +443,7 @@ const Reports: React.FC<ReportsProps> = ({
         else onParamsChange?.(params);
         return;
       }
-      // api.get returns unknown; cast to record since shape varies per report
-      // Cast via unknown because ReportParams has no index signature; api.get accepts Record<string, unknown>
-      const data = await api.get<Record<string, unknown>>(reportToRun.apiPath, params as unknown as Record<string, unknown>);
+      const data = await loadInitialReport(reportToRun, params);
       const reportEntry: OpenReportEntry = {
         report: reportToRun,
         data,
@@ -479,10 +485,7 @@ const Reports: React.FC<ReportsProps> = ({
       setIsLoading(true);
       setError(null);
       try {
-        const data = await api.get<Record<string, unknown>>(
-          singleReport.apiPath,
-          singleParams as unknown as Record<string, unknown>,
-        );
+        const data = await loadInitialReport(singleReport, singleParams);
         if (cancelled) return;
         const entry: OpenReportEntry = {
           report: singleReport,
@@ -515,7 +518,7 @@ const Reports: React.FC<ReportsProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.get<Record<string, unknown>>(report.apiPath, params as unknown as Record<string, unknown>);
+      const data = await loadInitialReport(report, params);
       setOpenReports((prev) => prev.map((entry) => (entry.report.id === report.id ? { ...entry, data } : entry)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');

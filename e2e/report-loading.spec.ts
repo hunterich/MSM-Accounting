@@ -38,7 +38,7 @@ test.beforeEach(async ({ page }) => {
     else if (/\/(customers|vendors|items)\/[^/]+$/.test(path)) json = { id: path.split('/').pop(), name: 'Restored vendor', code: 'LATE150' };
     else if (/\/reports\/(ar|ap)$/.test(path) && url.searchParams.get('type') === 'aging') {
       const page = Number(url.searchParams.get('page') || 1);
-      const limit = 50;
+      const limit = Number(url.searchParams.get('limit') || 50);
       const rows = Array.from({ length: 51 }, (_, i) => {
         const number = `AGING-${String(i + 1).padStart(3, '0')}`;
         return {
@@ -49,7 +49,8 @@ test.beforeEach(async ({ page }) => {
         };
       });
       json = {
-        rows: url.searchParams.get('export') === 'all' ? rows : rows.slice((page - 1) * limit, page * limit),
+        rows: url.searchParams.get('export') === 'all' || !url.searchParams.has('limit')
+          ? rows : rows.slice((page - 1) * limit, page * limit),
         total: rows.length, page, limit, summary: { totalOutstanding: 5_100, d1To30: 5_100 },
       };
     }
@@ -93,6 +94,7 @@ for (const kind of ['ar', 'ap'] as const) test(`${kind} aging pages details and 
 
   const pagination = page.getByRole('navigation', { name: 'open documents pagination' });
   await expect(pagination.getByText('Showing 1–50 of 51 open documents')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'AGING-051', exact: true })).toHaveCount(0);
   await pagination.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(pagination.getByText('Showing 51–51 of 51 open documents')).toBeVisible();
   await expect(page.getByRole('cell', { name: 'AGING-051', exact: true })).toBeVisible();

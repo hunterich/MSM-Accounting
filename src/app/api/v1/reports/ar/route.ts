@@ -60,7 +60,8 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
     if (type === 'aging') {
       const { page, limit } = parsePaginationParams(req, { limit: 50 });
       if (!Number.isSafeInteger(page) || !Number.isSafeInteger((page - 1) * limit)) return err('Invalid page', 400);
-      const exportAll = searchParams.get('export') === 'all';
+      // Older callers expect all detail rows when they don't request a page.
+      const exportAll = searchParams.get('export') === 'all' || (!searchParams.has('page') && !searchParams.has('limit'));
       const options = {
         organizationId: orgId, asOf: asOfDate, partySearch: customerSearch, page, limit, exportAll,
       };
