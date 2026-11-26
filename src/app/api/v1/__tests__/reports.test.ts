@@ -9,8 +9,12 @@ import { NextRequest } from 'next/server';
 
 // ── Prisma mock ──────────────────────────────────────────────────────────────
 
+const queryRaw = vi.hoisted(() => vi.fn());
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $queryRaw: queryRaw,
+    $transaction: vi.fn(run => run({ $queryRaw: queryRaw })),
     salesInvoice: {
       findMany: vi.fn(),
     },
@@ -112,6 +116,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Default: return empty arrays for all prisma calls
+  vi.mocked(prisma.$queryRaw).mockResolvedValue([{ rows: [], summary: {}, warnings: [], total: 0 }]);
   vi.mocked(prisma.salesInvoice.findMany).mockResolvedValue([]);
   vi.mocked(prisma.salesReturn.findMany).mockResolvedValue([]);
   vi.mocked(prisma.aRPaymentAllocation.groupBy).mockResolvedValue([]);
@@ -174,14 +179,24 @@ describe('GET /api/v1/reports/sales — returns', () => {
 
 describe('GET /api/v1/reports/ar', () => {
   it('returns 200 with rows and summary for aging type (empty org)', async () => {
-    const res = await getArReport(makeReq('/api/v1/reports/ar?type=aging', 'org-a'));
+    const res = await getArReport(makeReq('/api/v1/reports/ar?type=aging&limit=50', 'org-a'));
     expect(res.status).toBe(200);
 
     const body = await res.json();
     expect(body).toHaveProperty('rows');
     expect(body).toHaveProperty('summary');
     expect(Array.isArray(body.rows)).toBe(true);
+    expect(body).toMatchObject({ page: 1, limit: 50, total: 0 });
   });
+
+  it.each([['ar', getArReport], ['ap', getApReport]] as const)(
+    '%s aging keeps the full detail response for callers without pagination',
+    async (kind, getReport) => {
+      const res = await getReport(makeReq(`/api/v1/reports/${kind}?type=aging`, 'org-a'));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ page: 1, limit: 100_000, total: 0 });
+    },
+  );
 
   it('returns 200 with rows and summary for customer-balance type', async () => {
     const res = await getArReport(makeReq('/api/v1/reports/ar?type=customer-balance', 'org-a'));

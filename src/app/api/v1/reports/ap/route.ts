@@ -2,7 +2,8 @@ import { toNumber, asMoney } from '@/lib/money';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { corsPreflightResponse } from '@/lib/cors';
-import { requireOrg, ok, err, ApiError } from '@/lib/api-utils';
+import { requireOrg, ok, err, ApiError, parsePaginationParams } from '@/lib/api-utils';
+import { readAgingReport, AGING_EXPORT_LIMIT } from '@/lib/aging-report';
 import { withPermission } from '@/lib/authz';
 import { computeStatement, computeAging, type OpenDocument } from '@/lib/statement-reporting';
 import { readSubledgerHistory, reportDate } from '@/lib/subledger-history';
@@ -55,6 +56,20 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
   const type = searchParams.get('type') || 'aging';
   const asOfDate = endOfDay(searchParams.get('asOfDate'));
   const vendorSearch = searchParams.get('vendorSearch') || '';
+
+  if (type === 'aging') {
+    const { page, limit } = parsePaginationParams(req, { limit: 50 });
+    if (!Number.isSafeInteger(page) || !Number.isSafeInteger((page - 1) * limit)) return err('Invalid page', 400);
+    // Older callers expect all detail rows when they don't request a page.
+    const exportAll = searchParams.get('export') === 'all' || (!searchParams.has('page') && !searchParams.has('limit'));
+    const result = await readAgingReport(prisma, 'ap', {
+      organizationId: orgId, asOf: asOfDate, partySearch: vendorSearch, page, limit, exportAll,
+    });
+    if (exportAll && result.total > AGING_EXPORT_LIMIT) {
+      return err('Aging report exceeds 100,000 open rows. Filter by customer or supplier before exporting.', 400);
+    }
+    return ok({ type, ...result, asOfDate });
+  }
 
   if (type === 'statement') {
     const vendorId = searchParams.get('vendorId') || '';
@@ -187,31 +202,6 @@ export const GET = withPermission({ module: 'REPORTS', action: 'view' }, async f
       });
     }
     const openBills = billRows.filter((row) => row.balance > 0);
-
-  if (type === 'aging') {
-    const rows = [...openBills].sort(sortByOverdue);
-    const summary = rows.reduce(
-      (acc, row) => ({
-        current: asMoney(acc.current + row.current),
-        d1To30: asMoney(acc.d1To30 + row.d1To30),
-        d31To60: asMoney(acc.d31To60 + row.d31To60),
-        d61To90: asMoney(acc.d61To90 + row.d61To90),
-        d90Plus: asMoney(acc.d90Plus + row.d90Plus),
-        totalOutstanding: asMoney(acc.totalOutstanding + row.balance),
-      }),
-      {
-        current: 0,
-        d1To30: 0,
-        d31To60: 0,
-        d61To90: 0,
-        d90Plus: 0,
-        totalOutstanding: 0,
-      },
-    );
-
-    const unappliedCredits = asMoney(billRows.reduce((s, r) => s + Math.max(-r.balance, 0), 0));
-      return ok({ type, rows, summary: { ...summary, unappliedCredits, netOutstanding: asMoney(summary.totalOutstanding - unappliedCredits) }, asOfDate, warnings: history.warnings });
-  }
 
   if (type === 'vendor-balance') {
     const byVendor = new Map<string, {
