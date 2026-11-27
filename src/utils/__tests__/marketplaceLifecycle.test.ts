@@ -22,6 +22,36 @@ describe('shipment-date marketplace imports', () => {
         expect(isMarketplaceReversalStatus('Dibatalkan')).toBe(true);
         expect(isMarketplaceReversalStatus('Returned')).toBe(true);
     });
+    it('keeps Telah Dikirim and flags secondary return evidence from any item row without netting the original amount', async () => {
+        const wb = XLSX.utils.book_new();
+        const row = {
+            'Status Pesanan': 'Telah Dikirim', 'Waktu Pengiriman Diatur': '2026-06-01',
+            'Nama Produk': 'Product', 'Subtotal Pesanan': 100, 'Jumlah': 1,
+        };
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+            { ...row, 'No. Pesanan': '1001', 'Status Pembatalan/ Pengembalian': '-', 'Returned quantity': '0' },
+            { ...row, 'No. Pesanan': '1002' },
+            { ...row, 'No. Pesanan': '1002', 'Nama Produk': 'Second item', 'Returned quantity': 1 },
+            { ...row, 'No. Pesanan': '1003', 'Status Pesanan': 'Selesai', 'Status Pembatalan/ Pengembalian': 'Permintaan Disetujui' },
+            { ...row, 'No. Pesanan': '1004', 'Status Pesanan': 'Pesanan diterima, namun Pembeli masih dapat mengajukan pengembalian' },
+            { ...row, 'No. Pesanan': '1005', 'Waktu Pengiriman Diatur': '', 'Waktu Pesanan Selesai': '2026-06-02' },
+            { ...row, 'No. Pesanan': '1006', 'Waktu Pengiriman': '2026-06-03', 'Status Pembatalan/ Pengembalian': 'Pengembalian Diproses' },
+            { ...row, 'No. Pesanan': '1007', 'Status Pesanan': 'Perlu Dikirim', 'Status Pembatalan/ Pengembalian': 'Pengembalian Diproses' },
+        ]), 'Orders');
+        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        const parsed = await parseShopeeExcel({ arrayBuffer: async () => buffer } as File, 'Shipped', 'Shopee');
+        expect(parsed.parsedOrders.map(o => [o.orderNumber, o.shipmentDate, o.requiresReturnReview, o.sourceTotal])).toEqual([
+            ['1001', '2026-06-01', false, '100.00'],
+            ['1002', '2026-06-01', true, '200.00'],
+            ['1003', '2026-06-01', true, '100.00'],
+            ['1004', '2026-06-01', false, '100.00'],
+            ['1005', null, false, '100.00'],
+            ['1006', '2026-06-03', true, '100.00'],
+        ]);
+        expect(parsed.parsedOrders[1].items.map(item => item.quantity)).toEqual([1, 1]);
+        expect(parsed.headerReport.unknownHeaders).not.toContain('Status Pembatalan/ Pengembalian');
+        expect(parsed.headerReport.unknownHeaders).not.toContain('Returned quantity');
+    });
     it('uses Shopee shipping-arranged date only for shipped orders and skips cancelled rows', async () => {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([

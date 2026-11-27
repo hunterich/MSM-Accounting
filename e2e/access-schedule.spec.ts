@@ -87,20 +87,25 @@ test('warns before cutoff, preserves the last invoice keystroke and restores aft
   await expect(page.locator('textarea[name="notes"]')).toHaveValue('The very last invoice edit');
 });
 
+async function seedImportCheckpoint(page: Page, legacy = false) {
+  await page.addInitScript(({ key, legacy }) => {
+    localStorage.setItem(key, JSON.stringify({ version: 1, data: {
+      step: 'configure', shopId: 'shop', localMappings: { 'QA-SKU': 'item' }, recordPayment: false, fallbackDate: '', importResult: null,
+      parseResult: { parsedOrders: [{ orderNumber: 'QA-ORDER', orderDate: '2026-10-19', completionDate: '2026-10-19', paymentDate: null,
+        shipmentDate: '2026-10-19', orderStatus: 'Telah Dikirim', sourceTotal: '100.00', ...(legacy ? {} : { requiresReturnReview: false }),
+        buyerUsername: 'Buyer', recipientName: 'Buyer', phone: '', shippingAddress: '', city: '', province: '', paymentMethod: '', trackingNumber: '', totalPayment: 100, totalProductAmount: 100,
+        items: [{ productName: 'QA product', variationName: '', priceAfterDiscount: 100, quantity: 1, productTotal: 100, parentSKU: 'QA-SKU', skuReference: 'QA-SKU', sellerDiscount: 0, shopeeDiscount: 0 }] }],
+        uniqueProducts: [{ key: 'QA-SKU', productName: 'QA product', variationName: '', parentSKU: 'QA-SKU', skuReference: 'QA-SKU' }], warnings: [], stats: { totalRows: 1, totalOrders: 1, skippedRows: 0, totalAmount: 100 }, headerReport: { resolvedHeaders: {}, missingRequired: [], missingOptional: [], unknownHeaders: [], actualHeaders: [] } },
+    } }));
+  }, { key: checkpointKey, legacy });
+}
+
 test('keeps an accepted import mounted through cutoff and preserves its completed result', async ({ page }) => {
   await page.clock.install();
   let resolveImport!: () => void;
   releaseImport = new Promise(resolve => { resolveImport = resolve; });
   const started = new Promise<void>(resolve => { importStarted = resolve; });
-  await page.addInitScript(key => {
-    localStorage.setItem(key, JSON.stringify({ version: 1, data: {
-      step: 'configure', shopId: 'shop', localMappings: { 'QA-SKU': 'item' }, recordPayment: false, dateField: 'completionDate', fallbackDate: '', importResult: null,
-      parseResult: { parsedOrders: [{ orderNumber: 'QA-ORDER', orderDate: '2026-10-19', completionDate: '2026-10-19', paymentDate: null,
-        buyerUsername: 'Buyer', recipientName: 'Buyer', phone: '', shippingAddress: '', city: '', province: '', paymentMethod: '', trackingNumber: '', totalPayment: 100, totalProductAmount: 100,
-        items: [{ productName: 'QA product', variationName: '', priceAfterDiscount: 100, quantity: 1, productTotal: 100, parentSKU: 'QA-SKU', skuReference: 'QA-SKU', sellerDiscount: 0, shopeeDiscount: 0 }] }],
-        uniqueProducts: [{ key: 'QA-SKU', productName: 'QA product', variationName: '', parentSKU: 'QA-SKU', skuReference: 'QA-SKU' }], warnings: [], stats: { totalRows: 1, totalOrders: 1, skippedRows: 0, totalAmount: 100 }, headerReport: { resolvedHeaders: {}, missingRequired: [], missingOptional: [], unknownHeaders: [], actualHeaders: [] } },
-    } }));
-  }, checkpointKey);
+  await seedImportCheckpoint(page);
   await page.goto('/ar/invoices');
   await page.getByRole('button', { name: 'Import', exact: true }).click();
   await page.getByRole('button', { name: /Import 1 New/ }).click();
@@ -114,6 +119,16 @@ test('keeps an accepted import mounted through cutoff and preserves its complete
   unrestricted = true;
   await page.getByRole('button', { name: 'Check access', exact: true }).click();
   await expect(page.getByText('Import Complete', { exact: true })).toBeVisible();
+});
+
+test('asks for the original workbook before continuing a pre-return-review import draft', async ({ page }) => {
+  await page.clock.install();
+  await seedImportCheckpoint(page, true);
+  await page.goto('/ar/invoices');
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(page.getByText('Upload the original workbook again so the updated importer can check for returns.')).toBeVisible();
+  await expect(page.getByText('Select File', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Import 1 New/ })).toHaveCount(0);
 });
 
 test('unconfigured role editor retains blank times instead of inventing office hours', async ({ page }) => {

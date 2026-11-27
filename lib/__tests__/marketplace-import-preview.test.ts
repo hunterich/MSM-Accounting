@@ -47,6 +47,21 @@ describe('marketplace import review', () => {
     expect(result.orders[0].reason).toContain('linked sales return');
     expect(result.orders[2].reason).toContain('confirmed shipment');
   });
+  it('blocks secondary return evidence even with a valid shipment and retains the source total', async () => {
+    const result = await previewMarketplaceOrders('org-1', 'connection-1', [
+      { ...order('existing'), orderStatus: 'Selesai', requiresReturnReview: true, trackingNumber: 'TRACK' },
+      { ...order('possible-return'), orderStatus: 'Telah Dikirim', shipmentDate: '2026-06-01', requiresReturnReview: true },
+      { ...order('new'), orderStatus: 'Telah Dikirim', shipmentDate: '2026-06-01', requiresReturnReview: false },
+      { ...order('needs-date', 'active', true), orderStatus: 'Telah Dikirim' },
+    ], { recordPayment: false });
+    expect(result.orders.map(row => row.status)).toEqual(['blocked', 'blocked', 'create', 'blocked']);
+    expect(result.orders[0].reason).toContain('Verify its status');
+    expect(result.orders[1]).toMatchObject({ sourceTotal: 100_000, invoiceTotal: null });
+    expect(result.orders[1].reason).toContain('original shipment');
+    expect(result.orders[3].reason).toContain('No usable order date');
+    expect(result.logisticsUpdates).toBe(0);
+  });
+
   it('classifies orders and uses posted invoice totals without writing invoices', async () => {
     const result = await previewMarketplaceOrders('org-1', 'connection-1', [
       order('existing'),

@@ -144,6 +144,7 @@ export interface MarketplaceImportPayload {
     issueDate: string;
     shipmentDate?: string;
     orderStatus?: string;
+    requiresReturnReview?: boolean;
     shippingAddress?: string;
     shippingCarrier?: string;
     trackingNumber?: string;

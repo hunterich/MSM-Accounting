@@ -30,6 +30,8 @@ vi.mock('@/lib/marketplace-import-preview', () => ({
   previewMarketplaceOrders: vi.fn().mockResolvedValue({ create: 0, alreadyImported: 0, blocked: 1, orders: [] }),
 }));
 
+import { importMarketplaceOrders } from '@/lib/marketplace-import';
+import { previewMarketplaceOrders } from '@/lib/marketplace-import-preview';
 import { POST } from '../integrations/[id]/import/route';
 import { POST as previewPOST } from '../integrations/[id]/import/preview/route';
 
@@ -65,6 +67,24 @@ describe('marketplace import route body validation', () => {
     expect(preview.status).toBe(200);
     const imported = await POST(makeJsonReq('/api/v1/integrations/conn-1/import', body), params('conn-1'));
     expect(imported.status).toBe(400);
+  });
+
+  it('passes secondary return review evidence through both API schemas', async () => {
+    const order = {
+      orderNo: 'REVIEW-123', issueDate: '2026-06-01', shipmentDate: '2026-06-01',
+      orderStatus: 'Telah Dikirim', requiresReturnReview: true,
+      lines: [{ itemId: 'item-1', description: 'Product', quantity: 1, unitPrice: 1000 }],
+    };
+    const options = { recordPayment: false };
+    const preview = await previewPOST(makeJsonReq('/api/v1/integrations/conn-1/import/preview',
+      { orders: [{ ...order, sourceTotal: 1000 }], options }), params('conn-1'));
+    expect(preview.status).toBe(200);
+    expect(previewMarketplaceOrders).toHaveBeenCalledWith('org-a', 'conn-1',
+      [expect.objectContaining({ requiresReturnReview: true })], options);
+    const imported = await POST(makeJsonReq('/api/v1/integrations/conn-1/import', { orders: [order], options }), params('conn-1'));
+    expect(imported.status).toBe(200);
+    expect(importMarketplaceOrders).toHaveBeenCalledWith('org-a', 'user-1', 'conn-1',
+      [expect.objectContaining({ requiresReturnReview: true })], options);
   });
 
   it('returns 400 when orders array is empty', async () => {
