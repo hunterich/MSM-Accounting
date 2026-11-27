@@ -11,6 +11,9 @@ import { formatIDR } from '../../utils/formatters';
 import { roundMoneyDecimal } from '@/lib/money-decimal';
 import { readMarketplaceDecimal } from '../../utils/marketplaceMoney';
 
+const effectiveSettlementDate = (order: { settlementDate?: string }, fallback: string) =>
+    order.settlementDate || fallback;
+
 type WizardStep = 'upload' | 'preview' | 'importing' | 'done';
 
 interface SettlementImportModalProps {
@@ -34,6 +37,13 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
     const [refundNotes, setRefundNotes] = useState<Record<string, string>>({});
     const [manualRefund, setManualRefund] = useState({ orderId: '', amount: '', notes: '' });
     const needsSettlementDate = parsed?.orders.some(o => !o.settlementDate) ?? true;
+    const previewDateCounts = new Map<string, number>();
+    if (step === 'preview' && !refundOnly) {
+        for (const order of parsed?.orders ?? []) {
+            const date = effectiveSettlementDate(order, settlementDate);
+            previewDateCounts.set(date, (previewDateCounts.get(date) ?? 0) + 1);
+        }
+    }
 
     const resetAll = useCallback(() => {
         setStep('upload');
@@ -96,7 +106,7 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
         try {
             const orders = parsed.orders.map((o) => ({
                 orderId: o.orderId,
-                settlementDate: refundOnly ? undefined : (o.settlementDate || settlementDate),
+                settlementDate: refundOnly ? undefined : effectiveSettlementDate(o, settlementDate),
                 netReleased: o.netReleased,
                 charges: o.charges,
                 refundOnly,
@@ -201,6 +211,19 @@ const SettlementImportModal: React.FC<SettlementImportModalProps> = ({ isOpen, c
                 <input type="date" className="w-full h-10 px-3 rounded-md border border-neutral-300" value={settlementDate} onChange={e => setSettlementDate(e.target.value)} />
                 <span className="text-xs text-neutral-500">Check the statement. If orders settled on different dates, split them into separate files by date.</span>
             </label>}
+            {!refundOnly && previewDateCounts.size > 0 && (
+                <section aria-labelledby="settlement-preview-dates" className="rounded-md border border-neutral-200 p-3">
+                    <h4 id="settlement-preview-dates" className="text-sm font-semibold">Journal dates in this import</h4>
+                    <dl className="mt-2 max-h-40 overflow-y-auto text-sm">
+                        {[...previewDateCounts].sort(([a], [b]) => a.localeCompare(b)).map(([date, count]) => (
+                            <div key={date} className="flex justify-between gap-4 py-1">
+                                <dt>{date || 'Date required'}</dt>
+                                <dd>{count.toLocaleString()} {count === 1 ? 'order' : 'orders'}</dd>
+                            </div>
+                        ))}
+                    </dl>
+                </section>
+            )}
             <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={refundOnly} onChange={e => setRefundOnly(e.target.checked)} />
                 Later refunds after the original settlement (refund debits only)
