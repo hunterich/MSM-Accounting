@@ -24,7 +24,7 @@ These are responsibilities, not assignments or messages to external people.
 - [x] **ACC-01 — receipt/payment account validation and note-aware sales/aging** — merged in #155; deployment verification remains open.
 - [x] **INV-00 — sales, POS, adjustment/count and purchase stock locking** — implemented scopes merged in #153, #157 and #158; this does not cover every inventory writer or prove Weighted Average reconciliation.
 - [x] **INV-01 — remaining inventory writers and reversals** — audited opening stock, POS batch receiving, sales-return restocking and return voids; safeguards merged in #161/#162. Return voids protect consumed layers and per-invoice totals; supplier-return restoration uses item locks; opening/batch additions coordinate with sales; missing usable batch posting accounts refuse before writes. Combined local verification passed 1,240 unit tests and 320 PostgreSQL tests (plus the existing Weighted Average expected failure); both PR heads passed all CI jobs. Deployment/pilot verification remains open.
-- [~] **INV-02 — Weighted Average valuation reconciliation (#170)** — stored lot carrying values, warehouse-scoped consumption, receipt identities and prospective method changes merged in #174; reversal marking/guards merged in #176; approved negative-stock receipt-date COGS settlement merged in #177; closed-fiscal-year posting refusal plus real PO receive-route and fiscal-year-close races merged in #263. The former hard negative-stock regression passes. GitHub closed #170 when #263 merged, but historical audit/initialization, migration/recovery and remaining browser/finance/release acceptance stay open; see `docs/INV-02-ACCEPTANCE.md` and the detailed release checklist below. Depends on INV-01.
+- [x] **INV-02 — Weighted Average valuation reconciliation (#170)** — stored lot carrying values, warehouse-scoped consumption, receipt identities and prospective method changes merged in #174; reversal marking/guards merged in #176; approved negative-stock receipt-date COGS settlement merged in #177; closed-fiscal-year posting refusal plus real PO receive-route and fiscal-year-close races merged in #263. The former hard negative-stock regression passes. No organisation uses the app yet and go-live starts from a fresh database, so there is no legacy inventory to audit or initialize (decided 2026-11-23). Upgrade/restore rehearsal and release verification are tracked in OPS-03 (#187); see `docs/INV-02-ACCEPTANCE.md`. Depends on INV-01.
 - [~] **ACC-02 — settlement and close acceptance (#167)** — linked-note safeguards #165, control/close guards #168 and fixed cash/discount/penalty settlement acceptance #192 are merged. Independent per-control reconciliation #191, cutoff/reversal history #196 and actual migration-opening acceptance #197 are merged. Two-user settlement/close browser acceptance merged in #201. Per-control Reports screens and actual CSV/PDF browser acceptance are implemented for review on `codex/acc02-control-reconciliation-ui`; see docs/ACC-02-CONTROL-REPORTS.md. Finance, migration-screen and release acceptance remain open. AR/AP acceptance can proceed alongside INV-02; full inventory/month-end acceptance still depends on it. Keep financial posting separate from stock restocking.
 - [x] **ACC-02 — linked return/note eligibility and concurrency (#163)** — merged in [PR #165](https://github.com/hunterich/MSM-Accounting/pull/165), with all three CI jobs green on the final commit. Both AR/AP sides enforce party/source/company matching and refuse Draft/Void returns; pending notes block void and rejection permits it. Thirty-four PostgreSQL cases cover application/submission races, approval/rejection, refunds, changed links after waits and exact accounting/stock rollback. Deployment and pilot verification remain open; the local production read-only audit found zero affected notes at 11:23 WIB on 2026-10-13. Rerun the audit on every server before release.
 - [ ] **ACC-02 policy follow-ups — #164 / #166** — finance must decide aggregate linked-note caps and preservation of financial-note intent when a Draft return is deleted. Track separately; neither is silently included in #165 or the INV-02 scope.
@@ -91,8 +91,8 @@ and business review where the workflow changes. Never use production data for
 automated tests. Broader CRM, manufacturing, clinic/pharmacy, advanced enterprise
 and new payroll features are outside the initial distribution/e-commerce pilot.
 
-**Next sequence:** finish remaining INV-02 and ACC-02 acceptance (issues #170 /
-#167), including remaining browser/finance and release gates, then DIST-02 → ECOM-01 → ECOM-02.
+**Next sequence:** finish remaining ACC-02 acceptance (#167), including remaining
+browser/finance gates (INV-02 #170 is complete; release gates are OPS-03 #187), then DIST-02 → ECOM-01 → ECOM-02.
 DIST-01 can be clarified alongside the accounting work; DIST-03/DIST-04 move
 ahead of distribution acceptance if the pilot needs them. Distribution and
 e-commerce milestone order can be adjusted when
@@ -141,17 +141,21 @@ criteria and pilot availability, not the number of unchecked backlog entries.
 - [ ] **ACC-02 — release verification** — deploy #165 only as an authorized release, rerun `scripts/audit-linked-note-returns.sql` on each production database and verify company-scoped application/approval/refund/void workflows. Local production audit on 2026-10-13 at 11:23 WIB found zero linked Draft/Pending notes and zero invalid notes; other servers and subsequent data changes remain unchecked. Merged engineering work does not certify deployment or pilot readiness.
 - [ ] **ACC-02 — note-value cap policy (#164)** — finance must decide gross/net basis, price adjustments, tax/rounding and whether pending notes reserve value before any aggregate cap is implemented.
 - [ ] **ACC-02 — draft-return deletion/link policy (#166)** — decide whether deletion should be blocked while financial notes are linked or require explicit unlinking with an audit record. Cover AR/AP and concurrent deletion/submission; preserve legitimate standalone notes. Non-blocking follow-up to #165.
-- [~] **INV-02 — Weighted Average valuation (#170)** — the successive-sale defect (11,000 receipts → 11,466.67 COGS with zero stock) is addressed by stored carrying values and warehouse-scoped book-value consumption in merged #174. #176 fixes reversal chronology and #177 implements approved negative-stock settlement. Original receipt costs remain traceable. #171 is closed as incorporated. #263 refuses postings dated in a closed fiscal year and adds the receive-route and year-close races. Historical audit/initialization, remaining acceptance and authorized release verification stay open; see #170, `docs/INV-02-ACCEPTANCE.md` and docs/TESTING.md.
+- [x] **INV-02 — Weighted Average valuation (#170)** — the successive-sale defect (11,000 receipts → 11,466.67 COGS with zero stock) is addressed by stored carrying values and warehouse-scoped book-value consumption in merged #174. #176 fixes reversal chronology and #177 implements approved negative-stock settlement. Original receipt costs remain traceable. #171 is closed as incorporated. #263 refuses postings dated in a closed fiscal year and adds the receive-route and year-close races. No organisation uses the app yet and go-live starts from a fresh database, so there is no legacy inventory to audit or initialize (decided 2026-11-23). Release verification is tracked in OPS-03 (#187); see `docs/INV-02-ACCEPTANCE.md` and docs/TESTING.md.
 - [~] **ACC-02 — full settlement and close acceptance** — #165 completes linked-note safeguards; existing tests also cover historical voids, penalties and some opening balances. AR/AP acceptance can proceed before INV-02; full inventory/month-end acceptance still depends on INV-02. Merged settlement acceptance #192 and the remaining reconciliation, migration, cutoff and browser/finance scope are listed below.
 
 INV-02 engineering increments #174, #176 and #177 are merged. Stored lot
 carrying values, monetary draws, warehouse movement costs, coordinated prospective
 method changes and receipt-date shortage settlement now have passing regressions.
 The final #177 head passed all three CI jobs, including 487 PostgreSQL cases;
-the former negative-stock hard failure is resolved. These results do not certify
-legacy inventory initialization or production balances. Keep historical audit,
-authorized migration/recovery, remaining finance/browser/month-end acceptance and
-release verification open under #170. See `docs/INV-02-CARRYING-VALUES.md` and
+the former negative-stock hard failure is resolved. #199, #200, #214, #215 and
+#263 added the receipt-reversal, audit, month-close and fiscal-year-close coverage,
+and #170 is closed. No organisation uses the app yet, so there is no legacy
+inventory to audit or initialize; the historical-audit parts of the INV-02 items
+above no longer apply. What remains (exact release CI, staging upgrade, backup/
+restore with attachments, deployment smoke) is release work tracked in OPS-03
+(#187). If data from an existing install is ever carried into go-live, run the
+read-only audits on it first. See `docs/INV-02-CARRYING-VALUES.md` and
 `docs/INV-02-NEGATIVE-STOCK.md`.
 
 ### ACC-02 acceptance scope and decisions
