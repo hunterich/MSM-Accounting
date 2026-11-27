@@ -8,5 +8,5 @@ export function isMarketplaceReversalStatus(status: string): boolean {
 }
 
 export function isMarketplaceShippedStatus(status: string): boolean {
-    return /^(shipped|in transit|delivered|completed|selesai|dikirim|sedang dikirim|pesanan diterima)/i.test(status.trim());
+    return /^(shipped|in transit|delivered|completed|selesai|dikirim|sedang dikirim|telah\s+dikirim\b|pesanan diterima)/i.test(status.trim());
 }

@@ -690,6 +690,7 @@ export const marketplaceImportOrderSchema = z.object({
   issueDate: isoDateString,
   shipmentDate: isoDateString.optional(),
   orderStatus: z.string().trim().max(200).optional(),
+  requiresReturnReview: z.boolean().optional(),
   shippingAddress: z.string().trim().max(1000).optional(),
   shippingCarrier: z.string().trim().max(200).optional(),
   trackingNumber: z.string().trim().max(200).optional(),

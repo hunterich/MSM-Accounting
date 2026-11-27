@@ -12,6 +12,8 @@ import { readMarketplaceDecimal } from './marketplaceMoney';
 export interface ShopeeRawRow {
     'No. Pesanan'?: unknown;
     'Status Pesanan'?: unknown;
+    'Status Pembatalan/ Pengembalian'?: unknown;
+    'Returned quantity'?: unknown;
     'Waktu Pesanan Dibuat'?: unknown;
     'Waktu Pembayaran Dilakukan'?: unknown;
     'Waktu Pesanan Selesai'?: unknown;
@@ -45,6 +47,8 @@ export interface ShopeeRawRow {
 interface MappedRow {
     orderNumber: unknown;
     orderStatus: unknown;
+    cancellationReturnStatus: unknown;
+    returnedQuantity: unknown;
     orderCreatedTime: unknown;
     paymentTime: unknown;
     orderCompletedTime: unknown;
@@ -100,6 +104,8 @@ export interface ParsedShopeeOrder {
     completionDate: string | null;
     shipmentDate?: string | null;
     orderStatus?: string;
+    /** Secondary Shopee export fields indicate a return/cancellation needing review. */
+    requiresReturnReview?: boolean;
     buyerUsername: string;
     recipientName: string;
     phone: string;
@@ -258,6 +264,7 @@ export interface TransformResult {
 
 type InternalKey =
     | 'orderNumber' | 'orderStatus' | 'orderCreatedTime' | 'paymentTime'
+    | 'cancellationReturnStatus' | 'returnedQuantity'
     | 'orderCompletedTime' | 'parentSKU' | 'productName' | 'skuReference'
     | 'variationName' | 'originalPrice' | 'priceAfterDiscount' | 'quantity'
     | 'productTotal' | 'totalDiscount' | 'sellerDiscount' | 'shopeeDiscount'
@@ -292,6 +299,8 @@ const COLUMN_SPECS: ColumnSpec[] = [
 
     // Optional — missing → warning, parser still succeeds.
     { internalKey: 'orderStatus',        required: false, aliases: ['Status Pesanan', 'Order Status'] },
+    { internalKey: 'cancellationReturnStatus', required: false, aliases: ['Status Pembatalan/ Pengembalian', 'Cancellation/Return Status'] },
+    { internalKey: 'returnedQuantity', required: false, aliases: ['Returned quantity', 'Jumlah Barang Dikembalikan'] },
     { internalKey: 'orderCreatedTime',   required: false, aliases: ['Waktu Pesanan Dibuat', 'Order Created Time', 'Created Time'] },
     { internalKey: 'paymentTime',        required: false, aliases: ['Waktu Pembayaran Dilakukan', 'Payment Time', 'Paid Time'] },
     { internalKey: 'orderCompletedTime', required: false, aliases: ['Waktu Pesanan Selesai', 'Order Completed Time', 'Delivered Time'] },
@@ -529,6 +538,19 @@ export async function parseShopeeExcel(
             return !(orderNum && !/\d/.test(orderNum));
         });
 
+    // A return may be shown only on one SKU row; capture it for the entire
+    // order before filtering. These fields never change the sale quantities.
+    const ordersNeedingReturnReview = new Set<string>();
+    if (platform?.toLowerCase() !== 'tiktok') {
+        for (const row of mappedRows) {
+            const status = String(row.cancellationReturnStatus ?? '').trim();
+            const hasStatus = status !== '' && !/^(?:[-–—]+|0|n\/?a)$/i.test(status);
+            if (hasStatus || parseNum(row.returnedQuantity) > 0) {
+                ordersNeedingReturnReview.add(String(row.orderNumber ?? '').trim());
+            }
+        }
+    }
+
     // Filter by status. A reconciled "Matched Orders" sheet holds only orders
     // Shopee has already paid out, so the order-status text (often still
     // "Pesanan diterima, namun Pembeli masih dapat mengajukan pengembalian…")
@@ -623,6 +645,7 @@ export async function parseShopeeExcel(
             completionDate: parseDateCell(first.orderCompletedTime),
             shipmentDate: parseDateCell(first.shipmentTime) || (isMarketplaceShippedStatus(String(first.orderStatus ?? '')) ? parseDateCell(first.shippingArrangedTime) : null),
             orderStatus: String(first.orderStatus ?? '').trim(),
+            requiresReturnReview: ordersNeedingReturnReview.has(orderNumber),
             buyerUsername: String(first.buyerUsername ?? '').trim(),
             recipientName: String(first.recipientName ?? '').trim(),
             phone: String(first.phone ?? '').trim(),

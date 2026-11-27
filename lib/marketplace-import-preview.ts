@@ -1,6 +1,6 @@
 import { prisma } from './prisma';
 import { MoneyDecimal, roundMoneyDecimal } from './money-decimal';
-import { calculateMarketplaceOrderTotals, type ImportOrder } from './marketplace-import';
+import { calculateMarketplaceOrderTotals, marketplaceReturnReviewReason, type ImportOrder } from './marketplace-import';
 import { isMarketplaceReversalStatus, isMarketplaceShippedStatus } from '@/src/utils/marketplaceLifecycle';
 
 export interface PreviewOrder extends ImportOrder {
@@ -108,6 +108,10 @@ export async function previewMarketplaceOrders(
     if (seenOrderNos.has(order.orderNo)) {
       row.status = 'blocked';
       row.reason = 'Order number occurs more than once in this file';
+      result.blocked++;
+    } else if (order.requiresReturnReview) {
+      row.status = 'blocked';
+      row.reason = marketplaceReturnReviewReason(Boolean(existing));
       result.blocked++;
     } else if (order.orderStatus && isMarketplaceReversalStatus(order.orderStatus)) {
       row.status = 'blocked';

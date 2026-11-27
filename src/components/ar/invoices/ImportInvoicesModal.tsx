@@ -70,6 +70,7 @@ interface PreviewRow {
     totalProductAmount: number;
     date: string | null | undefined;
     paymentMethod: string;
+    review: string;
 }
 
 // ── SKU classification ────────────────────────────────────────────────────────
@@ -91,6 +92,10 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const recoveryKey = importRecoveryKey(userId, orgId);
     const scheduleDenied = useAccessScheduleStore(s => s.denied);
     const [recovered] = useState(() => readImportRecovery<ImportCheckpoint>(recoveryKey));
+    // Older checkpoints contain already-parsed rows, not the workbook.
+    // Require a fresh parse to recover return evidence that was discarded.
+    const needsReupload = Boolean(recovered?.parseResult && recovered.step !== 'done' &&
+        recovered.parseResult.parsedOrders.some((order) => typeof order.requiresReturnReview !== 'boolean'));
     const { data: connectionsData } = useEcommerceConnections();
     const shops: EcommerceConnection[] = connectionsData?.data ?? [];
     const updateConnection = useUpdateEcommerceConnection();
@@ -105,11 +110,11 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
 
     // A lost response is ambiguous. Always re-preview an interrupted import;
     // never automatically repost it or trust old approval/review checkboxes.
-    const [step, setStep] = useState<WizardStep>(recovered?.parseResult
+    const [step, setStep] = useState<WizardStep>(recovered?.parseResult && !needsReupload
         ? (recovered.step === 'importing' ? 'configure' : recovered.step) : 'upload');
     const [shopId, setShopId] = useState<string>(recovered?.shopId || '');
     const [file, setFile] = useState<File | null>(null);
-    const [parseResult, setParseResult] = useState<ShopeeParseResult | null>(recovered?.parseResult || null);
+    const [parseResult, setParseResult] = useState<ShopeeParseResult | null>(!needsReupload ? recovered?.parseResult ?? null : null);
     const [parsing, setParsing] = useState<boolean>(false);
     const [parseError, setParseError] = useState<string>('');
     const [headerReport, setHeaderReport] = useState<HeaderResolution | null>(null);
@@ -253,7 +258,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             if (!parseResult) return 0;
             let count = 0;
             for (const order of parseResult.parsedOrders) {
-                if (!alreadyImportedOrderNos.has(order.orderNumber) &&
+                if (!order.requiresReturnReview && !alreadyImportedOrderNos.has(order.orderNumber) &&
                     order.items.some((it) => buildProductKey(it) === key)) count++;
             }
             return count;
@@ -264,7 +269,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     const relevantProductKeys = useMemo(() => {
         const keys = new Set<string>();
         for (const order of parseResult?.parsedOrders ?? []) {
-            if (alreadyImportedOrderNos.has(order.orderNumber)) continue;
+            if (order.requiresReturnReview || alreadyImportedOrderNos.has(order.orderNumber)) continue;
             for (const item of order.items) keys.add(buildProductKey(item));
         }
         return keys;
@@ -276,6 +281,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         const m = new Map<string, number>();
         if (!parseResult) return m;
         for (const order of parseResult.parsedOrders) {
+            if (order.requiresReturnReview) continue;
             for (const it of order.items) {
                 const key = buildProductKey(it);
                 if (!m.has(key) && it.priceAfterDiscount > 0) m.set(key, it.priceAfterDiscount);
@@ -416,6 +422,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             totalProductAmount: o.totalProductAmount,
             date: o.shipmentDate,
             paymentMethod: o.paymentMethod,
+            review: o.requiresReturnReview ? 'Return review' : '',
         }));
     }, [parseResult]);
 
@@ -426,6 +433,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
         { key: 'totalProductAmount', label: 'Amount', align: 'right' as const, render: (val: unknown) => formatIDR(val as number) },
         { key: 'date', label: 'Date', sortable: true },
         { key: 'paymentMethod', label: 'Payment' },
+        { key: 'review', label: 'Review' },
     ];
 
     const mappedCount = useMemo<number>(() => {
@@ -438,7 +446,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
     };
 
     const ordersMissingAllDates = useMemo(
-        () => parseResult?.parsedOrders.filter((order) => !order.shipmentDate).length ?? 0,
+        () => parseResult?.parsedOrders.filter((order) => !order.requiresReturnReview && !order.shipmentDate).length ?? 0,
         [parseResult],
     );
 
@@ -454,6 +462,7 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
                     issueDate: sourceDate || fallbackDate || new Date().toISOString().slice(0, 10),
                     shipmentDate: sourceDate || fallbackDate || undefined,
                     orderStatus: order.orderStatus,
+                    requiresReturnReview: order.requiresReturnReview,
                     shippingAddress: [order.shippingAddress, order.city, order.province].filter(Boolean).join(', '),
                     shippingCarrier: order.shippingCarrier || '',
                     trackingNumber: order.trackingNumber || '',
@@ -1172,7 +1181,8 @@ const ImportInvoicesModal: React.FC<ImportInvoicesModalProps> = ({ isOpen, onClo
             onClose={step === 'importing' ? () => { /* blocked during import */ } : handleClose}
             size="xl"
         >
-              {recovered?.parseResult && <p role="status" className="mb-3 text-sm text-amber-800">Recovered an import from this browser. Review fresh counts before importing; completed orders are checked for duplicates.</p>}
+              {needsReupload && !parseResult && <p role="status" className="mb-3 text-sm text-amber-800">Upload the original workbook again so the updated importer can check for returns.</p>}
+              {recovered?.parseResult && !needsReupload && <p role="status" className="mb-3 text-sm text-amber-800">Recovered an import from this browser. Review fresh counts before importing; completed orders are checked for duplicates.</p>}
               {recoveryFailed && <p role="alert" className="mb-3 text-sm text-red-700">Browser recovery could not be saved. Keep this page open to preserve your import setup.</p>}
               {/* Step indicators */}
             <div className="flex gap-1 mb-4">

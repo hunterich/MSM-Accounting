@@ -42,10 +42,17 @@ export interface ImportOrder {
   /** Actual dispatch date. When supplied, it controls every posting date. */
   shipmentDate?: string;
   orderStatus?: string;
+  requiresReturnReview?: boolean;
   shippingAddress?: string;
   shippingCarrier?: string;
   trackingNumber?: string;
   lines: ImportOrderLine[];
+}
+
+export function marketplaceReturnReviewReason(existingInvoice: boolean): string {
+  return existingInvoice
+    ? 'Shopee reports a possible cancellation or return. Verify its status before recording a linked sales return or credit note. Restock only goods actually received.'
+    : 'Shopee reports a possible cancellation or return. Verify the original shipment and record the original sale separately from any confirmed return.';
 }
 
 export interface ImportOptions {
@@ -165,6 +172,7 @@ export async function importMarketplaceOrders(
           },
           select: { id: true, shippingAddress: true, shippingCarrier: true, trackingNumber: true },
         });
+        if (order.requiresReturnReview) throw new Error(marketplaceReturnReviewReason(Boolean(existing)));
         if (existing) {
           if (order.orderStatus && isMarketplaceReversalStatus(order.orderStatus)) {
             throw new Error('This imported order needs a linked sales return and credit note. Confirm goods received before restocking; reconcile the credit note with the settlement refund.');

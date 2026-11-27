@@ -218,6 +218,38 @@ describe('marketplace import orchestrator', () => {
     } finally { await cleanupOrg(s.org.orgId); }
   });
 
+  it('never posts a new sale or mutates an existing one on secondary return evidence', async () => {
+    const s = await seedScenario();
+    try {
+      const itemId = await createStockedItem(s.org.orgId, 50_000, 10);
+      const order: ImportOrder = { orderNo: 'SHIPPED-ORIGINAL', issueDate: '2026-06-01', shipmentDate: '2026-06-01', orderStatus: 'Telah Dikirim',
+        lines: [{ itemId, description: 'Product', sku: 'STK', quantity: 1, unitPrice: 100_000 }] };
+      const original = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [order], { recordPayment: true });
+      expect(original.created).toBe(1);
+      const counts = () => {
+        const where = { organizationId: s.org.orgId };
+        return Promise.all([
+          prisma.salesInvoice.count({ where }),
+          prisma.aRPayment.count({ where }),
+          prisma.inventoryLedgerEntry.count({ where }),
+          prisma.journalEntry.count({ where }),
+          prisma.salesReturn.count({ where }),
+          prisma.creditNote.count({ where }),
+        ]);
+      };
+      const before = await counts();
+      const review = await importMarketplaceOrders(s.org.orgId, s.userId, s.connectionId, [
+        { ...order, orderStatus: 'Selesai', requiresReturnReview: true, trackingNumber: 'NEVER-WRITTEN' },
+        { ...order, orderNo: 'SHIPPED-RETURN', requiresReturnReview: true },
+      ], { recordPayment: true });
+      expect(review.created).toBe(0);
+      expect(review.logisticsUpdated).toBe(0);
+      expect(review.failed.map(row => row.orderNo)).toEqual(['SHIPPED-ORIGINAL', 'SHIPPED-RETURN']);
+      expect(await counts()).toEqual(before);
+      expect((await prisma.salesInvoice.findFirstOrThrow({ where: { organizationId: s.org.orgId } })).trackingNumber).toBeNull();
+    } finally { await cleanupOrg(s.org.orgId); }
+  });
+
   it.each(['Saldo Shopee', 'Shopee Wallet'])('settles into the mapped non-default holding asset %s', async name => {
     const s = await seedScenario();
     try {

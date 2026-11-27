@@ -12,10 +12,13 @@ test.afterAll(async () => { await db.$disconnect() })
 // evidence that current marketplace exports use these exact fields or dates.
 function shipmentFile(platform: 'Shopee' | 'TikTok') {
   const row = platform === 'Shopee'
-    ? { 'No. Pesanan': 'SHIP1001', 'SKU Induk': 'JOURNEY-1', 'Nama Produk': 'Journey Widget', 'Total Harga Produk': 2000, 'Jumlah': 1, 'Harga Setelah Diskon': 2000, 'Status Pesanan': 'Dikirim', 'Waktu Pengiriman': '2026-09-30' }
+    ? { 'No. Pesanan': 'SHIP1001', 'SKU Induk': 'JOURNEY-1', 'Nama Produk': 'Journey Widget', 'Total Harga Produk': 2000, 'Jumlah': 1, 'Harga Setelah Diskon': 2000, 'Status Pesanan': 'Telah Dikirim', 'Waktu Pengiriman Diatur': '2026-09-30' }
     : { 'Order ID': 'SHIP1001', 'Seller SKU': 'JOURNEY-1', 'Product Name': 'Journey Widget', 'SKU Subtotal After Discount': 2000, 'Quantity': 1, 'Order Status': 'Shipped', 'Shipped Time': '2026-09-30' }
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([row]), platform === 'Shopee' ? 'Matched Orders' : 'Filtered Adjusted')
+  const rows = platform === 'Shopee'
+    ? [row, { ...row, 'No. Pesanan': 'SHIP1002', 'SKU Induk': 'RETURN-ONLY', 'Status Pembatalan/ Pengembalian': 'Pengembalian Diproses', 'Returned quantity': 1 }]
+    : [row]
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), platform === 'Shopee' ? 'Matched Orders' : 'Filtered Adjusted')
   return { name: `${platform}.xlsx`, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer }
 }
 
@@ -40,11 +43,19 @@ for (const platform of ['Shopee', 'TikTok'] as const) {
     await expect(page.getByText('SHIP1001', { exact: true }).first()).toBeVisible()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
+    if (platform === 'Shopee') {
+      await expect(page.getByText('1 order will not be sent')).toBeVisible()
+      await expect(page.getByText(/SHIP1002: Shopee reports a possible cancellation or return/)).toBeVisible()
+    }
     const imported = page.waitForResponse(r => r.url().endsWith(`/integrations/${conn.id}/import`) && r.request().method() === 'POST', { timeout: 60_000 })
     await page.getByRole('button', { name: /Import 1 New/ }).click()
     const response = await imported
     expect(response.ok(), await response.text()).toBeTruthy()
     await expect(page.getByText('Import Complete', { exact: true })).toBeVisible({ timeout: 30_000 })
+    if (platform === 'Shopee') {
+      expect(await db.salesInvoice.count({ where: { organizationId: orgId, poNumber: 'SHIP1002' } })).toBe(0)
+      expect(await db.item.count({ where: { organizationId: orgId, sku: 'RETURN-ONLY' } })).toBe(0)
+    }
     const invoice = await db.salesInvoice.findFirstOrThrow({ where: { organizationId: orgId, poNumber: 'SHIP1001' }, include: { lines: true } })
     expect(invoice.issueDate.toISOString().slice(0, 10)).toBe('2026-09-30')
     expect(await db.inventoryLedgerEntry.count({ where: { organizationId: orgId, documentId: invoice.id, qtyOut: { gt: 0 } } })).toBe(1)
