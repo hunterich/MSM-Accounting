@@ -1,4 +1,8 @@
 import { PrismaClient, ModuleKey } from '@prisma/client';
+import { postBillToLedger } from '../lib/bill-posting';
+import { postInvoiceSend } from '../lib/invoice-send-posting';
+import { postArPaymentIfNeeded } from '../lib/payment-posting';
+import { assertPeriodOpen } from '../lib/period-guard';
 import {
   ROLE_TEMPLATES,
   STANDARD_CHILD_ACCOUNTS,
@@ -548,7 +552,7 @@ async function main() {
       ],
     },
     {
-      number: 'INV-0002', customerId: customers[1].id, status: 'PAID',
+      number: 'INV-0002', customerId: customers[1].id, status: 'SENT',
       issueDate: new Date('2026-01-15'), dueDate: new Date('2026-02-15'),
       lines: [
         { description: 'Widget A x10', quantity: 10, price: 100_000 },
@@ -580,26 +584,22 @@ async function main() {
       select: { id: true, createdById: true },
     });
     if (!existing) {
-      const created = await prisma.salesInvoice.create({
-        data: {
-          organizationId: org.id,
-          createdById: user.id,
-          ...inv,
-          subtotal,
-          taxAmount,
-          totalAmount,
-          currency: 'IDR',
-        },
-      });
-      await prisma.salesInvoiceLine.createMany({
-        data: lines.map((l, i) => ({
-          invoiceId: created.id,
-          lineNo: i + 1,
-          description: l.description,
-          quantity: l.quantity,
-          price: l.price,
-          lineSubtotal: l.quantity * l.price,
-        })),
+      await prisma.$transaction(async tx => {
+        const invoice = await tx.salesInvoice.create({
+          data: {
+            organizationId: org.id,
+            createdById: user.id,
+            ...inv,
+            subtotal,
+            taxAmount,
+            totalAmount,
+            currency: 'IDR',
+            lines: { create: lines.map((l, i) => ({
+              ...l, lineNo: i + 1, lineSubtotal: l.quantity * l.price,
+            })) },
+          },
+        });
+        if (invoice.status !== 'DRAFT') await postInvoiceSend(tx, org.id, invoice.id);
       });
     } else if (!existing.createdById) {
       // Deliberately does NOT rewrite totals on rows that already exist — this
@@ -618,7 +618,7 @@ async function main() {
   // ============================================================
   const billSeeds = [
     { number: 'BILL-0001', vendorId: vendors[0].id, status: 'OPEN',    issueDate: new Date('2026-01-05'), dueDate: new Date('2026-02-05'), subtotal: 800_000,   taxAmount: 0, totalAmount: 800_000   },
-    { number: 'BILL-0002', vendorId: vendors[1].id, status: 'PAID',    issueDate: new Date('2026-01-10'), dueDate: new Date('2026-02-10'), subtotal: 1_500_000, taxAmount: 0, totalAmount: 1_500_000 },
+    { number: 'BILL-0002', vendorId: vendors[1].id, status: 'OPEN',    issueDate: new Date('2026-01-10'), dueDate: new Date('2026-02-10'), subtotal: 1_500_000, taxAmount: 0, totalAmount: 1_500_000 },
     { number: 'BILL-0003', vendorId: vendors[2].id, status: 'PENDING', issueDate: new Date('2026-01-20'), dueDate: new Date('2026-02-20'), subtotal: 600_000,   taxAmount: 0, totalAmount: 600_000   },
   ] as const;
   for (const b of billSeeds) {
@@ -626,11 +626,17 @@ async function main() {
       where: { organizationId_number: { organizationId: org.id, number: b.number } },
     });
     if (!existing) {
-      const created = await prisma.bill.create({ data: { organizationId: org.id, ...b } });
-      await prisma.billLine.createMany({
-        data: [
-          { billId: created.id, lineNo: 1, description: 'Supplies purchase', quantity: 1, price: b.subtotal, lineTotal: b.subtotal },
-        ],
+      await prisma.$transaction(async tx => {
+        const bill = await tx.bill.create({
+          data: {
+            organizationId: org.id,
+            ...b,
+            lines: { create: { lineNo: 1, description: 'Supplies purchase', quantity: 1, price: b.subtotal, lineTotal: b.subtotal } },
+          },
+          include: { lines: true },
+        });
+        await assertPeriodOpen(tx, org.id, bill.issueDate);
+        await postBillToLedger(tx, org.id, bill);
       });
     }
   }
@@ -660,21 +666,28 @@ async function main() {
   // ============================================================
   // 10. AR Payments (2)
   // ARPayment: number, date, totalAmount
+  // These are unallocated receipts. They do not mark invoices as paid.
   // ============================================================
   const arpSeeds = [
     { number: 'ARP-0001', customerId: customers[0].id, status: 'COMPLETED', date: new Date('2026-01-20'), totalAmount: 2_220_000, method: 'BANK_TRANSFER', reference: 'TRF-001' },
     { number: 'ARP-0002', customerId: customers[1].id, status: 'COMPLETED', date: new Date('2026-01-25'), totalAmount: 1_110_000, method: 'BANK_TRANSFER', reference: 'TRF-002' },
   ] as const;
   for (const p of arpSeeds) {
-    await prisma.aRPayment.upsert({
-      where: { organizationId_number: { organizationId: org.id, number: p.number } },
-      update: {},
-      create: { organizationId: org.id, ...p },
+    await prisma.$transaction(async tx => {
+      const existing = await tx.aRPayment.findUnique({
+        where: { organizationId_number: { organizationId: org.id, number: p.number } },
+        select: { id: true },
+      });
+      if (existing) return;
+      const receipt = await tx.aRPayment.create({
+        data: { organizationId: org.id, depositAccountId: bankBcaAcc.id, ...p },
+      });
+      await postArPaymentIfNeeded(tx, org.id, receipt.id);
     });
   }
 
   // ============================================================
-  // 11. Journal Entries (3) with Lines
+  // 11. Draft journal examples with lines
   // JournalEntry: entryNo, memo; JournalLine: entryId, lineNo
   // ============================================================
   const revenueAcc = await prisma.account.findFirst({ where: { organizationId: org.id, code: '4-1000' } });
@@ -682,7 +695,6 @@ async function main() {
 
   if (revenueAcc && arAcc) {
     const jeSeeds = [
-      { entryNo: 'JE-0001', status: 'POSTED', date: new Date('2026-01-15'), memo: 'Revenue recognition Jan', totalDebit: 1_000_000, totalCredit: 1_000_000 },
       { entryNo: 'JE-0002', status: 'DRAFT',  date: new Date('2026-02-01'), memo: 'Accrual entry',           totalDebit: 500_000,   totalCredit: 500_000   },
       { entryNo: 'JE-0003', status: 'DRAFT',  date: new Date('2026-02-05'), memo: 'Adjustment entry',        totalDebit: 250_000,   totalCredit: 250_000   },
     ] as const;
