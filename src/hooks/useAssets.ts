@@ -83,6 +83,12 @@ export interface AssetCategory {
   assetCount: number;
 }
 
+type AssetCategoryInput = Omit<Partial<AssetCategory>, 'assetAccountId' | 'depExpenseAccountId' | 'accumDepAccountId'> & {
+  assetAccountId?: string | null;
+  depExpenseAccountId?: string | null;
+  accumDepAccountId?: string | null;
+};
+
 export interface Asset {
   id: string;
   assetNo: string;
@@ -203,7 +209,7 @@ export function useAssetCategories() {
 export function useCreateAssetCategory() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<AssetCategory>) => api.post('/api/v1/asset-categories', body),
+    mutationFn: (body: AssetCategoryInput) => api.post('/api/v1/asset-categories', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ASSET_KEYS.categories }),
   });
 }
@@ -211,7 +217,7 @@ export function useCreateAssetCategory() {
 export function useUpdateAssetCategory() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: Partial<AssetCategory> & { id: string }) =>
+    mutationFn: ({ id, ...body }: AssetCategoryInput & { id: string }) =>
       api.put(`/api/v1/asset-categories/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ASSET_KEYS.categories }),
   });

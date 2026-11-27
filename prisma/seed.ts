@@ -1,14 +1,38 @@
 import { PrismaClient, ModuleKey } from '@prisma/client';
-import bcrypt from 'bcryptjs';
 import {
   ROLE_TEMPLATES,
   STANDARD_CHILD_ACCOUNTS,
   STANDARD_ROOT_ACCOUNTS,
   buildFiscalYearPeriods,
 } from '../lib/organization/bootstrap';
+import { DEMO_ACCOUNTS, resolveSeedPassword } from '../lib/demo-credentials';
+import { hashPassword, passwordSchema } from '../lib/password';
 import { generateTemporaryPassword } from '../lib/temporary-password';
 
 const prisma = new PrismaClient();
+
+const generatedPasswords: Array<{ email: string; password: string }> = [];
+const createdWithDemoPassword: string[] = [];
+
+/** Create a demo user if it does not exist yet; never modify an existing one. */
+async function ensureSeedUser(account: (typeof DEMO_ACCOUNTS)[number], fullName: string) {
+  const existing = await prisma.user.findUnique({ where: { email: account.email }, select: { id: true } });
+  if (existing) return existing;
+  const seed = resolveSeedPassword(account, generateTemporaryPassword);
+  if (seed.source === 'env') passwordSchema.parse(seed.password);
+  if (seed.source === 'generated') generatedPasswords.push({ email: account.email, password: seed.password });
+  if (seed.source === 'demo') createdWithDemoPassword.push(`${account.email} / ${account.password}`);
+  return prisma.user.create({
+    data: {
+      email: account.email,
+      fullName,
+      passwordHash: await hashPassword(seed.password),
+      status: 'ACTIVE',
+      mustChangePassword: seed.mustChangePassword,
+    },
+    select: { id: true },
+  });
+}
 
 // Template data (module keys, standard COA, role permission matrices) lives in
 // lib/organization/bootstrap.ts, shared with the in-app "New Company" wizard so
@@ -18,93 +42,7 @@ const adminTemplate = ROLE_TEMPLATES.find((t) => t.name === 'Administrator')!;
 const posTemplate = ROLE_TEMPLATES.find((t) => t.name === 'POS Operator')!;
 const cashierTemplate = ROLE_TEMPLATES.find((t) => t.name === 'Cashier')!;
 
-/**
- * Two modes (SEC-01):
- *
- * - Production (`NODE_ENV=production`, which the backend Docker image always
- *   sets): no demo company, no demo data and no demo logins. Applies the raw
- *   indexes and, when `SEED_ADMIN_EMAIL` names a user who does not exist yet,
- *   creates that one administrator with a random one-time password that must be
- *   changed at first sign-in. That person then creates the real company in the
- *   app, which writes the standard chart of accounts and roles. Existing users
- *   are never changed, so re-running the seed cannot reopen an account.
- *
- * - Anywhere else (development, the browser-test database): the demo company
- *   with `admin@demo.com` / `admin123` and `cashier@demo.com` / `cashier123`,
- *   exactly as before.
- */
 async function main() {
-  if (process.env.NODE_ENV === 'production') {
-    await seedProduction();
-    return;
-  }
-  await seedDemo();
-}
-
-/** Logins whose passwords are published in this repository. */
-const PUBLISHED_DEMO_LOGINS = [
-  { email: 'admin@demo.com', password: 'admin123' },
-  { email: 'cashier@demo.com', password: 'cashier123' },
-];
-
-async function seedProduction() {
-  await applyRawIndexes();
-
-  // Warn, never fix silently: deactivating these could lock out an install
-  // whose only administrator is still the demo one.
-  for (const demo of PUBLISHED_DEMO_LOGINS) {
-    const user = await prisma.user.findUnique({ where: { email: demo.email }, select: { status: true, passwordHash: true } });
-    if (user?.status === 'ACTIVE' && user.passwordHash && await bcrypt.compare(demo.password, user.passwordHash)) {
-      console.warn(
-        `WARNING: ${demo.email} is active and still uses its published password. ` +
-        'Anyone can sign in with it. Sign in as an administrator and deactivate it or change its password now.',
-      );
-    }
-  }
-
-  const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
-  if (!email) {
-    if (await prisma.user.count() === 0) {
-      throw new Error(
-        'No users exist yet. Run the seed again with SEED_ADMIN_EMAIL=<your email> ' +
-        '(and optionally SEED_ADMIN_NAME) to create the first administrator.',
-      );
-    }
-    console.log('Production seed complete: indexes applied; existing users left unchanged.');
-    return;
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error(`SEED_ADMIN_EMAIL is not a valid email address: ${email}`);
-  }
-
-  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-  if (existing) {
-    console.log(`Production seed complete: ${email} already exists; its password, status and companies were left unchanged.`);
-    return;
-  }
-
-  const temporaryPassword = generateTemporaryPassword();
-  await prisma.user.create({
-    data: {
-      email,
-      fullName: process.env.SEED_ADMIN_NAME?.trim() || 'Administrator',
-      passwordHash: await bcrypt.hash(temporaryPassword, 12),
-      mustChangePassword: true,
-      status: 'ACTIVE',
-    },
-  });
-  console.log([
-    '',
-    'First administrator created. This password is shown once and is not stored anywhere else:',
-    `  Email:              ${email}`,
-    `  One-time password:  ${temporaryPassword}`,
-    '',
-    'Sign in, choose a new password when asked, then create your company.',
-    '',
-  ].join('\n'));
-}
-
-async function seedDemo() {
   const org = await prisma.organization.upsert({
     where: { id: 'org-demo' },
     update: {
@@ -357,38 +295,11 @@ async function seedDemo() {
     },
   });
 
-  const passwordHash = await bcrypt.hash('admin123', 12);
-  const cashierPasswordHash = await bcrypt.hash('cashier123', 12);
-
-  const user = await prisma.user.upsert({
-    where: { email: 'admin@demo.com' },
-    update: {
-      fullName: 'Admin User',
-      passwordHash,
-      status: 'ACTIVE',
-    },
-    create: {
-      email: 'admin@demo.com',
-      fullName: 'Admin User',
-      passwordHash,
-      status: 'ACTIVE',
-    },
-  });
-
-  const cashierUser = await prisma.user.upsert({
-    where: { email: 'cashier@demo.com' },
-    update: {
-      fullName: 'Cashier User',
-      passwordHash: cashierPasswordHash,
-      status: 'ACTIVE',
-    },
-    create: {
-      email: 'cashier@demo.com',
-      fullName: 'Cashier User',
-      passwordHash: cashierPasswordHash,
-      status: 'ACTIVE',
-    },
-  });
+  // Demo sign-ins (#236). Existing accounts are never touched: re-running the
+  // seed must not reset a changed password, reactivate a deactivated user or
+  // restore a role an administrator changed. See lib/demo-credentials.ts.
+  const user = await ensureSeedUser(DEMO_ACCOUNTS[0], 'Admin User');
+  const cashierUser = await ensureSeedUser(DEMO_ACCOUNTS[1], 'Cashier User');
 
   await prisma.userOrganization.upsert({
     where: {
@@ -397,10 +308,7 @@ async function seedDemo() {
         organizationId: org.id,
       },
     },
-    update: {
-      roleId: role.id,
-      isActive: true,
-    },
+    update: {},
     create: {
       userId: user.id,
       organizationId: org.id,
@@ -416,10 +324,7 @@ async function seedDemo() {
         organizationId: org.id,
       },
     },
-    update: {
-      roleId: cashierRole.id,
-      isActive: true,
-    },
+    update: {},
     create: {
       userId: cashierUser.id,
       organizationId: org.id,
@@ -860,7 +765,14 @@ async function seedDemo() {
 
   await applyRawIndexes();
 
-  console.log('Demo seed complete (not for production). Login: admin@demo.com / admin123 or cashier@demo.com / cashier123');
+  console.log('Seed complete.');
+  if (generatedPasswords.length > 0) {
+    // Shown once, never stored in plain text. Users must change it at first sign-in.
+    console.log('\nOne-time passwords for the new seeded accounts (change at first sign-in):');
+    for (const { email, password } of generatedPasswords) console.log(`  ${email}  ${password}`);
+    console.log('Copy them now; they are not shown again.\n');
+  }
+  if (createdWithDemoPassword.length > 0) console.log(`Demo login: ${createdWithDemoPassword.join(' or ')}`);
 }
 
 // Indexes Prisma's schema cannot express (partial / filtered uniques). `prisma db push`

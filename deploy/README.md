@@ -73,7 +73,7 @@ Then bring it up (start the DB first, create tables, seed, then the rest):
 docker compose pull              # build-from-source mode: use `docker compose build` instead
 docker compose up -d db
 docker compose run --rm backend npx prisma migrate deploy   # create all tables (runs migrations)
-docker compose run --rm -e SEED_ADMIN_EMAIL=you@yourcompany.com backend npm run db:seed   # first admin + indexes
+docker compose run --rm backend npm run db:seed             # seed demo admin + defaults + indexes; prints one-time passwords
 docker compose up -d             # bring up backend + web
 ```
 
@@ -117,22 +117,20 @@ New-NetFirewallRule -DisplayName "MSM Accounting HTTPS" -Direction Inbound -Prot
 New-NetFirewallRule -DisplayName "MSM Accounting HTTP"  -Direction Inbound -Protocol TCP -LocalPort 80  -Action Allow
 ```
 
-## 6. First login
+## 6. First login — then lock it down
 
-The seed step printed your email and a **one-time password**. It is shown only
-once. If you lose it, have another administrator reset it, or run the seed
-again with a different `SEED_ADMIN_EMAIL`.
+Visit **https://accounting.msm** and sign in as `admin@demo.com` with the
+**one-time password the seed printed** in step 3 (it is shown once only). To
+choose it yourself instead, run the seed as
+`docker compose run --rm -e SEED_ADMIN_PASSWORD=... backend npm run db:seed`.
+Either way you must set a new password at first sign-in.
 
-Visit **https://accounting.msm**, sign in, choose a new password when asked,
-then create your company. The company gets the standard chart of accounts and
-roles automatically. Create your staff users from Settings, then confirm Backup
-& Restore writes to your `BACKUP_DIR_HOST` folder.
+Re-running the seed never changes an existing user's password, status or role.
+If you lost the one-time password before signing in, deactivate or delete the
+user in the database and re-run the seed to issue a new one.
 
-On the server, the seed never creates demo data or the published demo logins
-(`admin@demo.com` / `admin123`, `cashier@demo.com` / `cashier123`), and re-running
-it never changes an existing user. If an older install still has those demo
-logins active, the seed prints a warning: deactivate them or change their
-passwords in Settings → Users.
+**Immediately** create your real users and deactivate the demo admin and cashier. Then
+confirm Backup & Restore writes to your `BACKUP_DIR_HOST` folder.
 
 ---
 
