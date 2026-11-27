@@ -184,13 +184,30 @@ async function seedDisposableAsset(org: TestOrg, opts: {
   accumulatedDepreciation: number;
   bookValue: number;
 }): Promise<string> {
+  // Real fixed-asset accounts: disposal refuses an accumulated-depreciation
+  // account that is not an Asset (contra-asset) account (SEC-04).
+  const suffix = Math.floor(Math.random() * 90 + 10);
+  const fixedAsset = await prisma.account.create({
+    data: {
+      organizationId: org.orgId, code: `16${suffix}`, name: 'Equipment',
+      type: 'ASSET', normalSide: 'DEBIT', isActive: true, isPostable: true,
+    },
+    select: { id: true },
+  });
+  const accumDep = await prisma.account.create({
+    data: {
+      organizationId: org.orgId, code: `17${suffix}`, name: 'Accumulated Depreciation - Equipment',
+      type: 'ASSET', normalSide: 'CREDIT', isActive: true, isPostable: true,
+    },
+    select: { id: true },
+  });
   const category = await prisma.assetCategory.create({
     data: {
       organizationId: org.orgId,
       name: `Cat-${Math.random().toString(36).slice(2, 8)}`,
       // Wire the JE accounts so disposal resolves deterministically.
-      assetAccountId: org.accounts.inventoryAsset, // any postable Asset account
-      accumDepAccountId: org.accounts.inventoryAdjustment, // postable; debited to clear accum dep
+      assetAccountId: fixedAsset.id,
+      accumDepAccountId: accumDep.id,
       depExpenseAccountId: org.accounts.cogsExpense,
     },
     select: { id: true },
@@ -219,11 +236,9 @@ describe('posting concurrency: asset disposal posts ONE gain/loss JE', () => {
     // Cost 10000, accum dep 6000, book value 4000; proceeds == book value (4000)
     // so gainLoss is 0 — no gain/loss line is needed and the disposal JE balances
     // (Dr Cash 4000 + Dr AccumDep 6000 = Cr Asset 10000) using only the
-    // category-wired accounts. (The route's keyword-based gain/loss account
-    // resolver compares `a.type === 'Revenue'` against the uppercase enum
-    // `'REVENUE'`, so it never resolves — a pre-existing, out-of-scope bug. A
-    // zero-variance disposal still fully exercises the atomic claim + nextNumber
-    // entryNo path under test here.)
+    // category-wired accounts. A zero-variance disposal needs no gain/loss
+    // account default and still fully exercises the atomic claim + entryNo path
+    // under test here.
     const assetId = await seedDisposableAsset(org, {
       acquisitionCost: 10000,
       accumulatedDepreciation: 6000,

@@ -24,7 +24,7 @@ notepad .env
 
 Set at minimum:
 - `POSTGRES_PASSWORD` — strong password
-- `JWT_SECRET` — long random string (the file shows a one-liner to generate one)
+- `JWT_SECRET` — at least 32 random characters; the file shows how to generate one. The backend refuses to start with the example value or a short secret.
 - `SITE_HOST` — the hostname staff will type (default `accounting.msm`; avoid `.local`)
 - `PLATFORM_ADMIN_EMAILS` — your email, to enable Backup & Restore
 - `BACKUP_DIR_HOST` — a real folder, e.g. `D:/msm-backups`

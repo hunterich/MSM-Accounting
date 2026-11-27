@@ -83,7 +83,8 @@ export interface AssetCategory {
   assetCount: number;
 }
 
-type AssetCategoryInput = Omit<Partial<AssetCategory>, 'depExpenseAccountId' | 'accumDepAccountId'> & {
+type AssetCategoryInput = Omit<Partial<AssetCategory>, 'assetAccountId' | 'depExpenseAccountId' | 'accumDepAccountId'> & {
+  assetAccountId?: string | null;
   depExpenseAccountId?: string | null;
   accumDepAccountId?: string | null;
 };

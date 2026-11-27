@@ -27,6 +27,7 @@ interface CategoryForm {
   depreciationMethod: string;
   usefulLifeMonths: number;
   salvagePercent: number;
+  assetAccountId: string;
   depExpenseAccountId: string;
   accumDepAccountId: string;
 }
@@ -36,6 +37,7 @@ const emptyForm: CategoryForm = {
   depreciationMethod: 'STRAIGHT_LINE',
   usefulLifeMonths: 60,
   salvagePercent: 0,
+  assetAccountId: '',
   depExpenseAccountId: '',
   accumDepAccountId: '',
 };
@@ -74,6 +76,7 @@ const AssetCategories = () => {
         depreciationMethod: category.depreciationMethod,
         usefulLifeMonths: category.usefulLifeMonths,
         salvagePercent: category.salvagePercent,
+        assetAccountId: category.assetAccountId,
         depExpenseAccountId: category.depExpenseAccountId,
         accumDepAccountId: category.accumDepAccountId,
       });
@@ -105,6 +108,7 @@ const AssetCategories = () => {
       depreciationMethod: formData.depreciationMethod,
       usefulLifeMonths: formData.usefulLifeMonths,
       salvagePercent: formData.salvagePercent,
+      assetAccountId: formData.assetAccountId || null,
       depExpenseAccountId: formData.depExpenseAccountId || null,
       accumDepAccountId: formData.accumDepAccountId || null,
     };
@@ -270,6 +274,7 @@ const AssetCategories = () => {
               />
             </div>
             {([
+              ['assetAccountId', 'Fixed-asset account', 'Asset'],
               ['depExpenseAccountId', 'Depreciation expense account', 'Expense'],
               ['accumDepAccountId', 'Accumulated depreciation account', 'Asset'],
             ] as const).map(([field, label, type]) => {
@@ -290,7 +295,7 @@ const AssetCategories = () => {
                 </div>
               );
             })}
-            <p className="col-span-12 text-xs text-neutral-500">Both accounts are required before depreciation can be posted. Choose active, postable accounts.</p>
+            <p className="col-span-12 text-xs text-neutral-500">The fixed-asset account is required to buy or dispose of an asset; the depreciation expense and accumulated depreciation accounts are required to post depreciation. Choose active, postable accounts.</p>
             {accountsError && <p className="col-span-12 text-sm text-danger-600" role="alert">Could not load accounts. Reload the page and try again.</p>}
             {saveError && <p className="col-span-12 text-sm text-danger-600" role="alert">{saveError}</p>}
           </div>

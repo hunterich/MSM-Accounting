@@ -7,6 +7,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — weak session secrets are refused in production (SEC-02)
+- In production the backend refuses to start, and refuses sign-in and session checks, when `JWT_SECRET` is an example value from the env templates, contains a placeholder marker, is shorter than 32 characters or is too repetitive. Before, any non-empty value was accepted, and whoever knew it could sign a session for any user. Development and tests still accept any non-empty value.
+- `deploy/.env.example` now generates the secret with a cryptographic random generator (`openssl rand -base64 48`, or `RandomNumberGenerator` in PowerShell); the previous PowerShell one-liner used `Get-Random`, which is not suitable for secrets.
+- Operator action: a server whose secret fails the check will not start after upgrading. Set a new secret; everyone signs in again.
+- Verified with a production build and `next start`: the example value and a 22-character secret stop startup with the message above and every request fails; a generated secret serves sign-in normally.
+
+### Fixed — asset disposal can no longer post an unbalanced or misdirected journal (SEC-04)
+- Disposals post through the shared balanced-journal helper and refuse (422, nothing posted, asset unchanged) when the asset's stored book value does not equal cost less accumulated depreciation. Before, the gain/loss was computed from the stored book value and the journal was saved even when debits ≠ credits.
+- The gain/loss account is no longer guessed from names such as "pendapatan lain" / "beban lain". New account defaults **Gain on Asset Disposal** and **Loss on Asset Disposal** (Settings → Accounts) resolve to standard-chart accounts `4-9300` / `5-9100`, a specific disposal account name, or the account chosen in Settings, and never to an arbitrary first account. The fixed-asset and accumulated-depreciation accounts come only from the asset category and must be active, postable Asset accounts. Every missing account is named in one refusal.
+- The asset category form now also offers the **Fixed-asset account** (Asset accounts only), beside the depreciation accounts added for #232. Disposal and asset purchases from bills require it, and it could previously be set only through the API.
+- New companies get `4-9300 Gain on Asset Disposal` and `5-9100 Loss on Asset Disposal`. Existing companies: run `npm run db:backfill-accounts -- --apply`, or choose accounts in Settings, before disposing of an asset at a gain or loss. No migration.
+- New PostgreSQL cases cover the inconsistent book value, a chart with only "Pendapatan Lain-lain", and a Settings-chosen account; all three fail against the previous route. The disposal and disposal-concurrency tests now use real fixed-asset accounts (they had used an Expense account as accumulated depreciation, which the route now refuses). Full local PostgreSQL suite: 837 of 837 passed.
+
+
+### Added — independent code health and security audit (docs only)
+- New `docs/AUDIT-2026-11-26.md`: a plain-language review of login, permissions, company separation, accounting integrity, deployment defaults and the development process, graded against an internal-team, pre-production deployment.
+- Before go-live: the setup script's demo administrator (`admin@demo.com` / `admin123`), which every re-run resets and re-enables (SEC-01); `JWT_SECRET` strength is not enforced (SEC-02); the repository is public (SEC-03, owner decision). No secrets were found in the git history.
+- Medium: asset disposal writes its journal without the central balance check and picks gain/loss accounts by account name (SEC-04); demo customers, vendors and items are seeded into the real company (SEC-05); six moderate dependency advisories (SEC-06). Low-severity hardening is grouped as SEC-07; the review-process recommendation is SEC-08. All are tracked in ROADMAP.md.
+- SEC-01 was fixed in parallel by the #236/#252 entry below; SEC-05 (demo company and data on a production server) remains open.
+- Verified locally: 1,728 of 1,728 unit tests passed; five spreadsheet-dependent test files could not load because the audit environment blocks the SheetJS download. PostgreSQL integration and browser suites were not run locally; CI passed them on recent `main` merges. No code, schema or stored-data change.
+
 ### Fixed — depreciation account settings
 - Asset categories now let users choose the depreciation expense and accumulated depreciation accounts used by the depreciation run. Only active, postable accounts of the appropriate type are offered, and existing unavailable selections remain visible until corrected.
 - Saving a category now keeps the form open and shows the error if the request fails. No migration or historical posting change.

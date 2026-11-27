@@ -1,6 +1,6 @@
 # MSM Accounting — Delivery Plan and Feature Backlog
 
-> Active delivery plan updated 2026-11-23. The older module inventory below includes historical ERPNext comparisons; it is not evidence of Accurate replacement readiness.
+> Active delivery plan updated 2026-11-27. The older module inventory below includes historical ERPNext comparisons; it is not evidence of Accurate replacement readiness.
 
 ---
 
@@ -60,6 +60,19 @@ payout, with every remaining difference identified and reviewable.
 - [ ] **OPS-02 — finance operations visibility (#186)** — expose recurring/subscription last-run results and errors, then add bounded bulk-payment digests. Email delivery remains disabled until the operator authorizes setup and verifies delivery.
 - [ ] **OPS-03 — release and recovery gate (#187)** — verify final CI, stage the merged changes, run company-scoped smoke/reconciliation checks, validate backup restore with attachments and permissions, and meet the agreed capacity target in `docs/capacity-target.md`. Deployment is a separate authorized step; merging is not deployment.
 - [ ] **OPS-04 — pilot language and document review (#188)** — verify required English/Bahasa forms, errors and printed documents end to end, using the pilot's approved accounting/tax settings.
+
+#### Security and health audit follow-ups (2026-11-26)
+
+From the independent audit in [`docs/AUDIT-2026-11-26.md`](docs/AUDIT-2026-11-26.md). SEC-01–SEC-03 are part of the OPS-03 release gate: do not go live until they are closed.
+
+- [x] **SEC-01 — no demo logins in production (High)** — resolved on `main` by #277 (#236, #252): re-running the seed never resets, reactivates or re-roles an existing user; in production new seeded accounts get a random one-time password (or `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD`) with a forced change; signing in with a published demo password in production forces a change, which also covers existing installs. Operators should still deactivate `admin@demo.com` / `cashier@demo.com` once real users exist.
+- [~] **SEC-02 — enforce a strong `JWT_SECRET` (High)** — only an empty secret is refused today. A copied example value or a short secret lets anyone forge an administrator session. Refuse to start when the secret is shorter than 32 characters or matches a known example value; document the generation command in `deploy/README.md`. **Implemented for review on `ccr-855d531f-kkntck`:** production refuses example, placeholder, short (<32) or repetitive secrets at startup and on every sign-in/session check (fail closed); development and tests accept any non-empty value. Deploy docs now generate the secret with a cryptographic RNG.
+- [ ] **SEC-03 — decide repository visibility (Owner)** — the repository is public. No secrets were found in its history, but it publishes the default passwords, a personal email address in `deploy/.env.example`, and home-network host/IP/username details in the recovery and deployment docs. Either make it private, or replace those details with placeholders and keep it open-source deliberately.
+- [~] **SEC-04 — asset disposal journal integrity (Medium, accounting)** — `assets/[id]/dispose` writes its journal without the central balanced-entry check and picks gain/loss accounts by matching account names (the pattern #232 removed from depreciation). Post through `postJournalEntry`, use category-configured gain/loss accounts and refuse when they are missing; add a test where book value ≠ cost − accumulated depreciation. **Implemented for review on `ccr-855d531f-kkntck`:** disposals post through `postJournalEntry`, take asset/accumulated-depreciation accounts from the category only, use new `assetDisposalGain`/`assetDisposalLoss` defaults (standard chart 4-9300/5-9100, never the "first account" fallback), and refuse when book value ≠ cost − accumulated depreciation. New PostgreSQL tests fail on the old route. Existing companies need `npm run db:backfill-accounts -- --apply` or a Settings choice before disposing at a gain or loss.
+- [ ] **SEC-05 — separate demo data from essential setup (Medium)** — the production seed (after #277) still creates the demo company with demo customers, vendors and items, now behind random one-time passwords. Split essential bootstrap (indexes, first administrator) from demo data so a production server starts empty and the real company is created in the app.
+- [ ] **SEC-06 — clear dependency advisories (Medium)** — `npm audit` reports 6 moderate advisories (Next.js 15.5.28 and the Google sign-in dependency chain). Practical exposure is low, but CI fails only on `high`. Run `npm audit fix`, upgrade Next.js and re-run all CI jobs before release.
+- [ ] **SEC-07 — hardening batch (Low)** — server-side session revocation on logout; generic messages for unexpected 500 errors; size limits on bank-statement and supplier-bill PDF uploads (the `next.config.mjs` 10 MB limit applies to Server Actions only); escape email template variables and preview HTML; case-insensitive sign-in email lookup; constant-time response for unknown emails.
+- [ ] **SEC-08 — review gate on every change (Process)** — require all CI checks via branch protection on `main`; give every PR an independent AI review with a plain-language summary for the owner; finance reviewer signs off on changes that touch posting, tax or reports.
 
 ### Milestone 5 — Prove replacement with a real pilot
 
