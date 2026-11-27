@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — depreciation account settings
+- Asset categories now let users choose the depreciation expense and accumulated depreciation accounts used by the depreciation run. Only active, postable accounts of the appropriate type are offered, and existing unavailable selections remain visible until corrected.
+- Saving a category now keeps the form open and shows the error if the request fails. No migration or historical posting change.
+
 ### Fixed — seeded default passwords and the demo login on the sign-in page (#236, #252)
 - Re-running `npm run db:seed` no longer resets the demo admin and cashier passwords, reactivates them or restores their roles. The seed only creates these accounts when they do not exist.
 - In production (`NODE_ENV=production`) the seed creates new demo accounts with a random one-time password printed once (or `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD`), and requires a change at first sign-in.
