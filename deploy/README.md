@@ -73,7 +73,7 @@ Then bring it up (start the DB first, create tables, seed, then the rest):
 docker compose pull              # build-from-source mode: use `docker compose build` instead
 docker compose up -d db
 docker compose run --rm backend npx prisma migrate deploy   # create all tables (runs migrations)
-docker compose run --rm backend npm run db:seed             # seed demo admin + defaults + indexes
+docker compose run --rm backend npm run db:seed             # seed demo admin + defaults + indexes; prints one-time passwords
 docker compose up -d             # bring up backend + web
 ```
 
@@ -119,12 +119,17 @@ New-NetFirewallRule -DisplayName "MSM Accounting HTTP"  -Direction Inbound -Prot
 
 ## 6. First login — then lock it down
 
-Visit **https://accounting.msm**. Seed credentials:
+Visit **https://accounting.msm** and sign in as `admin@demo.com` with the
+**one-time password the seed printed** in step 3 (it is shown once only). To
+choose it yourself instead, run the seed as
+`docker compose run --rm -e SEED_ADMIN_PASSWORD=... backend npm run db:seed`.
+Either way you must set a new password at first sign-in.
 
-- Email: `admin@demo.com`
-- Password: `admin123`
+Re-running the seed never changes an existing user's password, status or role.
+If you lost the one-time password before signing in, deactivate or delete the
+user in the database and re-run the seed to issue a new one.
 
-**Immediately** create your real users and change/remove the demo admin. Then
+**Immediately** create your real users and deactivate the demo admin and cashier. Then
 confirm Backup & Restore writes to your `BACKUP_DIR_HOST` folder.
 
 ---
