@@ -99,6 +99,7 @@ import { GET as getApReport } from '../reports/ap/route';
 import { GET as getGlReport } from '../reports/gl/route';
 import { GET as getBankingReport } from '../reports/banking/route';
 import { GET as getSalesReport } from '../reports/sales/route';
+import { ALL_REPORTS } from '@/src/views/reports/reportDefinitions';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -159,6 +160,22 @@ describe('Report routes — auth enforcement', () => {
 });
 
 // ── AR report ────────────────────────────────────────────────────────────────
+
+describe('Sales Reports screen API contract', () => {
+  const salesReports = ALL_REPORTS.filter(report => report.category === 'sales');
+
+  it('has Sales Return List in the reports catalog', () => {
+    expect(salesReports.some(report => report.id === 'sales-return-list')).toBe(true);
+  });
+
+  it.each(salesReports)('opens $name using its registered API path and ID', async report => {
+    expect(report.apiPath).toBe('/api/v1/reports/sales');
+    queryRaw.mockResolvedValue([]);
+    const query = new URLSearchParams({ type: report.id, dateFrom: '2026-06-01', dateTo: '2026-06-30' });
+    const res = await getSalesReport(makeReq(`${report.apiPath}?${query}`, 'org-a'));
+    expect(res.status).toBe(200);
+  });
+});
 
 describe('GET /api/v1/reports/sales — returns', () => {
   it.each(['sales-return-list', 'return-list'])('returns matching sales returns for %s', async (type) => {
