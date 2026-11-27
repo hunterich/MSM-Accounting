@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — review gate for AI-written changes (SEC-08)
+- Every pull request now gets a plain-language review comment for the owner: verdict, what changes in business terms, risks, whether the finance reviewer must sign off, and steps before merging, with technical notes collapsed (`.github/workflows/claude-review.yml`, using `anthropics/claude-code-action@v1`). It is advisory, never a required check, and skips with a notice until a repository admin adds the `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` secret. It runs only for authors with write access, refuses bots and skips forks; it can read and comment, not push, approve or merge.
+- New pull request template: plain-language summary, "does this touch money" (finance sign-off when yes), steps after merging, and how it was tested.
+- New `docs/REVIEW-PROCESS.md`: how to turn on the `main` branch ruleset (required unit, integration and browser checks; branches up to date before merging, so two pull requests cannot reach `main` untested together as #278 and #279 did; no bypass, no force pushes), how to add the review secret, and the owner's merge checklist.
+- No application code change. Branch protection itself is a GitHub setting and still has to be turned on by a repository admin.
+
+
 ### Security — weak session secrets are refused in production (SEC-02)
 - In production the backend refuses to start, and refuses sign-in and session checks, when `JWT_SECRET` is an example value from the env templates, contains a placeholder marker, is shorter than 32 characters or is too repetitive. Before, any non-empty value was accepted, and whoever knew it could sign a session for any user. Development and tests still accept any non-empty value.
 - `deploy/.env.example` now generates the secret with a cryptographic random generator (`openssl rand -base64 48`, or `RandomNumberGenerator` in PowerShell); the previous PowerShell one-liner used `Get-Random`, which is not suitable for secrets.
