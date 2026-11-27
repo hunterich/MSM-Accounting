@@ -66,9 +66,17 @@ Backend:
 - Session is stored in `msm_token` httpOnly cookie
 - Access is restricted to users already provisioned in DB
 
-Seed default login:
-- Email: `admin@demo.com`
-- Password: `admin123`
+Seed login (development only):
+- `admin@demo.com` / `admin123`, `cashier@demo.com` / `cashier123`
+- The seed creates these accounts only if they do not exist; re-running it never
+  changes an existing user's password, status or role.
+- With `NODE_ENV=production` the seed prints a random one-time password for each
+  new account instead (or uses `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD`),
+  and the user must change it at first sign-in. Signing in with a published demo
+  password in production forces a change. `ALLOW_DEMO_PASSWORDS=true` turns this
+  off for throwaway benchmark or demo installs only.
+- The sign-in page shows and pre-fills the demo login only in development, or in
+  a build made with `VITE_DEMO_LOGIN=true`.
 
 ## Useful Scripts
 

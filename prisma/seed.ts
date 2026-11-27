@@ -1,13 +1,38 @@
 import { PrismaClient, ModuleKey } from '@prisma/client';
-import bcrypt from 'bcryptjs';
 import {
   ROLE_TEMPLATES,
   STANDARD_CHILD_ACCOUNTS,
   STANDARD_ROOT_ACCOUNTS,
   buildFiscalYearPeriods,
 } from '../lib/organization/bootstrap';
+import { DEMO_ACCOUNTS, resolveSeedPassword } from '../lib/demo-credentials';
+import { hashPassword, passwordSchema } from '../lib/password';
+import { generateTemporaryPassword } from '../lib/temporary-password';
 
 const prisma = new PrismaClient();
+
+const generatedPasswords: Array<{ email: string; password: string }> = [];
+const createdWithDemoPassword: string[] = [];
+
+/** Create a demo user if it does not exist yet; never modify an existing one. */
+async function ensureSeedUser(account: (typeof DEMO_ACCOUNTS)[number], fullName: string) {
+  const existing = await prisma.user.findUnique({ where: { email: account.email }, select: { id: true } });
+  if (existing) return existing;
+  const seed = resolveSeedPassword(account, generateTemporaryPassword);
+  if (seed.source === 'env') passwordSchema.parse(seed.password);
+  if (seed.source === 'generated') generatedPasswords.push({ email: account.email, password: seed.password });
+  if (seed.source === 'demo') createdWithDemoPassword.push(`${account.email} / ${account.password}`);
+  return prisma.user.create({
+    data: {
+      email: account.email,
+      fullName,
+      passwordHash: await hashPassword(seed.password),
+      status: 'ACTIVE',
+      mustChangePassword: seed.mustChangePassword,
+    },
+    select: { id: true },
+  });
+}
 
 // Template data (module keys, standard COA, role permission matrices) lives in
 // lib/organization/bootstrap.ts, shared with the in-app "New Company" wizard so
@@ -270,38 +295,11 @@ async function main() {
     },
   });
 
-  const passwordHash = await bcrypt.hash('admin123', 12);
-  const cashierPasswordHash = await bcrypt.hash('cashier123', 12);
-
-  const user = await prisma.user.upsert({
-    where: { email: 'admin@demo.com' },
-    update: {
-      fullName: 'Admin User',
-      passwordHash,
-      status: 'ACTIVE',
-    },
-    create: {
-      email: 'admin@demo.com',
-      fullName: 'Admin User',
-      passwordHash,
-      status: 'ACTIVE',
-    },
-  });
-
-  const cashierUser = await prisma.user.upsert({
-    where: { email: 'cashier@demo.com' },
-    update: {
-      fullName: 'Cashier User',
-      passwordHash: cashierPasswordHash,
-      status: 'ACTIVE',
-    },
-    create: {
-      email: 'cashier@demo.com',
-      fullName: 'Cashier User',
-      passwordHash: cashierPasswordHash,
-      status: 'ACTIVE',
-    },
-  });
+  // Demo sign-ins (#236). Existing accounts are never touched: re-running the
+  // seed must not reset a changed password, reactivate a deactivated user or
+  // restore a role an administrator changed. See lib/demo-credentials.ts.
+  const user = await ensureSeedUser(DEMO_ACCOUNTS[0], 'Admin User');
+  const cashierUser = await ensureSeedUser(DEMO_ACCOUNTS[1], 'Cashier User');
 
   await prisma.userOrganization.upsert({
     where: {
@@ -310,10 +308,7 @@ async function main() {
         organizationId: org.id,
       },
     },
-    update: {
-      roleId: role.id,
-      isActive: true,
-    },
+    update: {},
     create: {
       userId: user.id,
       organizationId: org.id,
@@ -329,10 +324,7 @@ async function main() {
         organizationId: org.id,
       },
     },
-    update: {
-      roleId: cashierRole.id,
-      isActive: true,
-    },
+    update: {},
     create: {
       userId: cashierUser.id,
       organizationId: org.id,
@@ -773,7 +765,14 @@ async function main() {
 
   await applyRawIndexes();
 
-  console.log('Seed complete. Login: admin@demo.com / admin123 or cashier@demo.com / cashier123');
+  console.log('Seed complete.');
+  if (generatedPasswords.length > 0) {
+    // Shown once, never stored in plain text. Users must change it at first sign-in.
+    console.log('\nOne-time passwords for the new seeded accounts (change at first sign-in):');
+    for (const { email, password } of generatedPasswords) console.log(`  ${email}  ${password}`);
+    console.log('Copy them now; they are not shown again.\n');
+  }
+  if (createdWithDemoPassword.length > 0) console.log(`Demo login: ${createdWithDemoPassword.join(' or ')}`);
 }
 
 // Indexes Prisma's schema cannot express (partial / filtered uniques). `prisma db push`
