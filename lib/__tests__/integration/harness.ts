@@ -75,6 +75,8 @@ type AccountRole =
   | 'openingBalanceEquity'
   | 'retainedEarnings'
   | 'salesRevenue'
+  | 'arReturn'
+  | 'arDiscount'
   | 'cogsExpense'
   | 'inventoryAdjustment';
 
@@ -94,6 +96,10 @@ const CHART_OF_ACCOUNTS: Array<{
   { role: 'openingBalanceEquity', code: '3900', name: 'Opening Balance Equity', type: 'EQUITY', normalSide: 'CREDIT' },
   { role: 'retainedEarnings', code: '3100', name: 'Retained Earnings', type: 'EQUITY', normalSide: 'CREDIT' },
   { role: 'salesRevenue', code: '4100', name: 'Sales Revenue', type: 'REVENUE', normalSide: 'CREDIT' },
+  // Contra revenue, as in the standard chart (#220). Without these, returns and
+  // payment discounts used to fall back silently to Cost of Goods Sold.
+  { role: 'arReturn', code: '4110', name: 'Sales Returns', type: 'REVENUE', normalSide: 'CREDIT' },
+  { role: 'arDiscount', code: '4120', name: 'Sales Discount', type: 'REVENUE', normalSide: 'CREDIT' },
   { role: 'cogsExpense', code: '5100', name: 'Cost of Goods Sold', type: 'EXPENSE', normalSide: 'DEBIT' },
   { role: 'inventoryAdjustment', code: '5190', name: 'Inventory Variance', type: 'EXPENSE', normalSide: 'DEBIT' },
 ];

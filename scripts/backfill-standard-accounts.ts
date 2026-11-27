@@ -13,6 +13,11 @@
  * Only ever creates accounts whose CODE is absent. An organization that has
  * deliberately repurposed a code keeps what it has and is reported, never
  * overwritten. Re-running is a no-op.
+ *
+ * Adding an account can change which account a role resolves to when the
+ * company has not configured that role in Settings, e.g. arReturn moving from an
+ * expense "Sales Returns" to the contra-revenue 4-1100 (#220). The dry run lists
+ * every such change so it can be reviewed (or pinned in Settings) first.
  */
 import { PrismaClient } from '@prisma/client';
 import {
@@ -81,6 +86,23 @@ async function main() {
       console.log(`   + ${a.code}  ${a.name}`);
     }
 
+    const printRoleChanges = (after: Record<string, string>) => {
+      for (const key of Object.keys(before)) {
+        if (before[key] !== after[key]) {
+          console.log(`   ${key}: ${before[key]}  ->  ${after[key]}`);
+        }
+      }
+    };
+
+    if (!APPLY) {
+      // Predict role changes from the accounts that would be created.
+      printRoleChanges(resolveAll([
+        ...rows,
+        ...missingRoots.map((a) => ({ id: `new:${a.code}`, code: a.code, name: a.name, type: a.type, isActive: true, isPostable: false })),
+        ...missingChildren.map((a) => ({ id: `new:${a.code}`, code: a.code, name: a.name, type: a.type, isActive: true, isPostable: true })),
+      ]));
+    }
+
     if (APPLY) {
       // Roots first: children need a parent id, and a root may itself be absent.
       const idByCode = new Map(rows.map((a) => [a.code, a.id]));
@@ -120,11 +142,7 @@ async function main() {
         })) as AccountRow[],
       );
       // The point of the exercise: which roles stop guessing.
-      for (const key of Object.keys(before)) {
-        if (before[key] !== after[key]) {
-          console.log(`   ${key}: ${before[key]}  ->  ${after[key]}`);
-        }
-      }
+      printRoleChanges(after);
     }
     console.log('');
   }

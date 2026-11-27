@@ -81,11 +81,16 @@ export const STANDARD_CHILD_ACCOUNTS: readonly StandardChildAccount[] = [
   { code: '5-1000', name: 'Cost of Goods Sold',    type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-1100', name: 'Salaries Expense',      type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
 
-  // Note the AR/AP asymmetry, which is deliberate: a sales return charges the
-  // P&L (the credit note posts DR arReturn / CR A/R), whereas a purchase return
-  // only *clears* — stock removal posts DR apReturn / CR Inventory and the debit
-  // note posts DR A/P / CR apReturn, netting to zero. So arReturn is an expense
-  // and apReturn is an asset clearing account, sibling to GR/IR on the AP side.
+  // Note the AR/AP asymmetry, which is deliberate: a sales return reduces
+  // revenue (the credit note posts DR arReturn / CR A/R), whereas a purchase
+  // return only *clears* — stock removal posts DR apReturn / CR Inventory and the
+  // debit note posts DR A/P / CR apReturn, netting to zero. So arReturn is a
+  // contra-revenue account and apReturn is an asset clearing account, sibling to
+  // GR/IR on the AP side.
+  //
+  // Contra-revenue accounts (Sales Returns, Sales Discount) are REVENUE with a
+  // CREDIT normal side: the P&L reads each account by its normal side, so their
+  // debit balances show as negative revenue and give net sales (#220).
   //
   // Accounts every trading company eventually posts to. Without them the
   // account-default resolver (lib/account-defaults.ts) finds no candidate for
@@ -98,13 +103,12 @@ export const STANDARD_CHILD_ACCOUNTS: readonly StandardChildAccount[] = [
   { code: '1-1500', name: 'Purchase Returns Clearing',        type: 'ASSET',     normalSide: 'DEBIT',  parentCode: '1-0000' },
   { code: '2-1200', name: 'Goods Received Not Invoiced (GR/IR)', type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
   { code: '2-1300', name: 'Withholding Tax Payable (PPh)',    type: 'LIABILITY', normalSide: 'CREDIT', parentCode: '2-0000' },
+  { code: '4-1100', name: 'Sales Returns',                    type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '4-1200', name: 'Sales Discount',                   type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '4-9100', name: 'Late Fee Income',                  type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '4-9200', name: 'Purchase Discount Income',         type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '4-9300', name: 'Gain on Asset Disposal',           type: 'REVENUE',   normalSide: 'CREDIT', parentCode: '4-0000' },
   { code: '5-1900', name: 'Inventory Variance',               type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
-  { code: '5-2000', name: 'Sales Returns',                    type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
-  { code: '5-3000', name: 'Sales Discount Expense',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-4000', name: 'Vendor Penalty Expense',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-9000', name: 'Rounding Difference',              type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },
   { code: '5-9100', name: 'Loss on Asset Disposal',           type: 'EXPENSE',   normalSide: 'DEBIT',  parentCode: '5-0000' },

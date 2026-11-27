@@ -58,7 +58,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import PrintPreviewModal from '../../components/UI/PrintPreviewModal';
 import ClosedPeriodBanner from '../../components/UI/ClosedPeriodBanner';
 import NotePrintTemplate from '../../components/print/NotePrintTemplate';
-import { resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
+import { isAccountUsableForRole, resolveAccountDefaults, resolveBankLinkedAssetAccountId } from '../../../lib/account-defaults';
 const buildCreditNo = (dateStr: string, seq = 1) => {
     const date = dateStr ? new Date(dateStr) : new Date();
     const yyyy = date.getFullYear();
@@ -259,7 +259,8 @@ const CreditNoteForm = ({ recordId, mode: modeProp, workspaceTabId }: CreditNote
     }, [chartOfAccounts]);
 
     const returnAccountOptions = useMemo(() => {
-        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
+        // Contra-revenue (preferred) or an existing expense account (#220).
+        return chartOfAccounts.filter((account) => isAccountUsableForRole(account, 'arReturn'));
     }, [chartOfAccounts]);
 
     const taxAccountOptions = useMemo(() => {

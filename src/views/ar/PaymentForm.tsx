@@ -40,7 +40,7 @@ import { paymentAllocation } from '../../utils/paymentAllocation';
 import { useBankAccounts } from '../../hooks/useBanking';
 import { useChartOfAccounts } from '../../hooks/useGL';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { resolveAccountDefaults, resolveBankLinkedAssetAccountId, selectPaymentCashAccounts } from '../../../lib/account-defaults';
+import { isAccountUsableForRole, resolveAccountDefaults, resolveBankLinkedAssetAccountId, selectPaymentCashAccounts } from '../../../lib/account-defaults';
 
 interface PaymentFormProps { recordId?: string; mode?: PaymentMode; workspaceTabId?: string }
 
@@ -138,7 +138,8 @@ const PaymentForm = ({ recordId, mode: modeProp, workspaceTabId }: PaymentFormPr
     }, [chartOfAccounts]);
 
     const discountAccountOptions = useMemo(() => {
-        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
+        // Contra-revenue (preferred) or an existing expense account (#220).
+        return chartOfAccounts.filter((account) => isAccountUsableForRole(account, 'arDiscount'));
     }, [chartOfAccounts]);
 
     const penaltyAccountOptions = useMemo(() => {

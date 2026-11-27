@@ -29,9 +29,9 @@ return source lines and applied notes without a posting journal produce report
 warnings. Voided returns without a reliable dated reversal cannot be reconstructed
 as historical quantities; review the original documents before relying on them.
 
-Sales returns currently post to an Expense-type account (`arReturn`, by default
-`5-2000 Sales Returns`), so the P&L shows revenue before returns and the returns
-under expenses. Net sales in these reports therefore equal P&L sales revenue
-less the sales returns account, not the P&L revenue line alone. Reclassifying
-returns as contra-revenue is tracked in #220 and is not required for this
-reconciliation.
+Since #220, new companies post sales returns to the contra-revenue account
+`4-1100 Sales Returns` (`arReturn`), so the P&L revenue section already shows net
+sales: sales revenue less returns and discounts. Companies created earlier keep
+their expense-type returns account (formerly `5-2000 Sales Returns`) until they
+change the default in Settings; for them, net sales in these reports equal P&L
+sales revenue less that expense account.

@@ -61,7 +61,7 @@ import { useChartOfAccounts } from '../../hooks/useGL';
 import { useWarehouses, useSalesReturns, useCreateSalesReturn, useUpdateSalesReturn, useSalesReturnPreview } from '../../hooks/useReturns';
 import { useAllItems } from '../../hooks/useInventory';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { resolveAccountDefaults } from '../../../lib/account-defaults';
+import { isAccountUsableForRole, resolveAccountDefaults } from '../../../lib/account-defaults';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { makeTabId } from '../../stores/workspace/types';
@@ -251,7 +251,8 @@ const SalesReturnForm = ({ recordId, mode: modeProp, workspaceTabId }: SalesRetu
     }, [chartOfAccounts]);
 
     const returnAccountOptions = useMemo(() => {
-        return chartOfAccounts.filter((account) => account.isActive && account.isPostable && account.type === 'Expense');
+        // Contra-revenue (preferred) or an existing expense account (#220).
+        return chartOfAccounts.filter((account) => isAccountUsableForRole(account, 'arReturn'));
     }, [chartOfAccounts]);
 
     const taxAccountOptions = useMemo(() => {

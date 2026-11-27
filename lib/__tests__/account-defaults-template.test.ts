@@ -60,8 +60,8 @@ const EXPECTED: Record<AccountDefaultKey, string> = {
   apDiscount:           '4-9200',
   cogsExpense:          '5-1000',
   inventoryAdjustment:  '5-1900',
-  arReturn:             '5-2000',
-  arDiscount:           '5-3000',
+  arReturn:             '4-1100',
+  arDiscount:           '4-1200',
   apPenalty:            '5-4000',
   roundingAccount:      '5-9000',
   assetDisposalGain:    '4-9300',
@@ -106,6 +106,52 @@ describe('standard chart of accounts covers every account-default role', () => {
       const expected = a.type === 'ASSET' || a.type === 'EXPENSE' ? 'DEBIT' : 'CREDIT';
       expect(a.normalSide, `${a.code} ${a.name}`).toBe(expected);
     }
+  });
+});
+
+describe('sales returns and discounts resolve to contra revenue (#220)', () => {
+  const account = (id: string, code: string, name: string, type: string) =>
+    ({ id, code, name, type, isActive: true, isPostable: true });
+
+  it('puts returns and discounts in the revenue section of a new company', () => {
+    for (const key of ['arReturn', 'arDiscount', 'salesDiscount'] as AccountDefaultKey[]) {
+      const resolved = standardChart.find((a) => a.id === resolveAccountDefaultId(standardChart, {}, key));
+      expect(resolved?.type, key).toBe('Revenue');
+    }
+  });
+
+  it('prefers a revenue-type sales returns account over an expense one', () => {
+    const accounts = [
+      account('exp', '6100', 'Retur Penjualan (lama)', 'Expense'),
+      account('rev', '4110', 'Retur Penjualan', 'Revenue'),
+      account('exp-disc', '6200', 'Diskon Penjualan (lama)', 'Expense'),
+      account('rev-disc', '4120', 'Diskon Penjualan', 'Revenue'),
+    ];
+    expect(resolveAccountDefaultId(accounts, {}, 'arReturn')).toBe('rev');
+    expect(resolveAccountDefaultId(accounts, {}, 'arDiscount')).toBe('rev-disc');
+  });
+
+  it('keeps an existing company on its expense-type returns account', () => {
+    const accounts = [
+      account('sales', '4000', 'Penjualan', 'Revenue'),
+      account('exp', '5-2000', 'Sales Returns', 'Expense'),
+    ];
+    expect(resolveAccountDefaultId(accounts, {}, 'arReturn')).toBe('exp');
+    expect(resolveAccountDefaultId(accounts, { arReturn: 'exp' }, 'arReturn')).toBe('exp');
+  });
+
+  it('never guesses a purchase, admin-expense or sales-revenue account', () => {
+    // The old keywords included "allowance", "beban administrasi" and a bare
+    // "discount", and the role fell back to the first expense account.
+    const accounts = [
+      account('sales', '4-1000', 'Sales Revenue', 'Revenue'),
+      account('purch-disc', '4-9200', 'Purchase Discount Income', 'Revenue'),
+      account('purch-ret', '5-2100', 'Purchase Returns & Allowances', 'Expense'),
+      account('admin', '5-6000', 'Beban Administrasi', 'Expense'),
+      account('cogs', '5-1000', 'Cost of Goods Sold', 'Expense'),
+    ];
+    expect(resolveAccountDefaultId(accounts, {}, 'arReturn')).toBe('');
+    expect(resolveAccountDefaultId(accounts, {}, 'arDiscount')).toBe('');
   });
 });
 

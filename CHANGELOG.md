@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — sales returns and discounts reduce revenue instead of appearing as expenses (#220)
+- New companies post sales returns and credit notes to `4-1100 Sales Returns`, and customer payment discounts to `4-1200 Sales Discount`. Both are contra-revenue accounts (revenue type, credit normal side), so the P&L revenue section shows net sales: sales revenue less returns and discounts. The standard chart no longer creates `5-2000 Sales Returns` or `5-3000 Sales Discount Expense`.
+- The return and discount roles never guess any more. They used to fall back to the first expense account (in the test chart, Cost of Goods Sold) and matched loose keywords such as "allowance", "beban administrasi" and "discount", which also match purchase-return, admin-expense and purchase-discount accounts. With no matching account, posting now stops with a clear error.
+- Existing companies keep their current accounts: an expense-type returns or discount account still resolves, and any account set in Settings is used as before. When both a revenue-type and an expense-type match exist, the revenue one is preferred. Posted journals are not changed.
+- The sales return, credit note and customer payment forms now offer revenue-type accounts for the return and discount fields (they were limited to expense accounts).
+- `npm run db:backfill-accounts` now lists, in its dry run, every role whose account would change once the missing standard accounts are added (for example `arReturn: 5-2000 Sales Returns -> 4-1100 Sales Returns`), so the switch can be reviewed or pinned in Settings before `--apply`.
+- Purchase-return clearing (the second half of #220) is not part of this change.
+
 ### Security — weak session secrets are refused in production (SEC-02)
 - In production the backend refuses to start, and refuses sign-in and session checks, when `JWT_SECRET` is an example value from the env templates, contains a placeholder marker, is shorter than 32 characters or is too repetitive. Before, any non-empty value was accepted, and whoever knew it could sign a session for any user. Development and tests still accept any non-empty value.
 - `deploy/.env.example` now generates the secret with a cryptographic random generator (`openssl rand -base64 48`, or `RandomNumberGenerator` in PowerShell); the previous PowerShell one-liner used `Get-Random`, which is not suitable for secrets.

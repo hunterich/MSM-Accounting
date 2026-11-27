@@ -89,6 +89,30 @@ describe('buildProfitLossReport', () => {
     expect(report.sections[0].rows).toHaveLength(1);
     expect(report.sections[1].rows).toHaveLength(1);
   });
+
+  it('reports sales returns and discounts as negative revenue, giving net sales (#220)', () => {
+    // Contra revenue as the standard chart defines it: REVENUE with a CREDIT normal side.
+    const withContra: GlAccount[] = [
+      ...accounts,
+      { id: 'returns', code: '4-1100', name: 'Sales Returns', type: 'REVENUE', normalSide: 'CREDIT', isPostable: true },
+      { id: 'discount', code: '4-1200', name: 'Sales Discount', type: 'REVENUE', normalSide: 'CREDIT', isPostable: true },
+    ];
+    const report = buildProfitLossReport(withContra, [
+      ...postedLines,
+      { accountId: 'returns', debit: 100, credit: 0 },
+      { accountId: 'ar', debit: 0, credit: 100 },
+      { accountId: 'discount', debit: 20, credit: 0 },
+      { accountId: 'cash', debit: 0, credit: 20 },
+    ]);
+
+    const revenue = report.sections[0];
+    expect(revenue.rows.map((r) => [r.accountCode, r.amount])).toEqual([
+      ['4-1000', 800], ['4-1100', -100], ['4-1200', -20],
+    ]);
+    expect(report.summary.totalRevenue).toBe(680);
+    expect(report.summary.totalExpense).toBe(300);
+    expect(report.summary.netIncome).toBe(380);
+  });
 });
 
 describe('buildBalanceSheetReport', () => {

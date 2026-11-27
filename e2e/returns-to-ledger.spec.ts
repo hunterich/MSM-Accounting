@@ -200,7 +200,7 @@ test.describe('sales return → credit note → ledger', () => {
     expect(debits).toBe(222_000)
 
     const codes = lines.map((l) => l.account?.code)
-    expect(codes, 'the return must debit a sales-returns account').toContain('5-2000')
+    expect(codes, 'the return must debit the contra-revenue sales-returns account').toContain('4-1100')
     expect(codes, 'and credit A/R').toContain('1-1200')
     expect(codes, 'never Cash and Bank — nothing moved through a bank').not.toContain('1-1000')
     // A balanced entry with the sides swapped is still wrong. Pin every line,
@@ -209,7 +209,7 @@ test.describe('sales return → credit note → ledger', () => {
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])))).toEqual([
         ['1-1200', 0, 222_000],
         ['2-1100', 22_000, 0],
-        ['5-2000', 200_000, 0],
+        ['4-1100', 200_000, 0],
       ])
   })
 })

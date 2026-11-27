@@ -53,13 +53,18 @@ export const ACCOUNT_DEFAULT_SPECS = {
     preferredCodes: ['121'],
     keywords: ['piutang usaha', 'accounts receivable', 'piutang'],
   },
+  // Sales returns and discounts reduce revenue (contra revenue: a REVENUE
+  // account with a credit normal side, whose debit balance lowers total revenue
+  // on the P&L). Expense accounts stay allowed so companies already set up that
+  // way keep working, but a matching Revenue account is preferred (#220).
   arDiscount: {
-    label: 'Sales Discount Expense',
-    description: 'Expense account used when customer payment discounts are granted.',
-    allowedTypes: ['Expense'],
+    label: 'Sales Discount on Payments',
+    description: 'Contra-revenue account (or an existing expense account) used when customer payment discounts are granted.',
+    allowedTypes: ['Revenue', 'Expense'],
     preferredIds: ['COA-5300'],
-    preferredCodes: ['53'],
-    keywords: ['diskon penjualan', 'potongan penjualan', 'beban administrasi', 'discount'],
+    preferredCodes: ['4-1200', '53'],
+    keywords: ['diskon penjualan', 'potongan penjualan', 'sales discount'],
+    noFallback: true,
   },
   arPenalty: {
     label: 'Late Fee Revenue',
@@ -70,12 +75,13 @@ export const ACCOUNT_DEFAULT_SPECS = {
     keywords: ['denda', 'pendapatan lain', 'finance charge', 'late fee'],
   },
   arReturn: {
-    label: 'Sales Return / Allowance',
-    description: 'Expense account used for sales returns and credit notes.',
-    allowedTypes: ['Expense'],
+    label: 'Sales Returns (Contra Revenue)',
+    description: 'Contra-revenue account (or an existing expense account) used for sales returns and credit notes.',
+    allowedTypes: ['Revenue', 'Expense'],
     preferredIds: ['COA-5300'],
-    preferredCodes: ['53'],
-    keywords: ['retur penjualan', 'sales return', 'allowance', 'beban administrasi'],
+    preferredCodes: ['4-1100', '53'],
+    keywords: ['retur penjualan', 'sales return'],
+    noFallback: true,
   },
   arTax: {
     label: 'Output Tax Payable',
@@ -220,7 +226,7 @@ export const ACCOUNT_DEFAULT_SPECS = {
     description: 'Contra-revenue or expense for trade/cash discounts on sales invoices.',
     allowedTypes: ['Revenue', 'Expense'],
     preferredIds: ['COA-4120', 'COA-5300'],
-    preferredCodes: ['412', '413', '53'],
+    preferredCodes: ['4-1200', '412', '413', '53'],
     keywords: ['diskon penjualan', 'potongan penjualan', 'sales discount'],
   },
 } satisfies Record<string, AccountDefaultSpec>;
@@ -286,10 +292,15 @@ function resolvePreferredMatch(accounts: AccountLike[], key: AccountDefaultKey) 
   }
 
   if (spec.keywords?.length) {
-    const keywordMatch = candidates.find((account) =>
-      includesKeyword(`${account.code} ${account.name}`, spec.keywords || []),
-    );
-    if (keywordMatch) return keywordMatch.id;
+    // allowedTypes is listed in order of preference: with both a contra-revenue
+    // and an expense "Sales Returns" account, the revenue one wins.
+    for (const type of spec.allowedTypes) {
+      const keywordMatch = candidates.find((account) =>
+        String(account.type).toLowerCase() === type.toLowerCase()
+        && includesKeyword(`${account.code} ${account.name}`, spec.keywords || []),
+      );
+      if (keywordMatch) return keywordMatch.id;
+    }
   }
 
   if (spec.noFallback) return '';

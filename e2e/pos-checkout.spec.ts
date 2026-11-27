@@ -32,7 +32,7 @@ test('back-office refund of a paid POS sale credits cash and void restores cash 
     amount: 2220, taxAmount: 220, applyTax: true }, 'POST')
   await api(page, `/credit-notes/${note.id}`, { status: 'APPLIED' }, 'PUT')
   const saved = await db.creditNote.findUniqueOrThrow({ where: { id: note.id } })
-  await expectJournal(orgId, saved.journalEntryId!, [['5-2000', 2000, 0], ['2-1100', 220, 0], ['1-1000', 0, 2220]])
+  await expectJournal(orgId, saved.journalEntryId!, [['4-1100', 2000, 0], ['2-1100', 220, 0], ['1-1000', 0, 2220]])
   await api(page, `/credit-notes/${note.id}`, { status: 'APPLIED' }, 'PUT')
   expect(await db.journalEntry.count({ where: { organizationId: orgId } })).toBe(5)
   await page.goto('/ar/credits')
@@ -43,7 +43,7 @@ test('back-office refund of a paid POS sale credits cash and void restores cash 
   const result = await response
   expect(result.ok(), await result.text()).toBeTruthy()
   const reversal = await db.journalEntry.findFirstOrThrow({ where: { organizationId: orgId, source: 'REVERSAL' } })
-  await expectJournal(orgId, reversal.id, [['5-2000', 0, 2000], ['2-1100', 0, 220], ['1-1000', 2220, 0]])
+  await expectJournal(orgId, reversal.id, [['4-1100', 0, 2000], ['2-1100', 0, 220], ['1-1000', 2220, 0]])
   expect(Number((await db.stockBatch.findUniqueOrThrow({ where: { id: batchId } })).qtyOnHand)).toBe(9)
   expect((await db.salesInvoice.findUniqueOrThrow({ where: { id: sale.salesInvoiceId } })).status).toBe('PAID')
 })
